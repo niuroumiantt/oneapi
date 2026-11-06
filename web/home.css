@@ -71,6 +71,8 @@
  .universe-clock{min-width:122px;padding-left:12px}
 }
 @media(max-width:899px){
+ .universe-active .welcome-main{display:block;min-height:0}
+ .universe-active .welcome-entry{display:block;padding:0 18px 28px}
  .universe-active .welcome-header{height:auto;min-height:94px;gap:12px;padding:12px 0;flex-wrap:wrap}
  .universe-active .welcome-header nav{width:100%;justify-content:space-between;gap:10px;font-size:10px;flex-wrap:wrap}
  .universe-clock{min-width:118px;padding-left:10px;margin-left:auto}.universe-clock time{font-size:12px}

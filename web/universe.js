@@ -27,7 +27,7 @@
   holder.innerHTML=[{id:'sun',name:'Sun / 太阳'},...planetData,{id:'moon',name:'Moon / 月球'}].map(body=>'<div class="solar-body solar-'+body.id+'" data-body="'+body.id+'"><span class="solar-sphere">'+(body.id==='saturn'?'<i class="solar-ring"></i>':'')+'</span><span class="solar-label">'+body.name+'</span></div>').join('');
   const nodes=Object.fromEntries([...holder.children].map(node=>[node.dataset.body,node]));
   function geometry(){
-    const mobile=width<860;
+    const mobile=window.innerWidth<900;
     return {mobile,x:width*(mobile?.5:.30)+Math.sin(time*.85)*(mobile?5:12),y:(mobile?390:height*.62)+Math.sin(time*.61)*(mobile?4:7),r:mobile?width*.39:Math.min(width*.245,height*.39,325),flatten:mobile?.68:.40,tilt:-.12,scale:mobile?.65:Math.min(1,height/620)};
   }
   function point(g,r,a){
@@ -144,7 +144,7 @@
     if(!backdrop||!width)return;
     context.clearRect(0,0,width,height);
     context.drawImage(backdrop,0,0,width,height);
-    const mobile=width<860;
+    const mobile=window.innerWidth<900;
     const gx=mobile?width*.86:width*.51;
     const gy=mobile?180:height*.28;
     const size=mobile?width*1.65:width*.69;
