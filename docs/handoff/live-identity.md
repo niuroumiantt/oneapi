@@ -29,3 +29,11 @@
 - server/src、server/test/identity.test.mjs、web/identity.js、docs/phase-1/13-live-identity.md；品牌规范 design/spectrum/brand-and-icons.md。
 - 阿里云运行目录 /srv/oneapi-runtime；私有配置 /srv/oneapi-config；数据 /srv/oneapi-data/postgresql；备份 /srv/oneapi-backups；Compose 项目 oneapi。密钥不能打印。
 - 标准 Dockerfile 固定 Node 24.22.2 官方 digest。此次大镜像传输慢，使用 Dockerfile.cached-runtime，从已核对本地镜像仅复制 vendor Node/动态库/CA/许可证到 scratch，再放入本仓库产物；不继承旧平台代码、配置或数据。
+
+## 20:17 客户体验调整
+- 默认根路径与旧 #login 都进入宇宙首页，移除轻快版装饰和切换入口；天体速度仍为 0.1×。
+- 个人首页只显示个人探索、账户安全与功能开放状态；企业列表与创建入口迁到 #enterprise，通过头像菜单进入。企业权限接口不变。
+- 首页、模型广场和账户页显示后端确认的头像/昵称/已登录状态，菜单含个人空间、安全、企业与团队和退出；无本地演示身份。
+- 邮箱验证与密码恢复改成品牌 HTML + 纯文本双版本，正式 Logo 原图，保留链接有效期与非本人操作说明。欢迎语：欢迎登船，你的灵感在这里启程。选一个喜欢的模型，把“如果可以”变成“已经做到”。结尾：semifly.ai, It's your API.
+- 用户改选已开通的 isaac@semifly.ai。已找到 Aimail 中对应 SMTP 配置并通过 TLS 登录验证，将仅复制到 OneAPI 私有配置；不发送未获请求的测试邮件。
+- 原 21 项身份/权限/预算测试通过；新增 2 项邮件链接与用户文本转义测试通过。隔离合成账号浏览器已验证个人登录、企业菜单、模型广场账号状态、退出及 390px 菜单无溢出。

@@ -152,5 +152,5 @@
   new ResizeObserver(()=>{if(active)resize();}).observe(scene);
   document.getElementById('solar-speed').addEventListener('change',event=>{speed=Number(event.target.value);});
   document.addEventListener('visibilitychange',update);reduced.addEventListener('change',()=>{explicitMotion=false;update();});
-  window.UniverseScene.setActive(location.hash==='#universe');
+  window.UniverseScene.setActive(document.body.classList.contains('universe-active'));
 })();

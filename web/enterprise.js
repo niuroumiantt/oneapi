@@ -67,43 +67,25 @@
   function entryViews(){
     $('#login-view').innerHTML=`<div class="welcome-page">
   <header class="welcome-header">
-    <a class="welcome-brand" href="#market" aria-label="semifly.ai semifly.ai 模型广场"><img src="pinapi-wordmark.svg" alt="semifly.ai"><span>It’s Your <em class="brand-ai">A</em>P<em class="brand-ai">I</em>.</span></a>
-    <nav aria-label="欢迎页导航"><a href="#market">发现好模型 <span data-icon="arrow-up-right"></span></a><a class="welcome-staff" href="#staff" aria-label="管理台：本公司员工入口">管理台</a></nav>
+    <a class="welcome-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"><span>It’s Your <em class="brand-ai">A</em>P<em class="brand-ai">I</em>.</span></a>
+    <nav aria-label="欢迎页导航"><a href="#market">发现好模型 <span data-icon="arrow-up-right"></span></a><a class="welcome-staff" href="#staff" aria-label="管理台：本公司员工入口">管理台</a><div data-account-slot><a class="live-signin" href="#personal"><span data-icon="user-round"></span>登录 / 注册</a></div></nav>
   </header>
   <main class="welcome-main">
     <div class="universe-scene" aria-hidden="true"><canvas id="universe-canvas"></canvas><div class="universe-nebula"></div><div id="solar-bodies"></div><div class="universe-near-world"></div></div>
     <div class="universe-caption" aria-hidden="true"><span>太阳系 · 动态示意</span><span>ANDROMEDA / 仙女星系</span></div>
     <section class="welcome-story" aria-labelledby="welcome-title">
-      <div class="welcome-story-top"><span class="welcome-kicker"><i></i> A LITTLE SPARK. A BIG IDEA.</span><span class="welcome-edition">semifly / 01</span><a class="universe-compare" href="#login">返回轻快版 <span data-icon="arrow-up-right"></span></a></div>
-      <div class="welcome-copy"><h1 id="welcome-title">让灵感，<br><span>起飞一下。</span><svg class="welcome-underline" viewBox="0 0 440 24" aria-hidden="true"><path d="M5 15Q195 -3 429 12M125 21Q270 10 432 17"/></svg></h1><p><span class="welcome-original-description">写点代码，做个作品，试试新想法。<br>好模型在这里，下一步由你。</span><span class="universe-description">从一束灵感，去往更大的世界。<br>下一次发现，从这里开始。</span></p></div>
-      <div class="welcome-art" aria-hidden="true">
-        <svg class="welcome-orbit" viewBox="0 0 760 340" fill="none">
-          <defs><linearGradient id="welcome-orb" x1="538" y1="58" x2="599" y2="124" gradientUnits="userSpaceOnUse"><stop stop-color="#d9ffe0"/><stop offset="1" stop-color="#79bf94"/></linearGradient></defs>
-          <ellipse cx="364" cy="171" rx="271" ry="92" transform="rotate(-18 364 171)" stroke="#c5c0e1" stroke-width="1.4"/>
-          <path d="M108 242C40 200 195 88 385 74C517 64 675 105 620 168" stroke="#6052c7" stroke-width="2.5" stroke-linecap="round"/>
-          <g class="welcome-flower" transform="translate(361 161)"><g class="welcome-flower-spin" fill="#e73727"><rect x="-27" y="-105" width="54" height="210" rx="27"/><rect x="-27" y="-105" width="54" height="210" rx="27" transform="rotate(45)"/><rect x="-27" y="-105" width="54" height="210" rx="27" transform="rotate(90)"/><rect x="-27" y="-105" width="54" height="210" rx="27" transform="rotate(135)"/><circle r="42" fill="#ffb28a"/><circle r="21" fill="#f6f2ff"/></g></g>
-          <path d="M105 205C59 250 193 289 379 247C524 215 650 144 629 104" stroke="#6052c7" stroke-width="2.5" stroke-linecap="round"/>
-          <g class="welcome-orb"><circle cx="572" cy="103" r="38" fill="url(#welcome-orb)"/><ellipse cx="572" cy="103" rx="19" ry="38" stroke="#65a980" stroke-width="1"/><path d="M538 87C555 99 589 99 606 87M537 119C555 108 589 108 606 119" stroke="#65a980" stroke-width="1"/></g>
-          <circle cx="153" cy="246" r="10" fill="#6052c7"/><circle cx="646" cy="223" r="5" fill="#e73727"/><circle cx="168" cy="92" r="4" fill="#aca2ce"/>
-          <path d="M223 49v22m-11-11h22M669 139v16m-8-8h16" stroke="#878198" stroke-width="1.5" stroke-linecap="round"/>
-          <path d="m644 40 9-17 4 15 16 4-17 8" stroke="#6052c7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        <span class="welcome-art-note">a little more possibility.</span>
-      </div>
+      <div class="welcome-story-top"><span class="welcome-kicker"><i></i> A LITTLE SPARK. A BIG IDEA.</span><span class="welcome-edition">semifly / 01</span></div>
+      <div class="welcome-copy"><h1 id="welcome-title">让灵感，<br><span>起飞一下。</span><svg class="welcome-underline" viewBox="0 0 440 24" aria-hidden="true"><path d="M5 15Q195 -3 429 12M125 21Q270 10 432 17"/></svg></h1><p><span class="universe-description">从一束灵感，去往更大的世界。<br>下一次发现，从这里开始。</span></p></div>
       <div class="welcome-story-foot"><span>为每一个想动手的你。</span><span class="welcome-play-label"><i></i> IDEAS IN MOTION</span><span class="solar-state" id="solar-state" role="status">公转中</span><label class="solar-speed">速度 <select id="solar-speed" aria-label="公转演示速度"><option value="0.1" selected>0.1×</option><option value="0.2">0.2×</option><option value="0.5">0.5×</option><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></label><button class="welcome-motion" type="button" data-welcome-motion aria-pressed="false" aria-label="暂停装饰动效"><span data-motion-label>暂停动效</span></button></div>
     </section>
     <section class="welcome-entry" aria-labelledby="welcome-entry-title">
       <div class="welcome-entry-inner">
         <span class="welcome-hello">HELLO, YOU <span class="welcome-hello-dot"></span></span>
         <h2 id="welcome-entry-title">很高兴见到你。</h2>
-        <p class="welcome-entry-lead">一个人的灵感，一群人的可能。</p>
-        <div class="welcome-choices" role="group" aria-label="选择工作空间">
-          <button type="button" data-welcome-space="personal" aria-pressed="true"><span data-icon="user-round"></span>个人</button>
-          <button type="button" data-welcome-space="enterprise" aria-pressed="false"><span data-icon="building-2"></span>企业团队</button>
-        </div>
-        <div class="welcome-space-copy" aria-live="polite" aria-atomic="true"><span class="welcome-space-index" id="welcome-space-index">01 / MY SPACE</span><h3 id="welcome-space-title">给自己的灵感，留个位置。</h3><p id="welcome-space-description">发现适合你的模型，开始下一个小作品。<br>项目与用量，都在自己的空间里。</p></div>
-        <a class="welcome-continue" id="welcome-continue" href="#personal"><span id="welcome-continue-label">进入个人空间</span><span class="welcome-continue-arrow" data-icon="arrow-right"></span></a>
-        <p class="welcome-preview-note"><span></span>邮箱验证登录 · 个人与企业空间独立管理</p>
+        <p class="welcome-entry-lead">欢迎登船，你的灵感在这里启程。</p>
+        <div class="welcome-space-copy" aria-live="polite" aria-atomic="true"><span class="welcome-space-index" id="welcome-space-index">01 / MY SPACE</span><h3 id="welcome-space-title">给自己的灵感，留个位置。</h3><p id="welcome-space-description">发现适合你的模型，开始下一个小作品。<br>下一件作品，从你的好奇心开始。</p></div>
+        <a class="welcome-continue" id="welcome-continue" href="#personal"><span id="welcome-continue-label">开始我的旅程</span><span class="welcome-continue-arrow" data-icon="arrow-right"></span></a>
+        <p class="welcome-preview-note"><span></span>一个邮箱，开启自己的空间</p>
         <div class="welcome-explore"><span>还想先看看？</span><a href="#market">逛逛模型广场 <span data-icon="arrow-up-right"></span></a></div>
       </div>
       <div class="welcome-entry-foot"><span class="welcome-mini-line"></span><span>GOOD TO HAVE YOU HERE.</span></div>
@@ -122,7 +104,7 @@
       document.querySelectorAll('[data-welcome-space]').forEach(button=>button.setAttribute('aria-pressed',String(button===b)));
       $('#welcome-space-index').textContent=enterprise?'02 / TOGETHER':'01 / MY SPACE';
       $('#welcome-space-title').textContent=enterprise?'好点子，一起做成真。':'给自己的灵感，留个位置。';
-      $('#welcome-space-description').innerHTML=enterprise?'和同事一起探索，把想法变成共同的作品。<br>成员、预算与使用情况，在一处安排。':'发现适合你的模型，开始下一个小作品。<br>项目与用量，都在自己的空间里。';
+      $('#welcome-space-description').innerHTML=enterprise?'和同事一起探索，把想法变成共同的作品。<br>成员、预算与使用情况，在一处安排。':'发现适合你的模型，开始下一个小作品。<br>下一件作品，从你的好奇心开始。';
       $('#welcome-continue').href=enterprise?'#enterprise':'#personal';
       $('#welcome-continue-label').textContent=enterprise?'进入企业空间':'进入个人空间';
       $('.welcome-page').classList.toggle('welcome-team',enterprise);
@@ -163,5 +145,5 @@
     }catch(error){$('#e-error').textContent=error.message;}
   });
   window.EnterpriseUI={render};entryViews();render();
-  switchView(['login','enterprise','personal','admin','staff','universe'].includes(location.hash.slice(1))?location.hash.slice(1):'market');
+  switchView(location.hash.slice(1));
 })();

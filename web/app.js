@@ -28,12 +28,14 @@ function renderModels(){
  $$('[data-family]').forEach(b=>{b.classList.toggle('active',b.dataset.family===family);b.setAttribute('aria-pressed',String(b.dataset.family===family));});
 }
 function switchView(view){
+ if(!view||view==='login')view='universe';
+ if(view==='catalog')view='market';
  if(window.IdentityUI?.handles(view)){window.IdentityUI.route(view);return;}
  window.IdentityUI?.cancel();document.body.classList.remove('identity-active');const identityView=document.getElementById('identity-view');if(identityView)identityView.hidden=true;
  const section=view.startsWith('ops/')?view.slice(4):'overview';
  if(view.startsWith('ops/'))view='admin';
  const views=['market','admin','login','enterprise','personal','staff','universe'];
- if(!views.includes(view))view='market';
+ if(!views.includes(view))view='universe';
  document.body.classList.toggle('market-active',view==='market');
  document.body.classList.toggle('welcome-active',view==='login'||view==='universe');
  document.body.classList.toggle('universe-active',view==='universe');
@@ -44,6 +46,7 @@ function switchView(view){
  if(view==='admin')window.OperationsUI?.render(section);
  document.title='semifly.ai · '+({market:'模型广场',admin:'运营工作台',login:'欢迎来到 semifly',enterprise:'企业工作台',personal:'个人工作台',staff:'员工管理台',universe:'宇宙欢迎页'}[view]);
  window.scrollTo(0,0);
+ window.IdentityUI?.refreshPublic();
 }
 function showToast(message){$('#toast').textContent=message;$('#toast').classList.add('visible');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>$('#toast').classList.remove('visible'),3000);}
 function showDialog(content){$('#dialog-content').innerHTML=content;if(!$('#config-dialog').open)$('#config-dialog').showModal();}
@@ -90,7 +93,7 @@ const actions={
  tools:()=>openConfig(),
  pricing:()=>showInfo('让每一笔费用都清楚','实际消费按模型、用量与当时生效的价格计算。',`<div class="price-example"><span>输入费用</span><b>输入用量 × 输入单价</b></div><div class="price-example"><span>输出费用</span><b>输出用量 × 输出单价</b></div><div class="price-example"><span>促销优惠</span><b>按活动适用条件生效</b></div><div class="info-box">页面中的价格全部是视觉演示值，不是供应商官方报价或实际销售承诺。</div>`),
  docs:()=>showInfo('三步开始接入','这里预览正式产品的文档入口。',`<div class="price-example"><span>01</span><b>选择模型与自己的开发工具</b></div><div class="price-example"><span>02</span><b>创建项目，获取平台 API Key</b></div><div class="price-example"><span>03</span><b>完成首次调用，查看用量与费用</b></div>`),
- account:()=>showInfo('Larry 的个人工作区','当前为演示账户，未登录真实身份系统。',`<div class="price-example"><span>服务区域</span><b>中国区</b></div><div class="price-example"><span>账户类型</span><b>个人工作区</b></div><div class="info-box">正式版本在这里切换个人与企业工作区，并查看账户安全、付款和项目权限。</div>`),
+ account:()=>{location.hash='personal';},
  notifications:()=>{location.hash='ops/supply';switchView('ops/supply');tableTab='events';renderTable();$('.supply-panel').scrollIntoView({behavior:'smooth',block:'center'});},
  balance:()=>{location.hash='ops/supply';switchView('ops/supply');tableTab='accounts';renderTable();$('.supply-panel').scrollIntoView({behavior:'smooth',block:'center'});},
  'add-supplier':()=>showDialog(`<div class="dialog-kicker">SUPPLIER ONBOARDING</div><h2 class="dialog-title">新增供应商</h2><p class="dialog-description">先建立档案，逐步补齐合同、产品与供应条件。</p><form id="supplier-form"><label class="choice-label" for="supplier-name">供应商名称</label><input id="supplier-name" class="simple-input" placeholder="输入公司或机构全称" required maxlength="80"><label class="choice-label" for="supplier-type">供应来源</label><select id="supplier-type" class="dialog-field"><option>模型官方服务</option><option>获授权代理 / 云服务商</option><option>自部署模型</option></select><div class="info-box">预览模式只展示表单体验，不保存或提交真实供应商资料。</div><div class="dialog-bottom"><span>初始状态：草稿</span><button class="button primary" type="submit">预览创建结果 <span data-icon=arrow-right></span></button></div></form>`),
@@ -123,6 +126,6 @@ document.addEventListener('submit',e=>{if(e.target.id==='supplier-form'){e.preve
 document.addEventListener('click',async e=>{if(e.target.closest('#copy-config')){try{await navigator.clipboard.writeText($('#config-code').textContent);showToast('示例配置已复制');}catch{showToast('当前浏览器未允许复制，请选中配置文字手动复制。');}}});
 $('#export-button').addEventListener('click',()=>{const rows=[['演示报表：非真实业务数据'],['通道','供应商','状态','首内容时延 ms','完成率 %','容量占用 %','输入采购价/百万tokens'],...filteredProducts().map(p=>[p.name,p.supplier,statusNames[p.status],p.latency??'',p.success??'',p.capacity,p.cost])];const blob=new Blob(['\ufeff'+rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='oneapi-supply-demo.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);showToast('演示供应报表已导出');});
 window.addEventListener('hashchange',()=>{switchView(location.hash.slice(1));});
-renderModels();renderTable();switchView(location.hash==='#admin'?'admin':'market');
+renderModels();renderTable();
 
 fetch('release.json', {cache:'no-store'}).then(r=>r.ok?r.json():null).then(r=>{if(r?.source_sha)document.querySelector('#release-version').textContent='PREVIEW · '+r.source_sha.slice(0,7);}).catch(()=>{});
