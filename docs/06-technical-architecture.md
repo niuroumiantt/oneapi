@@ -1,6 +1,6 @@
 # 技术架构与数据边界
 
-0.2 更新：[当前阿里云 / AWS 与共享发布方案](phase-1/04-regional-delivery.md)。本页保留总体业务边界，首期范围以新入口为准。
+0.3 更新：[阿里云 / AWS 与共享发布方案](phase-1/04-regional-delivery.md) 及 [首期供应运营](phase-1/07-supplier-operations.md)。本页保留总体业务边界，首期范围以新入口为准。
 
 ## 架构选择
 
@@ -66,7 +66,8 @@ Request 记录客户的一次逻辑请求；ProviderAttempt 记录每次上游�
 | 数据组 | 主要对象 | 关键关系与约束 |
 | --- | --- | --- |
 | 身份与客户 | User、Organization、Membership、Project、BillingAccount | 每个业务资源有明确组织和区域范围 |
-| 供应链与目录 | Supplier、ProviderEndpoint、ModelFamily、ModelRelease、SupplierModelOffer、ModelProduct | 采购与销售分开，价格及授权有版本 |
+| 供应链与目录 | Supplier、SupplierContract、SupplierAccount、ProviderEndpoint、ModelFamily、ModelRelease、SupplierModelOffer、ModelProduct | 采购与销售分开，账户和授权范围明确 |
+| 采购资源与费用 | SupplyCapacityPool、SupplierRateCardVersion、SupplierCostEntry、SupplierBill、SupplierPayment | 多 Key 共享真实容量；资金/资源包、用量成本和付款分别记录 |
 | 请求与费用 | ApiKey、Request、ProviderAttempt、UsageEvent、UsageCharge、Reservation | 计量与费用可追溯，去重键唯一 |
 | 财务 | LedgerAccount、LedgerTransaction、LedgerEntry、PaymentOrder、Refund、Receivable | 每币种平衡，不删除已记账分录 |
 | 企业采购 | Quote、Contract、PurchaseOrder、BillingInvoice、TaxInvoice、PaymentAllocation | PO 与付款区分，回款可分配 |

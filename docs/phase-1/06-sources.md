@@ -100,4 +100,25 @@ D6 搜索索引与 canonical 抓取页面不完全一致，不用其单独决定
 | DEP-02 | [GitHub deployment environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments) | 环境、秘密与发布约束 |
 | DEP-03 | [GitHub Actions OIDC](https://docs.github.com/en/actions/concepts/security/openid-connect) | 与支持的云提供方交换短期凭据 |
 
+## suppliers
+
+0.3 补充核验：2026-11-06。以下支持供应管理的数据与接口设计，不证明已取得采购折扣、商用转售范围、保留容量或合同 SLA。
+
+| 编号 | 官方资料 | 已核实的设计输入 |
+| --- | --- | --- |
+| SUP01 | [DeepSeek 限流与隔离](https://api-docs.deepseek.com/quick_start/rate_limit/) | 账户/模型共享并发、多 Key 不扩容、扩容入口、租户隔离与心跳 |
+| SUP02 | [DeepSeek 余额 API](https://api-docs.deepseek.com/api/get-user-balance/) | 正式 GET /user/balance；币种、充值余额、未过期赠金及资金可用性 |
+| SUP03 | [DeepSeek 错误码](https://api-docs.deepseek.com/quick_start/error_codes/) | 凭据、余额不足、限流、服务器错误及过载分类 |
+| SUP04 | [DeepSeek 状态页](https://status.deepseek.com/) | 公共服务状态与事件入口，不能代替平台账户/地区实测或合同 SLA |
+| SUP05 | [DeepSeek 当前价格](https://api-docs.deepseek.com/quick_start/pricing/) | 输入缓存命中/未命中、输出、峰谷时段与扣减顺序；具体价格以采购和生效时间核实 |
+| SUP06 | [智谱错误码](https://docs.bigmodel.cn/cn/api/api-code) | HTTP 与业务码双层含义；1113 欠费、1302 速率、1305 过载；SSE 中途异常 |
+| SUP07 | [智谱速率限制](https://docs.bigmodel.cn/cn/api/rate-limit) | 账户模型/权益限制、账户额度查询、扩容申请、账户限流与平台过载区分 |
+| SUP08 | [智谱 API 定价](https://docs.bigmodel.cn/cn/guide/start/pricing) | 输入、缓存、输出、缓存存储与长度阶梯；限时免费不是永久零价 |
+| SUP09 | [智谱费用问题](https://docs.bigmodel.cn/cn/faq/fee-issues) | 资源包适用和到期顺序、控制台财务、汇总账单下载与退款边界 |
+| SUP10 | [DeepSeek Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/) | 原始 usage、缓存与输出明细关系，避免重复计量 |
+
+本轮确认了 DeepSeek 公开余额 API 的文档，尚未以采购凭据实测。智谱已核实控制台查看费用与下载账单，未核实通用标准 API 的公开余额或全账户账单查询接口；先采用人工快照/官方文件导入，不使用未经确认的控制台私有接口。实际采购授权、合同报价、账户容量、账单格式/粒度、数据处理条件和支持承诺仍需取得正式证据。
+
+DeepSeek 文档页脚公开支持邮箱，限流页有扩容申请；智谱速率和费用页提供相应控制台与申请入口。本轮没有联系供方、提交扩容、签约、充值或调用付费接口。
+
 已完成：官方文档研究、需求重排、界面路径及数据/状态设计、仓库文档更新。尚未完成：真实模型调用、客户端版本矩阵测试、第三方登录应用审核、真实支付/退款、云部署及当地上线批准。已验证标签在实际证据具备后才能使用。

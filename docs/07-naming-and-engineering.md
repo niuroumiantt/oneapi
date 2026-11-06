@@ -17,6 +17,11 @@
 | 成员 | Membership | 用户在某组织的关系和角色 |
 | 计费账户 | BillingAccount | 特定主体、区域和币种下的财务账户 |
 | 供应商 | Supplier | 采购合同对方 |
+| 供应合同 | SupplierContract | 采购授权、价格引用、付款及服务条款 |
+| 采购账户 | SupplierAccount | 实际上游计费和限额账户，不等同一把 Key |
+| 共享容量池 | SupplyCapacityPool | 供方确定的账户/模型等限额作用域 |
+| 采购价版本 | SupplierRateCardVersion | 有生效时间、币种、单位和适用条件的采购规则 |
+| 供应成本记录 | SupplierCostEntry | 一次尝试的暂估/确认成本及更正关联 |
 | 上游端点 | ProviderEndpoint | 实际调用和数据处理路径 |
 | 可售模型商品 | ModelProduct | 平台向客户销售的服务 |
 | 采购方案 | SupplierModelOffer | 供应商、模型、成本及授权组合 |
@@ -60,7 +65,7 @@
 | apps/worker | 异步业务任务 |
 | packages/identity | 业务身份映射与授权 |
 | packages/organizations | 客户、企业和成员关系 |
-| packages/suppliers | 采购合同、通道与供应商规则 |
+| packages/suppliers | 供应商、采购合同/账户/产品、价表、资源、通道质量与对账规则 |
 | packages/model-catalog | 模型、版本与商品 |
 | packages/pricing | 价格规则及快照 |
 | packages/metering | 请求计量与费用计算 |
