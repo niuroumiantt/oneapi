@@ -25,9 +25,11 @@ function renderModels(){
  $('.count-badge').textContent=list.length;
 }
 function switchView(view){
- const admin=view==='admin';$('#market-view').hidden=admin;$('#admin-view').hidden=!admin;
+ const views=['market','admin','login','enterprise','personal'];
+ if(!views.includes(view))view='market';
+ views.forEach(id=>{const el=document.getElementById(id+'-view');if(el)el.hidden=id!==view;});
  $$('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-pressed',String(b.dataset.view===view));});
- document.title=admin?'OneAPI · 供应运营后台':'OneAPI · 模型广场';
+ document.title='OneAPI · '+({market:'模型广场',admin:'供应运营后台',login:'登录入口预览',enterprise:'企业工作台',personal:'个人工作台'}[view]);
  window.scrollTo(0,0);
 }
 function showToast(message){$('#toast').textContent=message;$('#toast').classList.add('visible');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>$('#toast').classList.remove('visible'),3000);}
@@ -70,7 +72,7 @@ function showAlert(type){
  showInfo(info[0],info[1],`<div class="info-box">${info[2]}</div><label class="choice-label">建议处理路径</label><p class="dialog-description">${info[3]}</p>`);
 }
 const actions={
- readiness:()=>showInfo('五个模块，逐步落地','当前版本是已确认界面的阿里云独立部署。',`<div class="price-example"><span>员工与客户登录、权限</span><b>设计完成 · 待实现</b></div><div class="price-example"><span>供应商与产品验证</span><b>界面演示 · 未接真实供应</b></div><div class="price-example"><span>模型广场与接入</span><b>交互可预览 · 配置不可调用</b></div><div class="price-example"><span>付费</span><b>未开放收款与余额充值</b></div><div class="price-example"><span>促销</span><b>规则草案 · 未发放优惠或佣金</b></div><div class="info-box">本预览不创建真实账户、不保存供应资料、不收款、不调用模型。旧平台 api.glocalstorage.cn 独立运行。</div>`),
+ readiness:()=>showInfo('五个模块，逐步落地','当前版本是已确认界面的阿里云独立部署。',`<div class="price-example"><span>员工与客户登录、权限</span><b>三入口与企业权限可预览 · 认证待实现</b></div><div class="price-example"><span>供应商与产品验证</span><b>界面演示 · 未接真实供应</b></div><div class="price-example"><span>模型广场与接入</span><b>交互可预览 · 配置不可调用</b></div><div class="price-example"><span>付费</span><b>企业预算可预览 · 未开放真实收款</b></div><div class="price-example"><span>促销</span><b>规则草案 · 未发放优惠或佣金</b></div><div class="info-box">本预览不创建真实账户、不保存供应资料、不收款、不调用模型。旧平台 api.glocalstorage.cn 独立运行。</div>`),
  tools:()=>openConfig(),
  pricing:()=>showInfo('让每一笔费用都清楚','实际消费按模型、用量与当时生效的价格计算。',`<div class="price-example"><span>输入费用</span><b>输入用量 × 输入单价</b></div><div class="price-example"><span>输出费用</span><b>输出用量 × 输出单价</b></div><div class="price-example"><span>促销优惠</span><b>按活动适用条件生效</b></div><div class="info-box">页面中的价格全部是视觉演示值，不是供应商官方报价或实际销售承诺。</div>`),
  docs:()=>showInfo('三步开始接入','这里预览正式产品的文档入口。',`<div class="price-example"><span>01</span><b>选择模型与自己的开发工具</b></div><div class="price-example"><span>02</span><b>创建项目，获取平台 API Key</b></div><div class="price-example"><span>03</span><b>完成首次调用，查看用量与费用</b></div>`),
@@ -100,11 +102,11 @@ $('#model-search').addEventListener('input',renderModels);$('#model-use').addEve
 $('#supply-search').addEventListener('input',renderTable);$('#status-filter').addEventListener('change',renderTable);$('#supplier-filter').addEventListener('change',renderTable);
 $('#density-button').addEventListener('click',()=>{const compact=$('#supply-table').classList.toggle('compact');$('#density-button').setAttribute('aria-pressed',String(compact));$('#density-button').textContent=compact?'☷ 舒适视图':'☷ 紧凑视图';});
 $('#drawer-close').addEventListener('click',closeDrawer);$('#drawer-backdrop').addEventListener('click',closeDrawer);
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#detail-drawer').hidden)closeDrawer();if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();($('#market-view').hidden?$('#supply-search'):$('#model-search')).focus();}if(e.key==='Enter'&&e.target.matches('tr[data-product],tr[data-alert]'))e.target.click();if(e.key==='Tab'&&!$('#detail-drawer').hidden){const focusable=$$('#detail-drawer button');const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#detail-drawer').hidden)closeDrawer();if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();const search=!$('#enterprise-view').hidden?$('#e-search'):!$('#admin-view').hidden?$('#supply-search'):!$('#market-view').hidden?$('#model-search'):null;search?.focus();}if(e.key==='Enter'&&e.target.matches('tr[data-product],tr[data-alert]'))e.target.click();if(e.key==='Tab'&&!$('#detail-drawer').hidden){const focusable=$$('#detail-drawer button');const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}});
 document.addEventListener('submit',e=>{if(e.target.id==='supplier-form'){e.preventDefault();const name=$('#supplier-name').value.trim();if(!name)return;showInfo('供应商草稿预览',escapeHtml(name),'<div class="info-box">表单体验已完成。正式产品将保存草稿，并进入合同与授权资料补充流程。本预览没有写入任何业务数据。</div>');}});
 document.addEventListener('click',async e=>{if(e.target.closest('#copy-config')){try{await navigator.clipboard.writeText($('#config-code').textContent);showToast('示例配置已复制');}catch{showToast('当前浏览器未允许复制，请选中配置文字手动复制。');}}});
 $('#export-button').addEventListener('click',()=>{const rows=[['演示报表：非真实业务数据'],['通道','供应商','状态','首内容时延 ms','完成率 %','容量占用 %','输入采购价/百万tokens'],...filteredProducts().map(p=>[p.name,p.supplier,statusNames[p.status],p.latency??'',p.success??'',p.capacity,p.cost])];const blob=new Blob(['\ufeff'+rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='oneapi-supply-demo.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);showToast('演示供应报表已导出');});
-window.addEventListener('hashchange',()=>{if(location.hash==='#admin'||location.hash==='#market')switchView(location.hash.slice(1));});
+window.addEventListener('hashchange',()=>{if(['admin','market','login','enterprise','personal'].includes(location.hash.slice(1)))switchView(location.hash.slice(1));});
 renderModels();renderTable();switchView(location.hash==='#admin'?'admin':'market');
 
 fetch('release.json', {cache:'no-store'}).then(r=>r.ok?r.json():null).then(r=>{if(r?.source_sha)document.querySelector('#release-version').textContent='PREVIEW · '+r.source_sha.slice(0,7);}).catch(()=>{});

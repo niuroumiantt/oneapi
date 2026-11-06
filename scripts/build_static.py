@@ -22,7 +22,7 @@ def main():
     sha = git('rev-parse', 'HEAD').decode().strip()
     html = git('show', 'HEAD:web/index.html').decode()
     assets = {}
-    for name in ('styles.css', 'app.js'):
+    for name in ('styles.css', 'enterprise.css', 'enterprise-core.js', 'app.js', 'enterprise.js'):
         content = git('show', f'HEAD:web/{name}')
         stem, extension = name.rsplit('.', 1)
         target = f'{stem}.{hashlib.sha256(content).hexdigest()[:12]}.{extension}'

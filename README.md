@@ -2,9 +2,9 @@
 
 2026-11-06 部署决定更新：用户要求保留旧平台并独立建设；新版入口改为 **oneapi.glocalstorage.cn**，旧 api.glocalstorage.cn 保持原有服务。参见 [阿里云部署说明](docs/deployment/aliyun.md)。
 
-OneAPI 是面向个人开发者和企业客户的模型 API 商业平台。本仓库保存产品设计、业务规则和后续实现。仓库名不是最终品牌，也不代表已经采用同名第三方网关。
+OneAPI 是面向个人开发者和企业客户的模型 API 商业平台。本仓库保存产品设计、业务规则与静态交互预览源码。仓库名不是最终品牌，也不代表已经采用同名第三方网关。
 
-**当前版本：首期实施设计 0.4，2026 年 11 月 6 日。视觉原型已确认并私有发布；生产业务仍处于详细设计，尚未上线。**
+**当前阶段：独立阿里云 UI 预览，2026 年 11 月 6 日。已增加三类入口、企业成员权限与预算管理交互；真实认证、供应接入、收款、调用和促销尚未上线。**
 
 ## 当前先读：五条并行主线
 
@@ -12,6 +12,7 @@ OneAPI 是面向个人开发者和企业客户的模型 API 商业平台。本�
 
 | 文档 | 内容 |
 | --- | --- |
+| [五模块实施进度](docs/phase-1/10-implementation-tracker.md) | 每个模块已完成内容、下一步真实实现与开放验收 |
 | [0.4 上线基线](docs/phase-1/08-launch-baseline.md) | 用户确认的风格、五模块边界、主体/域名与公开注册验收 |
 | [跨项目视觉参考包](design/spectrum/README.md) | 设计 token、可运行参考、glocal dmg 改造交接 |
 | [当前优先级与验收](docs/phase-1/00-priorities.md) | 五条工作线、共同底座、里程碑与后置范围 |
@@ -43,6 +44,7 @@ OneAPI 是面向个人开发者和企业客户的模型 API 商业平台。本�
 
 | 文档 | 内容 |
 | --- | --- |
+| [五模块实施进度](docs/phase-1/10-implementation-tracker.md) | 每个模块已完成内容、下一步真实实现与开放验收 |
 | [设计基线](docs/00-requirements.md) | 已确认要求、产品定位与商业起点 |
 | [18 个模块](docs/01-product-and-modules.md) | 模块边界、职责和首期范围 |
 | [用户企业与渠道](docs/02-users-and-partners.md) | 组织、权限、四种渠道及推荐关系 |
@@ -67,3 +69,5 @@ OneAPI 是面向个人开发者和企业客户的模型 API 商业平台。本�
 先执行 M0：固定五条主线的共享契约、准备两区域名与应用资格、核实首批供应产品的授权/价格/容量，并验证真实模型和客户端组合。页面、身份、付款、促销和供应后台按已定义接口并行推进。新会话从本页与“决定与待办”继续；每个重要变化更新文档并留下 Git 提交。
 
 企业工作台的新方案（含 WorkBuddy / Codex / Claude Code 官方资料对比、三入口、组织权限与可调拨预算）：[企业工作台设计](docs/phase-1/09-enterprise-workspace.md)。独立预览已部署到 https://oneapi.glocalstorage.cn ，实际部署版本和边界见 [部署交接](docs/handoff/oneapi-aliyun.md)。
+
+本轮体验入口：[/#login](https://oneapi.glocalstorage.cn/#login)、[/#enterprise](https://oneapi.glocalstorage.cn/#enterprise)。规则测试：在项目目录使用 Node 运行 tests/enterprise-core.test.cjs。所有额度操作仅作用于当前页面的内存样例。
