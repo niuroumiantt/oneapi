@@ -11,3 +11,6 @@
 /* Full official horizontal lockup already contains its symbol. Preserve master clear space. */
 .welcome-brand:before{display:none}.welcome-brand img,.brand .brand-wordmark{width:202px;height:auto;object-fit:contain;margin:0}.sidebar>.brand .brand-wordmark{width:165px;height:auto}.welcome-header .welcome-brand img{width:202px}.m-header .welcome-brand img{margin:0}
 @media(max-width:700px){.welcome-brand img,.welcome-header .welcome-brand img,.m-header .welcome-brand img{width:150px;height:auto;margin:0}.live-header .welcome-brand img{width:150px}}
+
+/* Logo masters keep their original fills; only the tagline highlights A and I. */
+.brand-ai{font-style:normal;color:#E43C2F}
