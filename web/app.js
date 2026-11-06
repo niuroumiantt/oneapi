@@ -27,9 +27,10 @@ function renderModels(){
 function switchView(view){
  const views=['market','admin','login','enterprise','personal','staff'];
  if(!views.includes(view))view='market';
+ document.body.classList.toggle('welcome-active',view==='login');
  views.forEach(id=>{const el=document.getElementById(id+'-view');if(el)el.hidden=id!==view;});
  $$('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-pressed',String(b.dataset.view===view));});
- document.title='OneAPI · '+({market:'模型广场',admin:'供应运营后台',login:'登录入口预览',enterprise:'企业工作台',personal:'个人工作台',staff:'员工管理台'}[view]);
+ document.title='OneAPI · '+({market:'模型广场',admin:'供应运营后台',login:'欢迎来到 semifly',enterprise:'企业工作台',personal:'个人工作台',staff:'员工管理台'}[view]);
  window.scrollTo(0,0);
 }
 function showToast(message){$('#toast').textContent=message;$('#toast').classList.add('visible');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>$('#toast').classList.remove('visible'),3000);}

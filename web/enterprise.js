@@ -65,12 +65,71 @@
   let changing=null;
   function statusDialog(id,remove){const m=state.get(id);changing={id,next:remove?'removed':m.status==='paused'?'active':'paused'};modal(remove?'移除 '+m.name:changing.next==='active'?'恢复 '+m.name:'暂停 '+m.name,`<p class="dialog-description">${remove?'撤销该企业成员访问，回收未使用额度；保留历史费用和在途结算。':changing.next==='active'?'恢复该成员的演示使用状态；可用额度仍按当前预算计算。':'阻止该成员发起新调用，默认保留使用预算。'}</p><div class="info-box">可回收 ${money(state.remaining(m))}；已消费 ${money(m.spent)}、在途 ${money(m.held)} 保留。</div>${!remove&&changing.next==='paused'?'<label class="e-check"><input type="checkbox" id="e-reclaim"> 同时回收未使用额度到企业池</label>':''}`,'确认'+(remove?'移除':changing.next==='active'?'恢复':'暂停'),'e-status-form');}
   function entryViews(){
-    $('#login-view').innerHTML=`<main class="e-entry"><a class="brand" href="#market"><img class="brand-wordmark" src="semifly-wordmark.svg" alt="semifly"><span class="brand-product">OneAPI</span></a><div class="eyebrow">YOUR WORK. YOUR SPACE.</div><h1>进入你的工作空间</h1><p class="e-entry-intro">从个人探索到团队协作，找到适合你的工作空间。</p><div class="e-entry-cards">${[['personal','<span data-icon=user-round></span>','个人用户','选择模型，管理自己的项目、Key 和用量。','个人余额 · 个人项目'],['enterprise','<span data-icon=building-2></span>','企业工作台','管理员与成员在同一入口，按授权协作。','成员权限 · 企业预算']].map(([view,icon,title,copy,foot])=>`<article><span class="e-entry-icon">${icon}</span><h2>${title}</h2><p>${copy}</p><small>${foot}</small><a class="button ${view==='enterprise'?'primary':'secondary'}" href="#${view}">预览${title} <span data-icon=arrow-right></span></a></article>`).join('')}</div><div class="e-entry-notice">当前为入口与权限体验预览，尚未接入真实登录。正式版本在身份验证后显示已有授权，选择入口不会获得额外权限。</div><a class="text-button" href="#market"><span data-icon=arrow-left></span> 返回模型广场</a></main>`;
+    $('#login-view').innerHTML=`<div class="welcome-page">
+  <header class="welcome-header">
+    <a class="welcome-brand" href="#market" aria-label="semifly OneAPI 模型广场"><img src="semifly-wordmark.svg" alt="semifly"><span>OneAPI</span></a>
+    <nav aria-label="欢迎页导航"><a href="#market">发现好模型 <span data-icon="arrow-up-right"></span></a><a class="welcome-staff" href="#staff" aria-label="管理台：本公司员工入口">管理台</a></nav>
+  </header>
+  <main class="welcome-main">
+    <section class="welcome-story" aria-labelledby="welcome-title">
+      <div class="welcome-story-top"><span class="welcome-kicker"><i></i> A LITTLE SPARK. A BIG IDEA.</span><span class="welcome-edition">semifly / 01</span></div>
+      <div class="welcome-copy"><h1 id="welcome-title">让灵感，<br><span>起飞一下。</span><svg class="welcome-underline" viewBox="0 0 440 24" aria-hidden="true"><path d="M5 15Q195 -3 429 12M125 21Q270 10 432 17"/></svg></h1><p>写点代码，做个作品，试试新想法。<br>好模型在这里，下一步由你。</p></div>
+      <div class="welcome-art" aria-hidden="true">
+        <svg class="welcome-orbit" viewBox="0 0 760 340" fill="none">
+          <defs><linearGradient id="welcome-orb" x1="538" y1="58" x2="599" y2="124" gradientUnits="userSpaceOnUse"><stop stop-color="#d9ffe0"/><stop offset="1" stop-color="#79bf94"/></linearGradient></defs>
+          <ellipse cx="364" cy="171" rx="271" ry="92" transform="rotate(-18 364 171)" stroke="#c5c0e1" stroke-width="1.4"/>
+          <path d="M108 242C40 200 195 88 385 74C517 64 675 105 620 168" stroke="#6052c7" stroke-width="2.5" stroke-linecap="round"/>
+          <g class="welcome-flower" transform="translate(361 161)"><g class="welcome-flower-spin" fill="#ff7a30"><rect x="-27" y="-105" width="54" height="210" rx="27"/><rect x="-27" y="-105" width="54" height="210" rx="27" transform="rotate(45)"/><rect x="-27" y="-105" width="54" height="210" rx="27" transform="rotate(90)"/><rect x="-27" y="-105" width="54" height="210" rx="27" transform="rotate(135)"/><circle r="42" fill="#ffb28a"/><circle r="21" fill="#f6f2ff"/></g></g>
+          <path d="M105 205C59 250 193 289 379 247C524 215 650 144 629 104" stroke="#6052c7" stroke-width="2.5" stroke-linecap="round"/>
+          <g class="welcome-orb"><circle cx="572" cy="103" r="38" fill="url(#welcome-orb)"/><ellipse cx="572" cy="103" rx="19" ry="38" stroke="#65a980" stroke-width="1"/><path d="M538 87C555 99 589 99 606 87M537 119C555 108 589 108 606 119" stroke="#65a980" stroke-width="1"/></g>
+          <circle cx="153" cy="246" r="10" fill="#6052c7"/><circle cx="646" cy="223" r="5" fill="#ff7a30"/><circle cx="168" cy="92" r="4" fill="#aca2ce"/>
+          <path d="M223 49v22m-11-11h22M669 139v16m-8-8h16" stroke="#878198" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="m644 40 9-17 4 15 16 4-17 8" stroke="#6052c7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="welcome-art-note">a little more possibility.</span>
+      </div>
+      <div class="welcome-story-foot"><span>为每一个想动手的你。</span><span class="welcome-play-label"><i></i> IDEAS IN MOTION</span><button class="welcome-motion" type="button" data-welcome-motion aria-pressed="false" aria-label="暂停装饰动效"><span data-motion-label>暂停动效</span></button></div>
+    </section>
+    <section class="welcome-entry" aria-labelledby="welcome-entry-title">
+      <div class="welcome-entry-inner">
+        <span class="welcome-hello">HELLO, YOU <span class="welcome-hello-dot"></span></span>
+        <h2 id="welcome-entry-title">很高兴见到你。</h2>
+        <p class="welcome-entry-lead">一个人的灵感，一群人的可能。</p>
+        <div class="welcome-choices" role="group" aria-label="选择工作空间">
+          <button type="button" data-welcome-space="personal" aria-pressed="true"><span data-icon="user-round"></span>个人</button>
+          <button type="button" data-welcome-space="enterprise" aria-pressed="false"><span data-icon="building-2"></span>企业团队</button>
+        </div>
+        <div class="welcome-space-copy" aria-live="polite" aria-atomic="true"><span class="welcome-space-index" id="welcome-space-index">01 / MY SPACE</span><h3 id="welcome-space-title">给自己的灵感，留个位置。</h3><p id="welcome-space-description">发现适合你的模型，开始下一个小作品。<br>项目与用量，都在自己的空间里。</p></div>
+        <a class="welcome-continue" id="welcome-continue" href="#personal"><span id="welcome-continue-label">进入个人空间</span><span class="welcome-continue-arrow" data-icon="arrow-right"></span></a>
+        <p class="welcome-preview-note"><span></span>体验预览 · 暂未开放真实登录</p>
+        <div class="welcome-explore"><span>还想先看看？</span><a href="#market">逛逛模型广场 <span data-icon="arrow-up-right"></span></a></div>
+      </div>
+      <div class="welcome-entry-foot"><span class="welcome-mini-line"></span><span>GOOD TO HAVE YOU HERE.</span></div>
+    </section>
+  </main>
+  <footer class="welcome-footer"><span>semifly · 为好想法多走一步</span><span>深圳市格洛可半导体有限公司</span></footer>
+</div>
+`;
     $('#staff-view').innerHTML=`<main class="staff-entry"><a class="brand" href="#market"><img class="brand-wordmark" src="semifly-wordmark.svg" alt="semifly"><span class="brand-product">OneAPI</span></a><section class="staff-card"><span class="staff-emblem" data-icon="shield-check"></span><div class="eyebrow">STAFF CONSOLE</div><h1>员工管理台</h1><p>供深圳市格洛可半导体有限公司内部员工使用。</p><div class="info-box">当前为运营界面预览，员工身份验证尚未接通。正式上线后，仅已授权员工可按岗位进入管理台。</div><a class="button secondary" href="#admin">预览运营后台 <span data-icon="arrow-right"></span></a></section><a class="text-button" href="#login">客户登录 <span data-icon="arrow-right"></span></a></main>`;
     $('#personal-view').innerHTML=`<main class="e-personal"><header><a class="brand" href="#market"><img class="brand-wordmark" src="semifly-wordmark.svg" alt="semifly"><span class="brand-product">OneAPI</span></a><a href="#login">切换入口 <span data-icon=arrow-up-right></span></a></header><div class="eyebrow">PERSONAL WORKSPACE</div><h1>我的工作台</h1><p>个人项目、余额与用量。与企业 A 的资金和权限分别管理。</p><div class="e-stats"><article><span>个人余额 · 演示</span><strong>¥58.40</strong><small>不计入企业 A 的 ¥1,000</small></article><article><span>个人项目</span><strong>1</strong><small>个人实验室 · 演示</small></article><article><span>真实 API Key</span><strong>未创建</strong><small>等待身份与调用服务接入</small></article><article><span>身份</span><strong>个人客户</strong><small>customer · 个人工作区</small></article></div><section class="e-panel"><div class="e-panel-title"><h2>从模型开始</h2></div><div class="e-personal-actions"><a class="button primary" href="#market">浏览模型广场 <span data-icon=arrow-right></span></a><a class="button secondary" href="#enterprise">进入企业 A 工作台 <span data-icon=arrow-right></span></a></div><div class="e-inset-note">此处是独立的个人演示快照。企业额度不足时不会自动扣个人余额，切换工作区也不会转移资金。</div></section></main>`;
   }
   document.addEventListener('click',event=>{
     const b=event.target.closest('button,a');if(!b)return;
+    if(b.dataset.welcomeSpace){
+      const enterprise=b.dataset.welcomeSpace==='enterprise';
+      document.querySelectorAll('[data-welcome-space]').forEach(button=>button.setAttribute('aria-pressed',String(button===b)));
+      $('#welcome-space-index').textContent=enterprise?'02 / TOGETHER':'01 / MY SPACE';
+      $('#welcome-space-title').textContent=enterprise?'好点子，一起做成真。':'给自己的灵感，留个位置。';
+      $('#welcome-space-description').innerHTML=enterprise?'和同事一起探索，把想法变成共同的作品。<br>成员、预算与使用情况，在一处安排。':'发现适合你的模型，开始下一个小作品。<br>项目与用量，都在自己的空间里。';
+      $('#welcome-continue').href=enterprise?'#enterprise':'#personal';
+      $('#welcome-continue-label').textContent=enterprise?'进入企业空间':'进入个人空间';
+      $('.welcome-page').classList.toggle('welcome-team',enterprise);
+    }
+    if(b.hasAttribute('data-welcome-motion')){
+      const paused=$('.welcome-page').classList.toggle('welcome-motion-paused');
+      b.setAttribute('aria-pressed',String(paused));b.setAttribute('aria-label',paused?'播放装饰动效':'暂停装饰动效');
+      b.querySelector('[data-motion-label]').textContent=paused?'播放动效':'暂停动效';
+    }
     if(b.dataset.epanel){panel=b.dataset.epanel;selected.clear();render();}
     if(b.dataset.eaction){try{actions[b.dataset.eaction]?.(b);}catch(e){showToast(e.message);}}
     if(b.matches('a[data-close-dialog]'))$('#config-dialog').close();

@@ -4,7 +4,7 @@
 
 ## 客户优先的入口
 
-- 主登录页只有个人用户和企业工作台。企业所有者、管理员、财务、普通成员走同一企业入口，根据服务端授权显示能力。
+- 欢迎页用一个紧凑的选择区切换个人与企业团队，只有一个随选择变化的主按钮；不再做两个大入口卡片。企业所有者、管理员、财务、普通成员走同一企业入口，根据服务端授权显示能力。
 - 平台员工指深圳市格洛可半导体有限公司自己的运营、供应、财务、客服等人员。入口收在全站右上角“管理台”，不再与客户并列大卡片。
 - `#staff` 是内部管理台的独立预览说明页，`#admin` 是运营界面。当前都是静态演示，入口位置不构成访问控制；真实上线必须在服务端验证独立员工身份和权限。
 
@@ -41,7 +41,19 @@ Figma MCP 是让 AI 获取设计上下文、变量和组件的连接协议；Luc
 | color/brand/ink | --brand-ink |
 | Brand/Semifly | .brand-wordmark，原版 SVG |
 | Icon/UserRound | data-icon="user-round" |
-| Entry/Customer | .e-entry-cards |
+| Entry/Customer | .welcome-choices / .welcome-continue |
 | Entry/Staff | .management-link / .staff-card |
 
 官方参考：[Lucide](https://lucide.dev/guide/lucide)、[许可证](https://lucide.dev/license)、[Figma MCP](https://developers.figma.com/docs/figma-mcp-server/)。本次没有安装 Figma 插件，也未创建或修改 Figma 文件。
+
+
+## 欢迎页视觉修订（2026-11-06）
+
+用户明确否定之前“两个大登录卡片”的工程化外观，要求年轻、科技、跳动、欢快。`#login` 是客户进入工作空间前的欢迎页，首页 `#market` 仍是模型广场。
+
+- 欢迎页独立排版：上方企业品牌与低调管理台；左侧大字和橙色原创轨道花形插画；右侧单一进入区域。避免照搬后台卡片和开发预览导航。
+- 个人模式采用淡紫背景 #F0EDFA、紫色标题 #6052C7；企业模式转换为浅绿 #EAF2EF、深绿 #3A7C69。品牌橙 #FF7A30 承担图形与动作点缀，CTA 墨色 #2A2636。这组表达性颜色限定欢迎页，既有工作台语义色保持不变。
+- Lucide 继续承担功能图标；原创 SVG 是装饰插画，aria-hidden，不作为品牌 Logo。
+- 花形慢速旋转、球体轻浮动；可显式暂停，并尊重 prefers-reduced-motion。欢迎页无必需外部字体、图片或 CDN。
+- 选择个人/企业只更新文案和目标路由；没有假登录表单或虚构登录成功。真实认证未接通的状态在主按钮下明确说明。
+- 手机竖向排版，插画与正文留出空间；不把桌面两栏硬缩成小卡片。
