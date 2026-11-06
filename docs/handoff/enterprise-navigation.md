@@ -23,3 +23,8 @@
 ## 入口文件与工具
 - 前端：`web/identity.js`、`web/identity.css`；打包：`scripts/build_static.py`。
 - 发布：infra 工作树 `~/.worktrees/infra/oneapi-aliyun/scripts/push_static_candidate.sh`；M5 的阿里云 SSH 需显式指定 `/Users/m5/.ssh/id_ed25519`，默认 `aliyun_deploy` 密钥会被服务器拒绝。Python 用 `/Users/m5/.local/bin/python3.12`。
+
+## 2026-11-07 交互修正
+- 企业侧栏切换先同步显示缓存的同企业页面，再后台核验企业权限与刷新数据；不再清空整个工作台、重复串行加载两次身份数据。退出登录或离开身份页会清理企业缓存。
+- “我的空间”对已加入企业的用户直接显示“企业与团队”卡片及顶部入口；未加入企业的个人用户保留低调的创建团队引导。1280×720 合成账号浏览器确认个人页无纵向滚动。
+- 本地浏览器验证从个人页直达企业总览，侧栏切至“模型与采购”即时呈现。12 项针对性测试、JS 语法与 diff 检查通过。此次仅前端静态资源改动。
