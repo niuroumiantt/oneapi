@@ -7,11 +7,66 @@
   if(!context)return;
   const scene=canvas.parentElement;
   const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
-  let active=false,paused=false,frame=0,last=0,time=0,width=0,height=0,dpr=1;
+  let active=false,paused=false,frame=0,last=0,time=0,width=0,height=0,dpr=1,speed=1,explicitMotion=false;
   let stars=[],backdrop=null,galaxy=null;
   let seed=76431;
   const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
   const bell=()=>((random()+random()+random()+random())/4-.5)*2;
+  const planetData=[
+    {id:'mercury',name:'水星',orbit:.20,size:9,period:12,phase:1.8},
+    {id:'venus',name:'金星',orbit:.28,size:14,period:16,phase:4.1},
+    {id:'earth',name:'地球',orbit:.37,size:17,period:21,phase:.3},
+    {id:'mars',name:'火星',orbit:.46,size:12,period:26,phase:2.7},
+    {id:'jupiter',name:'木星',orbit:.58,size:33,period:33,phase:5.3},
+    {id:'saturn',name:'土星',orbit:.70,size:27,period:40,phase:1.2},
+    {id:'uranus',name:'天王星',orbit:.81,size:22,period:48,phase:3.5},
+    {id:'neptune',name:'海王星',orbit:.91,size:21,period:56,phase:5.9},
+    {id:'pluto',name:'冥王星',orbit:1,size:9,period:64,phase:2.2}
+  ];
+  const holder=document.getElementById('solar-bodies');
+  holder.innerHTML=[{id:'sun',name:'太阳'},...planetData,{id:'moon',name:'月球'}].map(body=>'<div class="solar-body solar-'+body.id+'" data-body="'+body.id+'"><span class="solar-sphere">'+(body.id==='saturn'?'<i class="solar-ring"></i>':'')+'</span><span class="solar-label">'+body.name+'</span></div>').join('');
+  const nodes=Object.fromEntries([...holder.children].map(node=>[node.dataset.body,node]));
+  function geometry(){
+    const mobile=width<760;
+    return {mobile,x:width*(mobile?.5:.29),y:mobile?440:height*.70,r:mobile?width*.43:Math.min(width*.255,390),flatten:mobile?.73:.45,tilt:-.12,scale:mobile?.72:1};
+  }
+  function point(g,r,a){
+    const x=Math.cos(a)*r,y=Math.sin(a)*r*g.flatten;
+    return {x:g.x+x*Math.cos(g.tilt)-y*Math.sin(g.tilt),y:g.y+x*Math.sin(g.tilt)+y*Math.cos(g.tilt)};
+  }
+  function place(id,x,y,size,depth){
+    const node=nodes[id];node.style.transform='translate3d('+x.toFixed(2)+'px,'+y.toFixed(2)+'px,0)';node.style.setProperty('--body-size',size+'px');node.style.zIndex=String(depth);
+  }
+  function solarSystem(){
+    const g=geometry();
+    place('sun',g.x,g.y,g.mobile?32:56,30);
+    context.save();context.translate(g.x,g.y);context.rotate(g.tilt);
+    for(const planet of planetData){
+      const r=g.r*planet.orbit,a=time*Math.PI*2/planet.period+planet.phase;
+      context.beginPath();context.ellipse(0,0,r,r*g.flatten,0,0,Math.PI*2);context.strokeStyle='rgba(173,192,222,.21)';context.lineWidth=.65;context.stroke();
+      // A short trail makes the direction and distance of travel easy to see.
+      for(let i=0;i<9;i++){
+        context.beginPath();context.ellipse(0,0,r,r*g.flatten,0,a-.38+i*.04,a-.34+i*.04);context.strokeStyle='rgba(188,210,243,'+(.025+i*.014)+')';context.lineWidth=1.5;context.stroke();
+      }
+      const pos=point(g,r,a);
+      place(planet.id,pos.x,pos.y,Math.max(6,planet.size*g.scale),pos.y<g.y?20:40);
+      if(planet.id==='earth'){
+        const moonR=g.mobile?18:28,ma=time*Math.PI*2/4;
+        const mx=pos.x+Math.cos(ma)*moonR,my=pos.y+Math.sin(ma)*moonR*.72;
+        context.save();context.rotate(-g.tilt);context.translate(pos.x-g.x,pos.y-g.y);context.beginPath();context.ellipse(0,0,moonR,moonR*.72,0,0,Math.PI*2);context.strokeStyle='rgba(210,222,247,.3)';context.lineWidth=.55;context.stroke();context.restore();
+        place('moon',mx,my,g.mobile?5:7,45);
+      }
+    }
+    context.restore();
+  }
+  function syncControls(){
+    const stopped=paused||(reduced.matches&&!explicitMotion);
+    document.getElementById('solar-state').textContent=stopped?'已暂停':'公转中';
+    if(active){
+      const page=document.querySelector('.welcome-page');page.classList.toggle('welcome-motion-paused',stopped);
+      const button=document.querySelector('[data-welcome-motion]');button.setAttribute('aria-pressed',String(stopped));button.setAttribute('aria-label',stopped?'播放天体公转':'暂停天体公转');button.querySelector('[data-motion-label]').textContent=stopped?'播放公转':'暂停公转';
+    }
+  }
   function makeGalaxy(){
     const image=document.createElement('canvas');image.width=1400;image.height=650;
     const c=image.getContext('2d');const cx=700,cy=325;
@@ -73,36 +128,29 @@
       const a=.20+(Math.sin(time*star.speed+star.phase)+1)*.18;
       context.fillStyle=`rgba(222,232,255,${a})`;context.beginPath();context.arc(star.x,star.y,star.r,0,Math.PI*2);context.fill();
     }
-    // Orbital arcs are illustrative, arranged around the foreground sun.
-    const sx=width*(mobile?.4:.28),sy=mobile?351:height*.62;
-    context.save();context.translate(sx,sy);context.rotate(-.24);
-    const unit=mobile?width*.37:width*.205;
-    for(let i=0;i<3;i++){
-      const rx=unit*(.75+i*.45),ry=rx*.29;
-      context.beginPath();context.ellipse(0,0,rx,ry,0,0,Math.PI*2);context.strokeStyle=`rgba(177,191,216,${.15-i*.025})`;context.lineWidth=.7;context.stroke();
-      const a=time*(.024-i*.004)+i*2.1;
-      context.fillStyle=i===1?'#e8c5aa':'#b0c4e4';context.beginPath();context.arc(Math.cos(a)*rx,Math.sin(a)*ry,i===1?2.5:1.6,0,Math.PI*2);context.fill();
-    }
-    context.restore();
+    solarSystem();
   }
+
   function tick(now){
     frame=0;
-    if(!active||paused||reduced.matches||document.hidden){last=0;return;}
+    if(!active||paused||(reduced.matches&&!explicitMotion)||document.hidden){last=0;return;}
     if(!last)last=now;
     const elapsed=now-last;
     // Limit canvas work to ~30fps; CSS handles the separate solar/planet layers.
-    if(elapsed>=32){time+=Math.min(elapsed,80)/1000;last=now;paint();}
+    if(elapsed>=32){time+=Math.min(elapsed,100)/1000*speed;last=now;paint();}
     frame=requestAnimationFrame(tick);
   }
   function update(){
+    syncControls();
     if(frame)cancelAnimationFrame(frame);frame=0;last=0;
-    if(active&&!document.hidden){resize();if(!paused&&!reduced.matches)frame=requestAnimationFrame(tick);}
+    if(active&&!document.hidden){resize();if(!paused&&(!reduced.matches||explicitMotion))frame=requestAnimationFrame(tick);}
   }
   window.UniverseScene={
-    setActive(value){active=value;paused=!!document.querySelector('.welcome-motion-paused');update();},
-    setPaused(value){paused=value;update();}
+    setActive(value){active=value;paused=!!document.querySelector('.welcome-motion-paused');update();if(!active){const b=document.querySelector('[data-welcome-motion]');b.setAttribute('aria-label',paused?'播放装饰动效':'暂停装饰动效');b.querySelector('[data-motion-label]').textContent=paused?'播放动效':'暂停动效';}},
+    setPaused(value){paused=value;if(!value)explicitMotion=true;update();}
   };
   new ResizeObserver(()=>{if(active)resize();}).observe(scene);
-  document.addEventListener('visibilitychange',update);reduced.addEventListener('change',update);
+  document.getElementById('solar-speed').addEventListener('change',event=>{speed=Number(event.target.value);});
+  document.addEventListener('visibilitychange',update);reduced.addEventListener('change',()=>{explicitMotion=false;update();});
   window.UniverseScene.setActive(location.hash==='#universe');
 })();

@@ -71,8 +71,8 @@
     <nav aria-label="欢迎页导航"><a href="#market">发现好模型 <span data-icon="arrow-up-right"></span></a><a class="welcome-staff" href="#staff" aria-label="管理台：本公司员工入口">管理台</a></nav>
   </header>
   <main class="welcome-main">
-    <div class="universe-scene" aria-hidden="true"><canvas id="universe-canvas"></canvas><div class="universe-nebula"></div><div class="universe-sun"><div class="universe-sun-surface"></div></div><div class="universe-planet planet-mint"></div><div class="universe-planet planet-lilac"><i></i></div><div class="universe-near-world"></div></div>
-    <div class="universe-caption" aria-hidden="true"><span>01 / SOL</span><span>02 / ANDROMEDA</span></div>
+    <div class="universe-scene" aria-hidden="true"><canvas id="universe-canvas"></canvas><div class="universe-nebula"></div><div id="solar-bodies"></div><div class="universe-near-world"></div></div>
+    <div class="universe-caption" aria-hidden="true"><span>太阳系 · 动态示意</span><span>ANDROMEDA / 仙女星系</span></div>
     <section class="welcome-story" aria-labelledby="welcome-title">
       <div class="welcome-story-top"><span class="welcome-kicker"><i></i> A LITTLE SPARK. A BIG IDEA.</span><span class="welcome-edition">semifly / 01</span><a class="universe-compare" href="#login">返回轻快版 <span data-icon="arrow-up-right"></span></a></div>
       <div class="welcome-copy"><h1 id="welcome-title">让灵感，<br><span>起飞一下。</span><svg class="welcome-underline" viewBox="0 0 440 24" aria-hidden="true"><path d="M5 15Q195 -3 429 12M125 21Q270 10 432 17"/></svg></h1><p><span class="welcome-original-description">写点代码，做个作品，试试新想法。<br>好模型在这里，下一步由你。</span><span class="universe-description">从一束灵感，去往更大的世界。<br>下一次发现，从这里开始。</span></p></div>
@@ -90,7 +90,7 @@
         </svg>
         <span class="welcome-art-note">a little more possibility.</span>
       </div>
-      <div class="welcome-story-foot"><span>为每一个想动手的你。</span><span class="welcome-play-label"><i></i> IDEAS IN MOTION</span><button class="welcome-motion" type="button" data-welcome-motion aria-pressed="false" aria-label="暂停装饰动效"><span data-motion-label>暂停动效</span></button></div>
+      <div class="welcome-story-foot"><span>为每一个想动手的你。</span><span class="welcome-play-label"><i></i> IDEAS IN MOTION</span><span class="solar-state" id="solar-state" role="status">公转中</span><label class="solar-speed">速度 <select id="solar-speed" aria-label="公转演示速度"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label><button class="welcome-motion" type="button" data-welcome-motion aria-pressed="false" aria-label="暂停装饰动效"><span data-motion-label>暂停动效</span></button></div>
     </section>
     <section class="welcome-entry" aria-labelledby="welcome-entry-title">
       <div class="welcome-entry-inner">
