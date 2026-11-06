@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS invitations (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), organization_id uuid NOT NULL REFERENCES organizations(id), invited_by text NOT NULL REFERENCES "user"(id), email text NOT NULL, role text NOT NULL CHECK(role IN ('owner','admin','department_admin','billing','member')), department text NOT NULL DEFAULT '', token_hash text UNIQUE NOT NULL, status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','revoked')), expires_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), accepted_by text REFERENCES "user"(id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS invitation_pending_idx ON invitations(organization_id,lower(email)) WHERE status='pending';
+ALTER TABLE invitations ADD COLUMN IF NOT EXISTS employee_name text NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS audit_events (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, actor_kind text NOT NULL CHECK(actor_kind IN ('customer','staff','system')), actor_id text NOT NULL, organization_id uuid REFERENCES organizations(id), action text NOT NULL, subject_id text, detail jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now()
 );

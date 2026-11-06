@@ -16,7 +16,7 @@ function jar(ip='192.0.2.'+(serial++)){const cookies=new Map();return {cookies,a
  const raw=await response.text();let data;try{data=JSON.parse(raw);}catch{data=raw;}return {status:response.status,data,location:response.headers.get('location'),headers:response.headers};}};}
 async function user(label){const j=jar(),email=`${label}-${serial}@example.test`;const r=await j.call('/api/auth/sign-up/email',{method:'POST',body:{email,password,name:label,callbackURL:origin+'/#account'}});assert.equal(r.status,200,JSON.stringify(r.data));await service.mail.drain();const message=sent.findLast(m=>m.to===email&&m.subject.includes('验证'));assert.ok(message);const url=message.text.match(/https?:\/\/\S+/)[0];const verified=await j.call(url);assert.equal(verified.status,302);assert.equal((await j.call('/api/platform/me')).status,200);return {j,email,user:(await j.call('/api/platform/me')).data.user};}
 async function organization(u,name){const r=await u.j.call('/api/platform/organizations',{method:'POST',body:{name}});assert.equal(r.status,201);return r.data;}
-async function invite(owner,org,recipient,role='member',department=''){const r=await owner.j.call(`/api/platform/organizations/${org.id}/invitations`,{method:'POST',body:{email:recipient.email,role,department}});assert.equal(r.status,201,JSON.stringify(r.data));await service.mail.drain();const link=sent.findLast(m=>m.to===recipient.email&&m.subject.includes('邀请')).text.match(/#accept-invite\/(\S+)/)[1];return {token:link,id:r.data.id};}
+async function invite(owner,org,recipient,role='member',department=''){const r=await owner.j.call(`/api/platform/organizations/${org.id}/invitations`,{method:'POST',body:{name:'Test Employee',email:recipient.email,role,department}});assert.equal(r.status,201,JSON.stringify(r.data));await service.mail.drain();const link=sent.findLast(m=>m.to===recipient.email&&m.subject.includes('开通')).text.match(/#accept-invite\/(\S+)/)[1];return {token:link,id:r.data.id};}
 before(async()=>{
  const databaseURL=process.env.TEST_DATABASE_URL||'postgresql://oneapi_test:local_test_only_62178@127.0.0.1:55438/oneapi_test';assert.ok(new URL(databaseURL).pathname.endsWith('_test'),'Tests require a dedicated *_test database');
  pool=new pg.Pool({connectionString:databaseURL});
@@ -48,17 +48,19 @@ test('verified registration creates durable personal identity and isolated organ
  const fresh=jar();for(const [k,v]of owner.j.cookies)fresh.cookies.set(k,v);assert.equal((await fresh.call(`/api/platform/organizations/${orgA.id}`)).data.organization.name,'Company A');
 });
 test('invitations bind verified email, are one-use, and cannot be replayed or self-promote',async()=>{
- const inv=await invite(owner,orgA,member,'member','研发');const preview=await jar().call('/api/platform/invitations/preview?token='+encodeURIComponent(inv.token));assert.equal(preview.status,200);assert.equal(preview.data.email,member.email);assert.equal(preview.data.organizationName,'Company A');assert.equal((await other.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,403);
+ const inv=await invite(owner,orgA,member,'member','研发');const preview=await jar().call('/api/platform/invitations/preview?token='+encodeURIComponent(inv.token));assert.equal(preview.status,200);assert.equal(preview.data.email,member.email);assert.equal(preview.data.name,'Test Employee');assert.equal(preview.data.organizationName,'Company A');assert.equal((await other.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,403);
  assert.equal((await member.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,200);assert.equal((await member.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,400);
  assert.equal((await jar().call('/api/platform/invitations/preview?token='+encodeURIComponent(inv.token))).status,400);
  const view=(await member.j.call(`/api/platform/organizations/${orgA.id}`)).data;assert.equal(view.members.length,1);
  assert.equal((await member.j.call(`/api/platform/organizations/${orgA.id}/members/${view.members[0].id}`,{method:'PATCH',body:{role:'owner'}})).status,400);
 });
 test('new enterprise invitations grant only staff access',async()=>{
- for(const role of ['admin','department_admin','billing','owner'])assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/invitations`,{method:'POST',body:{email:'x@example.test',role,department:'研发'}})).status,400);
+ assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/invitations`,{method:'POST',body:{email:'unnamed@example.test',role:'member'}})).status,400);
+ for(const role of ['admin','department_admin','billing','owner'])assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/invitations`,{method:'POST',body:{name:'Test Employee',email:'x@example.test',role,department:'研发'}})).status,400);
  const inv=await invite(owner,orgA,dept,'member','研发');assert.equal((await dept.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,200);
- assert.equal((await dept.j.call(`/api/platform/organizations/${orgA.id}/invitations`,{method:'POST',body:{email:'x@example.test'}})).status,403);
+ assert.equal((await dept.j.call(`/api/platform/organizations/${orgA.id}/invitations`,{method:'POST',body:{name:'Test Employee',email:'x@example.test'}})).status,403);
  const view=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data;const target=view.members.find(m=>m.user_id===dept.user.id);
+ assert.equal(view.invitations.find(i=>i.email===dept.email).employee_name,'Test Employee');
  assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/members/${target.id}`,{method:'PATCH',body:{role:'admin'}})).status,400);
 });
 test('suspension immediately invalidates old organization access and pending invitations',async()=>{
