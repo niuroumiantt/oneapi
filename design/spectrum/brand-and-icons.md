@@ -1,6 +1,6 @@
 > **最终配色纠正（20:05 用户提供原稿）：Logo 原样使用正式 SVG，semi 与 ai 为红，fly 与点为品牌蓝；禁止给 Logo 字母重着色。标语 It’s Your API. 的 A、I 红，其余文字品牌蓝。下方此前给 semifly 整体改蓝的记录已被此规则替代。**
 
-> 最新命名：semifly.ai；标语 It’s Your API.。按用户要求，正式 SVG 仅调整填色：semifly 与分隔点为 #1C2541，ai 为 #E43C2F；图形标志保留。此前“拼API”为历史称呼，不再用于对外界面。内部仓库、服务标识和域名仍为 oneapi。
+> 最新命名：semifly.ai；标语 It’s Your API.。正式 SVG 原样保留 semi/ai 的红色和 fly/分隔点的蓝色；标语的 A、I 红，其余文字蓝。此前“拼API”为历史称呼，不再用于对外界面。内部仓库、服务标识和域名仍为 oneapi。
 
 > **当前权威品牌：2026-11-06 v1 正式 SVG。** 下方早期橙色/近似排字记录仅为历史。正式横版、图形与 favicon 均原样来自用户 semifly-brand-kit-20261106-v1；朱红 #E43C2F、海军蓝 #1C2541。全站仍统一使用 Lucide 功能图标。
 

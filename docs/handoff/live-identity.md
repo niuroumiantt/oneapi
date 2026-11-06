@@ -6,13 +6,13 @@
 先完成个人、客户企业和本公司员工的真实登录与权限，再接供应商验证、模型商品、支付、促销。
 
 ## 已定规则
-- 对外品牌仅 semifly.ai，标语 It’s Your API.；“拼API”不再对外使用。正式 v1 SVG 保留轮廓，semifly 与点为 #1C2541，ai 为 #E43C2F，左侧图形保留原配色；不要恢复橙色旧 Logo 或临时字体字标。
+- 对外品牌仅 semifly.ai，标语 It’s Your API.；“拼API”不再对外使用。正式 v1 SVG 原样使用，semi 与 ai 为 #E43C2F，fly 与点为 #1C2541；标语仅 A、I 标红，左侧图形保留原配色；不要恢复橙色旧 Logo 或临时字体字标。
 - oneapi.glocalstorage.cn 独立建设，旧 api.glocalstorage.cn 保留。公众可注册。公司员工仅从低调管理入口进入，客户身份不能变成员工。
 - 员工使用公司 Authentik OIDC/MFA；客户个人与企业共用独立客户身份。企业 owner/admin/department_admin/billing/member 的作用域由后端控制。
 - 首位平台管理员 sales@glocalstorage.com，按身份中心不可变 UUID subject 绑定。不得凭邮箱匹配直接授予平台管理权。
 
 ## 进度
-- **已上线**源码 092a9c8da134526cd3103fd6506a255df55d4db6；前端归档 SHA256 40274b1ef8fe88e2678a66bfdbe7cd2a836c125328faf2c3a14defef41762106；infra 发布配置 8c66a2046e84882ddec822f452443494a6a235e5。
+- 后端已上线源码 092a9c8da134526cd3103fd6506a255df55d4db6。最新前端颜色修正 c28c8c17846b52b5eed195b19961bcec6427ebf8，归档 SHA256 57ed8158d8d9d1d81dc2cb35eb55a01d1ffd321a004782ca36455027e5bc6177；前端发布器配置 c69edc7，后台部署配置 8c66a20。实际版本分别查 /release.json 和 /api/status。
 - 真实邮箱注册/验证/登录/恢复/会话管理，企业创建/邀请/成员权限/停用/移除/审计，员工 SSO 与本地岗位授权、客户停用已实现。个人与企业入口均进入真实账户空间。
 - 本机 21 项通过；最终生产镜像用临时独立测试库复测 11 项身份集成测试全部通过。生产 SMTP verify、OIDC discovery/PKCE、匿名 401、跨站 403、未知 API 404、未开通推理 503 通过。未发送真实测试邮件。
 - 线上正式 SVG 与提交一致；浏览器实际登录页与管理员邮箱激活表单可见，无捕获的页面错误。旧平台与身份中心首页均 200。
