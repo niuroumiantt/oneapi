@@ -36,3 +36,5 @@
 4. 五模块验收通过后，按已定的公众注册方式开放真实业务。静态页面发布不等于业务开放。
 
 真实外部条件：商户开通、OAuth 应用与恢复渠道、获准供应账户、具体销售商品/价格、促销比例仍需落实。秘密通过受控配置接入，不写入聊天、前端或 Git。
+
+Release: 3322a99dde4fd41f003b601fb88aa8ddfc740b61; https://oneapi.glocalstorage.cn/#enterprise ; business_ready=false.
