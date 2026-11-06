@@ -90,7 +90,7 @@
         </svg>
         <span class="welcome-art-note">a little more possibility.</span>
       </div>
-      <div class="welcome-story-foot"><span>为每一个想动手的你。</span><span class="welcome-play-label"><i></i> IDEAS IN MOTION</span><span class="solar-state" id="solar-state" role="status">公转中</span><label class="solar-speed">速度 <select id="solar-speed" aria-label="公转演示速度"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label><button class="welcome-motion" type="button" data-welcome-motion aria-pressed="false" aria-label="暂停装饰动效"><span data-motion-label>暂停动效</span></button></div>
+      <div class="welcome-story-foot"><span>为每一个想动手的你。</span><span class="welcome-play-label"><i></i> IDEAS IN MOTION</span><span class="solar-state" id="solar-state" role="status">公转中</span><label class="solar-speed">速度 <select id="solar-speed" aria-label="公转演示速度"><option value="0.1">0.1×</option><option value="0.2" selected>0.2×</option><option value="0.5">0.5×</option><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></label><button class="welcome-motion" type="button" data-welcome-motion aria-pressed="false" aria-label="暂停装饰动效"><span data-motion-label>暂停动效</span></button></div>
     </section>
     <section class="welcome-entry" aria-labelledby="welcome-entry-title">
       <div class="welcome-entry-inner">
