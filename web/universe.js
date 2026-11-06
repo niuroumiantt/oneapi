@@ -7,7 +7,7 @@
   if(!context)return;
   const scene=canvas.parentElement;
   const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
-  let active=false,paused=false,frame=0,last=0,time=0,width=0,height=0,dpr=1,speed=.2,explicitMotion=false;
+  let active=false,paused=false,frame=0,last=0,time=0,width=0,height=0,dpr=1,speed=.1,explicitMotion=false;
   let stars=[],backdrop=null,galaxy=null;
   let seed=76431;
   const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
@@ -28,7 +28,7 @@
   const nodes=Object.fromEntries([...holder.children].map(node=>[node.dataset.body,node]));
   function geometry(){
     const mobile=width<760;
-    return {mobile,x:width*(mobile?.5:.29),y:mobile?440:height*.70,r:mobile?width*.43:Math.min(width*.255,390),flatten:mobile?.73:.45,tilt:-.12,scale:mobile?.72:1};
+    return {mobile,x:width*(mobile?.5:.29)+Math.sin(time*.85)*(mobile?7:22),y:(mobile?440:height*.70)+Math.sin(time*.61)*(mobile?5:13),r:mobile?width*.43:Math.min(width*.255,390),flatten:mobile?.73:.45,tilt:-.12,scale:mobile?.72:1};
   }
   function point(g,r,a){
     const x=Math.cos(a)*r,y=Math.sin(a)*r*g.flatten;
