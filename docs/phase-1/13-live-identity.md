@@ -35,3 +35,7 @@ Node 24 / Express 5，独立 PostgreSQL 16。核心表：Better Auth user/sessio
 ## 下一阶段
 
 供应商与产品验证 → 模型广场的真实商品/路由 → 支付与不可变资金流水 → 促销和返佣。企业购买后的成员额度分配/收回/调配需连到账本后开放，不能用当前演示预算代替。
+
+## 正式品牌文件
+
+用户提供 semifly-brand-kit-20261106-v1。web/pinapi-wordmark.svg 原样复制官方 horizontal-color SVG；pinapi-mark.svg 和 favicon.svg 来自同一品牌包的 symbol-color 与 UI favicon。完整横版标志已含图形，导航不再额外拼接图标。官方朱红 #E43C2F、海军蓝 #1C2541；不使用字体近似或 CSS 滤镜重绘标志。
