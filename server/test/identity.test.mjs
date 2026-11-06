@@ -52,7 +52,7 @@ test('invitations bind verified email, are one-use, and cannot be replayed or se
  assert.equal((await member.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,200);assert.equal((await member.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,400);
  assert.equal((await jar().call('/api/platform/invitations/preview?token='+encodeURIComponent(inv.token))).status,400);
  const view=(await member.j.call(`/api/platform/organizations/${orgA.id}`)).data;assert.equal(view.members.length,1);
- assert.equal((await member.j.call(`/api/platform/organizations/${orgA.id}/members/${view.members[0].id}`,{method:'PATCH',body:{role:'owner'}})).status,400);
+ assert.equal((await member.j.call(`/api/platform/organizations/${orgA.id}/members/${view.members[0].id}`,{method:'PATCH',body:{role:'owner'}})).status,403);
 });
 test('new enterprise invitations grant only staff access',async()=>{
  assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/invitations`,{method:'POST',body:{email:'unnamed@example.test',role:'member'}})).status,400);
@@ -62,6 +62,17 @@ test('new enterprise invitations grant only staff access',async()=>{
  const view=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data;const target=view.members.find(m=>m.user_id===dept.user.id);
  assert.equal(view.invitations.find(i=>i.email===dept.email).employee_name,'Test Employee');
  assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/members/${target.id}`,{method:'PATCH',body:{role:'admin'}})).status,400);
+});
+test('owner can promote staff to representative and return them to staff',async()=>{
+ const target=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data.members.find(m=>m.user_id===member.user.id);
+ assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/members/${target.id}`,{method:'PATCH',body:{role:'owner'}})).status,200);
+ const promoted=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data.members.find(m=>m.id===target.id);
+ assert.equal(promoted.role,'owner');
+ assert.ok((await member.j.call(`/api/platform/organizations/${orgA.id}`)).data.members.length>1);
+ assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/members/${target.id}`,{method:'PATCH',body:{role:'member'}})).status,200);
+ assert.equal((await member.j.call(`/api/platform/organizations/${orgA.id}`)).data.members.length,1);
+ const audit=(await owner.j.call(`/api/platform/organizations/${orgA.id}/audit`)).data.filter(e=>e.action==='member.updated'&&e.subject_id===target.id);
+ assert.ok(audit.length>=2);
 });
 test('suspension immediately invalidates old organization access and pending invitations',async()=>{
  const m=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data.members.find(m=>m.user_id===member.user.id);
@@ -83,9 +94,25 @@ test('real OIDC code/PKCE/nonce flow creates separate staff session; replay and 
  const same=await staff.call('/api/staff/me');assert.equal(same.status,200);
  const last=await staff.call('/api/staff/members/staff-owner',{method:'PATCH',body:{role:'support',status:'active'}});assert.equal(last.status,409);
 });
+test('supplier drafts and validation records persist with staff permissions and never become sale-ready',async()=>{
+ const outsider=jar();assert.equal((await outsider.call('/api/staff/suppliers')).status,401);
+ const created=await staff.call('/api/staff/suppliers',{method:'POST',body:{legal_name:'Fixture Model Ltd',display_name:'Fixture Model',source_type:'official',region:'CN',reference_url:'https://example.test/provider'}});
+ assert.equal(created.status,201,JSON.stringify(created.data));const supplierId=created.data.id;
+ assert.equal((await owner.j.call('/api/staff/suppliers')).status,401);
+ assert.equal((await staff.call('/api/staff/suppliers',{method:'POST',body:{legal_name:'Unsafe',display_name:'Unsafe',source_type:'official',region:'CN',reference_url:'http://example.test'}})).status,400);
+ const offer=await staff.call('/api/staff/supplier-offers',{method:'POST',body:{supplier_id:supplierId,model_name:'Fixture Chat',upstream_model_id:'fixture-chat-v1',protocol:'openai_compatible',region:'CN'}});
+ assert.equal(offer.status,201,JSON.stringify(offer.data));const offerId=offer.data.id;
+ const detail=await staff.call('/api/staff/supplier-offers/'+offerId);assert.equal(detail.status,200);assert.equal(detail.data.checks.length,7);assert.equal(detail.data.sale_ready,false);
+ assert.equal((await staff.call('/api/staff/supplier-offers/'+offerId+'/checks/source',{method:'PATCH',body:{result:'documented'}})).status,400);
+ assert.equal((await staff.call('/api/staff/supplier-offers/'+offerId+'/checks/source',{method:'PATCH',body:{result:'documented',evidence_url:'https://example.test/evidence'}})).status,200);
+ const listing=await staff.call('/api/staff/suppliers');assert.equal(listing.status,200);assert.equal(listing.data.sale_ready,false);assert.ok(listing.data.offers.some(o=>o.id===offerId));
+ assert.equal((await staff.call('/api/staff/suppliers/'+supplierId,{method:'PATCH',body:{status:'blocked'}})).status,200);
+ assert.equal((await staff.call('/api/staff/supplier-offers',{method:'POST',body:{supplier_id:supplierId,model_name:'Other',upstream_model_id:'other',protocol:'native',region:'CN'}})).status,409);
+ const audit=(await staff.call('/api/staff/audit')).data;assert.ok(audit.some(e=>e.action==='supplier_offer.check_updated'&&e.subject_id===offerId));
+});
 test('new employee requires local approval; disabled customer sessions and revoked IdP tokens stop working',async()=>{
  identity={sub:'staff-second',email:'second@example.test',name:'Second',staff_approved:true};const second=jar();await staffLogin(second);assert.equal((await second.call('/api/staff/me')).data.staff.status,'pending');assert.equal((await second.call('/api/staff/customers')).status,403);
- assert.equal((await staff.call('/api/staff/members/staff-second',{method:'PATCH',body:{role:'finance',status:'active'}})).status,200);assert.equal((await second.call('/api/staff/me')).status,401);await staffLogin(second);assert.equal((await second.call('/api/staff/customers')).status,403);
+ assert.equal((await staff.call('/api/staff/members/staff-second',{method:'PATCH',body:{role:'finance',status:'active'}})).status,200);assert.equal((await second.call('/api/staff/me')).status,401);await staffLogin(second);assert.equal((await second.call('/api/staff/customers')).status,403);assert.equal((await second.call('/api/staff/suppliers')).status,200);assert.equal((await second.call('/api/staff/suppliers',{method:'POST',body:{legal_name:'No',display_name:'No',source_type:'official',region:'CN'}})).status,403);
  assert.equal((await staff.call(`/api/staff/customers/${member.user.id}/status`,{method:'POST',body:{disabled:true}})).status,200);assert.equal((await member.j.call('/api/platform/me')).status,401);
  revoked=true;assert.equal((await staff.call('/api/staff/me')).status,401);revoked=false;
 });

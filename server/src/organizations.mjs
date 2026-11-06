@@ -56,7 +56,7 @@ export function organizationRoutes(app,pool,cfg,mail,requireCustomer){
  app.patch(prefix+'/organizations/:org/members/:member',requireCustomer,async(req,res)=>{await transaction(pool,async db=>{
   const actor=await member(db,req.params.org,req.customer.id,true),target=(await db.query('SELECT * FROM memberships WHERE id=$1 AND organization_id=$2 FOR UPDATE',[id(req.params.member),req.params.org])).rows[0];if(!target)throw new HttpError(404,'成员不存在');
   const next=desired({role:req.body.role??target.role,department:req.body.department??target.department}),status=req.body.status??target.status;
-  if(next.role!==target.role&&next.role!=='member')throw new HttpError(400,'当前只支持企业代表人与企业员工两种身份');
+  if(next.role!==target.role&&!['owner','member'].includes(next.role))throw new HttpError(400,'当前只支持企业代表人与企业员工两种身份');
   if(!['active','suspended'].includes(status))throw new HttpError(400,'成员状态不正确');
   if(!canManage(actor,target)||!canManage(actor,next))throw new HttpError(403,'不能修改这个成员或授予该权限');
   if(target.role==='owner'&&target.status==='active'&&(next.role!=='owner'||status!=='active')){const count=Number((await db.query("SELECT count(*) FROM memberships WHERE organization_id=$1 AND role='owner' AND status='active'",[req.params.org])).rows[0].count);if(count<=1)throw new HttpError(409,'企业必须保留至少一位有效所有者');}
