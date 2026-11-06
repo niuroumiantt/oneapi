@@ -71,9 +71,11 @@
     <nav aria-label="欢迎页导航"><a href="#market">发现好模型 <span data-icon="arrow-up-right"></span></a><a class="welcome-staff" href="#staff" aria-label="管理台：本公司员工入口">管理台</a></nav>
   </header>
   <main class="welcome-main">
+    <div class="universe-scene" aria-hidden="true"><canvas id="universe-canvas"></canvas><div class="universe-nebula"></div><div class="universe-sun"><div class="universe-sun-surface"></div></div><div class="universe-planet planet-mint"></div><div class="universe-planet planet-lilac"><i></i></div><div class="universe-near-world"></div></div>
+    <div class="universe-caption" aria-hidden="true"><span>01 / SOL</span><span>02 / ANDROMEDA</span></div>
     <section class="welcome-story" aria-labelledby="welcome-title">
-      <div class="welcome-story-top"><span class="welcome-kicker"><i></i> A LITTLE SPARK. A BIG IDEA.</span><span class="welcome-edition">semifly / 01</span></div>
-      <div class="welcome-copy"><h1 id="welcome-title">让灵感，<br><span>起飞一下。</span><svg class="welcome-underline" viewBox="0 0 440 24" aria-hidden="true"><path d="M5 15Q195 -3 429 12M125 21Q270 10 432 17"/></svg></h1><p>写点代码，做个作品，试试新想法。<br>好模型在这里，下一步由你。</p></div>
+      <div class="welcome-story-top"><span class="welcome-kicker"><i></i> A LITTLE SPARK. A BIG IDEA.</span><span class="welcome-edition">semifly / 01</span><a class="universe-compare" href="#login">返回轻快版 <span data-icon="arrow-up-right"></span></a></div>
+      <div class="welcome-copy"><h1 id="welcome-title">让灵感，<br><span>起飞一下。</span><svg class="welcome-underline" viewBox="0 0 440 24" aria-hidden="true"><path d="M5 15Q195 -3 429 12M125 21Q270 10 432 17"/></svg></h1><p><span class="welcome-original-description">写点代码，做个作品，试试新想法。<br>好模型在这里，下一步由你。</span><span class="universe-description">从一束灵感，去往更大的世界。<br>下一次发现，从这里开始。</span></p></div>
       <div class="welcome-art" aria-hidden="true">
         <svg class="welcome-orbit" viewBox="0 0 760 340" fill="none">
           <defs><linearGradient id="welcome-orb" x1="538" y1="58" x2="599" y2="124" gradientUnits="userSpaceOnUse"><stop stop-color="#d9ffe0"/><stop offset="1" stop-color="#79bf94"/></linearGradient></defs>
@@ -129,6 +131,7 @@
       const paused=$('.welcome-page').classList.toggle('welcome-motion-paused');
       b.setAttribute('aria-pressed',String(paused));b.setAttribute('aria-label',paused?'播放装饰动效':'暂停装饰动效');
       b.querySelector('[data-motion-label]').textContent=paused?'播放动效':'暂停动效';
+      window.UniverseScene?.setPaused(paused);
     }
     if(b.dataset.epanel){panel=b.dataset.epanel;selected.clear();render();}
     if(b.dataset.eaction){try{actions[b.dataset.eaction]?.(b);}catch(e){showToast(e.message);}}
@@ -160,5 +163,5 @@
     }catch(error){$('#e-error').textContent=error.message;}
   });
   window.EnterpriseUI={render};entryViews();render();
-  switchView(['login','enterprise','personal','admin','staff'].includes(location.hash.slice(1))?location.hash.slice(1):'market');
+  switchView(['login','enterprise','personal','admin','staff','universe'].includes(location.hash.slice(1))?location.hash.slice(1):'market');
 })();

@@ -25,12 +25,15 @@ function renderModels(){
  $('.count-badge').textContent=list.length;
 }
 function switchView(view){
- const views=['market','admin','login','enterprise','personal','staff'];
+ const views=['market','admin','login','enterprise','personal','staff','universe'];
  if(!views.includes(view))view='market';
- document.body.classList.toggle('welcome-active',view==='login');
- views.forEach(id=>{const el=document.getElementById(id+'-view');if(el)el.hidden=id!==view;});
+ document.body.classList.toggle('welcome-active',view==='login'||view==='universe');
+ document.body.classList.toggle('universe-active',view==='universe');
+ const displayView=view==='universe'?'login':view;
+ window.UniverseScene?.setActive(view==='universe');
+ views.forEach(id=>{const el=document.getElementById(id+'-view');if(el)el.hidden=id!==displayView;});
  $$('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-pressed',String(b.dataset.view===view));});
- document.title='OneAPI · '+({market:'模型广场',admin:'供应运营后台',login:'欢迎来到 semifly',enterprise:'企业工作台',personal:'个人工作台',staff:'员工管理台'}[view]);
+ document.title='OneAPI · '+({market:'模型广场',admin:'供应运营后台',login:'欢迎来到 semifly',enterprise:'企业工作台',personal:'个人工作台',staff:'员工管理台',universe:'宇宙欢迎页'}[view]);
  window.scrollTo(0,0);
 }
 function showToast(message){$('#toast').textContent=message;$('#toast').classList.add('visible');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>$('#toast').classList.remove('visible'),3000);}
@@ -107,7 +110,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#detail-drawer'
 document.addEventListener('submit',e=>{if(e.target.id==='supplier-form'){e.preventDefault();const name=$('#supplier-name').value.trim();if(!name)return;showInfo('供应商草稿预览',escapeHtml(name),'<div class="info-box">表单体验已完成。正式产品将保存草稿，并进入合同与授权资料补充流程。本预览没有写入任何业务数据。</div>');}});
 document.addEventListener('click',async e=>{if(e.target.closest('#copy-config')){try{await navigator.clipboard.writeText($('#config-code').textContent);showToast('示例配置已复制');}catch{showToast('当前浏览器未允许复制，请选中配置文字手动复制。');}}});
 $('#export-button').addEventListener('click',()=>{const rows=[['演示报表：非真实业务数据'],['通道','供应商','状态','首内容时延 ms','完成率 %','容量占用 %','输入采购价/百万tokens'],...filteredProducts().map(p=>[p.name,p.supplier,statusNames[p.status],p.latency??'',p.success??'',p.capacity,p.cost])];const blob=new Blob(['\ufeff'+rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='oneapi-supply-demo.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);showToast('演示供应报表已导出');});
-window.addEventListener('hashchange',()=>{if(['admin','market','login','enterprise','personal','staff'].includes(location.hash.slice(1)))switchView(location.hash.slice(1));});
+window.addEventListener('hashchange',()=>{if(['admin','market','login','enterprise','personal','staff','universe'].includes(location.hash.slice(1)))switchView(location.hash.slice(1));});
 renderModels();renderTable();switchView(location.hash==='#admin'?'admin':'market');
 
 fetch('release.json', {cache:'no-store'}).then(r=>r.ok?r.json():null).then(r=>{if(r?.source_sha)document.querySelector('#release-version').textContent='PREVIEW · '+r.source_sha.slice(0,7);}).catch(()=>{});
