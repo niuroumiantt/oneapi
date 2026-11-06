@@ -1,0 +1,25 @@
+# 企业管理台导航交接（2026-11-06，m5）
+
+## 目标
+让企业代表登录后先看到团队、权限与费用状态，并按清晰路径采购模型、管理成员。
+
+## 已定规则
+- 对外品牌为 semifly.ai，使用正式红蓝 Logo 与 It’s Your API. 标语。
+- 企业管理台五个入口：总览、模型与采购、员工与权限、预算与用量、安全与设置。
+- 企业代表先登记员工姓名与邮箱，员工通过一次性开通链接自行设密；不寄送明文临时密码。
+- 普通笔记本 1280×720 的核心页面尽量一屏呈现。旧 api.glocalstorage.cn 独立保留。
+
+## 进度
+- 前端提交 `fce51d0aea0c820a475a323f039f6419a4afa542` 已推送到 `codex/phase-one-launch-design`，并于 2026-11-06T15:56:24Z 发布到 `https://oneapi.glocalstorage.cn`。静态归档 SHA256：`deda1b892adc0726f9afa711c079411d948cb871d071497316b8efadf97ad938`。
+- 企业管理台为真实可切换的五页导航，直达链接 `#organization/<id>/overview|models|people|budget|settings`。总览显示已有成员和采购步骤，成员页显示真实成员与已实现操作。单企业直接进入管理台，多企业保留空间选择。
+- 本地合成身份预览验证 1280×720 无纵向滚动，390px 手机无整页横向溢出；语法检查和 12 项针对性测试通过。全套集成测试未运行成功，因为本机临时 PostgreSQL `127.0.0.1:55438` 未启动；此次仅改前端，没有数据库或后端变更。
+- 阿里云静态发布回执及公网 `/release.json` 均指向上述提交，线上指纹脚本包含新导航。支付、资金账本、Token 用量、推理尚未开通，页面明确显示待开放，不展示虚构金额。
+
+## 下一步
+1. 结合企业代表的真实使用反馈调整信息密度、采购路径与成员表操作。
+2. 接供应商验证、模型商品与订单；完成资金账本和支付后再显示真实预算与用量。
+3. 独立完成线上真实企业账户端到端验收，包括员工邮件开通与权限作用域。
+
+## 入口文件与工具
+- 前端：`web/identity.js`、`web/identity.css`；打包：`scripts/build_static.py`。
+- 发布：infra 工作树 `~/.worktrees/infra/oneapi-aliyun/scripts/push_static_candidate.sh`；M5 的阿里云 SSH 需显式指定 `/Users/m5/.ssh/id_ed25519`，默认 `aliyun_deploy` 密钥会被服务器拒绝。Python 用 `/Users/m5/.local/bin/python3.12`。
