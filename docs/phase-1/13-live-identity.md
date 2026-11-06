@@ -1,0 +1,37 @@
+# 第一期真实身份与权限
+
+2026-11-06。拼API独立域名 oneapi.glocalstorage.cn；旧 api.glocalstorage.cn 保留。
+
+## 已实现
+
+- 客户：公开邮箱注册、邮箱验证后登录、密码恢复、修改密码、会话查看、退出其他设备和退出登录。Better Auth 1.7.18 管理密码哈希及会话，不自行实现密码协议。
+- 企业：同一客户身份可创建或加入多家企业。角色为所有者、管理员、部门管理员、财务和成员。所有者保底、部门边界、邀请有效期/指定邮箱/单次消费由 PostgreSQL 事务和服务端校验保证。
+- 成员停用/移除立即影响企业访问，不删除个人账户。修改角色与邀请撤销留下审计记录。
+- 员工：公司 Authentik 的独立 OIDC client，精确回调、PKCE S256、state、nonce、MFA；独立 host-only Cookie。每次员工请求重新验证 IdP access token，本地权限变更撤销员工会话。
+- 岗位：平台管理员、运营、供应运营、财务、客户支持。新员工通过公司身份登录后待授权；客户不能自注册成公司员工。
+- 首位管理员：sales@glocalstorage.com 对应的不可变 Authentik UUID subject，配置于生产私有文件。邮箱字符串不能用于抢占平台管理员。该账号需本人完成指定员工开通流程。
+- 平台管理员可以批准员工岗位，停用/恢复客户账户，查看身份审计；运营和支持只能查看客户列表，供应与财务没有客户列表权限。
+
+## 数据与接口
+
+Node 24 / Express 5，独立 PostgreSQL 16。核心表：Better Auth user/session/account/verification/rateLimit；organizations、memberships、invitations、audit_events；staff_members、staff_sessions、staff_oidc_states；mail_outbox、request_limits。
+
+客户 /api/auth；个人与企业 /api/platform；员工 /api/staff。所有业务数据访问均在服务器校验身份和组织成员关系，前端隐藏按钮不构成权限边界。
+
+/api/status 为实时能力状态。/healthz、/release.json 为静态前端版本。充值、余额、Key、模型调用与促销仍未启用；企业预算原型不是实际资金账本。原有预算核心测试继续保留作为后续账本约束的参考。
+
+## 邮件与保护
+
+验证与恢复邮件、邀请邮件入库后由独立队列发送。待发正文 AES-GCM 加密，成功或超时后清除正文；凭据只在生产私有配置。使用公司已有 SMTP 发件账号，sales 邮箱仅接收，不作为发件登录。
+
+固定可信 Origin、HttpOnly/Secure/SameSite Cookie、Caddy 请求体限制、数据库速率限制、明确 endpoint allowlist；邮件验证必须先于企业邀请接受。
+
+## 本机验证
+
+**[m5]** 在独立 *_test PostgreSQL 数据库设置 TEST_DATABASE_URL 后运行 npm test。测试不连接生产，邮件只进入内存测试传输器。21 项覆盖真实数据库、OIDC/JWKS/PKCE、跨租户越权、部门边界、并发邀请、最后所有者、密码恢复令牌单次使用与旧会话撤销，以及原有预算不变量。
+
+浏览器联调从真实登录进入个人和企业空间，显示测试库中的成员。生产账号的密码、邮件验证码与 MFA 由用户本人完成，不代设或代收。
+
+## 下一阶段
+
+供应商与产品验证 → 模型广场的真实商品/路由 → 支付与不可变资金流水 → 促销和返佣。企业购买后的成员额度分配/收回/调配需连到账本后开放，不能用当前演示预算代替。

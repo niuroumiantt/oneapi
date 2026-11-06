@@ -1,4 +1,4 @@
-"""Build the committed, allowlisted UI preview for infra's static publisher."""
+"""Build the committed, allowlisted customer frontend for infra's static publisher."""
 import argparse
 import gzip
 import hashlib
@@ -22,7 +22,7 @@ def main():
     sha = git('rev-parse', 'HEAD').decode().strip()
     html = git('show', 'HEAD:web/index.html').decode()
     assets = {}
-    for name in ('styles.css', 'enterprise.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'operations.js', 'operations.css', 'brand.css', 'enterprise-core.js', 'icons.js', 'app.js', 'enterprise.js'):
+    for name in ('styles.css', 'enterprise.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'operations.js', 'identity.js', 'identity.css', 'operations.css', 'brand.css', 'enterprise-core.js', 'icons.js', 'app.js', 'enterprise.js'):
         content = git('show', f'HEAD:web/{name}')
         stem, extension = name.rsplit('.', 1)
         target = f'{stem}.{hashlib.sha256(content).hexdigest()[:12]}.{extension}'
@@ -32,9 +32,9 @@ def main():
     for name in ('pinapi-mark.svg', 'pinapi-wordmark.svg', 'favicon.svg', 'semifly-wordmark.svg', 'semifly-lockup.svg', 'THIRD-PARTY-LICENSES.txt'):
         assets[name] = git('show', f'HEAD:web/{name}')
     release = {
-        'app': 'oneapi', 'source_sha': sha, 'stage': 'ui-preview',
+        'app': 'oneapi', 'source_sha': sha, 'stage': 'identity-live',
         'domain': 'oneapi.glocalstorage.cn', 'transactions_enabled': False,
-        'customer_registration_enabled': False, 'inference_enabled': False,
+        'customer_registration_enabled': True, 'staff_login_enabled': True, 'inference_enabled': False,
         'status': 'ok', 'business_ready': False,
     }
     assets['release.json'] = (json.dumps(release, sort_keys=True) + '\n').encode()

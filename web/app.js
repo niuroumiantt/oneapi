@@ -28,6 +28,8 @@ function renderModels(){
  $$('[data-family]').forEach(b=>{b.classList.toggle('active',b.dataset.family===family);b.setAttribute('aria-pressed',String(b.dataset.family===family));});
 }
 function switchView(view){
+ if(window.IdentityUI?.handles(view)){window.IdentityUI.route(view);return;}
+ window.IdentityUI?.cancel();document.body.classList.remove('identity-active');const identityView=document.getElementById('identity-view');if(identityView)identityView.hidden=true;
  const section=view.startsWith('ops/')?view.slice(4):'overview';
  if(view.startsWith('ops/'))view='admin';
  const views=['market','admin','login','enterprise','personal','staff','universe'];
@@ -120,7 +122,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#detail-drawer'
 document.addEventListener('submit',e=>{if(e.target.id==='supplier-form'){e.preventDefault();const name=$('#supplier-name').value.trim();if(!name)return;showInfo('供应商草稿预览',escapeHtml(name),'<div class="info-box">表单体验已完成。正式产品将保存草稿，并进入合同与授权资料补充流程。本预览没有写入任何业务数据。</div>');}});
 document.addEventListener('click',async e=>{if(e.target.closest('#copy-config')){try{await navigator.clipboard.writeText($('#config-code').textContent);showToast('示例配置已复制');}catch{showToast('当前浏览器未允许复制，请选中配置文字手动复制。');}}});
 $('#export-button').addEventListener('click',()=>{const rows=[['演示报表：非真实业务数据'],['通道','供应商','状态','首内容时延 ms','完成率 %','容量占用 %','输入采购价/百万tokens'],...filteredProducts().map(p=>[p.name,p.supplier,statusNames[p.status],p.latency??'',p.success??'',p.capacity,p.cost])];const blob=new Blob(['\ufeff'+rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='oneapi-supply-demo.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);showToast('演示供应报表已导出');});
-window.addEventListener('hashchange',()=>{if(location.hash.startsWith('#ops/')||['admin','market','login','enterprise','personal','staff','universe'].includes(location.hash.slice(1)))switchView(location.hash.slice(1));});
+window.addEventListener('hashchange',()=>{switchView(location.hash.slice(1));});
 renderModels();renderTable();switchView(location.hash==='#admin'?'admin':'market');
 
 fetch('release.json', {cache:'no-store'}).then(r=>r.ok?r.json():null).then(r=>{if(r?.source_sha)document.querySelector('#release-version').textContent='PREVIEW · '+r.source_sha.slice(0,7);}).catch(()=>{});

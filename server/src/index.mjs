@@ -1,0 +1,10 @@
+import pg from 'pg';
+import { config } from './core.mjs';
+import { createApp } from './app.mjs';
+const cfg=config(),pool=new pg.Pool({connectionString:cfg.databaseURL,max:10,connectionTimeoutMillis:5000,idleTimeoutMillis:30000});
+const {app,mail}=createApp(pool,cfg);await pool.query('SELECT 1');
+const server=app.listen(cfg.port,'0.0.0.0',()=>console.log(JSON.stringify({event:'identity_ready',port:cfg.port,mail_configured:mail.ready,source:cfg.source})));
+let sending=false;
+const worker=setInterval(async()=>{if(sending)return;sending=true;try{for(let i=0;i<5&&await mail.drain();i++);}catch{console.error('mail_worker_unavailable');}finally{sending=false;}},3000);
+const cleanup=setInterval(async()=>{try{await pool.query("DELETE FROM staff_oidc_states WHERE expires_at<now(); DELETE FROM staff_sessions WHERE expires_at<now(); DELETE FROM request_limits WHERE expires_at<now()-interval '1 hour'; UPDATE mail_outbox SET payload=NULL,status='failed',error_code='EXPIRED' WHERE expires_at<now() AND status IN ('pending','sending');");}catch{console.error('cleanup_unavailable');}},600000);
+for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{clearInterval(worker);clearInterval(cleanup);server.close(async()=>{await pool.end();process.exit(0);});setTimeout(()=>process.exit(1),20000).unref();});

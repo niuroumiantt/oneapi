@@ -103,7 +103,7 @@
         </div>
         <div class="welcome-space-copy" aria-live="polite" aria-atomic="true"><span class="welcome-space-index" id="welcome-space-index">01 / MY SPACE</span><h3 id="welcome-space-title">给自己的灵感，留个位置。</h3><p id="welcome-space-description">发现适合你的模型，开始下一个小作品。<br>项目与用量，都在自己的空间里。</p></div>
         <a class="welcome-continue" id="welcome-continue" href="#personal"><span id="welcome-continue-label">进入个人空间</span><span class="welcome-continue-arrow" data-icon="arrow-right"></span></a>
-        <p class="welcome-preview-note"><span></span>体验预览 · 暂未开放真实登录</p>
+        <p class="welcome-preview-note"><span></span>邮箱验证登录 · 个人与企业空间独立管理</p>
         <div class="welcome-explore"><span>还想先看看？</span><a href="#market">逛逛模型广场 <span data-icon="arrow-up-right"></span></a></div>
       </div>
       <div class="welcome-entry-foot"><span class="welcome-mini-line"></span><span>GOOD TO HAVE YOU HERE.</span></div>

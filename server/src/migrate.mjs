@@ -1,0 +1,12 @@
+import pg from 'pg';
+import { getMigrations } from 'better-auth/db/migration';
+import { readFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+import { config } from './core.mjs';
+import { customerAuth } from './auth.mjs';
+export async function migrate(pool,auth){
+ const lock=await pool.connect();
+ try{await lock.query('SELECT pg_advisory_lock(148921,1)');const plan=await getMigrations(auth.options);if(plan.schemaProblems.length||plan.unsafeChanges.length)throw Error('Unsafe authentication migration');await plan.runMigrations();await pool.query(await readFile(new URL('../migrations/001_platform.sql',import.meta.url),'utf8'));}
+ finally{await lock.query('SELECT pg_advisory_unlock(148921,1)');lock.release();}
+}
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){const cfg=config(),pool=new pg.Pool({connectionString:cfg.databaseURL});await migrate(pool,customerAuth(pool,cfg,{queue:async()=>{throw Error('Migrations never send mail');}}));await pool.end();console.log('Identity and platform migrations complete');}

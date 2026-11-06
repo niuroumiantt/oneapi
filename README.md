@@ -1,3 +1,5 @@
+> 当前实现：个人/企业真实邮箱身份、企业成员权限、员工 OIDC/MFA 与岗位授权。详见 [真实身份与权限](docs/phase-1/13-live-identity.md)。模型调用、付费和促销尚未开放。
+
 # OneAPI 模型 API 交易平台
 
 2026-11-06 部署决定更新：用户要求保留旧平台并独立建设；新版入口改为 **oneapi.glocalstorage.cn**，旧 api.glocalstorage.cn 保持原有服务。参见 [阿里云部署说明](docs/deployment/aliyun.md)。
