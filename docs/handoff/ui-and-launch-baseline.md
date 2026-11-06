@@ -61,3 +61,9 @@
 - 宇宙默认0.1×，太阳与轨道中心共同缓慢漂移，暂停同时冻结。保留行星与地月运动。
 - 五模块首页已在独立域名落地：后台 `#ops/overview` 和各模块子路由；客户侧模型广场与企业工作台继续保留。交互草稿、筛选与审计是本标签页演示，业务仍未开放。
 - 最新部署和验证以 oneapi-aliyun.md 末节及线上 /release.json 为准；下一阶段继续认证、供应、商品、账本支付和促销后端。
+
+## 最新：真实身份与正式品牌（2026-11-06）
+
+真实模块实现见 docs/phase-1/13-live-identity.md。客户/企业已从演示角色切换为真实注册与成员授权，员工为独立公司 OIDC/MFA；预算、模型调用、支付和促销仍待后续接入。用户指定首位管理员 sales@glocalstorage.com，绑定不可变 subject，需本人激活。
+
+用户提供了正式 semifly-brand-kit-20261106-v1 SVG，已原样替换 web/pinapi-wordmark.svg、pinapi-mark.svg、favicon.svg；不要恢复临时 Georgia 字标，也不要再恢复橙色公司 Logo。横版完整标志自带图形，导航不再加第二个图形。真实发布以 /api/status 与 /release.json 为准。
