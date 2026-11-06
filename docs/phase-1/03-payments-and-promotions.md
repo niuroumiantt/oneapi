@@ -95,3 +95,7 @@ Stripe Checkout 会话完成不自动等同所有付款方式已到账；消费�
 覆盖各种登录方式携码回跳、新老客、错误/过期/跨区码、重复兑换、邀请进企业、企业权限不足、促销期间换价、优惠上限并发、重复支付、支付回跳丢失、部分退款、拒付、赠送额度不计佣以及佣金付款后退款。
 
 金额和状态采用明确命名：calculateEffectiveModelPrice、redeemPromotionCode、reserveUsageBudget、accrueQualifiedCommission、reverseCommissionForRefund。折扣与佣金不藏在登录回调函数内。
+
+## 企业工作台补充（2026-11-06）
+
+用户确认个人、企业客户、平台员工三类入口，并要求企业内成员及可调拨额度管理。身份域、组织角色、范围授权和企业钱包分开建模。详细研究与设计建议见 [企业工作台方案](09-enterprise-workspace.md)；不把本章旧有的角色简称当作完整权限契约。

@@ -1,0 +1,23 @@
+# Emergency build when the registry cannot deliver large layers. NODE_RUNTIME_DONOR
+# must be an explicitly inspected local image ID with Node 24.22.2 on Alpine 3.24.
+# The final scratch image copies only vendor runtime files and this repository.
+ARG NODE_RUNTIME_DONOR
+FROM ${NODE_RUNTIME_DONOR} AS dependencies
+USER root
+WORKDIR /srv/oneapi-build
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts --cache=/tmp/oneapi-npm-cache
+COPY server ./server
+FROM scratch
+COPY --from=dependencies /usr/local/bin/node /usr/local/bin/node
+COPY --from=dependencies /usr/local/LICENSE /usr/local/LICENSE
+COPY --from=dependencies /lib /lib
+COPY --from=dependencies /usr/lib/libstdc++.so* /usr/lib/
+COPY --from=dependencies /usr/lib/libgcc_s.so.1 /usr/lib/libgcc_s.so.1
+COPY --from=dependencies /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=dependencies /srv/oneapi-build /app
+WORKDIR /app
+ENV PATH=/usr/local/bin HOME=/tmp NODE_ENV=production
+USER 1000:1000
+EXPOSE 4180
+CMD ["node", "server/src/index.mjs"]

@@ -1,0 +1,39 @@
+/* Import only after mapping these semantic tokens to the target product theme. */
+:root {
+  --color-canvas: #f5f7fb;
+  --color-surface: #ffffff;
+  --color-sidebar: #fbfcfe;
+  --color-text-primary: #111827;
+  --color-text-secondary: #64748b;
+  --color-border: #e8ecf3;
+  --color-action-primary: #2563eb;
+  --color-action-hover: #1d4ed8;
+  --color-accent-cyan: #06b6d4;
+  --color-accent-purple: #8b5cf6;
+  --color-selected-background: #e9effe;
+  --color-success-text: #047857;
+  --color-success-background: #ecfdf5;
+  --color-warning-text: #92400e;
+  --color-warning-background: #fffbeb;
+  --color-danger-text: #b91c1c;
+  --color-danger-background: #fef2f2;
+  --color-neutral-text: #64748b;
+  --color-neutral-background: #f1f5f9;
+  --color-focus-ring: #2563eb;
+  --radius-control: 8px;
+  --radius-console-card: 12px;
+  --radius-showcase-card: 16px;
+  --radius-modal: 16px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --shadow-card: 0 8px 30px #233b7410;
+  --shadow-overlay: 0 24px 64px #233b7424;
+}

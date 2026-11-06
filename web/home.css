@@ -1,0 +1,88 @@
+/* Viewport-sized welcome for laptops. Small/tall-accessibility layouts keep natural scrolling. */
+.universe-clock{display:flex;flex-direction:column;gap:4px;text-align:right;min-width:132px;color:#1C2541;border-left:1px solid #e4e0d8;padding-left:18px}
+.universe-clock>span{font-size:9px;letter-spacing:1px;color:#8a8c95}
+.universe-clock time{font:500 14px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+.universe-active .welcome-copy{padding-top:0}
+.universe-active .welcome-entry .welcome-space-copy{min-height:0;padding:20px 0}
+.universe-active .welcome-preview-note a{color:#1C2541;text-decoration:underline;text-underline-offset:3px;margin-left:5px}
+.universe-active .welcome-story-foot{display:flex;align-items:center;gap:18px;bottom:28px;left:36px;right:32px}
+.solar-control{flex:1;min-width:100px;max-width:420px}
+.solar-control-caption{display:flex;align-items:center;justify-content:space-between;font-size:10px;color:#bac8dd;margin-bottom:4px}
+.solar-control-caption output{font:500 11px ui-monospace,SFMono-Regular,monospace;min-width:42px;text-align:right;color:#f5ddcf}
+#solar-speed{appearance:none;-webkit-appearance:none;display:block;width:100%;height:24px;margin:0;padding:0;background:transparent;cursor:ew-resize;touch-action:pan-y}
+#solar-speed::-webkit-slider-runnable-track{height:3px;border-radius:6px;background:linear-gradient(to right,#E43C2F var(--speed-progress),#9caec04d var(--speed-progress))}
+#solar-speed::-moz-range-track{height:3px;border-radius:6px;background:#9caec04d}
+#solar-speed::-moz-range-progress{height:3px;border-radius:6px;background:#E43C2F}
+#solar-speed::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:22px;height:22px;margin-top:-9.5px;border:0;border-radius:50%;background:url('universe-speed-knob.png') center/contain no-repeat;filter:drop-shadow(0 0 5px #e43c2f44)}
+#solar-speed::-moz-range-thumb{width:22px;height:22px;border:0;border-radius:50%;background:url('universe-speed-knob.png') center/contain no-repeat;filter:drop-shadow(0 0 5px #e43c2f44)}
+#solar-speed:focus-visible{outline:1px solid #f1c1aa;outline-offset:4px;border-radius:4px}
+.solar-control-ticks{display:flex;justify-content:space-between;font:9px ui-monospace,SFMono-Regular,monospace;color:#8e9cb2}
+.universe-active .welcome-story-foot>.solar-state{display:inline-flex;font-size:9px;white-space:nowrap}
+.universe-active .welcome-motion{font-size:10px;white-space:nowrap}
+.solar-label{font-size:9px;letter-spacing:0;line-height:1.25}
+.solar-sun .solar-label{top:calc(var(--body-size)/2 + 8px);font-size:9px;color:#f1d3a8;text-shadow:0 1px 4px #071020;letter-spacing:0}
+.solar-moon .solar-label{font-size:8px;bottom:11px}
+.universe-active .welcome-story:after{left:36px;bottom:9px;font-size:7px;letter-spacing:0}
+.universe-active .universe-caption>span:last-child{top:18%;left:46%;font-size:7px;letter-spacing:1px}
+@media(min-width:900px) and (min-height:560px){
+ .universe-active .welcome-page{height:100dvh;min-height:0;padding:8px 36px 12px;display:grid;grid-template-rows:68px minmax(0,1fr) 30px;row-gap:8px;overflow:visible}
+ .universe-active .welcome-header{height:auto;width:100%;max-width:1440px;padding:0 16px;gap:20px;flex-wrap:nowrap}
+ .universe-active .welcome-header .welcome-brand img{width:174px}
+ .universe-active .welcome-header .welcome-brand>span{font-size:11px;padding-left:12px}
+ .universe-active .welcome-header nav{gap:20px;font-size:11px;white-space:nowrap;width:auto}
+ .universe-active .welcome-header nav .welcome-staff{padding-left:18px;font-size:10px}
+ .universe-active .welcome-main{width:100%;max-width:1440px;height:100%;min-height:0;grid-template-columns:60% 40%;border-radius:23px}
+ .universe-active .welcome-story{height:100%;min-height:0;padding:30px 36px 22px}
+ .universe-active .welcome-copy h1{font-size:clamp(39px,6.8vh,62px);line-height:1.16;letter-spacing:-2px}
+ .universe-active .welcome-underline{height:14px;bottom:-12px}
+ .universe-active .welcome-copy p{font-size:11px;margin-top:22px;line-height:1.8}
+ .universe-active .welcome-entry{padding:24px 34px 24px 12px;min-height:0}
+ .universe-active .welcome-entry-inner{max-width:326px;padding:26px 25px 24px;border-radius:20px}
+ .universe-active .welcome-entry h2{font-size:25px;line-height:1.35}
+ .universe-active .welcome-entry-lead{font-size:11px;margin-top:12px;line-height:1.8}
+ .universe-active .welcome-space-copy h3{font-size:14px}
+ .universe-active .welcome-space-copy p{font-size:11px;line-height:1.85}
+ .universe-active .welcome-continue{padding:12px 15px;min-height:48px;font-size:12px}
+ .universe-active .welcome-continue-arrow{width:27px;height:27px}
+ .universe-active .welcome-preview-note{margin-top:14px;font-size:10px}
+ .universe-active .welcome-explore{margin-top:18px;padding-top:16px;font-size:10px}
+ .universe-active .welcome-footer{padding:0 16px;margin:0 auto;max-width:1440px;width:100%;align-items:center;font-size:9px}
+ .universe-active .universe-near-world{opacity:.4;bottom:-325px}
+}
+@media(min-width:900px) and (max-height:680px) and (min-height:560px){
+ .universe-active .welcome-page{grid-template-rows:60px minmax(0,1fr) 24px;padding-top:4px;padding-bottom:8px;row-gap:6px}
+ .universe-active .welcome-story{padding-top:24px}
+ .universe-active .welcome-copy h1{font-size:38px}
+ .universe-active .welcome-copy p{font-size:10px;margin-top:19px}
+ .universe-active .welcome-entry-inner{max-width:310px;padding:21px 22px}
+ .universe-active .welcome-entry h2{font-size:23px}
+ .universe-active .welcome-entry .welcome-space-copy{padding:16px 0}
+ .universe-active .welcome-space-copy p{margin-top:8px}
+ .universe-active .welcome-preview-note{margin-top:12px}
+ .universe-active .welcome-story-foot{gap:12px;bottom:24px}
+ .solar-label{font-size:8px}.solar-moon .solar-label{font-size:7px}
+}
+@media(max-width:1100px) and (min-width:900px){
+ .universe-active .welcome-page{padding-left:24px;padding-right:24px}
+ .universe-active .welcome-header nav{gap:12px}
+ .universe-active .welcome-header .welcome-brand img{width:148px}
+ .universe-active .welcome-header .welcome-brand>span{display:none}
+ .universe-active .welcome-entry{padding-right:24px}
+ .universe-clock{min-width:122px;padding-left:12px}
+}
+@media(max-width:899px){
+ .universe-active .welcome-main{display:block;min-height:0}
+ .universe-active .welcome-entry{display:block;padding:0 18px 28px}
+ .universe-active .welcome-header{height:auto;min-height:94px;gap:12px;padding:12px 0;flex-wrap:wrap}
+ .universe-active .welcome-header nav{width:100%;justify-content:space-between;gap:10px;font-size:10px;flex-wrap:wrap}
+ .universe-clock{min-width:118px;padding-left:10px;margin-left:auto}.universe-clock time{font-size:12px}
+ .universe-active .welcome-story{min-height:595px;padding:30px 26px 20px}
+ .universe-active .welcome-copy{padding-top:0}
+ .universe-active .welcome-story-foot{left:24px;right:24px;gap:10px;bottom:26px}
+ .universe-active .welcome-story-foot>.solar-state{display:none}
+ .universe-active .welcome-story:after{left:24px;right:20px;font-size:6px;bottom:9px}
+ .universe-active .welcome-entry{padding-bottom:28px}
+ .universe-active .welcome-entry-inner{padding:25px}
+ .universe-active .universe-caption>span:last-child{top:226px;left:51%;font-size:6px}
+ .solar-label{font-size:7px}.solar-sun .solar-label{font-size:8px}.solar-moon .solar-label{font-size:6px}
+}
