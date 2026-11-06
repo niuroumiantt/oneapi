@@ -48,19 +48,18 @@ test('verified registration creates durable personal identity and isolated organ
  const fresh=jar();for(const [k,v]of owner.j.cookies)fresh.cookies.set(k,v);assert.equal((await fresh.call(`/api/platform/organizations/${orgA.id}`)).data.organization.name,'Company A');
 });
 test('invitations bind verified email, are one-use, and cannot be replayed or self-promote',async()=>{
- const inv=await invite(owner,orgA,member,'member','研发');assert.equal((await other.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,403);
+ const inv=await invite(owner,orgA,member,'member','研发');const preview=await jar().call('/api/platform/invitations/preview?token='+encodeURIComponent(inv.token));assert.equal(preview.status,200);assert.equal(preview.data.email,member.email);assert.equal(preview.data.organizationName,'Company A');assert.equal((await other.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,403);
  assert.equal((await member.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,200);assert.equal((await member.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,400);
+ assert.equal((await jar().call('/api/platform/invitations/preview?token='+encodeURIComponent(inv.token))).status,400);
  const view=(await member.j.call(`/api/platform/organizations/${orgA.id}`)).data;assert.equal(view.members.length,1);
- assert.equal((await member.j.call(`/api/platform/organizations/${orgA.id}/members/${view.members[0].id}`,{method:'PATCH',body:{role:'owner'}})).status,403);
+ assert.equal((await member.j.call(`/api/platform/organizations/${orgA.id}/members/${view.members[0].id}`,{method:'PATCH',body:{role:'owner'}})).status,400);
 });
-test('department scopes and billing are enforced by server, not client role selections',async()=>{
- for(const [u,role,department]of [[dept,'department_admin','研发'],[billing,'billing','财务']]){const inv=await invite(owner,orgA,u,role,department);assert.equal((await u.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,200);}
- const view=(await dept.j.call(`/api/platform/organizations/${orgA.id}`)).data;assert.ok(view.members.every(m=>m.department==='研发'));assert.equal(view.members.length,2);
- const all=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data;
- const bill=all.members.find(m=>m.user_id===billing.user.id);
- assert.equal((await dept.j.call(`/api/platform/organizations/${orgA.id}/members/${bill.id}`,{method:'PATCH',body:{status:'suspended'}})).status,403);
- assert.equal((await billing.j.call(`/api/platform/organizations/${orgA.id}/invitations`,{method:'POST',body:{email:'x@example.test'}})).status,403);
- assert.equal((await dept.j.call(`/api/platform/organizations/${orgA.id}/invitations`,{method:'POST',body:{email:'x@example.test',role:'admin',department:'研发'}})).status,403);
+test('new enterprise invitations grant only staff access',async()=>{
+ for(const role of ['admin','department_admin','billing','owner'])assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/invitations`,{method:'POST',body:{email:'x@example.test',role,department:'研发'}})).status,400);
+ const inv=await invite(owner,orgA,dept,'member','研发');assert.equal((await dept.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,200);
+ assert.equal((await dept.j.call(`/api/platform/organizations/${orgA.id}/invitations`,{method:'POST',body:{email:'x@example.test'}})).status,403);
+ const view=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data;const target=view.members.find(m=>m.user_id===dept.user.id);
+ assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/members/${target.id}`,{method:'PATCH',body:{role:'admin'}})).status,400);
 });
 test('suspension immediately invalidates old organization access and pending invitations',async()=>{
  const m=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data.members.find(m=>m.user_id===member.user.id);

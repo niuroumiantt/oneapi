@@ -14,6 +14,7 @@ export function organizationRoutes(app,pool,cfg,mail,requireCustomer){
   const m=(await db.query('SELECT * FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status=\'active\'',[org,user])).rows[0];if(!m)throw new HttpError(403,'没有这个企业的访问权限');return m;
  }
  app.get(prefix+'/me',requireCustomer,async(req,res)=>{const orgs=(await pool.query('SELECT o.id,o.name,m.role,m.department FROM memberships m JOIN organizations o ON o.id=m.organization_id WHERE m.user_id=$1 AND m.status=\'active\' ORDER BY o.created_at',[req.customer.id])).rows;res.json({user:req.customer,organizations:orgs,capabilities:{identity:true,payments:false,inference:false}});});
+ app.get(prefix+'/invitations/preview',async(req,res)=>{const secret=text(req.query.token,'邀请链接',100);const row=(await pool.query("SELECT i.email,i.role,i.department,i.status,i.expires_at,o.name AS organization_name FROM invitations i JOIN organizations o ON o.id=i.organization_id WHERE i.token_hash=$1",[hash(secret)])).rows[0];if(!row||row.status!=='pending'||new Date(row.expires_at)<=new Date())throw new HttpError(400,'邀请已使用、撤销或过期');res.set('Cache-Control','no-store');res.json({email:row.email,organizationName:row.organization_name,role:row.role,department:row.department,expiresAt:row.expires_at});});
  app.post(prefix+'/organizations',requireCustomer,async(req,res)=>{const name=text(req.body.name,'企业名称');const result=await transaction(pool,async db=>{
   await db.query('SELECT id FROM "user" WHERE id=$1 FOR UPDATE',[req.customer.id]);
   const count=Number((await db.query('SELECT count(*) FROM organizations WHERE created_by=$1',[req.customer.id])).rows[0].count);if(count>=10)throw new HttpError(409,'最多创建 10 个企业空间');
@@ -28,13 +29,13 @@ export function organizationRoutes(app,pool,cfg,mail,requireCustomer){
   let invites=[];if(['owner','admin','department_admin'].includes(m.role))invites=(await pool.query('SELECT id,email,role,department,status,expires_at FROM invitations WHERE organization_id=$1'+(m.role==='department_admin'?' AND department=$2':'')+' ORDER BY created_at DESC LIMIT 100',m.role==='department_admin'?[m.organization_id,m.department]:[m.organization_id])).rows;
   res.json({organization:org,membership:m,members,invitations:invites,permissions:{manageMembers:['owner','admin','department_admin'].includes(m.role),manageOwners:m.role==='owner',viewBilling:['owner','admin','billing'].includes(m.role)}});
  });
- app.post(prefix+'/organizations/:org/invitations',requireCustomer,async(req,res)=>{const to=email(req.body.email),grant=desired(req.body);const result=await transaction(pool,async db=>{
+ app.post(prefix+'/organizations/:org/invitations',requireCustomer,async(req,res)=>{const to=email(req.body.email),grant=desired(req.body);if(grant.role!=='member')throw new HttpError(400,'新成员统一为企业员工');const result=await transaction(pool,async db=>{
   const actor=await member(db,req.params.org,req.customer.id,true);if(!canManage(actor,grant))throw new HttpError(403,'不能授予这个角色或部门范围');
   const exists=await db.query('SELECT 1 FROM memberships m JOIN "user" u ON u.id=m.user_id WHERE m.organization_id=$1 AND lower(u.email)=$2',[req.params.org,to]);if(exists.rowCount)throw new HttpError(409,'该用户已是企业成员，请在成员列表管理');
   await db.query("UPDATE invitations SET status='revoked' WHERE organization_id=$1 AND lower(email)=$2 AND status='pending'",[req.params.org,to]);
   const secret=token(),invite=(await db.query("INSERT INTO invitations(organization_id,invited_by,email,role,department,token_hash,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+interval '3 days') RETURNING id,email,role,department,status,expires_at",[req.params.org,req.customer.id,to,grant.role,grant.department,hash(secret)])).rows[0];
   const org=(await db.query('SELECT name FROM organizations WHERE id=$1',[req.params.org])).rows[0];
-  await mail.queue({to,subject:`邀请加入 ${org.name} · semifly.ai`,text:`你被邀请加入semifly.ai企业空间「${org.name}」。\n角色：${grant.role}；部门：${grant.department||'未指定'}。请使用此邮箱注册并验证后，在三天内打开链接接受邀请：\n${cfg.origin}/#accept-invite/${secret}\n如果你不认识邀请方，请忽略。`},db);
+  await mail.queue({to,subject:`邀请加入 ${org.name} · semifly.ai`,text:`${org.name} 邀请你加入 semifly.ai 企业工作空间。\n请在三天内打开下方一次性链接。已有账号请用本邮箱登录；首次加入请先注册并验证邮箱，再确认加入。\n${cfg.origin}/#accept-invite/${secret}\n链接只能使用一次。如不认识邀请方，请忽略。\n\nsemifly.ai, It's your API.`},db);
   await audit(db,req.actor,'member.invited',req.params.org,invite.id,{role:grant.role,department:grant.department});return invite;
  });res.status(201).json(result);});
  app.post(prefix+'/organizations/:org/invitations/:invite/revoke',requireCustomer,async(req,res)=>{await transaction(pool,async db=>{
@@ -55,6 +56,7 @@ export function organizationRoutes(app,pool,cfg,mail,requireCustomer){
  app.patch(prefix+'/organizations/:org/members/:member',requireCustomer,async(req,res)=>{await transaction(pool,async db=>{
   const actor=await member(db,req.params.org,req.customer.id,true),target=(await db.query('SELECT * FROM memberships WHERE id=$1 AND organization_id=$2 FOR UPDATE',[id(req.params.member),req.params.org])).rows[0];if(!target)throw new HttpError(404,'成员不存在');
   const next=desired({role:req.body.role??target.role,department:req.body.department??target.department}),status=req.body.status??target.status;
+  if(next.role!==target.role&&next.role!=='member')throw new HttpError(400,'当前只支持企业代表人与企业员工两种身份');
   if(!['active','suspended'].includes(status))throw new HttpError(400,'成员状态不正确');
   if(!canManage(actor,target)||!canManage(actor,next))throw new HttpError(403,'不能修改这个成员或授予该权限');
   if(target.role==='owner'&&target.status==='active'&&(next.role!=='owner'||status!=='active')){const count=Number((await db.query("SELECT count(*) FROM memberships WHERE organization_id=$1 AND role='owner' AND status='active'",[req.params.org])).rows[0].count);if(count<=1)throw new HttpError(409,'企业必须保留至少一位有效所有者');}
