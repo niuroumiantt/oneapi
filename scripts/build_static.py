@@ -22,14 +22,15 @@ def main():
     sha = git('rev-parse', 'HEAD').decode().strip()
     html = git('show', 'HEAD:web/index.html').decode()
     assets = {}
-    for name in ('styles.css', 'enterprise.css', 'enterprise-core.js', 'app.js', 'enterprise.js'):
+    for name in ('styles.css', 'enterprise.css', 'enterprise-core.js', 'icons.js', 'app.js', 'enterprise.js'):
         content = git('show', f'HEAD:web/{name}')
         stem, extension = name.rsplit('.', 1)
         target = f'{stem}.{hashlib.sha256(content).hexdigest()[:12]}.{extension}'
         html = html.replace(f'"{name}"', f'"{target}"')
         assets[target] = content
     assets['index.html'] = html.encode()
-    assets['favicon.svg'] = git('show', 'HEAD:web/favicon.svg')
+    for name in ('favicon.svg', 'semifly-wordmark.svg', 'semifly-lockup.svg', 'THIRD-PARTY-LICENSES.txt'):
+        assets[name] = git('show', f'HEAD:web/{name}')
     release = {
         'app': 'oneapi', 'source_sha': sha, 'stage': 'ui-preview',
         'domain': 'oneapi.glocalstorage.cn', 'transactions_enabled': False,

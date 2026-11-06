@@ -30,3 +30,10 @@
 - 私有原型：https://oneapi-spectrum-preview.niuroumiantt.chatgpt.site
 
 最新阶段见 [阿里云部署交接](oneapi-aliyun.md) 和 [企业工作台设计](../phase-1/09-enterprise-workspace.md)。
+
+## 2026-11-06 品牌与入口调整
+
+- 用户纠正：平台内部员工入口不与客户并列；个人与企业两张卡片，员工走右上角“管理台”。企业客户员工仍在企业工作台内管理。
+- 企业原版 semifly Logo 已入库，OneAPI 保留产品名；底色和蓝色主操作保持既定风格。
+- Lucide 固定版本本地 SVG 替换功能字符图标，包含动态内容和版权文件。
+- 视觉与跨项目接续请先读 [品牌和图标规范](../../design/spectrum/brand-and-icons.md)。Figma 旧约定未找回，不要声称已经连接 Figma。
