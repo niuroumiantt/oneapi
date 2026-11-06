@@ -15,3 +15,7 @@
 前端静态归档 SHA256 `bc3f6108ab5d16640783930a3c9f49b4eedc1f6b4d823d29078874b658fd634d`，infra 发布器返回 deployed。公网 `/release.json` 与 `/api/status` 均显示该源码 SHA、business_ready=false，支付及推理仍关闭；静态身份脚本包含供应管理台；匿名供应 API 返回 401；旧 `api.glocalstorage.cn` 首页返回 200。浏览器匿名直开 `#ops/supply` 正确显示公司身份登录，当前会话没有员工身份，因此未对生产员工登录后的界面做人工视觉验收。
 
 `npm test` 25/25 通过；本地数据库位于一次性 PostgreSQL 测试实例，结束后关闭。下一阶段需取得正式供方资料，再由授权员工建立候选档案。不要将无真实采购资格的候选数据发布到客户广场。
+
+## 首位员工登录澄清（2026-11-07）
+
+用户截图显示 Authentik 已登录 `admin` 并进入 TOTP 初次绑定页。线上只读核对：`sales@glocalstorage.com` 对应独立 `oneapi-sales` 用户，处于 inactive、activation_pending=true 且属于 OneAPI Staff；截图中的 `admin` 与该邮箱不符，也不属于 OneAPI Staff。oneapi 的 `staff_members` 尚无首次登录记录。首位管理员没有预设密码，须本人使用公司邮箱开通链接验证、设置密码及 MFA，随后再从 `#staff` 登录。截图中的二维码可能包含 TOTP 种子，不能作为公开教程传播；若已据此绑定 Authentik admin 的验证器，应在身份中心撤销并重新绑定。员工入口文案补充了账号切换和 MFA 使用提示。
