@@ -16,18 +16,18 @@
 
 - 旧 api.glocalstorage.cn 及 niuroumiantt/api 平台保留，oneapi 独立建设；新版 oneapi.glocalstorage.cn。
 - 主体深圳市格洛可半导体有限公司；正式业务首轮直接公众注册；目前只开放明确标注的静态演示。
-- 三入口：个人、企业客户、平台员工。customer / staff 为身份域，owner 为组织内所有者角色。
+- 客户主入口为个人、企业工作台；本公司员工经右上角“管理台”进入独立员工预览页。customer / staff 为身份域，owner 为组织内所有者角色。
 - 企业客户自主成员管理及预算分配；用户示例 ¥1,000 / 10 人各 ¥100。研究建议未自动变成已上线功能或用户批准的商业条款。
 
 ## 已完成
 
 - 阿里云 HTTPS 首页、模型广场、供应运营及详情交互可访问，浏览器无捕获的错误日志。
-- 部署源码 SHA：91768b034850e3aa80286d4049bf01ebf9c909aa；infra 发布配置 SHA：40cafd89e19f7c560104de204b15aa8e7ac18057。
-- 产物 SHA256：060ff448b4f0f6da7073ec4c4ff1ecf1982f939eb36e713fcf8ac96e10aa78b6。
+- 部署源码 SHA：651526543a715c0eb93a1cba5e3d0e5f4664f064；infra 发布配置 SHA：629959b22f25df841e5f551446c33177d6a1f555。
+- 产物 SHA256：42b88914e74dadd245e0183781a461986f688d443ff17840e6a0545c2290b65c。
 - /healthz 与 /release.json 200，CSS/JS 200；HTTP 308→HTTPS；/v1/models 与 /api/customer/v1/me 503；/login 404（未实现）。
 - 旧域名首页 200；model-marketplace-web/newapi/postgres 三容器 ID、StartedAt 未变化，仍 running。
 - Caddy 保留原内容，只追加 OneAPI 块；Caddy 2.11.4 的 admin off 保留，以 SIGUSR1 重载，未重启业务容器。
-- 企业工作台研究与设计保存于 docs/phase-1/09-enterprise-workspace.md，尚未实现其 UI 或后端。
+- 企业工作台交互预览已实现成员、预算调拨、暂停/移除与申请审批；后端尚未实现。设计见 docs/phase-1/09-enterprise-workspace.md。
 
 ## 部署位置与回滚
 
@@ -38,7 +38,7 @@
 
 ## 下一步
 
-1. 按最新用户要求先评审三家对比和企业工作台设计；做三入口与预算调配原型。
+1. 客户双入口、企业预算原型、semifly 原版 Logo 与 Lucide 图标已部署；继续落实五模块真实业务，见 docs/phase-1 中的实施进度表。
 2. 实现真实认证、组织 Membership、授权作用范围，再接企业钱包、预占结算及成员用量；不能把静态演示当验收。
 3. 落实真实商户与采购账户、价格和模型/客户端版本；不在聊天或 Git 收集秘密。
 4. 实现供应验证、模型调用、支付和促销，完成 docs/phase-1/08、09 的全链路验收后公开业务。
@@ -51,3 +51,7 @@ infra 分支 codex-oneapi-aliyun 位于 ~/.worktrees/infra/oneapi-aliyun；两�
 m5 的 aliyun SSH 别名仍配置旧密钥，部署显式使用 ~/.ssh/id_ed25519；没有修改全局 SSH 配置。静态发布使用 MAINLAND_SSH_IDENTITY 和 STATIC_PYTHON=/Users/m5/.local/bin/python3.12，复用 infra/scripts/push_static_candidate.sh。
 
 参考：docs/deployment/aliyun.md、docs/phase-1/09-enterprise-workspace.md、design/spectrum/README.md。网站 https://oneapi.glocalstorage.cn 当前源码版本与后续纯文档提交可能不同，以 /release.json 为准。
+
+## 最新界面发布验证
+
+2026-11-06：桌面与 390px 手机双入口、右上角管理台、动态 Lucide 图标检查通过；企业额度 10 项测试通过，浏览器未捕获错误。归档 13 个文件，发布状态 deployed，业务仍为 ui-preview / business_ready=false。品牌和 Figma 对应规范见 design/spectrum/brand-and-icons.md。Figma 旧约定未找到，未连接 Figma 服务。
