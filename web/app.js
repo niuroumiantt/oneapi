@@ -28,7 +28,10 @@ function renderModels(){
  $$('[data-family]').forEach(b=>{b.classList.toggle('active',b.dataset.family===family);b.setAttribute('aria-pressed',String(b.dataset.family===family));});
 }
 function switchView(view){
+ document.body.classList.toggle('catalog-active',view==='catalog');
  if(!view||view==='login')view='universe';
+ if(window.LandingUI?.handles(view)){window.LandingUI.render(view);return;}
+ window.LandingUI?.hide();
  if(view==='catalog')view='market';
  if(window.IdentityUI?.handles(view)){window.IdentityUI.route(view);return;}
  window.IdentityUI?.cancel();document.body.classList.remove('identity-active');const identityView=document.getElementById('identity-view');if(identityView)identityView.hidden=true;
