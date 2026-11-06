@@ -68,27 +68,27 @@
     $('#login-view').innerHTML=`<div class="welcome-page">
   <header class="welcome-header">
     <a class="welcome-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"><span>It’s Your <em class="brand-ai">A</em>P<em class="brand-ai">I</em>.</span></a>
-    <nav aria-label="欢迎页导航"><a href="#market">发现好模型 <span data-icon="arrow-up-right"></span></a><a class="welcome-staff" href="#staff" aria-label="管理台：本公司员工入口">管理台</a><div data-account-slot><a class="live-signin" href="#personal"><span data-icon="user-round"></span>登录 / 注册</a></div></nav>
+    <nav aria-label="欢迎页导航"><a href="#market">发现好模型 <span data-icon="arrow-up-right"></span></a><a class="welcome-staff" href="#staff" aria-label="管理台：本公司员工入口">管理台</a><div data-account-slot><a class="live-signin" href="#personal"><span data-icon="user-round"></span>登录 / 注册</a></div><div class="universe-clock"><span>北京时间</span><time id="universe-clock" aria-live="off">--:--:--.---</time></div></nav>
   </header>
   <main class="welcome-main">
     <div class="universe-scene" aria-hidden="true"><canvas id="universe-canvas"></canvas><div class="universe-nebula"></div><div id="solar-bodies"></div><div class="universe-near-world"></div></div>
     <div class="universe-caption" aria-hidden="true"><span>太阳系 · 动态示意</span><span>ANDROMEDA / 仙女星系</span></div>
     <section class="welcome-story" aria-labelledby="welcome-title">
-      <div class="welcome-story-top"><span class="welcome-kicker"><i></i> A LITTLE SPARK. A BIG IDEA.</span><span class="welcome-edition">semifly / 01</span></div>
+
       <div class="welcome-copy"><h1 id="welcome-title">让灵感，<br><span>起飞一下。</span><svg class="welcome-underline" viewBox="0 0 440 24" aria-hidden="true"><path d="M5 15Q195 -3 429 12M125 21Q270 10 432 17"/></svg></h1><p><span class="universe-description">从一束灵感，去往更大的世界。<br>下一次发现，从这里开始。</span></p></div>
-      <div class="welcome-story-foot"><span>为每一个想动手的你。</span><span class="welcome-play-label"><i></i> IDEAS IN MOTION</span><span class="solar-state" id="solar-state" role="status">公转中</span><label class="solar-speed">速度 <select id="solar-speed" aria-label="公转演示速度"><option value="0.1" selected>0.1×</option><option value="0.2">0.2×</option><option value="0.5">0.5×</option><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></label><button class="welcome-motion" type="button" data-welcome-motion aria-pressed="false" aria-label="暂停装饰动效"><span data-motion-label>暂停动效</span></button></div>
+      <div class="welcome-story-foot"><div class="solar-control"><div class="solar-control-caption"><label for="solar-speed">宇宙运行速度</label><output id="solar-speed-value" for="solar-speed">0.10×</output></div><input id="solar-speed" type="range" min="0" max="1000" step="1" value="137" aria-label="宇宙运行速度" aria-valuetext="0.10 倍" style="--speed-progress:13.7%"><div class="solar-control-ticks" aria-hidden="true"><span>0.05×</span><span>8×</span></div></div><span class="solar-state" id="solar-state" role="status">公转中</span><button class="welcome-motion" type="button" data-welcome-motion aria-pressed="false" aria-label="暂停天体公转"><span data-motion-label>暂停公转</span></button></div>
     </section>
     <section class="welcome-entry" aria-labelledby="welcome-entry-title">
       <div class="welcome-entry-inner">
-        <span class="welcome-hello">HELLO, YOU <span class="welcome-hello-dot"></span></span>
+
         <h2 id="welcome-entry-title">很高兴见到你。</h2>
         <p class="welcome-entry-lead">欢迎登船，你的灵感在这里启程。</p>
-        <div class="welcome-space-copy" aria-live="polite" aria-atomic="true"><span class="welcome-space-index" id="welcome-space-index">01 / MY SPACE</span><h3 id="welcome-space-title">给自己的灵感，留个位置。</h3><p id="welcome-space-description">发现适合你的模型，开始下一个小作品。<br>下一件作品，从你的好奇心开始。</p></div>
-        <a class="welcome-continue" id="welcome-continue" href="#personal"><span id="welcome-continue-label">开始我的旅程</span><span class="welcome-continue-arrow" data-icon="arrow-right"></span></a>
-        <p class="welcome-preview-note"><span></span>一个邮箱，开启自己的空间</p>
+        <div class="welcome-space-copy" aria-live="polite" aria-atomic="true"><h3 id="welcome-space-title">给自己的灵感，留个位置。</h3><p id="welcome-space-description">发现适合你的模型，开始下一个小作品。<br>下一件作品，从你的好奇心开始。</p></div>
+        <a class="welcome-continue" id="welcome-continue" href="#register"><span id="welcome-continue-label">注册：开始我的旅程</span><span class="welcome-continue-arrow" data-icon="arrow-right"></span></a>
+        <p class="welcome-preview-note">已有账号？<a href="#personal">登录我的空间</a></p>
         <div class="welcome-explore"><span>还想先看看？</span><a href="#market">逛逛模型广场 <span data-icon="arrow-up-right"></span></a></div>
       </div>
-      <div class="welcome-entry-foot"><span class="welcome-mini-line"></span><span>GOOD TO HAVE YOU HERE.</span></div>
+
     </section>
   </main>
   <footer class="welcome-footer"><span>semifly · 为好想法多走一步</span><span>深圳市格洛可半导体有限公司</span></footer>
