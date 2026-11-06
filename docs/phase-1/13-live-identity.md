@@ -1,3 +1,5 @@
+> 最新命名：semifly.ai；标语 It’s Your API.。按用户要求，正式 SVG 仅调整填色：semifly 与分隔点为 #1C2541，ai 为 #E43C2F；图形标志保留。此前“拼API”为历史称呼，不再用于对外界面。内部仓库、服务标识和域名仍为 oneapi。
+
 # 第一期真实身份与权限
 
 2026-11-06。拼API独立域名 oneapi.glocalstorage.cn；旧 api.glocalstorage.cn 保留。
@@ -39,3 +41,7 @@ Node 24 / Express 5，独立 PostgreSQL 16。核心表：Better Auth user/sessio
 ## 正式品牌文件
 
 用户提供 semifly-brand-kit-20261106-v1。web/pinapi-wordmark.svg 原样复制官方 horizontal-color SVG；pinapi-mark.svg 和 favicon.svg 来自同一品牌包的 symbol-color 与 UI favicon。完整横版标志已含图形，导航不再额外拼接图标。官方朱红 #E43C2F、海军蓝 #1C2541；不使用字体近似或 CSS 滤镜重绘标志。
+
+## 生产构建备用路径
+
+Dockerfile 是固定官方 Node 24.22.2 digest 的标准构建。Dockerfile.cached-runtime 供大镜像层下载不可用时使用：明确传入已检查的本地 Node/Alpine 镜像 ID，依赖安装禁用生命周期脚本；最终 FROM scratch 只复制 Node 可执行文件、许可证、动态库、CA 与本仓库产物，不继承缓存来源的应用、环境、数据或启动命令。运行前必须验证数据库、TLS/SMTP、OIDC 和非 root 配置。

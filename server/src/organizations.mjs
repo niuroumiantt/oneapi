@@ -34,7 +34,7 @@ export function organizationRoutes(app,pool,cfg,mail,requireCustomer){
   await db.query("UPDATE invitations SET status='revoked' WHERE organization_id=$1 AND lower(email)=$2 AND status='pending'",[req.params.org,to]);
   const secret=token(),invite=(await db.query("INSERT INTO invitations(organization_id,invited_by,email,role,department,token_hash,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+interval '3 days') RETURNING id,email,role,department,status,expires_at",[req.params.org,req.customer.id,to,grant.role,grant.department,hash(secret)])).rows[0];
   const org=(await db.query('SELECT name FROM organizations WHERE id=$1',[req.params.org])).rows[0];
-  await mail.queue({to,subject:`邀请加入 ${org.name} · 拼API`,text:`你被邀请加入拼API企业空间「${org.name}」。\n角色：${grant.role}；部门：${grant.department||'未指定'}。请使用此邮箱注册并验证后，在三天内打开链接接受邀请：\n${cfg.origin}/#accept-invite/${secret}\n如果你不认识邀请方，请忽略。`},db);
+  await mail.queue({to,subject:`邀请加入 ${org.name} · semifly.ai`,text:`你被邀请加入semifly.ai企业空间「${org.name}」。\n角色：${grant.role}；部门：${grant.department||'未指定'}。请使用此邮箱注册并验证后，在三天内打开链接接受邀请：\n${cfg.origin}/#accept-invite/${secret}\n如果你不认识邀请方，请忽略。`},db);
   await audit(db,req.actor,'member.invited',req.params.org,invite.id,{role:grant.role,department:grant.department});return invite;
  });res.status(201).json(result);});
  app.post(prefix+'/organizations/:org/invitations/:invite/revoke',requireCustomer,async(req,res)=>{await transaction(pool,async db=>{

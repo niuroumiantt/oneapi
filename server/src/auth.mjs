@@ -1,11 +1,11 @@
 import { betterAuth, APIError } from 'better-auth';
 export function customerAuth(pool,cfg,mail){
  return betterAuth({
-  appName:'拼API',baseURL:cfg.origin,basePath:'/api/auth',secret:cfg.secret,database:pool,trustedOrigins:[cfg.origin],
+  appName:'semifly.ai',baseURL:cfg.origin,basePath:'/api/auth',secret:cfg.secret,database:pool,trustedOrigins:[cfg.origin],
   emailAndPassword:{enabled:true,requireEmailVerification:true,minPasswordLength:12,maxPasswordLength:128,revokeSessionsOnPasswordReset:true,
-   sendResetPassword:async({user,token})=>mail.queue({to:user.email,subject:'重设拼API登录密码',text:`请在一小时内打开以下链接重设密码。若非本人操作，请忽略。\n${cfg.origin}/?reset_token=${encodeURIComponent(token)}#reset-password`})},
+   sendResetPassword:async({user,token})=>mail.queue({to:user.email,subject:'重设semifly.ai登录密码',text:`请在一小时内打开以下链接重设密码。若非本人操作，请忽略。\n${cfg.origin}/?reset_token=${encodeURIComponent(token)}#reset-password`})},
   emailVerification:{sendOnSignUp:true,sendOnSignIn:true,autoSignInAfterVerification:true,expiresIn:3600,
-   sendVerificationEmail:async({user,url})=>mail.queue({to:user.email,subject:'验证你的拼API邮箱',text:`欢迎来到拼API。请在一小时内打开链接验证邮箱：\n${url}\n若非本人操作，请忽略此邮件。`})},
+   sendVerificationEmail:async({user,url})=>mail.queue({to:user.email,subject:'验证你的semifly.ai邮箱',text:`欢迎来到semifly.ai。请在一小时内打开链接验证邮箱：\n${url}\n若非本人操作，请忽略此邮件。`})},
   session:{expiresIn:60*60*24*7,updateAge:60*60,freshAge:15*60,cookieCache:{enabled:false}},
   user:{additionalFields:{disabled:{type:'boolean',defaultValue:false,input:false}}},
   advanced:{cookiePrefix:'oneapi_customer',useSecureCookies:cfg.production,defaultCookieAttributes:{httpOnly:true,sameSite:'lax',path:'/'},ipAddress:{ipAddressHeaders:['x-real-ip']}},

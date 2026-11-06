@@ -37,7 +37,7 @@
  const roles=[['运营管理员','客户、商品、活动','按授权管理','不默认拥有付款审批'],['供应运营','供应档案、验证任务','管理供应与验证','不可调客户余额'],['财务','订单、账本、退款','核对与审核','不可读取客户 Key'],['客户支持','授权客户与工单','查询与服务','不授予平台管理权限']];
  function team(){return `<div class="ops-columns"><section class="ops-panel ops-rule-card"><span class="ops-kicker">OUR TEAM</span><h2>把事情交给<br>合适的人。</h2><p>深圳市格洛可半导体有限公司的内部员工使用这个管理台。岗位与资源范围共同决定权限。</p><span class="ops-offline">真实员工邀请与 MFA 待接入</span></section><section class="ops-panel ops-rule-card mint"><span class="ops-kicker">CUSTOMER TEAMS</span><h2>客户的团队，<br>客户自己做主。</h2><p>企业所有者、管理员、部门管理员、财务和成员，在企业自己的额度与资源范围内协作。</p><a class="ops-link" href="#enterprise">体验企业成员与预算 ${icon('arrow-up-right')}</a></section></div><section class="ops-panel">${heading('岗位权限蓝图','按岗位分工，按资源范围授权。点击查看具体边界。')}${table(['平台岗位','资源范围','主要职责','权限边界','操作'],roles.map((r,i)=>`<tr>${r.map((v,j)=>`<td>${j===0?'<b>'+v+'</b>':v}</td>`).join('')}<td>${button('查看权限','role',`data-index="${i}"`,'ops-text-button')}</td></tr>`))}</section>`;}
  function audit(){return `<section class="ops-panel">${heading('本次预览记录','刷新页面后恢复；真实审计日志尚未接入。')}${table(['时间','模块','操作','结果'],logs.map(r=>`<tr>${r.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`))}</section>`;}
- function settings(){return `<section class="ops-panel">${heading('中国区 · 独立部署','保留旧平台，拼API 使用独立入口。')}${table(['配置项','当前状态'],[['品牌','拼API / semifly.ai · 朱红、深海军蓝、暖白'],['经营主体','深圳市格洛可半导体有限公司'],['当前入口','oneapi.glocalstorage.cn'],['旧平台','api.glocalstorage.cn · 保持独立'],['区域与币种','中国区 · CNY'],['客户注册与员工认证','待接入真实认证'],['支付与模型调用','尚未开放'],['默认天体速度','0.1× · 太阳与轨道缓慢漂移']].map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`))}</section>`;}
+ function settings(){return `<section class="ops-panel">${heading('中国区 · 独立部署','保留旧平台，semifly.ai 使用独立入口。')}${table(['配置项','当前状态'],[['品牌','semifly.ai / semifly.ai · 朱红、深海军蓝、暖白'],['经营主体','深圳市格洛可半导体有限公司'],['当前入口','oneapi.glocalstorage.cn'],['旧平台','api.glocalstorage.cn · 保持独立'],['区域与币种','中国区 · CNY'],['客户注册与员工认证','待接入真实认证'],['支付与模型调用','尚未开放'],['默认天体速度','0.1× · 太阳与轨道缓慢漂移']].map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`))}</section>`;}
  const renderers={overview,customers,models:modelsPage,verification,payments,promotions,team,audit,settings};
  function render(section){
   if(!sections[section])section='overview';
@@ -48,7 +48,7 @@
   document.querySelectorAll('#admin-view [data-section]').forEach(b=>{const selected=b.dataset.section===current||(current==='verification'&&b.dataset.section==='supply');b.classList.toggle('active',selected);if(selected)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
   mobile.value=current;
   if(current==='supply')return;
-  page.innerHTML=hero()+renderers[current]()+`<footer class="ops-footer"><span>拼API / semifly.ai</span><span>界面演示 · 本页操作仅在当前标签页生效</span></footer>`;
+  page.innerHTML=hero()+renderers[current]()+`<footer class="ops-footer"><span>semifly.ai / semifly.ai</span><span>界面演示 · 本页操作仅在当前标签页生效</span></footer>`;
  }
  const mobile=document.createElement('select');mobile.className='ops-mobile-nav';mobile.setAttribute('aria-label','切换管理模块');mobile.innerHTML=Object.entries(sections).map(([id,[name]])=>`<option value="${id}">${name}</option>`).join('');host.querySelector('.admin-header').append(mobile);mobile.addEventListener('change',()=>{location.hash='ops/'+mobile.value;});
  const verifyLink=document.createElement('a');verifyLink.href='#ops/verification';verifyLink.className='ops-supply-verify ops-button';verifyLink.innerHTML=icon('shield-check')+' 产品验证';supply.querySelector('.admin-actions').prepend(verifyLink);
