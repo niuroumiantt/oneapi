@@ -138,6 +138,28 @@ test('supplier drafts and validation records persist with staff permissions and 
  const priceList=await staff.call('/api/staff/price-proposals');assert.equal(priceList.status,200);assert.equal(priceList.data.checkout_enabled,false);assert.ok(priceList.data.proposals.some(q=>q.id===price.data.id&&q.model_product_name==='Fixture Chat CN'));
  assert.equal((await staff.call('/api/staff/price-proposals',{method:'POST',body:{...priceBody,input_yuan_per_million:'12.345'}})).status,400);
  assert.equal((await staff.call('/api/staff/price-proposals',{method:'POST',body:{...priceBody,evidence_url:'http://example.test/rate'}})).status,400);
+ assert.equal((await outsider.call('/api/staff/model-product-reviews')).status,401);
+ assert.equal((await owner.j.call('/api/staff/model-products/'+product.data.id+'/reviews',{method:'POST',body:{}})).status,401);
+ assert.equal((await staff.call('/api/staff/model-products/'+product.data.id+'/reviews',{method:'POST',body:{}})).status,409);
+ for(const key of ['sales_rights','model_version','protocol','data_region','usage_billing','capacity'])assert.equal((await staff.call('/api/staff/supplier-offers/'+offerId+'/checks/'+key,{method:'PATCH',body:{result:'documented',evidence_url:'https://example.test/'+key}})).status,200);
+ assert.equal((await staff.call('/api/staff/model-products/'+product.data.id+'/reviews',{method:'POST',body:{}})).status,409);
+ const passingRun=await staff.call('/api/staff/supplier-offers/'+offerId+'/validations',{method:'POST',body:{...validationBody,success_count:50,usage_check:'matched',conclusion:'passed'}});assert.equal(passingRun.status,201);
+ const requested=await staff.call('/api/staff/model-products/'+product.data.id+'/reviews',{method:'POST',body:{notes:'Request independent review of the recorded evidence'}});assert.equal(requested.status,201,JSON.stringify(requested.data));assert.equal(requested.data.sale_ready,false);
+ assert.equal(requested.data.validation_run_id,passingRun.data.id);assert.equal(requested.data.price_proposal_id,price.data.id);
+ assert.equal((await staff.call('/api/staff/model-products/'+product.data.id+'/reviews',{method:'POST',body:{}})).status,409);
+ assert.equal((await staff.call('/api/staff/model-product-reviews/'+requested.data.id+'/decision',{method:'POST',body:{status:'internally_reviewed',notes:'Self review'}})).status,409);
+ identity={sub:'staff-reviewer',email:'reviewer@example.test',name:'Reviewer',staff_approved:true};const reviewer=jar();await staffLogin(reviewer);
+ assert.equal((await reviewer.call('/api/staff/model-product-reviews')).status,403);
+ assert.equal((await staff.call('/api/staff/members/staff-reviewer',{method:'PATCH',body:{role:'platform_admin',status:'active'}})).status,200);
+ await staffLogin(reviewer);
+ await pool.query("UPDATE model_price_proposals SET created_at=now()-interval '2 seconds' WHERE id=$1",[price.data.id]);
+ const revisedPrice=await staff.call('/api/staff/price-proposals',{method:'POST',body:{...priceBody,input_yuan_per_million:'13.00'}});assert.equal(revisedPrice.status,201);
+ assert.equal((await reviewer.call('/api/staff/model-product-reviews/'+requested.data.id+'/decision',{method:'POST',body:{status:'internally_reviewed',notes:'Outdated price'}})).status,409);
+ assert.equal((await reviewer.call('/api/staff/model-product-reviews/'+requested.data.id+'/decision',{method:'POST',body:{status:'changes_requested',notes:'Price version changed; resubmit'}})).status,200);
+ const resubmitted=await staff.call('/api/staff/model-products/'+product.data.id+'/reviews',{method:'POST',body:{notes:'Updated price version'}});assert.equal(resubmitted.status,201);assert.equal(resubmitted.data.price_proposal_id,revisedPrice.data.id);
+ const decided=await reviewer.call('/api/staff/model-product-reviews/'+resubmitted.data.id+'/decision',{method:'POST',body:{status:'internally_reviewed',notes:'Internal evidence reviewed; not approved for sale'}});assert.equal(decided.status,200,JSON.stringify(decided.data));assert.equal(decided.data.status,'internally_reviewed');assert.equal(decided.data.sale_ready,false);
+ assert.equal((await reviewer.call('/api/staff/model-product-reviews/'+resubmitted.data.id+'/decision',{method:'POST',body:{status:'changes_requested',notes:'Replay'}})).status,409);
+ const reviewList=await staff.call('/api/staff/model-product-reviews');assert.equal(reviewList.status,200);assert.ok(reviewList.data.reviews.some(r=>r.id===resubmitted.data.id&&r.price_proposal_id===revisedPrice.data.id));assert.equal(reviewList.data.public_catalog_enabled,false);
  const campaignBody={name:'Fixture launch draft',price_proposal_id:price.data.id,customer_price_percent:90,commission_percent:5,total_discount_budget_yuan:1000,starts_at:new Date(Date.now()+86400000).toISOString(),ends_at:new Date(Date.now()+86400000*8).toISOString()};
  assert.equal((await outsider.call('/api/staff/promotion-campaigns')).status,401);
  assert.equal((await owner.j.call('/api/staff/promotion-campaigns')).status,401);
@@ -151,7 +173,7 @@ test('supplier drafts and validation records persist with staff permissions and 
  assert.equal((await staff.call('/api/staff/promotion-campaigns',{method:'POST',body:campaignBody})).status,409);
  assert.equal((await staff.call('/api/staff/price-proposals',{method:'POST',body:priceBody})).status,409);
  assert.equal((await staff.call('/api/staff/supplier-offers',{method:'POST',body:{supplier_id:supplierId,model_name:'Other',upstream_model_id:'other',protocol:'native',region:'CN'}})).status,409);
- const audit=(await staff.call('/api/staff/audit')).data;assert.ok(audit.some(e=>e.action==='supplier_offer.check_updated'&&e.subject_id===offerId));assert.ok(audit.some(e=>e.action==='supplier_offer.validation_recorded'&&e.subject_id===offerId));assert.ok(audit.some(e=>e.action==='model_product.created'&&e.subject_id===product.data.id));assert.ok(audit.some(e=>e.action==='promotion_campaign.created'&&e.subject_id===campaign.data.id));
+ const audit=(await staff.call('/api/staff/audit')).data;assert.ok(audit.some(e=>e.action==='supplier_offer.check_updated'&&e.subject_id===offerId));assert.ok(audit.some(e=>e.action==='supplier_offer.validation_recorded'&&e.subject_id===offerId));assert.ok(audit.some(e=>e.action==='model_product.created'&&e.subject_id===product.data.id));assert.ok(audit.some(e=>e.action==='model_product.review_requested'&&e.subject_id===product.data.id));assert.ok(audit.some(e=>e.action==='model_product.review_decided'&&e.subject_id===product.data.id));assert.ok(audit.some(e=>e.action==='promotion_campaign.created'&&e.subject_id===campaign.data.id));
 });
 test('new employee requires local approval; disabled customer sessions and revoked IdP tokens stop working',async()=>{
  identity={sub:'staff-second',email:'second@example.test',name:'Second',staff_approved:true};const second=jar();await staffLogin(second);assert.equal((await second.call('/api/staff/me')).data.staff.status,'pending');assert.equal((await second.call('/api/staff/customers')).status,403);
