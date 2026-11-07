@@ -108,13 +108,21 @@ test('supplier drafts and validation records persist with staff permissions and 
  assert.equal((await staff.call('/api/staff/supplier-offers/'+offerId+'/checks/source',{method:'PATCH',body:{result:'documented',evidence_url:'https://example.test/evidence'}})).status,200);
  const listing=await staff.call('/api/staff/suppliers');assert.equal(listing.status,200);assert.equal(listing.data.sale_ready,false);assert.ok(listing.data.offers.some(o=>o.id===offerId));
  assert.equal(listing.data.offers.find(o=>o.id===offerId).readiness.documented,1);
+ assert.equal((await outsider.call('/api/staff/model-products')).status,401);
+ assert.equal((await owner.j.call('/api/staff/model-products')).status,401);
+ const product=await staff.call('/api/staff/model-products',{method:'POST',body:{offer_id:offerId,display_name:'Fixture Chat CN',product_code:'fixture-chat-cn',summary:'Internal product draft'}});
+ assert.equal(product.status,201,JSON.stringify(product.data));assert.equal(product.data.public_catalog_enabled,false);
+ const products=await staff.call('/api/staff/model-products');assert.equal(products.status,200);assert.equal(products.data.public_catalog_enabled,false);
+ assert.ok(products.data.products.some(p=>p.id===product.data.id&&p.source_model==='Fixture Chat'&&p.supplier_name==='Fixture Model'));
+ assert.equal((await staff.call('/api/staff/model-products',{method:'POST',body:{offer_id:offerId,display_name:'Duplicate',product_code:'fixture-chat-cn'}})).status,409);
  assert.equal((await staff.call('/api/staff/suppliers/'+supplierId,{method:'PATCH',body:{status:'blocked'}})).status,200);
+ assert.equal((await staff.call('/api/staff/model-products',{method:'POST',body:{offer_id:offerId,display_name:'Blocked',product_code:'fixture-blocked-cn'}})).status,409);
  assert.equal((await staff.call('/api/staff/supplier-offers',{method:'POST',body:{supplier_id:supplierId,model_name:'Other',upstream_model_id:'other',protocol:'native',region:'CN'}})).status,409);
- const audit=(await staff.call('/api/staff/audit')).data;assert.ok(audit.some(e=>e.action==='supplier_offer.check_updated'&&e.subject_id===offerId));
+ const audit=(await staff.call('/api/staff/audit')).data;assert.ok(audit.some(e=>e.action==='supplier_offer.check_updated'&&e.subject_id===offerId));assert.ok(audit.some(e=>e.action==='model_product.created'&&e.subject_id===product.data.id));
 });
 test('new employee requires local approval; disabled customer sessions and revoked IdP tokens stop working',async()=>{
  identity={sub:'staff-second',email:'second@example.test',name:'Second',staff_approved:true};const second=jar();await staffLogin(second);assert.equal((await second.call('/api/staff/me')).data.staff.status,'pending');assert.equal((await second.call('/api/staff/customers')).status,403);
- assert.equal((await staff.call('/api/staff/members/staff-second',{method:'PATCH',body:{role:'finance',status:'active'}})).status,200);assert.equal((await second.call('/api/staff/me')).status,401);await staffLogin(second);assert.equal((await second.call('/api/staff/customers')).status,403);assert.equal((await second.call('/api/staff/suppliers')).status,200);assert.equal((await second.call('/api/staff/suppliers',{method:'POST',body:{legal_name:'No',display_name:'No',source_type:'official',region:'CN'}})).status,403);
+ assert.equal((await staff.call('/api/staff/members/staff-second',{method:'PATCH',body:{role:'finance',status:'active'}})).status,200);assert.equal((await second.call('/api/staff/me')).status,401);await staffLogin(second);assert.equal((await second.call('/api/staff/customers')).status,403);assert.equal((await second.call('/api/staff/suppliers')).status,200);assert.equal((await second.call('/api/staff/model-products')).status,200);assert.equal((await second.call('/api/staff/model-products',{method:'POST',body:{offer_id:'00000000-0000-0000-0000-000000000000',display_name:'No',product_code:'finance-denied'}})).status,403);assert.equal((await second.call('/api/staff/suppliers',{method:'POST',body:{legal_name:'No',display_name:'No',source_type:'official',region:'CN'}})).status,403);
  assert.equal((await staff.call(`/api/staff/customers/${member.user.id}/status`,{method:'POST',body:{disabled:true}})).status,200);assert.equal((await member.j.call('/api/platform/me')).status,401);
  revoked=true;assert.equal((await staff.call('/api/staff/me')).status,401);revoked=false;
 });
