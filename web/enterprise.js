@@ -81,12 +81,16 @@
     <section class="welcome-entry" aria-labelledby="welcome-entry-title">
       <div class="welcome-entry-inner">
 
-        <h2 id="welcome-entry-title">很高兴见到你。</h2>
-        <p class="welcome-entry-lead">欢迎登船，你的灵感在这里启程。</p>
-        <div class="welcome-space-copy" aria-live="polite" aria-atomic="true"><h3 id="welcome-space-title">给自己的灵感，留个位置。</h3><p id="welcome-space-description">发现适合你的模型，开始下一个小作品。<br>下一件作品，从你的好奇心开始。</p></div>
-        <a class="welcome-continue" id="welcome-continue" href="#register"><span id="welcome-continue-label">注册：开始我的旅程</span><span class="welcome-continue-arrow" data-icon="arrow-right"></span></a>
-        <p class="welcome-preview-note">已有个人账号？<a href="#personal">登录我的空间</a></p>
-        <div class="welcome-enterprise-guide"><span>企业客户</span><div><a href="#enterprise-register">注册企业账号</a><a href="#enterprise-login">登录企业工作台</a></div></div>
+        <h2 id="welcome-entry-title">从这里出发。</h2>
+        <p class="welcome-entry-lead">选择适合你的使用方式。</p>
+        <div class="welcome-personal-choice">
+          <span class="welcome-choice-kicker"><i aria-hidden="true"></i> 推荐 · 个人用户</span>
+          <h3>为自己的想法，找到好模型。</h3>
+          <p>自己选模型、充值和使用，费用都在个人空间里。</p>
+          <a class="welcome-continue" id="welcome-continue" href="#register"><span id="welcome-continue-label">个人注册 · 开始我的旅程</span><span class="welcome-continue-arrow" data-icon="arrow-right"></span></a>
+          <p class="welcome-preview-note">已有个人账号？<a href="#personal">个人登录</a></p>
+        </div>
+        <div class="welcome-enterprise-choice"><div class="welcome-enterprise-heading"><span data-icon="building-2" aria-hidden="true"></span><div><strong>企业用户</strong><small>为团队采购、分配与管理 API</small></div></div><div class="welcome-enterprise-guide"><a href="#enterprise-register">企业注册 <span data-icon="arrow-right"></span></a><a href="#enterprise-login">企业登录 <span data-icon="arrow-right"></span></a></div></div>
         <div class="welcome-explore"><span>还想先看看？</span><a href="#market">逛逛模型广场 <span data-icon="arrow-up-right"></span></a></div>
       </div>
 

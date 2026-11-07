@@ -20,3 +20,14 @@
 @media(min-width:900px) and (max-height:680px) and (min-height:560px){.live-auth-card{padding:12px 35px}.live-auth-card h2{font-size:21px;margin-bottom:5px}.live-auth-card>p{line-height:1.5}.live-auth-card .live-tabs{height:42px}.live-auth-card .live-form input{padding:8px 11px}.live-auth-card .live-form .live-button{padding:8px 12px}.live-auth-card .live-auth-help{height:31px}.live-auth-card .live-business-guide{padding-top:7px;margin-top:4px}.live-auth-card .live-auth-status{margin-top:6px}}
 @media(min-width:900px) and (min-height:560px){.identity-active #identity-view.org-dashboard{height:100dvh;min-height:0;box-sizing:border-box;grid-template-rows:68px minmax(0,1fr) 0}.org-dashboard .live-main{overflow:auto;scrollbar-width:thin}}
 @media(min-width:900px) and (max-height:680px) and (min-height:560px){.identity-active #identity-view.org-dashboard{grid-template-rows:58px minmax(0,1fr) 0}}
+
+/* Both auth tabs share one viewport-sized canvas, so changing fields never moves the artwork. */
+@media(min-width:900px) and (min-height:560px){
+ .identity-active #identity-view.auth-dashboard{height:100dvh;min-height:0;box-sizing:border-box;grid-template-rows:68px minmax(0,1fr) 30px}
+ .auth-dashboard .live-main{height:100%;min-height:0}
+ .auth-dashboard .live-auth-layout{height:100%;min-height:0}
+ .auth-dashboard .live-auth-card{max-height:100%;overflow-y:auto}
+}
+@media(min-width:900px) and (max-height:680px) and (min-height:560px){
+ .identity-active #identity-view.auth-dashboard{grid-template-rows:58px minmax(0,1fr) 24px}
+}
