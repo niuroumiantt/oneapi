@@ -86,6 +86,28 @@ test('last owner cannot be removed and audit persists role mutations',async()=>{
  const attempts=await Promise.all([owner.j.call(`/api/platform/organizations/${orgA.id}/members/${own.id}`,{method:'PATCH',body:{role:'member'}}),owner.j.call(`/api/platform/organizations/${orgA.id}/members/${own.id}`,{method:'DELETE'})]);assert.deepEqual(attempts.map(r=>r.status),[409,409]);
  const audit=await owner.j.call(`/api/platform/organizations/${orgA.id}/audit`);assert.ok(audit.data.some(e=>e.action==='member.updated'));assert.equal((await other.j.call(`/api/platform/organizations/${orgA.id}/audit`)).status,403);
 });
+test('isolated demo journey covers personal and enterprise orders, allocation, access and usage',async()=>{
+ const personalOrder=await owner.j.call('/api/demo/orders',{method:'POST',body:{model_code:'demo-chat',amount_yuan:100}});assert.equal(personalOrder.status,201);
+ assert.equal((await owner.j.call('/api/demo/keys',{method:'POST',body:{model_code:'demo-chat',label:'Before payment'}})).status,409);
+ const personalPay=await owner.j.call(`/api/demo/orders/${personalOrder.data.order.id}/pay`,{method:'POST',body:{}});assert.equal(personalPay.status,200);
+ const repeated=await owner.j.call(`/api/demo/orders/${personalOrder.data.order.id}/pay`,{method:'POST',body:{}});assert.equal(repeated.data.balance_fen,10000);
+ const personalKey=await owner.j.call('/api/demo/keys',{method:'POST',body:{model_code:'demo-chat',label:'Personal demo'}});assert.equal(personalKey.status,201);
+ const personalUsage=await owner.j.call(`/api/demo/keys/${personalKey.data.key.id}/usage`,{method:'POST',body:{input_tokens:1200,output_tokens:600}});assert.equal(personalUsage.status,201);assert.ok(personalUsage.data.usage.cost_fen>0);
+ const personalState=(await owner.j.call('/api/demo/personal')).data;assert.equal(personalState.orders.length,1);assert.equal(personalState.usage.length,1);assert.equal(personalState.simulated,true);
+ assert.equal((await other.j.call(`/api/demo/orders/${personalOrder.data.order.id}/pay`,{method:'POST',body:{}})).status,404);
+ const enterpriseOrder=await owner.j.call('/api/demo/orders',{method:'POST',body:{organization_id:orgA.id,model_code:'demo-code',amount_yuan:1000}});assert.equal(enterpriseOrder.status,201);
+ assert.equal((await member.j.call('/api/demo/orders',{method:'POST',body:{organization_id:orgA.id,model_code:'demo-code',amount_yuan:100}})).status,403);
+ assert.equal((await other.j.call(`/api/demo/organizations/${orgA.id}`)).status,403);
+ assert.equal((await owner.j.call(`/api/demo/orders/${enterpriseOrder.data.order.id}/pay`,{method:'POST',body:{organization_id:orgA.id}})).status,200);
+ assert.equal((await owner.j.call('/api/demo/allocations',{method:'POST',body:{organization_id:orgA.id,user_id:member.user.id,limit_yuan:100}})).status,200);
+ assert.equal((await owner.j.call('/api/demo/allocations',{method:'POST',body:{organization_id:orgA.id,user_id:owner.user.id,limit_yuan:1000}})).status,409);
+ const enterpriseKey=await member.j.call('/api/demo/keys',{method:'POST',body:{organization_id:orgA.id,model_code:'demo-code',label:'Team test'}});assert.equal(enterpriseKey.status,201,JSON.stringify(enterpriseKey.data));
+ assert.equal((await member.j.call(`/api/demo/keys/${enterpriseKey.data.key.id}/usage`,{method:'POST',body:{organization_id:orgA.id,input_tokens:2000,output_tokens:1000}})).status,201);
+ const ownerState=(await owner.j.call(`/api/demo/organizations/${orgA.id}`)).data,memberState=(await member.j.call(`/api/demo/organizations/${orgA.id}`)).data;
+ assert.equal(ownerState.usage.length,1);assert.equal(memberState.usage.length,1);assert.equal(memberState.members.length,0);assert.equal(memberState.allocations.length,1);
+ assert.equal((await other.j.call(`/api/demo/keys/${enterpriseKey.data.key.id}/usage`,{method:'POST',body:{organization_id:orgB.id,input_tokens:100,output_tokens:100}})).status,404);
+ assert.equal((await member.j.call('/api/demo/allocations',{method:'POST',body:{organization_id:orgA.id,user_id:member.user.id,limit_yuan:500}})).status,403);
+});
 async function staffLogin(j){const first=await j.call('/api/staff/login');assert.equal(first.status,302);const code=await j.call(first.location);assert.equal(code.status,302);const done=await j.call(code.location);assert.equal(done.status,302);assert.equal(done.location,'/#staff-account');return code.location;}
 let staff;
 test('real OIDC code/PKCE/nonce flow creates separate staff session; replay and cross-browser callback fail',async()=>{
