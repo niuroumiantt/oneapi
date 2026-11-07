@@ -1,8 +1,8 @@
 const models = [
- {id:'deepseek-chat-demo',family:'deepseek',name:'DeepSeek Chat',subtitle:'DeepSeek · 通用对话',badge:'日常首选',description:'从一封邮件到一个新想法，让写作、问答与日常工作更轻松。',tags:['日常写作','知识问答','流式输出'],uses:['writing'],price:'1.00'},
- {id:'deepseek-reasoning-demo',family:'deepseek',name:'DeepSeek Reasoning',subtitle:'DeepSeek · 深度推理',badge:'深度思考',description:'拆解复杂问题，梳理推理过程，为分析和编程多想一步。',tags:['深度推理','代码生成','工具调用'],uses:['reasoning','coding'],price:'2.00'},
- {id:'glm-coding-demo',family:'glm',name:'GLM Coding',subtitle:'智谱 GLM · 编程协作',badge:'开发者之选',description:'从需求理解到代码实现，陪你完成每一次有挑战的开发。',tags:['编程开发','Agent 协作','工具调用'],uses:['coding','reasoning'],price:'2.50'},
- {id:'glm-vision-demo',family:'glm',name:'GLM Vision',subtitle:'智谱 GLM · 视觉理解',badge:'看见更多',description:'读懂图像中的信息，让截图、图表和文档成为对话的一部分。',tags:['视觉理解','图表分析','图文问答'],uses:['vision','writing'],price:'1.50'}
+ {id:'deepseek-chat-demo',family:'deepseek',name:'DeepSeek Chat',subtitle:'DeepSeek · 通用对话',badge:'日常首选',description:'从一封邮件到一个新想法，让写作、问答与日常工作更轻松。',tags:['日常写作','知识问答','流式输出'],uses:['writing'],price:null},
+ {id:'deepseek-reasoning-demo',family:'deepseek',name:'DeepSeek Reasoning',subtitle:'DeepSeek · 深度推理',badge:'深度思考',description:'拆解复杂问题，梳理推理过程，为分析和编程多想一步。',tags:['深度推理','代码生成','工具调用'],uses:['reasoning','coding'],price:null},
+ {id:'glm-coding-demo',family:'glm',name:'GLM Coding',subtitle:'智谱 GLM · 编程协作',badge:'开发者之选',description:'从需求理解到代码实现，陪你完成每一次有挑战的开发。',tags:['编程开发','Agent 协作','工具调用'],uses:['coding','reasoning'],price:null},
+ {id:'glm-vision-demo',family:'glm',name:'GLM Vision',subtitle:'智谱 GLM · 视觉理解',badge:'看见更多',description:'读懂图像中的信息，让截图、图表和文档成为对话的一部分。',tags:['视觉理解','图表分析','图文问答'],uses:['vision','writing'],price:null}
 ];
 const products = [
  {id:'SUP-001',family:'DeepSeek',name:'DeepSeek · 通用主通道',supplier:'DeepSeek 官方',code:'DS-CN-01',version:'标准 API · 演示配置',status:'healthy',latency:386,success:'99.98',capacity:42,cost:'0.80',role:'主通道',balance:'8,420.00'},
@@ -22,10 +22,21 @@ function renderModels(){
  const query=$('#model-search').value.toLowerCase().trim(),use=$('#model-use').value;
  const list=models.filter(m=>(family==='all'||m.family===family)&&(use==='all'||m.uses.includes(use))&&`${m.name} ${m.description} ${m.tags.join(' ')}`.toLowerCase().includes(query));
  const artTypes=['mint','violet','peach','ice'];
- $('#model-grid').innerHTML=list.length?list.map(m=>{const index=models.indexOf(m),art=artTypes[index];return `<article class="model-card m-model ${m.family} m-model-${art}"><div class="m-model-art" aria-hidden="true"><span class="m-model-number">0${index+1}</span><div class="m-model-orbit"></div><div class="m-model-orb"></div><span class="m-model-spark"></span><span class="m-model-art-label">${['EVERYDAY IDEAS','DEEPER THINKING','BUILD SOMETHING','A FRESH PERSPECTIVE'][index]}</span></div><div class="model-card-body"><div class="m-model-meta"><span>${m.family==='deepseek'?'DeepSeek':'智谱 GLM'}</span><span class="model-badge">${m.badge}</span></div><h3>${m.name}</h3><p class="model-desc">${m.description}</p><div class="tags">${m.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</div><div class="model-price"><div><div class="price"><small>¥</small>${m.price}</div><div class="price-label">/ 百万输入 tokens · 演示价</div></div><span data-icon="${m.family==='deepseek'?'brain-circuit':'cpu'}"></span></div></div><button class="card-action" data-model="${m.id}" aria-label="预览 ${m.name} 接入">看看怎么接入 <span data-icon="arrow-up-right"></span></button></article>`;}).join(''):'<div class="m-empty"><span data-icon="search"></span><h3>这次还没有找到合拍的模型。</h3><p>换个关键词，或清除筛选再看看。</p><button class="button secondary" data-action="reset-catalog">清除筛选</button></div>';
+ $('#model-grid').innerHTML=list.length?list.map(m=>{const index=models.indexOf(m),art=artTypes[index];return `<article class="model-card m-model ${m.family} m-model-${art}"><div class="m-model-art" aria-hidden="true"><span class="m-model-number">0${index+1}</span><div class="m-model-orbit"></div><div class="m-model-orb"></div><span class="m-model-spark"></span><span class="m-model-art-label">${['EVERYDAY IDEAS','DEEPER THINKING','BUILD SOMETHING','A FRESH PERSPECTIVE'][index]}</span></div><div class="model-card-body"><div class="m-model-meta"><span>${m.family==='deepseek'?'DeepSeek':'智谱 GLM'}</span><span class="model-badge">${m.badge}</span></div><h3>${m.name}</h3><p class="model-desc">${m.description}</p><div class="tags">${m.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</div><div class="model-price"><div><div class="price m-price-pending">待公布</div><div class="price-label">输入 / 输出单价 · 正式发布后显示</div></div><span data-icon="${m.family==='deepseek'?'brain-circuit':'cpu'}"></span></div></div><button class="card-action" data-model="${m.id}" aria-label="了解 ${m.name}">了解这个方向 <span data-icon="arrow-up-right"></span></button></article>`;}).join(''):'<div class="m-empty"><span data-icon="search"></span><h3>这次还没有找到合拍的模型。</h3><p>换个关键词，或清除筛选再看看。</p><button class="button secondary" data-action="reset-catalog">清除筛选</button></div>';
  $('.count-badge').textContent=list.length;
  $$('[data-scenario]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.scenario===use)));
  $$('[data-family]').forEach(b=>{b.classList.toggle('active',b.dataset.family===family);b.setAttribute('aria-pressed',String(b.dataset.family===family));});
+}
+function openModelDetail(id){
+ const m=models.find(x=>x.id===id);if(!m)return;
+ showDialog(`<div class="dialog-kicker">MODEL PREVIEW · ${escapeHtml(m.family==='deepseek'?'DeepSeek':'智谱 GLM')}</div><h2 class="dialog-title">${escapeHtml(m.name)}</h2><p class="dialog-description">${escapeHtml(m.description)}</p><div class="price-example"><span>适合探索</span><b>${m.tags.map(escapeHtml).join(' · ')}</b></div><div class="price-example"><span>精确型号与版本</span><b>待供应授权和真实验证</b></div><div class="price-example"><span>输入 / 输出价格</span><b>待正式发布</b></div><div class="price-example"><span>接入状态</span><b>尚不可调用</b></div><div class="info-box">你看到的是选型方向预览。正式型号会提供价格、计费单位、地区、能力限制和验证状态；客户按实际用量从预付余额中扣费。</div><div class="dialog-bottom"><button class="button secondary" data-close-dialog>继续浏览</button><button class="button primary" data-action="pricing">看懂计费方式 <span data-icon="arrow-right"></span></button></div>`);
+}
+function updatePricingExample(){
+ const input=Math.max(0,Math.min(10000000,Number($('#pricing-input-tokens')?.value)||0));
+ const output=Math.max(0,Math.min(10000000,Number($('#pricing-output-tokens')?.value)||0));
+ const cost=(input*2+output*8)/1000000;
+ $('#pricing-example-result').textContent='¥'+cost.toFixed(4);
+ $('#pricing-example-breakdown').textContent=`输入 ${input.toLocaleString('zh-CN')} × ¥2 / 百万 + 输出 ${output.toLocaleString('zh-CN')} × ¥8 / 百万`;
 }
 function switchView(view){
  document.body.classList.toggle('catalog-active',view==='catalog');
@@ -58,7 +69,7 @@ function openConfig(id,tool){selectedModel=models.find(m=>m.id===id)||selectedMo
 function renderConfig(step){
  const heading=`<div class="dialog-kicker">CONNECT YOUR WORKFLOW</div><h2 class="dialog-title">把模型接入你的工具</h2><p class="dialog-description">选好工具，获取为你整理的配置。</p><div class="dialog-steps"><span class="${step===1?'active':''}">01 选择工具</span><span class="${step===2?'active':''}">02 确认配置</span><span class="${step===3?'active':''}">03 复制使用</span></div>`;
  if(step===1)showDialog(heading+`<label class="choice-label">你正在使用哪个工具？</label><div class="client-options">${['Cursor','TRAE','Qoder','WorkBuddy'].map(t=>`<button class="${selectedTool===t?'active':''}" data-select-tool="${t}">${t}<span style="float:right">${selectedTool===t?'<span data-icon=check></span>':'<span data-icon=arrow-up-right></span>'}</span></button>`).join('')}</div><label class="choice-label" for="config-model">选择模型</label><select class="dialog-field" id="config-model">${models.map(m=>`<option value="${m.id}" ${m.id===selectedModel.id?'selected':''}>${m.name}</option>`).join('')}</select><div class="info-box">这是配置向导的体验预览。具体工具版本、模型能力和协议需在正式接入时验证。</div><div class="dialog-bottom"><span>中国区 · 接入体验预览</span><button class="primary button" data-config-step="2">下一步 <span data-icon=arrow-right></span></button></div>`);
- if(step===2)showDialog(heading+`<div class="price-example"><span>当前工作区</span><b>Larry 的个人工作区</b></div><div class="price-example"><span>工具 / 模型</span><b>${selectedTool} / ${selectedModel.name}</b></div><div class="price-example"><span>演示输入单价</span><b>¥${selectedModel.price} / 百万 tokens</b></div><div class="price-example"><span>配置状态</span><b>示例 · 待真实客户端验证</b></div><div class="info-box">接下来生成一份不可调用的示例配置，让你查看复制与接入的页面体验。不会创建真实 Key 或扣费。</div><div class="dialog-bottom"><button class="text-button" data-config-step="1"><span data-icon=arrow-left></span> 上一步</button><button class="primary button" data-config-step="3">生成示例配置 <span data-icon=arrow-right></span></button></div>`);
+ if(step===2)showDialog(heading+`<div class="price-example"><span>当前工作区</span><b>Larry 的个人工作区</b></div><div class="price-example"><span>工具 / 模型</span><b>${selectedTool} / ${selectedModel.name}</b></div><div class="price-example"><span>输入 / 输出单价</span><b>待正式发布</b></div><div class="price-example"><span>配置状态</span><b>示例 · 待真实客户端验证</b></div><div class="info-box">接下来生成一份不可调用的示例配置，让你查看复制与接入的页面体验。不会创建真实 Key 或扣费。</div><div class="dialog-bottom"><button class="text-button" data-config-step="1"><span data-icon=arrow-left></span> 上一步</button><button class="primary button" data-config-step="3">生成示例配置 <span data-icon=arrow-right></span></button></div>`);
  if(step===3)showDialog(heading+`<div class="info-box"><span data-icon=check></span> 已生成 ${selectedTool} 示例配置。请勿把演示凭据用于真实服务。</div><pre class="config-code" id="config-code">Base URL: https://api.example.invalid/v1\nAPI Key: sk-demo-not-a-real-key\nModel: ${selectedModel.id}</pre><p class="demo-notice">正式产品将在这里展示对应工具版本的设置步骤，并等待首次真实调用。此预览不会修改本机客户端。</p><div class="dialog-bottom"><button class="text-button" data-config-step="1">重新选择</button><button class="primary button" id="copy-config">复制示例配置 <span data-icon=copy></span></button></div>`);
 }
 function filteredProducts(){const query=$('#supply-search').value.trim().toLowerCase(),status=$('#status-filter').value,supplier=$('#supplier-filter').value;return products.filter(p=>(status==='all'||p.status===status)&&(supplier==='all'||p.family===supplier)&&`${p.name} ${p.supplier} ${p.code}`.toLowerCase().includes(query));}
@@ -94,7 +105,7 @@ const actions={
  'reset-catalog':()=>{family='all';$('#model-search').value='';$('#model-use').value='all';renderModels();},
  readiness:()=>showInfo('五个模块，逐步落地','当前进度以已上线的真实功能为准。',`<div class="price-example"><span>员工与客户登录、权限</span><b>已上线 · 个人、企业及员工真实身份与权限</b></div><div class="price-example"><span>供应商与产品验证</span><b>内部可用 · 档案、证据与验收报告；待真实供应接入</b></div><div class="price-example"><span>模型广场与接入</span><b>内部商品、价格及复核流程；客户目录仍是预览</b></div><div class="price-example"><span>付费</span><b>企业预算界面与付费准备台；真实收款未开放</b></div><div class="price-example"><span>促销</span><b>内部活动草稿已保存；兑换与佣金未开放</b></div><div class="info-box">真实订单、模型调用、用量账本和优惠结算尚未启用。旧平台 api.glocalstorage.cn 独立运行。</div>`),
  tools:()=>openConfig(),
- pricing:()=>showInfo('让每一笔费用都清楚','实际消费按模型、用量与当时生效的价格计算。',`<div class="price-example"><span>输入费用</span><b>输入用量 × 输入单价</b></div><div class="price-example"><span>输出费用</span><b>输出用量 × 输出单价</b></div><div class="price-example"><span>促销优惠</span><b>按活动适用条件生效</b></div><div class="info-box">页面中的价格全部是视觉演示值，不是供应商官方报价或实际销售承诺。</div>`),
+ pricing:()=>{$('#config-dialog').close();$('#how-pricing-works').scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});},
  docs:()=>showInfo('三步开始接入','这里预览正式产品的文档入口。',`<div class="price-example"><span>01</span><b>选择模型与自己的开发工具</b></div><div class="price-example"><span>02</span><b>创建项目，获取平台 API Key</b></div><div class="price-example"><span>03</span><b>完成首次调用，查看用量与费用</b></div>`),
  account:()=>{location.hash='personal';},
  notifications:()=>{location.hash='ops/supply';switchView('ops/supply');tableTab='events';renderTable();$('.supply-panel').scrollIntoView({behavior:'smooth',block:'center'});},
@@ -109,7 +120,7 @@ document.addEventListener('click',event=>{
  if(b.dataset.scenario){$('#model-use').value=b.dataset.scenario;renderModels();$('#catalog').scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});}
  if(b.hasAttribute('data-market-motion')){const stopped=$('.m-hero').classList.toggle('m-motion-paused');b.setAttribute('aria-pressed',String(stopped));b.setAttribute('aria-label',stopped?'播放模型广场装饰动效':'暂停模型广场装饰动效');b.textContent=stopped?'播放动效':'暂停动效';}
  if(b.dataset.family){family=b.dataset.family;$$('[data-family]').forEach(x=>x.classList.toggle('active',x===b));renderModels();}
- if(b.dataset.model)openConfig(b.dataset.model);
+ if(b.dataset.model)openModelDetail(b.dataset.model);
  if(b.dataset.tool)openConfig(null,b.dataset.tool);
  if(b.dataset.selectTool){selectedTool=b.dataset.selectTool;selectedModel=models.find(m=>m.id===$('#config-model').value)||selectedModel;renderConfig(1);}
  if(b.dataset.configStep){if($('#config-model'))selectedModel=models.find(m=>m.id===$('#config-model').value)||selectedModel;renderConfig(Number(b.dataset.configStep));}
@@ -120,7 +131,7 @@ document.addEventListener('click',event=>{
  if(b.dataset.alert)showAlert(b.dataset.alert);
  if(b.dataset.section)location.hash='ops/'+b.dataset.section;
 });
-$('#model-search').addEventListener('input',renderModels);$('#model-use').addEventListener('change',renderModels);
+$('#model-search').addEventListener('input',renderModels);$('#model-use').addEventListener('change',renderModels);$('#pricing-input-tokens').addEventListener('input',updatePricingExample);$('#pricing-output-tokens').addEventListener('input',updatePricingExample);updatePricingExample();
 $('#supply-search').addEventListener('input',renderTable);$('#status-filter').addEventListener('change',renderTable);$('#supplier-filter').addEventListener('change',renderTable);
 $('#density-button').addEventListener('click',()=>{const compact=$('#supply-table').classList.toggle('compact');$('#density-button').setAttribute('aria-pressed',String(compact));$('#density-button').innerHTML=compact?'<span data-icon=list-filter></span> 舒适视图':'<span data-icon=list-filter></span> 紧凑视图';});
 $('#drawer-close').addEventListener('click',closeDrawer);$('#drawer-backdrop').addEventListener('click',closeDrawer);
