@@ -68,7 +68,7 @@
     $('#login-view').innerHTML=`<div class="welcome-page">
   <header class="welcome-header">
     <a class="welcome-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"><span>It’s Your <em class="brand-ai">A</em>P<em class="brand-ai">I</em>.</span></a>
-    <nav aria-label="欢迎页导航"><a href="#market">发现好模型 <span data-icon="arrow-up-right"></span></a><a class="welcome-staff" href="#staff" aria-label="管理台：本公司员工入口">管理台</a><div data-account-slot><a class="live-signin" href="#personal"><span data-icon="user-round"></span>登录 / 注册</a></div><div class="universe-clock"><span>北京时间</span><time id="universe-clock" aria-live="off">--:--:--.---</time></div></nav>
+    <nav aria-label="欢迎页导航"><a href="#market">发现好模型 <span data-icon="arrow-up-right"></span></a><a class="welcome-enterprise-link" href="#enterprise-register">企业客户</a><div data-account-slot><a class="live-signin" href="#personal"><span data-icon="user-round"></span>登录 / 注册</a></div><div class="universe-clock"><span>北京时间</span><time id="universe-clock" aria-live="off">--:--:--.---</time></div></nav>
   </header>
   <main class="welcome-main">
     <div class="universe-scene" aria-hidden="true"><canvas id="universe-canvas"></canvas><div class="universe-nebula"></div><div id="solar-bodies"></div><div class="universe-near-world"></div></div>
@@ -85,7 +85,8 @@
         <p class="welcome-entry-lead">欢迎登船，你的灵感在这里启程。</p>
         <div class="welcome-space-copy" aria-live="polite" aria-atomic="true"><h3 id="welcome-space-title">给自己的灵感，留个位置。</h3><p id="welcome-space-description">发现适合你的模型，开始下一个小作品。<br>下一件作品，从你的好奇心开始。</p></div>
         <a class="welcome-continue" id="welcome-continue" href="#register"><span id="welcome-continue-label">注册：开始我的旅程</span><span class="welcome-continue-arrow" data-icon="arrow-right"></span></a>
-        <p class="welcome-preview-note">已有账号？<a href="#personal">登录我的空间</a></p>
+        <p class="welcome-preview-note">已有个人账号？<a href="#personal">登录我的空间</a></p>
+        <div class="welcome-enterprise-guide"><span>企业客户</span><div><a href="#enterprise-register">注册企业账号</a><a href="#enterprise-login">登录企业工作台</a></div></div>
         <div class="welcome-explore"><span>还想先看看？</span><a href="#market">逛逛模型广场 <span data-icon="arrow-up-right"></span></a></div>
       </div>
 
