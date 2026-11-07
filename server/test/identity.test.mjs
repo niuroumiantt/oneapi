@@ -104,7 +104,7 @@ test('isolated demo journey covers personal and enterprise orders, allocation, a
  const enterpriseKey=await member.j.call('/api/demo/keys',{method:'POST',body:{organization_id:orgA.id,model_code:'demo-code',label:'Team test'}});assert.equal(enterpriseKey.status,201,JSON.stringify(enterpriseKey.data));
  assert.equal((await member.j.call(`/api/demo/keys/${enterpriseKey.data.key.id}/usage`,{method:'POST',body:{organization_id:orgA.id,input_tokens:2000,output_tokens:1000}})).status,201);
  const ownerState=(await owner.j.call(`/api/demo/organizations/${orgA.id}`)).data,memberState=(await member.j.call(`/api/demo/organizations/${orgA.id}`)).data;
- assert.equal(ownerState.usage.length,1);assert.equal(memberState.usage.length,1);assert.equal(memberState.members.length,0);assert.equal(memberState.allocations.length,1);
+ assert.equal(ownerState.usage.length,1);assert.equal(memberState.usage.length,1);assert.equal(memberState.members.length,0);assert.equal(memberState.allocations.length,1);assert.deepEqual(memberState.purchased_models,['demo-code']);assert.equal(memberState.orders.length,0);
  assert.equal((await other.j.call(`/api/demo/keys/${enterpriseKey.data.key.id}/usage`,{method:'POST',body:{organization_id:orgB.id,input_tokens:100,output_tokens:100}})).status,404);
  assert.equal((await member.j.call('/api/demo/allocations',{method:'POST',body:{organization_id:orgA.id,user_id:member.user.id,limit_yuan:500}})).status,403);
 });

@@ -23,12 +23,13 @@ async function wallet(db,s){
 async function view(db,req,org){
  const s=await scope(db,req,org),w=await wallet(db,s),representative=s.role==='owner'||s.role==='admin';
  const orders=(await db.query('SELECT id,model_code,amount_fen,status,created_at,paid_at FROM demo_orders WHERE wallet_id=$1'+(org&&!representative?' AND created_by=$2':'')+' ORDER BY created_at DESC LIMIT 30',org&&!representative?[w.id,req.customer.id]:[w.id])).rows;
+ const purchased_models=(await db.query("SELECT DISTINCT model_code FROM demo_orders WHERE wallet_id=$1 AND status='paid'",[w.id])).rows.map(r=>r.model_code);
  const keys=(await db.query('SELECT id,model_code,label,status,created_at,user_id FROM demo_keys WHERE wallet_id=$1'+(org&&!representative?' AND user_id=$2':'')+' ORDER BY created_at DESC LIMIT 50',org&&!representative?[w.id,req.customer.id]:[w.id])).rows;
  const usage=(await db.query('SELECT id,key_id,user_id,model_code,input_tokens,output_tokens,cost_fen,created_at FROM demo_usage WHERE wallet_id=$1'+(org&&!representative?' AND user_id=$2':'')+' ORDER BY created_at DESC LIMIT 100',org&&!representative?[w.id,req.customer.id]:[w.id])).rows;
  let allocations=[];
  if(org){const q=representative?"SELECT a.user_id,a.limit_fen,a.spent_fen,u.name,u.email FROM demo_allocations a JOIN \"user\" u ON u.id=a.user_id WHERE a.wallet_id=$1 ORDER BY u.name":"SELECT a.user_id,a.limit_fen,a.spent_fen,u.name,u.email FROM demo_allocations a JOIN \"user\" u ON u.id=a.user_id WHERE a.wallet_id=$1 AND a.user_id=$2";allocations=(await db.query(q,representative?[w.id]:[w.id,req.customer.id])).rows;}
  const members=org&&representative?(await db.query("SELECT m.user_id,u.name,u.email,m.role,m.status FROM memberships m JOIN \"user\" u ON u.id=m.user_id WHERE m.organization_id=$1 AND m.status='active' ORDER BY m.created_at",[org])).rows:[];
- return {simulated:true,scope:org?'organization':'personal',organization_id:org||null,role:s.role,representative,models,wallet:{balance_fen:Number(w.balance_fen),spent_fen:Number(w.spent_fen)},orders,keys,usage,allocations,members};
+ return {simulated:true,scope:org?'organization':'personal',organization_id:org||null,role:s.role,representative,models,purchased_models,wallet:{balance_fen:Number(w.balance_fen),spent_fen:Number(w.spent_fen)},orders,keys,usage,allocations,members};
 }
 export function demoJourneyRoutes(app,pool,requireCustomer){
  app.get('/api/demo/personal',requireCustomer,async(req,res)=>res.json(await view(pool,req,null)));
