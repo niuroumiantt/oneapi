@@ -96,8 +96,9 @@ test('real OIDC code/PKCE/nonce flow creates separate staff session; replay and 
 });
 test('supplier drafts and validation records persist with staff permissions and never become sale-ready',async()=>{
  const outsider=jar();assert.equal((await outsider.call('/api/staff/suppliers')).status,401);
- const created=await staff.call('/api/staff/suppliers',{method:'POST',body:{legal_name:'Fixture Model Ltd',display_name:'Fixture Model',source_type:'official',region:'CN',reference_url:'https://example.test/provider'}});
+ const created=await staff.call('/api/staff/suppliers',{method:'POST',body:{legal_name:'Fixture Model Ltd',display_name:'Fixture Model',source_type:'official',service_type:'managed_inference',next_action:'取得 SLA 与接口文档',region:'CN',reference_url:'https://example.test/provider'}});
  assert.equal(created.status,201,JSON.stringify(created.data));const supplierId=created.data.id;
+ assert.equal(created.data.service_type,'managed_inference');assert.equal(created.data.owner_subject,'staff-owner');
  assert.equal((await owner.j.call('/api/staff/suppliers')).status,401);
  assert.equal((await staff.call('/api/staff/suppliers',{method:'POST',body:{legal_name:'Unsafe',display_name:'Unsafe',source_type:'official',region:'CN',reference_url:'http://example.test'}})).status,400);
  const offer=await staff.call('/api/staff/supplier-offers',{method:'POST',body:{supplier_id:supplierId,model_name:'Fixture Chat',upstream_model_id:'fixture-chat-v1',protocol:'openai_compatible',region:'CN'}});
@@ -107,7 +108,10 @@ test('supplier drafts and validation records persist with staff permissions and 
  assert.equal((await staff.call('/api/staff/supplier-offers/'+offerId+'/checks/source',{method:'PATCH',body:{result:'documented'}})).status,400);
  assert.equal((await staff.call('/api/staff/supplier-offers/'+offerId+'/checks/source',{method:'PATCH',body:{result:'documented',evidence_url:'https://example.test/evidence'}})).status,200);
  const listing=await staff.call('/api/staff/suppliers');assert.equal(listing.status,200);assert.equal(listing.data.sale_ready,false);assert.ok(listing.data.offers.some(o=>o.id===offerId));
+ const intake=listing.data.suppliers.find(s=>s.id===supplierId);assert.equal(intake.service_type,'managed_inference');assert.equal(intake.next_action,'取得 SLA 与接口文档');assert.ok(intake.owner_name);assert.ok(intake.owner_email);
  assert.equal(listing.data.offers.find(o=>o.id===offerId).readiness.documented,1);
+ const updated=await staff.call('/api/staff/suppliers/'+supplierId,{method:'PATCH',body:{status:'reviewing',service_type:'gpu_rental',source_type:'unconfirmed',next_action:'核对机器归属'}});assert.equal(updated.status,200,JSON.stringify(updated.data));assert.equal(updated.data.service_type,'gpu_rental');assert.equal(updated.data.owner_subject,'staff-owner');
+ assert.equal((await staff.call('/api/staff/suppliers/'+supplierId,{method:'PATCH',body:{status:'reviewing',service_type:'invalid'}})).status,400);
  assert.equal((await outsider.call('/api/staff/model-products')).status,401);
  assert.equal((await owner.j.call('/api/staff/model-products')).status,401);
  const product=await staff.call('/api/staff/model-products',{method:'POST',body:{offer_id:offerId,display_name:'Fixture Chat CN',product_code:'fixture-chat-cn',summary:'Internal product draft'}});
