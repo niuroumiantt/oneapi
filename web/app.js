@@ -1,6 +1,6 @@
 const models = [
- {id:'deepseek-chat-demo',family:'deepseek',name:'DeepSeek Chat',subtitle:'DeepSeek · 通用对话',badge:'日常首选',description:'从一封邮件到一个新想法，让写作、问答与日常工作更轻松。',tags:['日常写作','知识问答','流式输出'],uses:['writing'],price:null},
- {id:'deepseek-reasoning-demo',family:'deepseek',name:'DeepSeek Reasoning',subtitle:'DeepSeek · 深度推理',badge:'深度思考',description:'拆解复杂问题，梳理推理过程，为分析和编程多想一步。',tags:['深度推理','代码生成','工具调用'],uses:['reasoning','coding'],price:null},
+ {id:'deepseek-chat-demo',family:'deepseek',name:'DeepSeek · 对话方向',subtitle:'DeepSeek · 通用对话',badge:'日常首选',description:'从一封邮件到一个新想法，让写作、问答与日常工作更轻松。',tags:['日常写作','知识问答','流式输出'],uses:['writing'],price:null},
+ {id:'deepseek-reasoning-demo',family:'deepseek',name:'DeepSeek · 推理方向',subtitle:'DeepSeek · 深度推理',badge:'深度思考',description:'拆解复杂问题，梳理推理过程，为分析和编程多想一步。',tags:['深度推理','代码生成','工具调用'],uses:['reasoning','coding'],price:null},
  {id:'glm-coding-demo',family:'glm',name:'GLM Coding',subtitle:'智谱 GLM · 编程协作',badge:'开发者之选',description:'从需求理解到代码实现，陪你完成每一次有挑战的开发。',tags:['编程开发','Agent 协作','工具调用'],uses:['coding','reasoning'],price:null},
  {id:'glm-vision-demo',family:'glm',name:'GLM Vision',subtitle:'智谱 GLM · 视觉理解',badge:'看见更多',description:'读懂图像中的信息，让截图、图表和文档成为对话的一部分。',tags:['视觉理解','图表分析','图文问答'],uses:['vision','writing'],price:null}
 ];
