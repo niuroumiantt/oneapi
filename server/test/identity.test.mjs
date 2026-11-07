@@ -123,6 +123,13 @@ test('supplier drafts and validation records persist with staff permissions and 
  const products=await staff.call('/api/staff/model-products');assert.equal(products.status,200);assert.equal(products.data.public_catalog_enabled,false);
  assert.ok(products.data.products.some(p=>p.id===product.data.id&&p.source_model==='Fixture Chat'&&p.supplier_name==='Fixture Model'&&p.supplier_id===supplierId));
  assert.equal((await staff.call('/api/staff/model-products',{method:'POST',body:{offer_id:offerId,display_name:'Duplicate',product_code:'fixture-chat-cn'}})).status,409);
+ const priceBody={model_product_id:product.data.id,input_yuan_per_million:'12.34',output_yuan_per_million:'56.78',evidence_url:'https://example.test/approved-rate',notes:'Internal price design'};
+ assert.equal((await outsider.call('/api/staff/price-proposals')).status,401);
+ assert.equal((await owner.j.call('/api/staff/price-proposals')).status,401);
+ const price=await staff.call('/api/staff/price-proposals',{method:'POST',body:priceBody});assert.equal(price.status,201,JSON.stringify(price.data));assert.equal(price.data.input_fen_per_million,'1234');assert.equal(price.data.output_fen_per_million,'5678');assert.equal(price.data.public_pricing_enabled,false);assert.equal(price.data.checkout_enabled,false);
+ const priceList=await staff.call('/api/staff/price-proposals');assert.equal(priceList.status,200);assert.equal(priceList.data.checkout_enabled,false);assert.ok(priceList.data.proposals.some(q=>q.id===price.data.id&&q.model_product_name==='Fixture Chat CN'));
+ assert.equal((await staff.call('/api/staff/price-proposals',{method:'POST',body:{...priceBody,input_yuan_per_million:'12.345'}})).status,400);
+ assert.equal((await staff.call('/api/staff/price-proposals',{method:'POST',body:{...priceBody,evidence_url:'http://example.test/rate'}})).status,400);
  const campaignBody={name:'Fixture launch draft',model_product_id:product.data.id,customer_price_percent:90,commission_percent:5,total_discount_budget_yuan:1000,starts_at:new Date(Date.now()+86400000).toISOString(),ends_at:new Date(Date.now()+86400000*8).toISOString()};
  assert.equal((await outsider.call('/api/staff/promotion-campaigns')).status,401);
  assert.equal((await owner.j.call('/api/staff/promotion-campaigns')).status,401);
@@ -133,6 +140,7 @@ test('supplier drafts and validation records persist with staff permissions and 
  assert.equal((await staff.call('/api/staff/suppliers/'+supplierId,{method:'PATCH',body:{status:'blocked'}})).status,200);
  assert.equal((await staff.call('/api/staff/model-products',{method:'POST',body:{offer_id:offerId,display_name:'Blocked',product_code:'fixture-blocked-cn'}})).status,409);
  assert.equal((await staff.call('/api/staff/promotion-campaigns',{method:'POST',body:campaignBody})).status,409);
+ assert.equal((await staff.call('/api/staff/price-proposals',{method:'POST',body:priceBody})).status,409);
  assert.equal((await staff.call('/api/staff/supplier-offers',{method:'POST',body:{supplier_id:supplierId,model_name:'Other',upstream_model_id:'other',protocol:'native',region:'CN'}})).status,409);
  const audit=(await staff.call('/api/staff/audit')).data;assert.ok(audit.some(e=>e.action==='supplier_offer.check_updated'&&e.subject_id===offerId));assert.ok(audit.some(e=>e.action==='model_product.created'&&e.subject_id===product.data.id));assert.ok(audit.some(e=>e.action==='promotion_campaign.created'&&e.subject_id===campaign.data.id));
 });
