@@ -68,7 +68,7 @@
     $('#login-view').innerHTML=`<div class="welcome-page">
   <header class="welcome-header">
     <a class="welcome-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"><span>It’s Your <em class="brand-ai">A</em>P<em class="brand-ai">I</em>.</span></a>
-    <nav aria-label="欢迎页导航"><a href="#market">发现好模型 <span data-icon="arrow-up-right"></span></a><a class="welcome-enterprise-link" href="#enterprise-register">企业客户</a><div data-account-slot><a class="live-signin" href="#personal"><span data-icon="user-round"></span>登录 / 注册</a></div><div class="universe-clock"><span>北京时间</span><time id="universe-clock" aria-live="off">--:--:--.---</time></div></nav>
+    <nav aria-label="欢迎页导航"><a href="#market">模型广场 <span data-icon="arrow-up-right"></span></a><a href="#personal">我的空间</a><a class="welcome-enterprise-link" href="#enterprise-register">企业客户</a><div data-account-slot><a class="live-signin" href="#personal"><span data-icon="user-round"></span>登录 / 注册</a></div><div class="universe-clock"><span>北京时间</span><time id="universe-clock" aria-live="off">--:--:--.---</time></div></nav>
   </header>
   <main class="welcome-main">
     <div class="universe-scene" aria-hidden="true"><canvas id="universe-canvas"></canvas><div class="universe-nebula"></div><div id="solar-bodies"></div><div class="universe-near-world"></div></div>

@@ -49,12 +49,16 @@ test('verified registration creates durable personal identity and isolated organ
 });
 test('real billing reads are isolated and cannot credit funds without a merchant',async()=>{
  assert.equal((await jar().call('/api/billing/personal')).status,401);
- const personal=await owner.j.call('/api/billing/personal');assert.equal(personal.status,200);assert.equal(personal.data.scope,'personal');assert.equal(personal.data.cash_balance_fen,'0');assert.deepEqual(personal.data.entries,[]);assert.equal(personal.data.recharge.enabled,false);assert.equal(personal.data.recharge.minimum_fen,500);
+ const personal=await owner.j.call('/api/billing/personal');assert.equal(personal.status,200);assert.equal(personal.data.scope,'personal');assert.equal(personal.data.cash_balance_fen,'0');assert.equal(personal.data.total_recharged_fen,'0');assert.deepEqual(personal.data.entries,[]);assert.equal(personal.data.recharge.enabled,false);assert.equal(personal.data.recharge.minimum_fen,500);
  const org=await owner.j.call(`/api/billing/organizations/${orgA.id}`);assert.equal(org.status,200);assert.equal(org.data.scope,'organization');assert.equal(org.data.cash_balance_fen,'0');assert.equal(org.data.refund.enabled,false);
  assert.equal((await other.j.call(`/api/billing/organizations/${orgA.id}`)).status,403);
  assert.equal((await owner.j.call(`/api/billing/organizations/${orgB.id}`)).status,403);
  assert.equal((await owner.j.call('/api/billing/personal',{method:'POST',body:{amount_fen:500}})).status,404);
  assert.equal((await owner.j.call('/api/billing/recharge',{method:'POST',body:{amount_fen:500}})).status,404);
+ const accountId=(await pool.query('INSERT INTO billing_accounts(owner_id,cash_balance_fen,total_spent_fen) VALUES($1,1200,300) RETURNING id',[owner.user.id])).rows[0].id;
+ await pool.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'recharge',500,500,'payment','test-payment-1'),($1,'recharge',1000,1500,'payment','test-payment-2'),($1,'usage',-300,1200,'usage','test-usage-1')",[accountId]);
+ const funded=await owner.j.call('/api/billing/personal');assert.equal(funded.data.total_recharged_fen,'1500');assert.equal(funded.data.total_spent_fen,'300');assert.equal(funded.data.cash_balance_fen,'1200');assert.equal(funded.data.entries.length,3);
+ assert.equal((await other.j.call('/api/billing/personal')).data.total_recharged_fen,'0');
 });
 test('invitations bind verified email, are one-use, and cannot be replayed or self-promote',async()=>{
  const inv=await invite(owner,orgA,member,'member','研发');const preview=await jar().call('/api/platform/invitations/preview?token='+encodeURIComponent(inv.token));assert.equal(preview.status,200);assert.equal(preview.data.email,member.email);assert.equal(preview.data.name,'Test Employee');assert.equal(preview.data.organizationName,'Company A');assert.equal((await other.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,403);
