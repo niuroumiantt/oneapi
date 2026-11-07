@@ -6,6 +6,7 @@
  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const ico=n=>`<span data-icon="${n}"></span>`;
  let host,current='account',authMode='login',generation=0,lastOrg=null,invitePreview=null,me=null,staff=null,staffList=[],customers=[],sessions=[],resetToken=new URL(location.href).searchParams.get('reset_token'),supplyData={suppliers:[],offers:[]},offerDetail=null,promotionData={campaigns:[],products:[]},pricingData={products:[],proposals:[]};
+ const opsPageCache=new Map();
  if(resetToken)history.replaceState(null,'',location.pathname+'#reset-password');
  const handles=v=>['enterprise-register','enterprise-login','register','personal','enterprise','account','reset-password','staff','staff-account','admin','security'].includes(v)||v.startsWith('organization/')||v.startsWith('accept-invite/')||v.startsWith('ops/');
  async function api(path,body,method){const r=await fetch(path,{method:method||(body?'POST':'GET'),headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,credentials:'same-origin',cache:'no-store'});let data;try{data=await r.json();}catch{data={};}if(!r.ok){const err=Error(data.error||translate(data.code,data.message)||'暂时无法完成，请稍后重试。');err.status=r.status;throw err;}return data;}
@@ -41,7 +42,22 @@
   document.querySelectorAll('[data-account-slot]').forEach(slot=>slot.innerHTML=accountMenu(customer?.user||employee,customer?'customer':'staff'));
   const label=document.getElementById('welcome-continue-label');if(label)label.textContent=customer?'回到我的空间':employee?'回到员工工作台':'注册：开始我的旅程';const link=document.getElementById('welcome-continue');if(link)link.href=customer?'#personal':employee?'#staff-account':'#register';const help=document.querySelector('.welcome-preview-note');if(help)help.innerHTML=customer?'你的空间已就绪，继续探索吧。':employee?'员工身份已登录，可以直接进入工作台。':'已有个人账号？<a href="#personal">登录我的空间</a>';const enterpriseGuide=document.querySelector('.welcome-enterprise-guide');if(enterpriseGuide)enterpriseGuide.innerHTML=customer?'<span>企业客户</span><div><a href="#enterprise">'+(customer.organizations?.length?'进入企业工作台':'创建企业空间')+'</a></div>':'<span>企业客户</span><div><a href="#enterprise-register">注册企业账号</a><a href="#enterprise-login">登录企业工作台</a></div>';
  }
- function mount(content){host.classList.toggle('org-dashboard',current.startsWith('organization/'));host.classList.toggle('supply-dashboard',current.startsWith('ops/supply')||current==='ops/products'||current==='ops/payments'||current==='ops/promotions');host.classList.toggle('invite-dashboard',current.startsWith('accept-invite/'));host.classList.toggle('enterprise-dashboard',['enterprise','enterprise-login','enterprise-register'].includes(current)&&!!me);host.innerHTML=header()+`<main class="live-main">${content}</main><footer class="live-footer"><span>semifly.ai · 深圳市格洛可半导体有限公司</span><span>中国区 · 独立身份与工作空间</span></footer>`;}
+ function mount(content){
+  host.classList.toggle('org-dashboard',current.startsWith('organization/'));host.classList.toggle('supply-dashboard',current.startsWith('ops/supply')||current==='ops/products'||current==='ops/payments'||current==='ops/promotions');host.classList.toggle('invite-dashboard',current.startsWith('accept-invite/'));host.classList.toggle('enterprise-dashboard',['enterprise','enterprise-login','enterprise-register'].includes(current)&&!!me);
+  const existing=host.querySelector('.supply-shell');
+  const template=document.createElement('template');template.innerHTML=content;
+  const next=template.content.querySelector('.supply-shell');
+  if(current.startsWith('ops/')&&existing&&next){
+   existing.querySelector('.supply-side').innerHTML=next.querySelector('.supply-side').innerHTML;
+   existing.querySelector('.supply-content').replaceWith(next.querySelector('.supply-content'));
+  }else if(current.startsWith('organization/')&&host.querySelector('.org-shell')&&template.content.querySelector('.org-shell')){
+   const existingOrg=host.querySelector('.org-shell'),nextOrg=template.content.querySelector('.org-shell');
+   existingOrg.querySelector('.org-sidebar').innerHTML=nextOrg.querySelector('.org-sidebar').innerHTML;
+   existingOrg.querySelector('.org-content').replaceWith(nextOrg.querySelector('.org-content'));
+  }else host.innerHTML=header()+`<main class="live-main">${content}</main><footer class="live-footer"><span>semifly.ai · 深圳市格洛可半导体有限公司</span><span>中国区 · 独立身份与工作空间</span></footer>`;
+  host.classList.remove('route-loading');
+ }
+ async function staffContext(ticket){if(!staff){const info=await api('/api/staff/me');if(ticket!==generation)return false;staff=info.staff;}me=null;return true;}
  const note=(message,error=false)=>`<div class="live-notice ${error?'error':''}" role="${error?'alert':'status'}">${esc(message)}</div>`;
  const hero=(kicker,title,description)=>`<section class="live-hero"><div><span>${kicker}</span><h1>${title}</h1><p>${description}</p></div><img src="pinapi-mark.svg" alt="" aria-hidden="true"></section>`;
  function authForm(){
@@ -100,7 +116,7 @@
  }
  function dialog(title,content){showDialog(`<div class="dialog-kicker">semifly.ai · WORKSPACE</div><h2 class="dialog-title">${title}</h2>${content}`);}
  function form(title,content,id,submit='保存'){dialog(title,`<form class="live-form" id="${id}">${content}<div id="live-dialog-message" role="status"></div><button class="live-button primary" type="submit">${submit}</button></form>`);}
- function staffLogin(){mount(hero('STAFF CONSOLE','为团队，守好每一程。','深圳市格洛可半导体有限公司 · 内部员工专用')+`<section class="live-panel live-staff-entry"><h2>使用公司身份登录</h2><p>通过身份中心和多因素验证后，按semifly.ai岗位授权进入。客户身份不会自动变成公司员工。</p>${location.hash.includes('error=')?note('未能完成员工认证，请确认账户已开通并完成多因素验证。',true):''}<a class="live-button primary" href="/api/staff/login">公司员工登录 ${ico('arrow-right')}</a><p class="live-small">首次开通：先点下方链接，用指定的公司员工邮箱验证身份，自己设置密码并绑定验证器。已开通后再点公司员工登录。</p><a class="live-button quiet" href="https://login.glocalstorage.cn/if/flow/oneapi-staff-activation/">开通指定员工身份 ${ico('arrow-up-right')}</a><p class="live-small">如果身份中心显示 admin，请点 Not you? 切换账号。二维码用于绑定动态验证码，仅在确认是自己的员工账号时扫描。</p><a class="live-button quiet" href="#account">我是客户，进入个人或企业空间</a></section>`);}
+ function staffLogin(){staff=null;opsPageCache.clear();mount(hero('STAFF CONSOLE','为团队，守好每一程。','深圳市格洛可半导体有限公司 · 内部员工专用')+`<section class="live-panel live-staff-entry"><h2>使用公司身份登录</h2><p>通过身份中心和多因素验证后，按semifly.ai岗位授权进入。客户身份不会自动变成公司员工。</p>${location.hash.includes('error=')?note('未能完成员工认证，请确认账户已开通并完成多因素验证。',true):''}<a class="live-button primary" href="/api/staff/login">公司员工登录 ${ico('arrow-right')}</a><p class="live-small">首次开通：先点下方链接，用指定的公司员工邮箱验证身份，自己设置密码并绑定验证器。已开通后再点公司员工登录。</p><a class="live-button quiet" href="https://login.glocalstorage.cn/if/flow/oneapi-staff-activation/">开通指定员工身份 ${ico('arrow-up-right')}</a><p class="live-small">如果身份中心显示 admin，请点 Not you? 切换账号。二维码用于绑定动态验证码，仅在确认是自己的员工账号时扫描。</p><a class="live-button quiet" href="#account">我是客户，进入个人或企业空间</a></section>`);}
  async function staffAccount(ticket){
   const info=await api('/api/staff/me');if(ticket!==generation)return;staff=info.staff;me=null;
   if(staff.status!=='active'){mount(hero('YOUR CREW','身份已确认，等待岗位授权。',`${esc(staff.name)} · ${esc(staff.email)}`)+note('你的公司身份已通过认证。请平台管理员在“员工与权限”中为你分配岗位，授权后重新登录。'));return;}
@@ -130,7 +146,7 @@
   return incomplete?{stage:'资料核验',next:s.next_action||`补齐${incomplete.readiness?.missing?.[0]||'供应'}证据`,offers}:s.latest_test?{stage:'测试待复核',next:s.next_action||'完成其余能力、账单与容量复核',offers}:{stage:'待接口验证',next:s.next_action||'安排真实接口、计量与容量测试',offers};
  }
  async function supplierLandingPage(ticket){
-  const info=await api('/api/staff/me');if(ticket!==generation)return;staff=info.staff;me=null;
+  if(!await staffContext(ticket))return;
   supplyData=await api('/api/staff/suppliers');if(ticket!==generation)return;
   const write=['platform_admin','supply'].includes(staff.role),items=supplyData.suppliers;
   const rows=items.map(s=>{const p=supplierProgress(s),t=s.latest_test;return `<a class="supply-intake-row" href="#ops/supply/${s.id}" aria-label="打开${esc(s.display_name)}的供应商详情"><span class="supply-intake-name"><b>${esc(s.display_name)}</b><small>${esc(s.legal_name)} · ${esc(s.region)}</small></span><span><small>供给类型</small><b>${serviceTypes[s.service_type]||'待确认'}</b></span><span><small>当前阶段</small><b>${p.stage}</b></span><span><small>负责人</small><b>${esc(s.owner_name||s.owner_email||'待指定')}</b></span><span class="supply-intake-next"><small>下一步</small><b>${esc(p.next)}</b></span><span><small>最近测试</small><b class="${t?'':'supply-no-test'}">${t?`${testTypes[t.test_type]} · ${testResults[t.result]}`:'未登记测试'}</b>${t?`<small>${esc(t.model_name)} · ${new Date(t.observed_at).toLocaleDateString('zh-CN')}</small>`:''}</span>${ico('arrow-right')}</a>`;}).join('');
@@ -139,7 +155,7 @@
   host.querySelector('.supply-side a.active')?.insertAdjacentHTML('afterend',`<a href="#ops/products">${ico('layers')} 模型商品设计</a><a href="#ops/payments">${ico('receipt-text')} 付费准备</a>`);
  }
  async function supplierPage(ticket,preferredOffer){
-  const info=await api('/api/staff/me');if(ticket!==generation)return;staff=info.staff;me=null;
+  if(!await staffContext(ticket))return;
   supplyData=await api('/api/staff/suppliers');if(ticket!==generation)return;
   const supplierId=current.match(/^ops\/supply\/([^/]+)$/)?.[1];
   const supplier=supplyData.suppliers.find(s=>s.id===supplierId);
@@ -163,7 +179,7 @@
   host.querySelector('.supply-product-panel .supply-panel-head > div')?.insertAdjacentHTML('beforeend','<a class="supply-back-link" href="#ops/products">查看全部商品进度 →</a>');
  }
  async function productLandingPage(ticket){
-  const info=await api('/api/staff/me');if(ticket!==generation)return;staff=info.staff;me=null;
+  if(!await staffContext(ticket))return;
   const [catalog,supply,prices]=await Promise.all([api('/api/staff/model-products'),api('/api/staff/suppliers'),api('/api/staff/price-proposals')]);if(ticket!==generation)return;
   const offers=new Map(supply.offers.map(o=>[o.id,o])),suppliers=new Map(supply.suppliers.map(s=>[s.id,s])),products=catalog.products,latestPrice=new Map();pricingData={products,proposals:prices.proposals};for(const q of prices.proposals)if(!latestPrice.has(q.model_product_id))latestPrice.set(q.model_product_id,q);
   const rows=products.map(p=>{const offer=offers.get(p.offer_id),supplier=suppliers.get(p.supplier_id),readiness=offer?.readiness,paused=p.status==='blocked'||offer?.status==='blocked'||supplier?.status==='blocked',stage=paused?'已暂停':readiness?.documents_complete?'待技术验收':`资料 ${readiness?.documented||0}/7`,next=paused?'先处理暂停原因':readiness?.documents_complete?'验证真实调用、成本与容量':`补齐${readiness?.missing?.[0]||'供应'}资料`;return `<a class="supply-intake-row product-progress-row" href="#ops/supply/${p.supplier_id}" aria-label="查看${esc(p.display_name)}的供给与核验证据"><span class="supply-intake-name"><b>${esc(p.display_name)}</b><small>${esc(p.product_code)}</small></span><span><small>来源供方</small><b>${esc(p.supplier_name)}</b><small>${esc(p.source_model)}</small></span><span><small>供给验证</small><b>${stage}</b></span><span><small>价格设计</small><b>${latestPrice.has(p.id)?'内部草稿':'待设计'}</b>${latestPrice.has(p.id)?`<small>入 ¥${(Number(latestPrice.get(p.id).input_fen_per_million)/100).toFixed(2)} · 出 ¥${(Number(latestPrice.get(p.id).output_fen_per_million)/100).toFixed(2)} / 百万 tokens</small>`:''}</span><span><small>发布状态</small><b>内部草稿</b></span><span class="supply-intake-next"><small>下一步</small><b>${esc(next)}</b></span>${ico('arrow-right')}</a>`;}).join('');
@@ -172,14 +188,14 @@
   if(pricingData.proposals.length)host.querySelector('.supply-intake-title > span')?.insertAdjacentHTML('beforebegin',btn('查看价格草稿与依据','price-history','','quiet'));
  }
  async function paymentPage(ticket){
-  const info=await api('/api/staff/me');if(ticket!==generation)return;staff=info.staff;me=null;
+  if(!await staffContext(ticket))return;
   const [catalog,prices,campaigns,status]=await Promise.all([api('/api/staff/model-products'),api('/api/staff/price-proposals'),api('/api/staff/promotion-campaigns'),api('/api/status')]);if(ticket!==generation)return;
   const products=catalog.products,priced=new Set(prices.proposals.map(p=>p.model_product_id)),waiting=products.filter(p=>!priced.has(p.id));
   const steps=[['01','供应核验',products.length?`${products.length} 款商品草稿，仍须完成真实验证`:'先建立供应商与真实产品'],['02','价格与规则',`${priced.size} 款有内部价格草稿，尚无公开售价`],['03','商户与订单','待接入真实商户、订单状态及支付回调'],['04','资金与用量','待验收账本、对账、退款和调用计量']];
   mount(`<div class="supply-shell"><aside class="supply-side"><b>${ico('building-2')} 平台运营台</b><a href="#staff-account">${ico('layout-dashboard')} 员工工作台</a><a href="#ops/supply">${ico('server')} 供应商引入</a><a href="#ops/products">${ico('layers')} 模型商品设计</a><a class="active" href="#ops/payments">${ico('receipt-text')} 付费准备</a><a href="#ops/promotions">${ico('gift')} 促销活动</a><small>内部工作空间 · ${esc(staffRoles[staff.role])}</small></aside><div class="supply-content supply-intake-content"><div class="supply-heading"><div><span class="org-kicker">PAYMENT READINESS</span><h1>付费准备</h1><p>从可售商品、价格到订单和资金，逐项推进真实付款上线。</p></div><a class="live-button primary" href="#ops/products">查看商品价格 ${ico('arrow-right')}</a></div><div class="supply-intake-kpis"><article><small>价格草稿</small><strong>${priced.size}</strong><span>尚未成为公开售价</span></article><article><small>待设计价格</small><strong>${waiting.length}</strong><span>需要核对成本与计费单位</span></article><article><small>付款能力</small><strong>${status.payments_enabled?'已开放':'未开放'}</strong><span>不能创建真实订单</span></article><article><small>促销草稿</small><strong>${campaigns.campaigns.length}</strong><span>优惠与返佣未生效</span></article></div><section class="supply-panel supply-intake-panel"><div class="supply-intake-title"><div><span class="org-kicker">GO-LIVE PATH</span><h2>上线前的四步</h2><p>这张进度台只反映已记录的资料和代码状态，不代表已经可以收款。</p></div><span>内部工作台</span></div><div class="payment-step-list">${steps.map(([n,title,description])=>`<article><em>${n}</em><div><b>${title}</b><small>${esc(description)}</small></div></article>`).join('')}</div></section><p class="supply-intake-foot">真实收款、订单、退款、余额和佣金均未开放；接入商户后还需验签、幂等、对账和退款验证。</p></div></div>`);
  }
  async function promotionPage(ticket){
-  const info=await api('/api/staff/me');if(ticket!==generation)return;staff=info.staff;me=null;
+  if(!await staffContext(ticket))return;
   const [campaigns,products,prices,supply]=await Promise.all([api('/api/staff/promotion-campaigns'),api('/api/staff/model-products'),api('/api/staff/price-proposals'),api('/api/staff/suppliers')]);if(ticket!==generation)return;
   const liveOffers=new Map(supply.offers.map(o=>[o.id,o])),liveSuppliers=new Map(supply.suppliers.map(s=>[s.id,s])),eligible=new Set(products.products.filter(p=>p.status!=='blocked'&&liveOffers.get(p.offer_id)?.status!=='blocked'&&liveSuppliers.get(p.supplier_id)?.status!=='blocked').map(p=>p.id)),seen=new Set(),available=[];
   for(const q of prices.proposals)if(eligible.has(q.model_product_id)&&!seen.has(q.model_product_id)){available.push(q);seen.add(q.model_product_id);}
@@ -192,6 +208,7 @@
  async function route(view){
   window.LandingUI?.hide();const previous=current,wasIdentityActive=document.body.classList.contains('identity-active');current=view;authMode=['register','enterprise-register'].includes(view)?'register':'login';publicTicket++;const ticket=++generation;
   if(!host){host=document.createElement('div');host.id='identity-view';document.body.append(host);}
+  if(wasIdentityActive&&staff&&previous.startsWith('ops/')&&!host.classList.contains('route-loading')){const oldShell=host.querySelector('.supply-shell');if(oldShell)opsPageCache.set(previous,oldShell.outerHTML);}
   document.querySelectorAll('#market-view,#admin-view,#login-view,#staff-view,#personal-view,#enterprise-view').forEach(el=>el.hidden=true);host.hidden=false;
   document.body.classList.remove('market-active','welcome-active','universe-active','ops-active','catalog-active');document.body.classList.add('identity-active');document.body.classList.remove('identity-context-personal','identity-context-enterprise','identity-context-staff');document.body.classList.add('identity-context-'+contextKind());window.UniverseScene?.setActive(false);document.title='semifly.ai · '+({personal:'个人空间',enterprise:'企业工作台',staff:'内部工作台'}[contextKind()]);
   const [,orgId,section]=view.match(/^organization\/([^/]+)\/?([^/]*)$/)||[];
@@ -201,7 +218,13 @@
    catch(e){if(ticket===generation){if(e.status===401){me=null;lastOrg=null;authForm();}else if(e.status===403||e.status===404){lastOrg=null;mount(hero('YOUR WORKSPACE','暂时无法打开这个空间。','请核对账号及企业权限。')+note(e.message,true)+'<a class="live-button" href="#personal">返回我的空间</a>');}}}
    return;
   }
-  window.scrollTo(0,0);if(!wasIdentityActive||!me?.user||!host.innerHTML.trim())host.innerHTML='<div class="live-loading" role="status">正在打开你的工作空间…</div>';
+  if(!(previous.startsWith('ops/')&&view.startsWith('ops/')))window.scrollTo(0,0);const staffView=view==='staff-account'||view==='admin'||view.startsWith('ops/');if(!wasIdentityActive||!(staffView?staff:me?.user)||!host.innerHTML.trim())host.innerHTML='<div class="live-loading" role="status">正在打开你的工作空间…</div>';
+  if(wasIdentityActive&&staff&&view.startsWith('ops/')){
+   const cached=opsPageCache.get(view);
+   if(cached)mount(cached);
+   else{const target=view.startsWith('ops/supply/')?'ops/supply':view;host.querySelectorAll('.supply-side a').forEach(link=>link.classList.toggle('active',link.getAttribute('href')==='#'+target));}
+   host.classList.add('route-loading');
+  }
   try{
    if(view==='reset-password'){me=null;staff=null;mount(hero('A FRESH START','重新出发，从这里开始。','重设密码后，其他登录会话会被撤销。')+`<section class="live-panel live-padding live-reset"><form id="live-reset-form" class="live-form"><label>新密码<input name="newPassword" type="password" autocomplete="new-password" required minlength="12" maxlength="128"></label><div id="live-form-message" role="status">${resetToken?'':'没有有效的重设链接，请重新申请。'}</div><button class="live-button primary" ${resetToken?'':'disabled'} type="submit">保存新密码</button></form><a href="#account" class="live-button quiet">返回登录</a></section>`);return;}
    if(view==='staff'||view.startsWith('staff?')){me=null;staff=null;staffLogin();return;}
@@ -225,7 +248,7 @@
    if(action==='auth-mode'){authMode=b.dataset.mode;current.startsWith('accept-invite/')?invitation():authForm();}
    else if(action==='invite-switch'){await api('/api/auth/sign-out',{});me=null;authMode='login';invitation();}
    else if(action==='resend'){const email=host.querySelector('[name=email]').value;if(!email)throw Error('请先填写邮箱。');await api('/api/auth/send-verification-email',{email,callbackURL:location.origin+'/#'+(['enterprise-register','enterprise-login'].includes(current)?'enterprise':current)});message.innerHTML=note('如果该邮箱需要验证，验证邮件会发送到你的邮箱。');}
-   else if(action==='logout'){if(b.dataset.sessionKind==='staff')await api('/api/staff/logout',{});else await api('/api/auth/sign-out',{});me=null;staff=null;lastOrg=null;publicTicket++;document.querySelectorAll('[data-account-slot]').forEach(slot=>slot.innerHTML=accountMenu(null));const welcomeLabel=document.getElementById('welcome-continue-label');if(welcomeLabel)welcomeLabel.textContent='注册：开始我的旅程';document.querySelectorAll('.account-menu').forEach(el=>el.removeAttribute('open'));if(location.hash==='#universe')refreshPublic();else location.hash='universe';}
+   else if(action==='logout'){if(b.dataset.sessionKind==='staff')await api('/api/staff/logout',{});else await api('/api/auth/sign-out',{});me=null;staff=null;lastOrg=null;opsPageCache.clear();publicTicket++;document.querySelectorAll('[data-account-slot]').forEach(slot=>slot.innerHTML=accountMenu(null));const welcomeLabel=document.getElementById('welcome-continue-label');if(welcomeLabel)welcomeLabel.textContent='注册：开始我的旅程';document.querySelectorAll('.account-menu').forEach(el=>el.removeAttribute('open'));if(location.hash==='#universe')refreshPublic();else location.hash='universe';}
    else if(action==='create-org')form('建立企业工作空间','<label>企业名称<input name="name" required maxlength="100" placeholder="公司名称"></label><p class="live-small">创建账号将成为这家企业的代表人，负责团队邀请与后续采购。企业资质、支付和额度将在上线后分别核验。</p>','live-create-org','建立工作空间');
    else if(action==='org-tab'){location.hash='organization/'+lastOrg.organization.id+'/'+b.dataset.tab;}
    else if(action==='invite'){form('登记企业员工','<label>员工姓名<input name="name" required maxlength="80" placeholder="员工姓名"></label><label>工作邮箱<input name="email" type="email" required placeholder="colleague@company.com"></label><label>部门（可选）<input name="department" maxlength="80" placeholder="例如：产品团队"></label><p class="live-small">角色固定为企业员工。登记后系统向该邮箱发送一次性开通链接；员工首次设置自己的密码并验证邮箱后启用席位。模型授权与用量分配待真实调用接通。</p>','live-invite','登记并发送开通邮件');}
@@ -283,6 +306,6 @@
  document.addEventListener('click',e=>{document.querySelectorAll('.account-menu[open]').forEach(menu=>{if(!menu.contains(e.target)||e.target.closest('a'))menu.open=false;});});
  document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.account-menu[open]').forEach(menu=>{menu.open=false;menu.querySelector('summary').focus();});});
  window.addEventListener('focus',()=>{if(!document.body.classList.contains('identity-active'))refreshPublic();});
- window.IdentityUI={refreshPublic,handles:v=>handles(v)||v.startsWith('staff?'),route,cancel:()=>{generation++;lastOrg=null;}};
+ window.IdentityUI={refreshPublic,handles:v=>handles(v)||v.startsWith('staff?'),route,cancel:()=>{generation++;lastOrg=null;opsPageCache.clear();}};
  document.addEventListener('DOMContentLoaded',()=>{const v=location.hash.slice(1);if(window.IdentityUI.handles(v))route(v);});
 })();
