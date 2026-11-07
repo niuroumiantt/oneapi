@@ -16,7 +16,23 @@
   const name=esc(user.name||user.email),initial=esc(Array.from(user.name||user.email||'U')[0]);
   return `<details class="account-menu"><summary aria-label="账户菜单：${name}，已登录"><span class="account-avatar" aria-hidden="true">${initial}<i></i></span><span class="account-label"><b>${name}</b><small>${kind==='staff'?'员工已登录':'已登录'}</small></span>${ico('chevron-down')}</summary><div class="account-popover"><div class="account-person"><b>${name}</b><small>${esc(user.email)}</small></div>${kind==='staff'?`<a href="#staff-account">${ico('shield-check')} 员工工作台</a>`:`<a href="#personal">${ico('user-round')} 我的空间</a><a href="#security">${ico('shield-check')} 账户安全</a><a href="#enterprise">${ico('building-2')} 企业与团队</a>`}<button data-live="logout" data-session-kind="${kind}">${ico('log-in')} 退出登录</button></div></details>`;
  }
- function header(){return `<header class="live-header"><a class="welcome-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"><span>It’s Your <em class="brand-ai">A</em>P<em class="brand-ai">I</em>.</span></a><nav aria-label="账户导航"><a href="#platform">产品与服务</a><a href="#market">模型广场</a>${staff?'<a href="#staff-account">员工工作台</a>':me?'<a href="#personal">我的空间</a>'+(me.organizations?.length?'<a href="#enterprise">企业与团队</a>':''):'<a href="#enterprise-register">企业客户</a><a href="#universe">首页</a>'}${accountMenu(staff||me?.user,staff?'staff':'customer')}</nav></header>`;}
+ function contextKind(){
+  if(['staff','staff-account','admin'].includes(current)||current.startsWith('ops/'))return 'staff';
+  if(['enterprise','enterprise-register','enterprise-login'].includes(current)||current.startsWith('organization/')||current.startsWith('accept-invite/'))return 'enterprise';
+  return 'personal';
+ }
+ function contextIndicator(){
+  const kind=contextKind(),orgId=current.match(/^organization\/([^/]+)/)?.[1],org=me?.organizations?.find(o=>o.id===orgId)||null;
+  const title=kind==='staff'?'平台内部':kind==='enterprise'?(org?.name||'企业工作台'):'个人空间';
+  const detail=kind==='staff'?(staffRoles[staff?.role]||'员工身份'):kind==='enterprise'?(org?customerRoles[org.role]||'企业员工':'企业客户'):'个人身份';
+  const destination=kind==='enterprise'&&me?.user?'<a href="#personal">切换到个人空间 '+ico('arrow-right')+'</a>':kind==='personal'&&me?.organizations?.length?'<a href="#enterprise">切换到企业工作台 '+ico('arrow-right')+'</a>':'';
+  return `<div class="workspace-context workspace-context-${kind}" aria-label="当前身份：${esc(detail)}，${esc(title)}"><i aria-hidden="true"></i><span><small>当前身份 · ${esc(detail)}</small><strong>${esc(title)}</strong></span>${destination}</div>`;
+ }
+ function header(){
+  const kind=contextKind();
+  const nav=kind==='staff'?(staff?'<a href="#staff-account">员工工作台</a>':''):`<a href="#platform">产品与服务</a><a href="#market">模型广场</a>${me?.user?'':kind==='enterprise'?'<a href="#personal">个人入口</a>':'<a href="#enterprise-register">企业客户</a>'}`;
+  return `<header class="live-header"><a class="welcome-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"><span>It’s Your <em class="brand-ai">A</em>P<em class="brand-ai">I</em>.</span></a>${contextIndicator()}<nav aria-label="账户导航">${nav}${kind==='staff'&&!staff?'':accountMenu(staff||me?.user,staff?'staff':'customer')}</nav></header>`;
+ }
  let publicTicket=0;
  async function refreshPublic(){
   const ticket=++publicTicket;let customer=null,employee=null;
@@ -113,7 +129,7 @@
   window.LandingUI?.hide();const previous=current,wasIdentityActive=document.body.classList.contains('identity-active');current=view;authMode=['register','enterprise-register'].includes(view)?'register':'login';publicTicket++;const ticket=++generation;
   if(!host){host=document.createElement('div');host.id='identity-view';document.body.append(host);}
   document.querySelectorAll('#market-view,#admin-view,#login-view,#staff-view,#personal-view,#enterprise-view').forEach(el=>el.hidden=true);host.hidden=false;
-  document.body.classList.remove('market-active','welcome-active','universe-active','ops-active','catalog-active');document.body.classList.add('identity-active');window.UniverseScene?.setActive(false);document.title='semifly.ai · 我的工作空间';
+  document.body.classList.remove('market-active','welcome-active','universe-active','ops-active','catalog-active');document.body.classList.add('identity-active');document.body.classList.remove('identity-context-personal','identity-context-enterprise','identity-context-staff');document.body.classList.add('identity-context-'+contextKind());window.UniverseScene?.setActive(false);document.title='semifly.ai · '+({personal:'个人空间',enterprise:'企业工作台',staff:'内部工作台'}[contextKind()]);
   const [,orgId,section]=view.match(/^organization\/([^/]+)\/?([^/]*)$/)||[];
   if(wasIdentityActive&&me?.user&&previous!==view&&(previous===`organization/${orgId}`||previous.startsWith(`organization/${orgId}/`))&&lastOrg?.organization?.id===orgId&&['overview','models','people','budget','settings'].includes(section)){
    orgTab=section;organizationV2(lastOrg);
