@@ -90,6 +90,7 @@
 /* Keep personal signup primary; show both enterprise paths without exposing staff sign-in. */
 .welcome-header nav .welcome-enterprise-link,.lp-header nav .lp-enterprise,.m-header-actions .m-enterprise{color:#1C2541;font-weight:650;text-decoration:none}
 .welcome-header nav .welcome-enterprise-link:hover,.lp-header nav .lp-enterprise:hover,.m-header-actions .m-enterprise:hover{color:#E43C2F}
+.lp-header nav .lp-enterprise[hidden],.m-header-actions .m-enterprise[hidden]{display:none}
 .welcome-enterprise-guide{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:18px;padding:13px 0;border-top:1px solid #dedce1;border-bottom:1px solid #dedce1;font-size:10px}
 .welcome-enterprise-guide>span{color:#747988;font-weight:650;white-space:nowrap}
 .welcome-enterprise-guide>div{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px 13px}

@@ -47,6 +47,7 @@
   try{customer=await api('/api/platform/me');}catch(e){if(e.status===401)try{employee=(await api('/api/staff/me')).staff;}catch{}}
   if(ticket!==publicTicket||document.body.classList.contains('identity-active'))return;
   document.querySelectorAll('[data-account-slot]').forEach(slot=>slot.innerHTML=accountMenu(customer?.user||employee,customer?'customer':'staff'));
+  document.querySelectorAll('.m-enterprise,.lp-enterprise').forEach(link=>{link.hidden=!!(customer?.user||employee);});
   const label=document.getElementById('welcome-continue-label');if(label)label.textContent=customer?'回到我的空间':employee?'回到员工工作台':'注册：开始我的旅程';const link=document.getElementById('welcome-continue');if(link)link.href=customer?'#personal':employee?'#staff-account':'#register';const help=document.querySelector('.welcome-preview-note');if(help)help.innerHTML=customer?'你的空间已就绪，继续探索吧。':employee?'员工身份已登录，可以直接进入工作台。':'已有个人账号？<a href="#personal">登录我的空间</a>';const enterpriseGuide=document.querySelector('.welcome-enterprise-guide');if(enterpriseGuide)enterpriseGuide.innerHTML=customer?'<span>企业客户</span><div><a href="#enterprise">'+(customer.organizations?.length?'进入企业工作台':'创建企业空间')+'</a></div>':'<span>企业客户</span><div><a href="#enterprise-register">注册企业账号</a><a href="#enterprise-login">登录企业工作台</a></div>';
  }
  function mount(content){
