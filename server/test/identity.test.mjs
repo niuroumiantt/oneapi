@@ -107,8 +107,12 @@ test('supplier drafts and validation records persist with staff permissions and 
  assert.equal(detail.data.readiness.documented,0);assert.equal(detail.data.readiness.sale_ready,false);
  assert.equal((await staff.call('/api/staff/supplier-offers/'+offerId+'/checks/source',{method:'PATCH',body:{result:'documented'}})).status,400);
  assert.equal((await staff.call('/api/staff/supplier-offers/'+offerId+'/checks/source',{method:'PATCH',body:{result:'documented',evidence_url:'https://example.test/evidence'}})).status,200);
+ const testBody={test_type:'connectivity',result:'failed',observed_at:new Date(Date.now()-60000).toISOString(),latency_ms:890,evidence_url:'https://example.test/test-evidence',notes:'upstream timeout'};
+ assert.equal((await staff.call('/api/staff/supplier-offers/'+offerId+'/tests',{method:'POST',body:{...testBody,evidence_url:''}})).status,400);
+ const recorded=await staff.call('/api/staff/supplier-offers/'+offerId+'/tests',{method:'POST',body:testBody});assert.equal(recorded.status,201,JSON.stringify(recorded.data));
+ const testedDetail=await staff.call('/api/staff/supplier-offers/'+offerId);assert.equal(testedDetail.data.tests[0].result,'failed');assert.equal(testedDetail.data.sale_ready,false);
  const listing=await staff.call('/api/staff/suppliers');assert.equal(listing.status,200);assert.equal(listing.data.sale_ready,false);assert.ok(listing.data.offers.some(o=>o.id===offerId));
- const intake=listing.data.suppliers.find(s=>s.id===supplierId);assert.equal(intake.service_type,'managed_inference');assert.equal(intake.next_action,'取得 SLA 与接口文档');assert.ok(intake.owner_name);assert.ok(intake.owner_email);
+ const intake=listing.data.suppliers.find(s=>s.id===supplierId);assert.equal(intake.service_type,'managed_inference');assert.equal(intake.next_action,'取得 SLA 与接口文档');assert.ok(intake.owner_name);assert.ok(intake.owner_email);assert.equal(intake.latest_test.result,'failed');
  assert.equal(listing.data.offers.find(o=>o.id===offerId).readiness.documented,1);
  const updated=await staff.call('/api/staff/suppliers/'+supplierId,{method:'PATCH',body:{status:'reviewing',service_type:'gpu_rental',source_type:'unconfirmed',next_action:'核对机器归属'}});assert.equal(updated.status,200,JSON.stringify(updated.data));assert.equal(updated.data.service_type,'gpu_rental');assert.equal(updated.data.owner_subject,'staff-owner');
  assert.equal((await staff.call('/api/staff/suppliers/'+supplierId,{method:'PATCH',body:{status:'reviewing',service_type:'invalid'}})).status,400);
@@ -117,7 +121,7 @@ test('supplier drafts and validation records persist with staff permissions and 
  const product=await staff.call('/api/staff/model-products',{method:'POST',body:{offer_id:offerId,display_name:'Fixture Chat CN',product_code:'fixture-chat-cn',summary:'Internal product draft'}});
  assert.equal(product.status,201,JSON.stringify(product.data));assert.equal(product.data.public_catalog_enabled,false);
  const products=await staff.call('/api/staff/model-products');assert.equal(products.status,200);assert.equal(products.data.public_catalog_enabled,false);
- assert.ok(products.data.products.some(p=>p.id===product.data.id&&p.source_model==='Fixture Chat'&&p.supplier_name==='Fixture Model'));
+ assert.ok(products.data.products.some(p=>p.id===product.data.id&&p.source_model==='Fixture Chat'&&p.supplier_name==='Fixture Model'&&p.supplier_id===supplierId));
  assert.equal((await staff.call('/api/staff/model-products',{method:'POST',body:{offer_id:offerId,display_name:'Duplicate',product_code:'fixture-chat-cn'}})).status,409);
  const campaignBody={name:'Fixture launch draft',model_product_id:product.data.id,customer_price_percent:90,commission_percent:5,total_discount_budget_yuan:1000,starts_at:new Date(Date.now()+86400000).toISOString(),ends_at:new Date(Date.now()+86400000*8).toISOString()};
  assert.equal((await outsider.call('/api/staff/promotion-campaigns')).status,401);
@@ -135,6 +139,7 @@ test('supplier drafts and validation records persist with staff permissions and 
 test('new employee requires local approval; disabled customer sessions and revoked IdP tokens stop working',async()=>{
  identity={sub:'staff-second',email:'second@example.test',name:'Second',staff_approved:true};const second=jar();await staffLogin(second);assert.equal((await second.call('/api/staff/me')).data.staff.status,'pending');assert.equal((await second.call('/api/staff/customers')).status,403);
  assert.equal((await staff.call('/api/staff/members/staff-second',{method:'PATCH',body:{role:'finance',status:'active'}})).status,200);assert.equal((await second.call('/api/staff/me')).status,401);await staffLogin(second);assert.equal((await second.call('/api/staff/customers')).status,403);assert.equal((await second.call('/api/staff/suppliers')).status,200);assert.equal((await second.call('/api/staff/model-products')).status,200);assert.equal((await second.call('/api/staff/promotion-campaigns')).status,200);assert.equal((await second.call('/api/staff/promotion-campaigns',{method:'POST',body:{}})).status,403);assert.equal((await second.call('/api/staff/model-products',{method:'POST',body:{offer_id:'00000000-0000-0000-0000-000000000000',display_name:'No',product_code:'finance-denied'}})).status,403);assert.equal((await second.call('/api/staff/suppliers',{method:'POST',body:{legal_name:'No',display_name:'No',source_type:'official',region:'CN'}})).status,403);
+ assert.equal((await second.call('/api/staff/supplier-offers/00000000-0000-0000-0000-000000000000/tests',{method:'POST',body:{}})).status,403);
  assert.equal((await staff.call(`/api/staff/customers/${member.user.id}/status`,{method:'POST',body:{disabled:true}})).status,200);assert.equal((await member.j.call('/api/platform/me')).status,401);
  revoked=true;assert.equal((await staff.call('/api/staff/me')).status,401);revoked=false;
 });
