@@ -18,10 +18,12 @@ node /Users/m5/.worktrees/oneapi/phase-one-launch-design/scripts/probe_deepseek.
 | 项目 | 状态 |
 | --- | --- |
 | Key 所属 | 用户自己购买的 DeepSeek 测试 Key；具体账户权限待接口验证 |
-| 可用型号 | 待 `GET /models` 实测 |
-| 首次真实调用 | 待 Key 本机保存后执行 |
+| 可用型号 | 2026-11-07 测试账户 `GET /models` 返回 `deepseek-flash`、`deepseek-v4-pro` |
+| 首次真实调用 | `deepseek-flash` 已返回正文，`finish_reason=stop`；上游 usage 为输入 7、输出 1、合计 8 token |
 | 供应资格 / 客户转售授权 | 待供应合同或官方条款核对 |
 | OneAPI 客户 RMB 价格 | 待成本、毛利、税费和规则定价 |
 | 客户充值、平台 Key、用量账本 | 未开放，不能以本次探测结果冒充端到端闭环 |
 
-官网当前目录所列型号与价格属于公开文档快照；页面只展示选型方向，直到该账户的可用性、费用和合规条件核实。运行后将探测结果写入独立验收记录，不写入密钥。
+官网当前目录所列价格属于公开文档快照。页面可展示本次核对过的准确型号和验证状态，但客户售价与购买入口继续关闭，直到供应资格、费用和交付条件核实；验收记录不写入密钥。
+
+本次探测先因脚本把 POST 误发为 GET 收到 HTTP 405，修正后一次真实 POST 收到 HTTP 500，受限重试成功。脚本现用 Node HTTPS 明确发送 POST，并仅输出非敏感结果。`deepseek-v4-pro` 只完成列表核验，尚未实际调用。测试 Key 保留在本机文件，未上传到阿里云或 Git。

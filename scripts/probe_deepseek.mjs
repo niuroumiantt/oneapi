@@ -2,6 +2,7 @@
 import { lstat, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import https from 'node:https';
 
 // Tests a user-owned DeepSeek key without putting it in source, command arguments or logs.
 // This is an upstream smoke test, not the public OneAPI gateway.
@@ -19,21 +20,38 @@ async function readKey() {
   return key;
 }
 
-async function request(path, key, options = {}) {
-  const response = await fetch(baseUrl + path, {
-    method: options.body ? 'POST' : 'GET',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-    signal: AbortSignal.timeout(30000),
+async function request(path, key, bodyObject = null) {
+  const body = bodyObject ? JSON.stringify(bodyObject) : null;
+  return new Promise((resolve, reject) => {
+    const req = https.request(baseUrl + path, {
+      method: body ? 'POST' : 'GET',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        ...(body ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } : {}),
+      },
+      timeout: 30000,
+    }, response => {
+      let raw = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => {
+        raw += chunk;
+        if (raw.length > 1_000_000) response.destroy(new Error('响应超过安全大小限制。'));
+      });
+      response.on('end', () => {
+        // Never log raw upstream response bodies; they may contain request details.
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          reject(new Error(`${path} 返回 HTTP ${response.statusCode}。`));
+          return;
+        }
+        try { resolve(JSON.parse(raw)); }
+        catch { reject(new Error(`${path} 返回的 JSON 无效。`)); }
+      });
+      response.on('error', reject);
+    });
+    req.on('timeout', () => req.destroy(new Error(`${path} 请求超时。`)));
+    req.on('error', reject);
+    req.end(body ?? undefined);
   });
-  if (!response.ok) {
-    // Upstream error bodies can contain request details; never print them here.
-    throw new Error(`${path} 返回 HTTP ${response.status}。`);
-  }
-  return response.json();
 }
 
 try {

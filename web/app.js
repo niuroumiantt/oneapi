@@ -1,6 +1,6 @@
 const models = [
- {id:'deepseek-chat-demo',family:'deepseek',name:'DeepSeek · 对话方向',subtitle:'DeepSeek · 通用对话',badge:'日常首选',description:'从一封邮件到一个新想法，让写作、问答与日常工作更轻松。',tags:['日常写作','知识问答','流式输出'],uses:['writing'],price:null},
- {id:'deepseek-reasoning-demo',family:'deepseek',name:'DeepSeek · 推理方向',subtitle:'DeepSeek · 深度推理',badge:'深度思考',description:'拆解复杂问题，梳理推理过程，为分析和编程多想一步。',tags:['深度推理','代码生成','工具调用'],uses:['reasoning','coding'],price:null},
+ {id:'deepseek-flash',family:'deepseek',name:'DeepSeek Flash',subtitle:'DeepSeek · 对话与创作',badge:'接口已实测',description:'适合日常写作、问答与代码任务。型号在测试账户中可见，已完成一次官方接口调用。',tags:['日常写作','知识问答','代码任务'],uses:['writing','coding'],upstreamId:'deepseek-flash',verification:'2026-11-07 · 测试账户完成一次调用',price:null},
+ {id:'deepseek-v4-pro',family:'deepseek',name:'DeepSeek V4 Pro',subtitle:'DeepSeek · 复杂任务',badge:'账户可见',description:'适合需要更深入分析的文本任务。型号在测试账户中可见，调用与交付条件仍待验证。',tags:['复杂分析','深度推理','代码任务'],uses:['reasoning','coding'],upstreamId:'deepseek-v4-pro',verification:'2026-11-07 · 测试账户可见，尚未实测调用',price:null},
  {id:'glm-coding-demo',family:'glm',name:'GLM Coding',subtitle:'智谱 GLM · 编程协作',badge:'开发者之选',description:'从需求理解到代码实现，陪你完成每一次有挑战的开发。',tags:['编程开发','Agent 协作','工具调用'],uses:['coding','reasoning'],price:null},
  {id:'glm-vision-demo',family:'glm',name:'GLM Vision',subtitle:'智谱 GLM · 视觉理解',badge:'看见更多',description:'读懂图像中的信息，让截图、图表和文档成为对话的一部分。',tags:['视觉理解','图表分析','图文问答'],uses:['vision','writing'],price:null}
 ];
@@ -29,7 +29,7 @@ function renderModels(){
 }
 function openModelDetail(id){
  const m=models.find(x=>x.id===id);if(!m)return;
- showDialog(`<div class="dialog-kicker">MODEL PREVIEW · ${escapeHtml(m.family==='deepseek'?'DeepSeek':'智谱 GLM')}</div><h2 class="dialog-title">${escapeHtml(m.name)}</h2><p class="dialog-description">${escapeHtml(m.description)}</p><div class="price-example"><span>适合探索</span><b>${m.tags.map(escapeHtml).join(' · ')}</b></div><div class="price-example"><span>精确型号与版本</span><b>待供应授权和真实验证</b></div><div class="price-example"><span>输入 / 输出价格</span><b>待正式发布</b></div><div class="price-example"><span>接入状态</span><b>尚不可调用</b></div><div class="info-box">你看到的是选型方向预览。正式型号会提供价格、计费单位、地区、能力限制和验证状态；客户按实际用量从预付余额中扣费。</div><div class="dialog-bottom"><button class="button secondary" data-close-dialog>继续浏览</button><button class="button primary" data-action="pricing">看懂计费方式 <span data-icon="arrow-right"></span></button></div>`);
+ showDialog(`<div class="dialog-kicker">MODEL PREVIEW · ${escapeHtml(m.family==='deepseek'?'DeepSeek':'智谱 GLM')}</div><h2 class="dialog-title">${escapeHtml(m.name)}</h2><p class="dialog-description">${escapeHtml(m.description)}</p><div class="price-example"><span>适合探索</span><b>${m.tags.map(escapeHtml).join(' · ')}</b></div><div class="price-example"><span>上游型号 ID</span><b>${escapeHtml(m.upstreamId||'待采购和验证')}</b></div><div class="price-example"><span>技术验证</span><b>${escapeHtml(m.verification||'待供应授权和真实验证')}</b></div><div class="price-example"><span>输入 / 输出价格</span><b>待正式发布</b></div><div class="price-example"><span>客户接入</span><b>尚未开放</b></div><div class="info-box">实测只证明测试账户可调用相应上游接口；客户售价、供给授权与平台接入仍需单独完成。正式商品会列出价格、计费单位、地区和能力限制，使用费用从预付余额中扣除。</div><div class="dialog-bottom"><button class="button secondary" data-close-dialog>继续浏览</button><button class="button primary" data-action="pricing">看懂计费方式 <span data-icon="arrow-right"></span></button></div>`);
 }
 function updatePricingExample(){
  const input=Math.max(0,Math.min(10000000,Number($('#pricing-input-tokens')?.value)||0));
