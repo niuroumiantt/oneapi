@@ -47,6 +47,15 @@ test('verified registration creates durable personal identity and isolated organ
  assert.equal((await owner.j.call('/api/platform/me')).data.organizations[0].role,'owner');assert.equal((await other.j.call(`/api/platform/organizations/${orgA.id}`)).status,403);assert.equal((await owner.j.call('/api/staff/members')).status,401);
  const fresh=jar();for(const [k,v]of owner.j.cookies)fresh.cookies.set(k,v);assert.equal((await fresh.call(`/api/platform/organizations/${orgA.id}`)).data.organization.name,'Company A');
 });
+test('real billing reads are isolated and cannot credit funds without a merchant',async()=>{
+ assert.equal((await jar().call('/api/billing/personal')).status,401);
+ const personal=await owner.j.call('/api/billing/personal');assert.equal(personal.status,200);assert.equal(personal.data.scope,'personal');assert.equal(personal.data.cash_balance_fen,'0');assert.deepEqual(personal.data.entries,[]);assert.equal(personal.data.recharge.enabled,false);assert.equal(personal.data.recharge.minimum_fen,500);
+ const org=await owner.j.call(`/api/billing/organizations/${orgA.id}`);assert.equal(org.status,200);assert.equal(org.data.scope,'organization');assert.equal(org.data.cash_balance_fen,'0');assert.equal(org.data.refund.enabled,false);
+ assert.equal((await other.j.call(`/api/billing/organizations/${orgA.id}`)).status,403);
+ assert.equal((await owner.j.call(`/api/billing/organizations/${orgB.id}`)).status,403);
+ assert.equal((await owner.j.call('/api/billing/personal',{method:'POST',body:{amount_fen:500}})).status,404);
+ assert.equal((await owner.j.call('/api/billing/recharge',{method:'POST',body:{amount_fen:500}})).status,404);
+});
 test('invitations bind verified email, are one-use, and cannot be replayed or self-promote',async()=>{
  const inv=await invite(owner,orgA,member,'member','研发');const preview=await jar().call('/api/platform/invitations/preview?token='+encodeURIComponent(inv.token));assert.equal(preview.status,200);assert.equal(preview.data.email,member.email);assert.equal(preview.data.name,'Test Employee');assert.equal(preview.data.organizationName,'Company A');assert.equal((await other.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,403);
  assert.equal((await member.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,200);assert.equal((await member.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,400);

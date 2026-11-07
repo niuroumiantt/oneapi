@@ -1,0 +1,22 @@
+import { HttpError,id } from './core.mjs';
+
+function disabled(account,entries,scope){
+ return {scope,currency:'CNY',cash_balance_fen:String(account?.cash_balance_fen||0),total_spent_fen:String(account?.total_spent_fen||0),entries,recharge:{enabled:false,minimum_fen:500,channels:[]},refund:{enabled:false,fee_policy:'pending_review'},payments_enabled:false};
+}
+
+export function billingRoutes(app,pool,requireCustomer){
+ async function view(account,scope,res){
+  const entries=account?(await pool.query('SELECT id,kind,amount_fen,balance_after_fen,created_at FROM billing_ledger WHERE account_id=$1 ORDER BY id DESC LIMIT 50',[account.id])).rows:[];
+  res.json(disabled(account,entries,scope));
+ }
+ app.get('/api/billing/personal',requireCustomer,async(req,res)=>{
+  const account=(await pool.query('SELECT id,cash_balance_fen,total_spent_fen FROM billing_accounts WHERE owner_id=$1',[req.customer.id])).rows[0];
+  await view(account,'personal',res);
+ });
+ app.get('/api/billing/organizations/:org',requireCustomer,async(req,res)=>{
+  const org=id(req.params.org),membership=(await pool.query("SELECT role FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",[org,req.customer.id])).rows[0];
+  if(!membership||membership.role!=='owner')throw new HttpError(403,'仅企业代表人可以查看企业资金');
+  const account=(await pool.query('SELECT id,cash_balance_fen,total_spent_fen FROM billing_accounts WHERE organization_id=$1',[org])).rows[0];
+  await view(account,'organization',res);
+ });
+}
