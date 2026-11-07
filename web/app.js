@@ -29,7 +29,7 @@ function renderModels(){
 }
 function openModelDetail(id){
  const m=models.find(x=>x.id===id);if(!m)return;
- showDialog(`<div class="dialog-kicker">MODEL PREVIEW · ${escapeHtml(m.family==='deepseek'?'DeepSeek':'智谱 GLM')}</div><h2 class="dialog-title">${escapeHtml(m.name)}</h2><p class="dialog-description">${escapeHtml(m.description)}</p><div class="price-example"><span>适合探索</span><b>${m.tags.map(escapeHtml).join(' · ')}</b></div><div class="price-example"><span>上游型号 ID</span><b>${escapeHtml(m.upstreamId||'待采购和验证')}</b></div><div class="price-example"><span>技术验证</span><b>${escapeHtml(m.verification||'待供应授权和真实验证')}</b></div><div class="price-example"><span>输入 / 输出价格</span><b>待正式发布</b></div><div class="price-example"><span>客户接入</span><b>尚未开放</b></div><div class="info-box">实测只证明测试账户可调用相应上游接口；客户售价、供给授权与平台接入仍需单独完成。正式商品会列出价格、计费单位、地区和能力限制，使用费用从预付余额中扣除。</div><div class="dialog-bottom"><button class="button secondary" data-close-dialog>继续浏览</button><button class="button primary" data-action="pricing">看懂计费方式 <span data-icon="arrow-right"></span></button></div>`);
+ showDialog(`<div class="dialog-kicker">MODEL PREVIEW · ${escapeHtml(m.family==='deepseek'?'DeepSeek':'智谱 GLM')}</div><h2 class="dialog-title">${escapeHtml(m.name)}</h2><p class="dialog-description">${escapeHtml(m.description)}</p><div class="price-example"><span>适合探索</span><b>${m.tags.map(escapeHtml).join(' · ')}</b></div><div class="price-example"><span>上游型号 ID</span><b>${escapeHtml(m.upstreamId||'待采购和验证')}</b></div><div class="price-example"><span>技术验证</span><b>${escapeHtml(m.verification||'待供应授权和真实验证')}</b></div><div class="price-example"><span>输入 / 输出价格</span><b>待正式发布</b></div><div class="price-example"><span>客户接入</span><b>尚未开放</b></div><div class="info-box">想继续了解这款模型？选择个人或企业空间，注册后仍能看到当前选择。客户售价、授权范围与真实接入尚待完成。</div><div class="dialog-bottom model-next"><button class="button secondary" data-close-dialog>继续浏览</button><button class="button primary" data-action="model-personal" data-model-id="${escapeHtml(m.id)}">个人继续 <span data-icon="arrow-right"></span></button><button class="button secondary" data-action="model-enterprise" data-model-id="${escapeHtml(m.id)}">企业继续</button></div>`);
 }
 function updatePricingExample(){
  const input=Math.max(0,Math.min(10000000,Number($('#pricing-input-tokens')?.value)||0));
@@ -106,6 +106,8 @@ const actions={
  readiness:()=>showInfo('五个模块，逐步落地','当前进度以已上线的真实功能为准。',`<div class="price-example"><span>员工与客户登录、权限</span><b>已上线 · 个人、企业及员工真实身份与权限</b></div><div class="price-example"><span>供应商与产品验证</span><b>内部可用 · 档案、证据与验收报告；待真实供应接入</b></div><div class="price-example"><span>模型广场与接入</span><b>内部商品、价格及复核流程；客户目录仍是预览</b></div><div class="price-example"><span>付费</span><b>企业预算界面与付费准备台；真实收款未开放</b></div><div class="price-example"><span>促销</span><b>内部活动草稿已保存；兑换与佣金未开放</b></div><div class="info-box">真实订单、模型调用、用量账本和优惠结算尚未启用。旧平台 api.glocalstorage.cn 独立运行。</div>`),
  tools:()=>openConfig(),
  pricing:()=>{$('#config-dialog').close();$('#how-pricing-works').scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});},
+ 'model-personal':button=>{if(!window.IdentityUI?.chooseModelIntent(button.dataset.modelId))return;$('#config-dialog').close();location.hash='register';},
+ 'model-enterprise':button=>{if(!window.IdentityUI?.chooseModelIntent(button.dataset.modelId))return;$('#config-dialog').close();location.hash='enterprise-register';},
  docs:()=>showInfo('三步开始接入','这里预览正式产品的文档入口。',`<div class="price-example"><span>01</span><b>选择模型与自己的开发工具</b></div><div class="price-example"><span>02</span><b>创建项目，获取平台 API Key</b></div><div class="price-example"><span>03</span><b>完成首次调用，查看用量与费用</b></div>`),
  account:()=>{location.hash='personal';},
  notifications:()=>{location.hash='ops/supply';switchView('ops/supply');tableTab='events';renderTable();$('.supply-panel').scrollIntoView({behavior:'smooth',block:'center'});},
@@ -125,7 +127,7 @@ document.addEventListener('click',event=>{
  if(b.dataset.selectTool){selectedTool=b.dataset.selectTool;selectedModel=models.find(m=>m.id===$('#config-model').value)||selectedModel;renderConfig(1);}
  if(b.dataset.configStep){if($('#config-model'))selectedModel=models.find(m=>m.id===$('#config-model').value)||selectedModel;renderConfig(Number(b.dataset.configStep));}
  if(b.hasAttribute('data-close-dialog'))$('#config-dialog').close();
- if(b.dataset.action)actions[b.dataset.action]?.();
+ if(b.dataset.action)actions[b.dataset.action]?.(b);
  if(b.dataset.table){tableTab=b.dataset.table;renderTable();}
  if(b.dataset.product)openDrawer(products.find(p=>p.id===b.dataset.product));
  if(b.dataset.alert)showAlert(b.dataset.alert);

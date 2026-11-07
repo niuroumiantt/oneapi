@@ -5,6 +5,13 @@
  const staffRoles={platform_admin:'平台管理员',operations:'运营',supply:'供应运营',finance:'财务',support:'客户支持',pending:'待授权'};
  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const ico=n=>`<span data-icon="${n}"></span>`;
+ const modelIntentKey='semifly.model-intent.v1';
+ const modelIntentNames={'deepseek-flash':'DeepSeek Flash','deepseek-v4-pro':'DeepSeek V4 Pro','glm-coding-demo':'GLM Coding','glm-vision-demo':'GLM Vision'};
+ function selectedModelIntent(){
+  try{const saved=JSON.parse(localStorage.getItem(modelIntentKey)||'null');if(saved&&Object.hasOwn(modelIntentNames,saved.id)&&Date.now()-saved.at<7*86400000)return {id:saved.id,name:modelIntentNames[saved.id]};}catch{}
+  return null;
+ }
+ function chooseModelIntent(id){if(!Object.hasOwn(modelIntentNames,id))return false;try{localStorage.setItem(modelIntentKey,JSON.stringify({id,at:Date.now()}));return true;}catch{return false;}}
  let host,current='account',authMode='login',generation=0,lastOrg=null,invitePreview=null,me=null,staff=null,staffList=[],customers=[],sessions=[],resetToken=new URL(location.href).searchParams.get('reset_token'),supplyData={suppliers:[],offers:[]},offerDetail=null,promotionData={campaigns:[],products:[]},pricingData={products:[],proposals:[]},reviewData={products:[],reviews:[]};
  const opsPageCache=new Map();
  if(resetToken)history.replaceState(null,'',location.pathname+'#reset-password');
@@ -55,6 +62,15 @@
    existingOrg.querySelector('.org-sidebar').innerHTML=nextOrg.querySelector('.org-sidebar').innerHTML;
    existingOrg.querySelector('.org-content').replaceWith(nextOrg.querySelector('.org-content'));
   }else host.innerHTML=header()+`<main class="live-main">${content}</main><footer class="live-footer"><span>semifly.ai · 深圳市格洛可半导体有限公司</span><span>中国区 · 独立身份与工作空间</span></footer>`;
+  const intent=selectedModelIntent();
+  if(intent&&contextKind()!=='staff'){
+   const target=['register','personal','enterprise-register','enterprise-login'].includes(current)&&host.querySelector('.live-auth-card')
+    ||current==='personal'&&host.querySelector('.personal-discover > div')
+    ||current==='enterprise'&&host.querySelector('.org-entry-intro')
+    ||current.startsWith('organization/')&&['overview','models'].includes(orgTab)&&host.querySelector(orgTab==='models'?'.org-wide-card':'.org-start-card');
+   const intro=target?.querySelector(':scope > p');
+   intro?.insertAdjacentHTML('afterend',`<div class="model-intent" role="status"><i aria-hidden="true"></i><span>正在了解 <b>${esc(intent.name)}</b><small>目录预览 · 尚未开放购买</small></span><a href="#catalog">查看型号 ${ico('arrow-right')}</a></div>`);
+  }
   host.classList.remove('route-loading');
  }
  async function staffContext(ticket){if(!staff){const info=await api('/api/staff/me');if(ticket!==generation)return false;staff=info.staff;}me=null;return true;}
@@ -372,6 +388,6 @@
  document.addEventListener('click',e=>{document.querySelectorAll('.account-menu[open]').forEach(menu=>{if(!menu.contains(e.target)||e.target.closest('a'))menu.open=false;});});
  document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.account-menu[open]').forEach(menu=>{menu.open=false;menu.querySelector('summary').focus();});});
  window.addEventListener('focus',()=>{if(!document.body.classList.contains('identity-active'))refreshPublic();});
- window.IdentityUI={refreshPublic,handles:v=>handles(v)||v.startsWith('staff?'),route,cancel:()=>{generation++;lastOrg=null;opsPageCache.clear();}};
+ window.IdentityUI={refreshPublic,chooseModelIntent,handles:v=>handles(v)||v.startsWith('staff?'),route,cancel:()=>{generation++;lastOrg=null;opsPageCache.clear();}};
  document.addEventListener('DOMContentLoaded',()=>{const v=location.hash.slice(1);if(window.IdentityUI.handles(v))route(v);});
 })();
