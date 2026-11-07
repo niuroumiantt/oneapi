@@ -16,7 +16,9 @@
 
 隔离 PostgreSQL 下 `npm test` 27/27 通过；包括匿名及客户身份拒绝、金额精度、HTTPS 依据、停用供应时拒绝定价。线上 `/release.json` 与 `/api/status` 的源码版本一致；匿名价格接口为 401；旧 `api.glocalstorage.cn` 返回 200。员工登录态未提供给本会话，因此尚未以生产员工身份进行视觉验收。
 
-后续前端补充价格草稿历史与依据查看入口，最终线上版本为 `0a285564d98b048b4c711dc7cf608ccbdc316cde`，静态包 SHA256 `03ba93f2b6dbaa740f44d2e95aae5959b86442b0f6481c837c65f679e4363ec1`。后端业务代码沿用 `bd9f314` 镜像，`SOURCE_SHA` 更新到最终线上版本；前后端 `/release.json` 与 `/api/status` 已核对同版且付款、调用仍关闭。
+后续前端补充价格草稿历史与依据查看入口，当时线上版本为 `0a285564d98b048b4c711dc7cf608ccbdc316cde`，静态包 SHA256 `03ba93f2b6dbaa740f44d2e95aae5959b86442b0f6481c837c65f679e4363ec1`。后端业务代码沿用 `bd9f314` 镜像，`SOURCE_SHA` 更新到该线上版本；前后端 `/release.json` 与 `/api/status` 已核对同版且付款、调用仍关闭。
+
+促销价格版本绑定更新已发布：线上版本 `756dd1c2e871384774c6ac5007b27c2e7ac40b7d`，后端镜像 `oneapi-identity:756dd1c`，静态包 SHA256 `d997d0b42fc3fc436161c7e9d12df4b940d4f9eea64db5977d053d3833f9b527`。迁移前备份 `/srv/oneapi-backups/oneapi-before-promo-price-756dd1c.dump`，配置备份为 `/srv/oneapi-config/compose.before-756dd1c.env` 和 `identity.before-756dd1c.env`。隔离数据库集成测试 27/27 通过；线上前后端版本一致，促销价格字段只读检查通过，匿名内部接口 401，旧平台 200。员工生产会话的页面视觉验收仍待登录后完成。
 
 ## 接下来
 
