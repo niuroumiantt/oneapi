@@ -8,10 +8,10 @@
 
 ## 已完成
 
-- 功能提交 `41ab511a4fa8c7177cb2758633b300b5124f21bf` 已推送到 `codex/phase-one-launch-design`，并部署到独立域名。个人入口 `#demo/personal`，企业入口 `#demo/organization/<organization-id>`；个人空间、企业总览/采购/预算、模型广场均有可见路径。
+- 功能提交 `41ab511a4fa8c7177cb2758633b300b5124f21bf` 与员工视角修正 `2083b00f227398efd75ac50d83039bee4979cd4b` 已推送到 `codex/phase-one-launch-design`；后者部署到独立域名。个人入口 `#demo/personal`，企业入口 `#demo/organization/<organization-id>`；个人空间、企业总览/采购/预算、模型广场均有可见路径。员工不看代表人的订单明细，但能看到企业已模拟购买的模型并在分配额度后创建演示接入。
 - 新增隔离 `demo_*` 表和 `/api/demo/*`。真实登录和企业成员身份作为访问门禁；模拟订单付款为幂等余额入账；演示接入只保存 ID 和状态；模拟调用按固定演示价扣款并留用量记录；企业代表人可为成员设置额度，超额、跨企业、未付款及未授权操作被拒绝。
-- 28/28 全套测试通过。线上前后端均为功能提交 SHA；API 容器 `healthy`；匿名体验接口 401；`/api/status` 仍显示真实 `payments_enabled=false`、`inference_enabled=false`；旧平台首页 200。
-- 迁移前备份 `/srv/oneapi-backups/oneapi-20261107T050515Z.dump`，配置备份 `/srv/oneapi-config/compose.before-41ab511.env` 和 `identity.before-41ab511.env`。新镜像 `oneapi-identity:41ab511`；新增表为加法迁移，应用回滚时应保留表和模拟记录。
+- 28/28 全套测试通过。线上前后端均为 `2083b00f227398efd75ac50d83039bee4979cd4b`；API 容器 `healthy`；匿名体验接口 401；`/api/status` 仍显示真实 `payments_enabled=false`、`inference_enabled=false`；旧平台首页 200。浏览器确认公开模型目录的体验入口能跳转，未登录时引导到登录表单。
+- 迁移前备份 `/srv/oneapi-backups/oneapi-20261107T050515Z.dump`，配置备份 `/srv/oneapi-config/compose.before-41ab511.env` 与 `identity.before-41ab511.env`，修正补丁前另存 `compose.before-2083b00.env` 与 `identity.before-2083b00.env`。现用镜像 `oneapi-identity:2083b00`；新增表为加法迁移，应用回滚时应保留表和模拟记录。
 
 ## 下一步
 
