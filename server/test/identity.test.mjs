@@ -111,6 +111,14 @@ test('supplier drafts and validation records persist with staff permissions and 
  assert.equal((await staff.call('/api/staff/supplier-offers/'+offerId+'/tests',{method:'POST',body:{...testBody,evidence_url:''}})).status,400);
  const recorded=await staff.call('/api/staff/supplier-offers/'+offerId+'/tests',{method:'POST',body:testBody});assert.equal(recorded.status,201,JSON.stringify(recorded.data));
  const testedDetail=await staff.call('/api/staff/supplier-offers/'+offerId);assert.equal(testedDetail.data.tests[0].result,'failed');assert.equal(testedDetail.data.sale_ready,false);
+ const validationBody={objective:'Peak-hour model validation',window_start:new Date(Date.now()-3600000).toISOString(),window_end:new Date(Date.now()-60000).toISOString(),sample_count:50,success_count:47,p95_ttft_ms:1200,p95_total_ms:4100,usage_check:'mismatched',conclusion:'inconclusive',evidence_url:'https://example.test/validation-report',notes:'Three failed requests need investigation'};
+ assert.equal((await outsider.call('/api/staff/supplier-offers/'+offerId+'/validations')).status,401);
+ assert.equal((await owner.j.call('/api/staff/supplier-offers/'+offerId+'/validations')).status,401);
+ assert.equal((await staff.call('/api/staff/supplier-offers/'+offerId+'/validations',{method:'POST',body:{...validationBody,success_count:51}})).status,400);
+ assert.equal((await staff.call('/api/staff/supplier-offers/'+offerId+'/validations',{method:'POST',body:{...validationBody,evidence_url:'http://example.test/report'}})).status,400);
+ const validation=await staff.call('/api/staff/supplier-offers/'+offerId+'/validations',{method:'POST',body:validationBody});assert.equal(validation.status,201,JSON.stringify(validation.data));assert.equal(validation.data.technical_verified,false);assert.equal(validation.data.sale_ready,false);
+ const validationList=await staff.call('/api/staff/supplier-offers/'+offerId+'/validations');assert.equal(validationList.status,200);assert.equal(validationList.data.source,'staff_recorded');assert.equal(validationList.data.runs[0].id,validation.data.id);assert.equal(validationList.data.runs[0].sample_count,50);assert.equal(validationList.data.runs[0].usage_check,'mismatched');
+ const validationSummary=await staff.call('/api/staff/validation-summary');assert.equal(validationSummary.status,200);assert.ok(validationSummary.data.latest.some(r=>r.offer_id===offerId&&r.conclusion==='inconclusive'));assert.equal(validationSummary.data.technical_verified,false);
  const listing=await staff.call('/api/staff/suppliers');assert.equal(listing.status,200);assert.equal(listing.data.sale_ready,false);assert.ok(listing.data.offers.some(o=>o.id===offerId));
  const intake=listing.data.suppliers.find(s=>s.id===supplierId);assert.equal(intake.service_type,'managed_inference');assert.equal(intake.next_action,'取得 SLA 与接口文档');assert.ok(intake.owner_name);assert.ok(intake.owner_email);assert.equal(intake.latest_test.result,'failed');
  assert.equal(listing.data.offers.find(o=>o.id===offerId).readiness.documented,1);
@@ -143,7 +151,7 @@ test('supplier drafts and validation records persist with staff permissions and 
  assert.equal((await staff.call('/api/staff/promotion-campaigns',{method:'POST',body:campaignBody})).status,409);
  assert.equal((await staff.call('/api/staff/price-proposals',{method:'POST',body:priceBody})).status,409);
  assert.equal((await staff.call('/api/staff/supplier-offers',{method:'POST',body:{supplier_id:supplierId,model_name:'Other',upstream_model_id:'other',protocol:'native',region:'CN'}})).status,409);
- const audit=(await staff.call('/api/staff/audit')).data;assert.ok(audit.some(e=>e.action==='supplier_offer.check_updated'&&e.subject_id===offerId));assert.ok(audit.some(e=>e.action==='model_product.created'&&e.subject_id===product.data.id));assert.ok(audit.some(e=>e.action==='promotion_campaign.created'&&e.subject_id===campaign.data.id));
+ const audit=(await staff.call('/api/staff/audit')).data;assert.ok(audit.some(e=>e.action==='supplier_offer.check_updated'&&e.subject_id===offerId));assert.ok(audit.some(e=>e.action==='supplier_offer.validation_recorded'&&e.subject_id===offerId));assert.ok(audit.some(e=>e.action==='model_product.created'&&e.subject_id===product.data.id));assert.ok(audit.some(e=>e.action==='promotion_campaign.created'&&e.subject_id===campaign.data.id));
 });
 test('new employee requires local approval; disabled customer sessions and revoked IdP tokens stop working',async()=>{
  identity={sub:'staff-second',email:'second@example.test',name:'Second',staff_approved:true};const second=jar();await staffLogin(second);assert.equal((await second.call('/api/staff/me')).data.staff.status,'pending');assert.equal((await second.call('/api/staff/customers')).status,403);
