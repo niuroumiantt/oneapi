@@ -31,9 +31,10 @@ export function pricingRoutes(app,pool,requireStaff){
   const notes=b.notes===undefined?'':b.notes;
   if(typeof notes!=='string'||notes.length>1000)throw new HttpError(400,'价格说明过长');
   const row=await transaction(pool,async db=>{
-   const product=(await db.query('SELECT p.id,p.status,o.status AS offer_status,s.status AS supplier_status FROM model_products p JOIN model_product_sources ps ON ps.product_id=p.id JOIN supplier_offers o ON o.id=ps.offer_id JOIN suppliers s ON s.id=o.supplier_id WHERE p.id=$1 FOR SHARE OF p,o,s',[productId])).rows[0];
+   const product=(await db.query('SELECT p.id,p.status,p.source_kind,p.source_description,o.status AS offer_status,s.status AS supplier_status FROM model_products p LEFT JOIN LATERAL (SELECT offer_id FROM model_product_sources WHERE product_id=p.id ORDER BY offer_id LIMIT 1) ps ON true LEFT JOIN supplier_offers o ON o.id=ps.offer_id LEFT JOIN suppliers s ON s.id=o.supplier_id WHERE p.id=$1 FOR SHARE OF p',[productId])).rows[0];
    if(!product)throw new HttpError(404,'模型商品不存在');
    if(product.status==='blocked'||product.offer_status==='blocked'||product.supplier_status==='blocked')throw new HttpError(409,'暂停的商品或供给不能设计价格');
+   if(product.source_kind==='owned_service'&&!product.source_description)throw new HttpError(409,'请先说明自有服务的实际交付与底层能力');
    const q=(await db.query('INSERT INTO model_price_proposals(model_product_id,input_fen_per_million,output_fen_per_million,evidence_url,notes,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[productId,input,output,url,notes.trim(),req.staff.subject])).rows[0];
    await audit(db,req.actor,'model_price.proposed',null,q.id,{model_product_id:productId});
    return q;

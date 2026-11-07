@@ -11,14 +11,15 @@ function notes(value,required=false){
  return value.trim();
 }
 async function evidence(db,productId){
+ const source=(await db.query('SELECT source_kind FROM model_products WHERE id=$1',[productId])).rows[0];
+ if(!source)throw new HttpError(404,'模型商品不存在');
+ if(source.source_kind==='owned_service')throw new HttpError(409,'自有服务需要独立完成交付与技术验收后才能申请复核');
  const product=(await db.query('SELECT p.id,p.status,o.id AS offer_id,o.status AS offer_status,s.status AS supplier_status FROM model_products p JOIN model_product_sources ps ON ps.product_id=p.id JOIN supplier_offers o ON o.id=ps.offer_id JOIN suppliers s ON s.id=o.supplier_id WHERE p.id=$1 ORDER BY o.id LIMIT 1',[productId])).rows[0];
  if(!product)throw new HttpError(404,'模型商品不存在');
  if(product.status==='blocked'||product.offer_status==='blocked'||product.supplier_status==='blocked')throw new HttpError(409,'商品或供给已暂停');
- const [checks,run,price]=await Promise.all([
-  db.query('SELECT check_key,result,evidence_url FROM supplier_offer_checks WHERE offer_id=$1',[product.offer_id]),
-  db.query('SELECT id,conclusion,usage_check FROM supplier_validation_runs WHERE offer_id=$1 ORDER BY window_end DESC,created_at DESC LIMIT 1',[product.offer_id]),
-  db.query('SELECT id FROM model_price_proposals WHERE model_product_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1',[productId])
- ]);
+ const checks=await db.query('SELECT check_key,result,evidence_url FROM supplier_offer_checks WHERE offer_id=$1',[product.offer_id]);
+ const run=await db.query('SELECT id,conclusion,usage_check FROM supplier_validation_runs WHERE offer_id=$1 ORDER BY window_end DESC,created_at DESC LIMIT 1',[product.offer_id]);
+ const price=await db.query('SELECT id FROM model_price_proposals WHERE model_product_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1',[productId]);
  if(!supplierReadiness({status:product.offer_status,supplier_status:product.supplier_status},checks.rows).documents_complete)throw new HttpError(409,'供给资料尚未完整登记');
  if(!run.rows[0]||run.rows[0].conclusion!=='passed'||run.rows[0].usage_check!=='matched')throw new HttpError(409,'需要最近一次通过且用量已核对的验收报告');
  if(!price.rows[0])throw new HttpError(409,'需要先建立价格草稿');
