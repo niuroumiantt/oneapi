@@ -47,6 +47,7 @@
 .org-kpis article:first-child span,.org-kpis article:first-child small{color:#b4c0d2}
 .org-kpis strong{font-size:23px;line-height:1.1;font-weight:700;letter-spacing:-.03em}
 .org-kpis small{font-size:10px;color:#98a1af;line-height:1.35}
+.org-kpis small a{display:inline-flex;align-items:center;gap:4px;color:#315f9c;font-weight:700}.org-kpis small a [data-icon]{width:12px;height:12px}
 .org-overview-grid,.org-section-grid{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);gap:12px}
 .org-section-grid{grid-template-columns:minmax(0,1.55fr) minmax(255px,.75fr)}
 .org-card{background:#fff;border:1px solid #e8e8e5;border-radius:18px;padding:22px;min-width:0}

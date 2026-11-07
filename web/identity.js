@@ -12,7 +12,7 @@
   return null;
  }
  function chooseModelIntent(id){if(!Object.hasOwn(modelIntentNames,id))return false;try{localStorage.setItem(modelIntentKey,JSON.stringify({id,at:Date.now()}));return true;}catch{return false;}}
- let host,current='account',authMode='login',generation=0,lastOrg=null,invitePreview=null,me=null,staff=null,staffList=[],customers=[],sessions=[],resetToken=new URL(location.href).searchParams.get('reset_token'),supplyData={suppliers:[],offers:[]},offerDetail=null,promotionData={campaigns:[],products:[]},pricingData={products:[],proposals:[],decisions:[]},reviewData={products:[],reviews:[]};
+ let host,current='account',authMode='login',generation=0,lastOrg=null,lastOrgBilling=null,invitePreview=null,me=null,staff=null,staffList=[],customers=[],sessions=[],resetToken=new URL(location.href).searchParams.get('reset_token'),supplyData={suppliers:[],offers:[]},offerDetail=null,promotionData={campaigns:[],products:[]},pricingData={products:[],proposals:[],decisions:[]},reviewData={products:[],reviews:[]};
  const opsPageCache=new Map();
  if(resetToken)history.replaceState(null,'',location.pathname+'#reset-password');
  const handles=v=>['enterprise-register','enterprise-login','register','personal','enterprise','account','reset-password','staff','staff-account','admin','security','demo/personal','billing/personal'].includes(v)||v.startsWith('billing/organization/')||v.startsWith('demo/organization/')||v.startsWith('organization/')||v.startsWith('accept-invite/')||v.startsWith('ops/');
@@ -100,6 +100,20 @@
    `<section class="org-entry org-entry-secondary"><div><span class="live-eyebrow">02 / 发现模型</span><h2>先看看适合团队的模型</h2><p>模型广场已开放浏览。订单、付款和真实 Token 调用准备就绪后会在企业工作空间接续。</p></div><a class="live-button" href="#market">去模型广场 ${ico('arrow-up-right')}</a></section>`);
  }
  let orgTab='overview',orgShown=null;
+ const organizationMoney=value=>{if(value===null||value===undefined)return '读取中';const cents=BigInt(value),absolute=cents<0n?-cents:cents;return `${cents<0n?'-':''}¥${absolute/100n}.${String(absolute%100n).padStart(2,'0')}`;};
+ async function refreshOrganizationBilling(orgId,ticket){
+  if(lastOrg?.organization?.id!==orgId||lastOrg.membership.role!=='owner')return;
+  try{
+   const data=await api('/api/billing/organizations/'+encodeURIComponent(orgId));
+   if(ticket!==generation||lastOrg?.organization?.id!==orgId||!current.startsWith('organization/'+orgId))return;
+   lastOrgBilling={orgId,data};
+   if(['overview','budget'].includes(orgTab))organizationV2(lastOrg);
+  }catch(e){
+   if(ticket===generation&&lastOrg?.organization?.id===orgId&&['overview','budget'].includes(orgTab)){
+    lastOrgBilling={orgId,error:true};organizationV2(lastOrg);
+   }
+  }
+ }
  function organizationV2(data){
   const {organization:o,membership:m,members,permissions:p}=data;
   if(orgShown!==o.id)orgShown=o.id;
@@ -116,7 +130,9 @@
   const table=rows=>`<div class="live-table-wrap org-table-wrap"><table><thead><tr><th>姓名与邮箱</th><th>身份</th><th>部门</th><th>账户状态</th><th>模型 / 用量</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   const summaryTable=table(members.slice(0,pending.length?1:2).map(memberRow).join('')+pending.slice(0,1).map(pendingRow).join(''));
   const teamTable=table(members.map(memberRow).join('')+pending.map(pendingRow).join(''));
-  const statusCards=`<div class="org-kpis"><article><span>团队成员</span><strong>${members.length}</strong><small>${active} 位已启用 · ${pending.length} 位待开通</small></article><article><span>企业可用余额</span><strong>待开放</strong><small>付款接通后展示</small></article><article><span>本月已用费用</span><strong>待开放</strong><small>按真实调用结算</small></article><article><span>本月 Token</span><strong>待开放</strong><small>可按员工与项目查看</small></article></div>`;
+  const billing=lastOrgBilling?.orgId===o.id?lastOrgBilling.data:null,billingError=lastOrgBilling?.orgId===o.id&&lastOrgBilling.error;
+  const cash=value=>m.role!=='owner'?'仅代表人可见':billingError?'暂不可读':organizationMoney(value);
+  const statusCards=`<div class="org-kpis"><article><span>团队成员</span><strong>${members.length}</strong><small>${active} 位已启用 · ${pending.length} 位待开通</small></article><article><span>企业可用余额</span><strong>${cash(billing?.cash_balance_fen)}</strong><small>${m.role==='owner'?`<a href="#billing/organization/${o.id}">充值与资金流水 ${ico('arrow-right')}</a>`:'企业独立资金账户'}</small></article><article><span>累计充值</span><strong>${cash(billing?.total_recharged_fen)}</strong><small>仅统计已核验到账款项</small></article><article><span>累计已用</span><strong>${cash(billing?.total_spent_fen)}</strong><small>真实调用接通后累计</small></article></div>`;
   const steps=`<ol class="org-purchase-steps"><li><span>01</span><b>选模型</b><small>浏览模型能力</small></li><li><span>02</span><b>下订单</b><small>待开放</small></li><li><span>03</span><b>完成付款</b><small>待开放</small></li><li><span>04</span><b>分配与使用</b><small>待开放</small></li></ol>`;
   const overview=`${statusCards}<div class="org-overview-grid"><section class="org-card org-start-card"><span class="org-kicker">开始使用</span><h3>为团队找到合适的模型</h3><p>先进入模拟体验台走通选模型、下单、付款、分配额度与用量记录。真实服务接通后再开放正式交易。</p>${steps}<a class="org-primary-link" href="#demo/organization/${o.id}">体验完整采购流程 ${ico('arrow-up-right')}</a></section><section class="org-card org-team-card"><div class="org-card-head"><div><span class="org-kicker">团队动态</span><h3>成员与权限</h3></div>${p.manageMembers?btn(ico('plus')+' 登记员工','invite','','primary'):''}</div>${summaryTable}<button class="org-text-link" data-live="org-tab" data-tab="people">查看全部员工 ${ico('arrow-right')}</button></section></div>`;
   const models=`<div class="org-section-grid"><section class="org-card org-wide-card"><span class="org-kicker">采购路径</span><h3>从选择模型，到团队真正用起来</h3><p>先了解模型能力；现在也可以在隔离的模拟环境走通下单、付款、员工额度和用量。</p>${steps}<a class="org-primary-link" href="#demo/organization/${o.id}">进入企业模拟体验台 ${ico('arrow-up-right')}</a></section><section class="org-card org-side-note"><span class="org-kicker">企业接入</span><h3>项目与 API Key</h3><p>模拟接入会显示状态与用量，不会生成可调用的真实 API Key。</p><span class="org-state-chip">真实调用尚未开放</span></section></div>`;
@@ -289,8 +305,8 @@
   const [,orgId,section]=view.match(/^organization\/([^/]+)\/?([^/]*)$/)||[];
   if(wasIdentityActive&&me?.user&&previous!==view&&(previous===`organization/${orgId}`||previous.startsWith(`organization/${orgId}/`))&&lastOrg?.organization?.id===orgId&&['overview','models','people','budget','settings'].includes(section)){
    orgTab=section;organizationV2(lastOrg);
-   try{const updated=await api('/api/platform/organizations/'+encodeURIComponent(orgId));if(ticket===generation&&current===view&&JSON.stringify(updated)!==JSON.stringify(lastOrg))organizationV2(updated);}
-   catch(e){if(ticket===generation){if(e.status===401){me=null;lastOrg=null;authForm();}else if(e.status===403||e.status===404){lastOrg=null;mount(hero('YOUR WORKSPACE','暂时无法打开这个空间。','请核对账号及企业权限。')+note(e.message,true)+'<a class="live-button" href="#personal">返回我的空间</a>');}}}
+   try{const updated=await api('/api/platform/organizations/'+encodeURIComponent(orgId));if(ticket===generation&&current===view&&JSON.stringify(updated)!==JSON.stringify(lastOrg))organizationV2(updated);if(ticket===generation&&current===view)refreshOrganizationBilling(orgId,ticket);}
+   catch(e){if(ticket===generation){if(e.status===401){me=null;lastOrg=null;lastOrgBilling=null;authForm();}else if(e.status===403||e.status===404){lastOrg=null;lastOrgBilling=null;mount(hero('YOUR WORKSPACE','暂时无法打开这个空间。','请核对账号及企业权限。')+note(e.message,true)+'<a class="live-button" href="#personal">返回我的空间</a>');}}}
    return;
   }
   if(!(previous.startsWith('ops/')&&view.startsWith('ops/')))window.scrollTo(0,0);const staffView=view==='staff-account'||view==='admin'||view.startsWith('ops/');if(!wasIdentityActive||!(staffView?staff:me?.user)||!host.innerHTML.trim())host.innerHTML='<div class="live-loading" role="status">正在打开你的工作空间…</div>';
@@ -315,7 +331,7 @@
    staff=null;me=await api('/api/platform/me');if(ticket!==generation)return;
    if(view==='billing/personal'||view.startsWith('billing/organization/'))await billingPage(ticket);
    else if(view==='demo/personal'||view.startsWith('demo/organization/'))await demoPage(ticket);
-   else if(view.startsWith('organization/')){const [orgId,section]=view.slice(13).split('/');const data=await api('/api/platform/organizations/'+encodeURIComponent(orgId));if(ticket===generation){orgTab=['overview','models','people','budget','settings'].includes(section)?section:'overview';organizationV2(data);}}
+   else if(view.startsWith('organization/')){const [orgId,section]=view.slice(13).split('/');const data=await api('/api/platform/organizations/'+encodeURIComponent(orgId));if(ticket===generation){orgTab=['overview','models','people','budget','settings'].includes(section)?section:'overview';organizationV2(data);refreshOrganizationBilling(orgId,ticket);}}
    else if(view==='security')await security();else if(['enterprise','enterprise-register','enterprise-login'].includes(view))enterpriseV2();else await account(ticket);
   }catch(e){if(ticket!==generation)return;if(e.status===401){me=null;authForm();}else mount(hero('YOUR WORKSPACE','暂时无法打开这个空间。','请核对账号及企业权限。')+note(e.message,true)+'<a class="live-button" href="#account">返回我的空间</a>');}
  }
@@ -325,7 +341,7 @@
    if(action==='auth-mode'){authMode=b.dataset.mode;current.startsWith('accept-invite/')?invitation():authForm();}
    else if(action==='invite-switch'){await api('/api/auth/sign-out',{});me=null;authMode='login';invitation();}
    else if(action==='resend'){const email=host.querySelector('[name=email]').value;if(!email)throw Error('请先填写邮箱。');await api('/api/auth/send-verification-email',{email,callbackURL:location.origin+'/#'+(['enterprise-register','enterprise-login'].includes(current)?'enterprise':current)});message.innerHTML=note('如果该邮箱需要验证，验证邮件会发送到你的邮箱。');}
-   else if(action==='logout'){if(b.dataset.sessionKind==='staff')await api('/api/staff/logout',{});else await api('/api/auth/sign-out',{});me=null;staff=null;lastOrg=null;opsPageCache.clear();publicTicket++;document.querySelectorAll('[data-account-slot]').forEach(slot=>slot.innerHTML=accountMenu(null));const welcomeLabel=document.getElementById('welcome-continue-label');if(welcomeLabel)welcomeLabel.textContent='注册：开始我的旅程';document.querySelectorAll('.account-menu').forEach(el=>el.removeAttribute('open'));if(location.hash==='#universe')refreshPublic();else location.hash='universe';}
+   else if(action==='logout'){if(b.dataset.sessionKind==='staff')await api('/api/staff/logout',{});else await api('/api/auth/sign-out',{});me=null;staff=null;lastOrg=null;lastOrgBilling=null;opsPageCache.clear();publicTicket++;document.querySelectorAll('[data-account-slot]').forEach(slot=>slot.innerHTML=accountMenu(null));const welcomeLabel=document.getElementById('welcome-continue-label');if(welcomeLabel)welcomeLabel.textContent='注册：开始我的旅程';document.querySelectorAll('.account-menu').forEach(el=>el.removeAttribute('open'));if(location.hash==='#universe')refreshPublic();else location.hash='universe';}
    else if(action==='create-org')form('建立企业工作空间','<label>企业名称<input name="name" required maxlength="100" placeholder="公司名称"></label><p class="live-small">创建账号将成为这家企业的代表人，负责团队邀请与后续采购。企业资质、支付和额度将在上线后分别核验。</p>','live-create-org','建立工作空间');
    else if(action==='org-tab'){location.hash='organization/'+lastOrg.organization.id+'/'+b.dataset.tab;}
    else if(action==='demo-select'){form('选择可用模型',`<p class="live-small">可同时选择多个演示型号。更改选择不会挪动余额；停用相关演示接入后可取消型号。</p>${demoState.models.map(m=>`<label class="demo-check"><input type="checkbox" name="model_codes" value="${esc(m.code)}" ${demoState.selected_models.includes(m.code)?'checked':''}><span><b>${esc(m.name)}</b><small>${esc(m.kind)} · 输入 ¥${(m.input_fen_per_1000*10).toFixed(2)} / 百万 Token · 输出 ¥${(m.output_fen_per_1000*10).toFixed(2)} / 百万 Token（演示）</small></span></label>`).join('')}`,'live-demo-select','保存模型选择');}
@@ -418,6 +434,6 @@
  document.addEventListener('click',e=>{document.querySelectorAll('.account-menu[open]').forEach(menu=>{if(!menu.contains(e.target)||e.target.closest('a'))menu.open=false;});});
  document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.account-menu[open]').forEach(menu=>{menu.open=false;menu.querySelector('summary').focus();});});
  window.addEventListener('focus',()=>{if(!document.body.classList.contains('identity-active'))refreshPublic();});
- window.IdentityUI={refreshPublic,chooseModelIntent,handles:v=>handles(v)||v.startsWith('staff?'),route,cancel:()=>{generation++;lastOrg=null;opsPageCache.clear();}};
+ window.IdentityUI={refreshPublic,chooseModelIntent,handles:v=>handles(v)||v.startsWith('staff?'),route,cancel:()=>{generation++;lastOrg=null;lastOrgBilling=null;opsPageCache.clear();}};
  document.addEventListener('DOMContentLoaded',()=>{const v=location.hash.slice(1);if(window.IdentityUI.handles(v))route(v);});
 })();
