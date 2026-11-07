@@ -19,3 +19,7 @@
 ## 首位员工登录澄清（2026-11-07）
 
 用户截图显示 Authentik 已登录 `admin` 并进入 TOTP 初次绑定页。线上只读核对：`sales@glocalstorage.com` 对应独立 `oneapi-sales` 用户，处于 inactive、activation_pending=true 且属于 OneAPI Staff；截图中的 `admin` 与该邮箱不符，也不属于 OneAPI Staff。oneapi 的 `staff_members` 尚无首次登录记录。首位管理员没有预设密码，须本人使用公司邮箱开通链接验证、设置密码及 MFA，随后再从 `#staff` 登录。截图中的二维码可能包含 TOTP 种子，不能作为公开教程传播；若已据此绑定 Authentik admin 的验证器，应在身份中心撤销并重新绑定。员工入口文案补充了账号切换和 MFA 使用提示。
+
+## 资料准入进度（2026-11-07）
+
+新增 `server/src/supplier-readiness.mjs`，对七项资料给出已登记数、缺失、争议、暂停与下一步。供应产品列表和详情均返回该判定，内部页面显示进度及不可售原因。资料齐全不等于技术验证或销售批准，`sale_ready` 仍为 `false`，且不改变支付与推理开关。旧 `#ops/verification` 模拟入口转向真实 `#ops/supply`。本轮无数据库迁移；隔离 PostgreSQL 测试 27/27 通过。下一步取得真实供应方采购资格及受控测试账户，实施真实探测和发布门禁。

@@ -103,9 +103,11 @@ test('supplier drafts and validation records persist with staff permissions and 
  const offer=await staff.call('/api/staff/supplier-offers',{method:'POST',body:{supplier_id:supplierId,model_name:'Fixture Chat',upstream_model_id:'fixture-chat-v1',protocol:'openai_compatible',region:'CN'}});
  assert.equal(offer.status,201,JSON.stringify(offer.data));const offerId=offer.data.id;
  const detail=await staff.call('/api/staff/supplier-offers/'+offerId);assert.equal(detail.status,200);assert.equal(detail.data.checks.length,7);assert.equal(detail.data.sale_ready,false);
+ assert.equal(detail.data.readiness.documented,0);assert.equal(detail.data.readiness.sale_ready,false);
  assert.equal((await staff.call('/api/staff/supplier-offers/'+offerId+'/checks/source',{method:'PATCH',body:{result:'documented'}})).status,400);
  assert.equal((await staff.call('/api/staff/supplier-offers/'+offerId+'/checks/source',{method:'PATCH',body:{result:'documented',evidence_url:'https://example.test/evidence'}})).status,200);
  const listing=await staff.call('/api/staff/suppliers');assert.equal(listing.status,200);assert.equal(listing.data.sale_ready,false);assert.ok(listing.data.offers.some(o=>o.id===offerId));
+ assert.equal(listing.data.offers.find(o=>o.id===offerId).readiness.documented,1);
  assert.equal((await staff.call('/api/staff/suppliers/'+supplierId,{method:'PATCH',body:{status:'blocked'}})).status,200);
  assert.equal((await staff.call('/api/staff/supplier-offers',{method:'POST',body:{supplier_id:supplierId,model_name:'Other',upstream_model_id:'other',protocol:'native',region:'CN'}})).status,409);
  const audit=(await staff.call('/api/staff/audit')).data;assert.ok(audit.some(e=>e.action==='supplier_offer.check_updated'&&e.subject_id===offerId));

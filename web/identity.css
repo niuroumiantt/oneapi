@@ -134,5 +134,7 @@
 .identity-context-staff .live-hero{background:radial-gradient(ellipse at 90% 20%,#495869,transparent 60%),#202b39}
 .identity-context-staff .supply-side{background:#293442}
 .identity-context-staff .live-button.primary{background:#33485d}
+.supply-gate{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:12px 0;padding:12px 17px;border:1px solid #eacac3;border-radius:15px;background:#fff8f5;color:#6c3028}.supply-gate div{display:grid;gap:3px}.supply-gate b{font-size:13px}.supply-gate small,.supply-gate span{font-size:11px}.supply-gate small{color:#8d6a63}.supply-gate span{white-space:nowrap}
 @media(max-width:1100px){.live-header{flex-wrap:wrap}.workspace-context{order:3;flex-basis:100%;width:max-content}.live-header nav{margin-left:auto}}
+@media(max-width:760px){.supply-gate{align-items:flex-start;flex-direction:column}.supply-gate span{white-space:normal}}
 @media(max-width:700px){.workspace-context{width:100%;flex-basis:100%;justify-content:flex-start}.workspace-context>a{margin-left:auto}.identity-context-enterprise .live-header,.identity-context-staff .live-header{border-bottom:0}}
