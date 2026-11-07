@@ -130,11 +130,12 @@ test('supplier drafts and validation records persist with staff permissions and 
  const priceList=await staff.call('/api/staff/price-proposals');assert.equal(priceList.status,200);assert.equal(priceList.data.checkout_enabled,false);assert.ok(priceList.data.proposals.some(q=>q.id===price.data.id&&q.model_product_name==='Fixture Chat CN'));
  assert.equal((await staff.call('/api/staff/price-proposals',{method:'POST',body:{...priceBody,input_yuan_per_million:'12.345'}})).status,400);
  assert.equal((await staff.call('/api/staff/price-proposals',{method:'POST',body:{...priceBody,evidence_url:'http://example.test/rate'}})).status,400);
- const campaignBody={name:'Fixture launch draft',model_product_id:product.data.id,customer_price_percent:90,commission_percent:5,total_discount_budget_yuan:1000,starts_at:new Date(Date.now()+86400000).toISOString(),ends_at:new Date(Date.now()+86400000*8).toISOString()};
+ const campaignBody={name:'Fixture launch draft',price_proposal_id:price.data.id,customer_price_percent:90,commission_percent:5,total_discount_budget_yuan:1000,starts_at:new Date(Date.now()+86400000).toISOString(),ends_at:new Date(Date.now()+86400000*8).toISOString()};
  assert.equal((await outsider.call('/api/staff/promotion-campaigns')).status,401);
  assert.equal((await owner.j.call('/api/staff/promotion-campaigns')).status,401);
  const campaign=await staff.call('/api/staff/promotion-campaigns',{method:'POST',body:campaignBody});assert.equal(campaign.status,201,JSON.stringify(campaign.data));assert.equal(campaign.data.status,'draft');assert.equal(campaign.data.redemption_enabled,false);assert.equal(campaign.data.commission_enabled,false);
- const campaignList=await staff.call('/api/staff/promotion-campaigns');assert.equal(campaignList.status,200);assert.ok(campaignList.data.campaigns.some(c=>c.id===campaign.data.id&&c.model_product_name==='Fixture Chat CN'&&c.total_discount_budget_fen==='100000'));
+ const campaignList=await staff.call('/api/staff/promotion-campaigns');assert.equal(campaignList.status,200);assert.ok(campaignList.data.campaigns.some(c=>c.id===campaign.data.id&&c.model_product_name==='Fixture Chat CN'&&c.price_proposal_id===price.data.id&&c.total_discount_budget_fen==='100000'));
+ assert.equal((await staff.call('/api/staff/promotion-campaigns',{method:'POST',body:{...campaignBody,price_proposal_id:undefined}})).status,400);
  assert.equal((await staff.call('/api/staff/promotion-campaigns',{method:'POST',body:{...campaignBody,commission_percent:31}})).status,400);
  assert.equal((await staff.call('/api/staff/promotion-campaigns',{method:'POST',body:{...campaignBody,ends_at:campaignBody.starts_at}})).status,400);
  assert.equal((await staff.call('/api/staff/suppliers/'+supplierId,{method:'PATCH',body:{status:'blocked'}})).status,200);
