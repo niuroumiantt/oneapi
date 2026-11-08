@@ -1,10 +1,10 @@
 import { HttpError, audit, hash, id, text, transaction, vault } from './core.mjs';
 
 const CASES = Object.freeze([
-  { id: 'arithmetic', name: '事实与计算', prompt: '请只输出 17 乘以 23 的整数结果。', maxTokens: 32, grade: output => output.trim() === '391' },
-  { id: 'json', name: '结构化 JSON', prompt: '只输出一个 JSON 对象，字段 result 为整数 42，字段 ok 为布尔值 true。不要 Markdown。', maxTokens: 64, grade: output => { try { const value = JSON.parse(output); return value?.result === 42 && value?.ok === true; } catch { return false; } } },
-  { id: 'chinese', name: '中文表达', prompt: '把 Hello, world! 翻译为简体中文。只输出译文。', maxTokens: 48, grade: output => output.includes('你好') && output.includes('世界') },
-  { id: 'context', name: '上下文理解', prompt: '资料：甲城的代号是蓝星；乙城的代号是红星。问题：乙城的代号是什么？只输出代号。', maxTokens: 48, grade: output => output.trim() === '红星' },
+  { id: 'arithmetic', name: '事实与计算', prompt: '请只输出 17 乘以 23 的整数结果。', expected: '严格等于 391', maxTokens: 32, grade: output => output.trim() === '391' },
+  { id: 'json', name: '结构化 JSON', prompt: '只输出一个 JSON 对象，字段 result 为整数 42，字段 ok 为布尔值 true。不要 Markdown。', expected: '可解析 JSON，result=42 且 ok=true', maxTokens: 64, grade: output => { try { const value = JSON.parse(output); return value?.result === 42 && value?.ok === true; } catch { return false; } } },
+  { id: 'chinese', name: '中文表达', prompt: '把 Hello, world! 翻译为简体中文。只输出译文。', expected: '包含“你好”和“世界”', maxTokens: 48, grade: output => output.includes('你好') && output.includes('世界') },
+  { id: 'context', name: '上下文理解', prompt: '资料：甲城的代号是蓝星；乙城的代号是红星。问题：乙城的代号是什么？只输出代号。', expected: '严格等于“红星”', maxTokens: 48, grade: output => output.trim() === '红星' },
 ]);
 const CASE_BY_ID = new Map(CASES.map(item => [item.id, item]));
 const bounded = (value, max = 120) => typeof value === 'string' ? value.slice(0, max) : null;
@@ -67,7 +67,8 @@ export function supplierLabRoutes(app, pool, requireStaff) {
   const secret = process.env.SUPPLIER_LAB_SECRET;
   const box = secret?.length >= 32 ? vault(secret) : null;
   const access = (req, write = false) => { if (req.staff.status !== 'active' || !['platform_admin', 'supply'].includes(req.staff.role)) throw new HttpError(403, '当前岗位不能访问供应商验收台'); if (write && !box) throw new HttpError(503, '验收台凭据加密密钥尚未配置'); };
-  app.get('/api/staff/lab/config', requireStaff, (req, res) => { access(req); res.json({ ready: Boolean(box), allowed_hosts: (process.env.SUPPLIER_LAB_ALLOWED_HOSTS || 'api.deepseek.com').split(',').map(x => x.trim()).filter(Boolean), cases: CASES.map(({ id, name, maxTokens }) => ({ id, name, max_tokens: maxTokens })), customer_traffic_connected: false }); });
+  app.get('/api/staff/lab/console', requireStaff, (req, res) => { access(req); res.set('Cache-Control', 'no-store'); res.sendFile(new URL('../private/supplier-lab.html', import.meta.url).pathname); });
+  app.get('/api/staff/lab/config', requireStaff, (req, res) => { access(req); res.json({ ready: Boolean(box), allowed_hosts: (process.env.SUPPLIER_LAB_ALLOWED_HOSTS || 'api.deepseek.com').split(',').map(x => x.trim()).filter(Boolean), cases: CASES.map(({ id, name, prompt, expected, maxTokens }) => ({ id, name, prompt, expected, max_tokens: maxTokens })), customer_traffic_connected: false }); });
   app.get('/api/staff/lab/endpoints', requireStaff, async (req, res) => { access(req); res.json((await pool.query('SELECT id,label,kind,base_url,model_id,credential_fingerprint,input_yuan_per_m,cached_input_yuan_per_m,output_yuan_per_m,created_at,disabled_at FROM supplier_lab_endpoints ORDER BY created_at DESC LIMIT 100')).rows); });
   app.post('/api/staff/lab/endpoints', requireStaff, async (req, res) => {
     access(req, true); const b = req.body || {}, label = text(b.label, '端点名称', 100), kind = b.kind, model = text(b.model_id, '上游型号', 120), baseUrl = validateLabBaseUrl(b.base_url), key = text(b.api_key, 'API Key', 1000);
