@@ -7,10 +7,6 @@
  const ico=n=>`<span data-icon="${n}"></span>`;
  const modelIntentKey='semifly.model-intent.v1';
  const modelIntentNames={'deepseek-flash':'DeepSeek Flash','deepseek-v4-pro':'DeepSeek V4 Pro','glm-coding-demo':'GLM Coding','glm-vision-demo':'GLM Vision'};
- function selectedModelIntent(){
-  try{const saved=JSON.parse(localStorage.getItem(modelIntentKey)||'null');if(saved&&Object.hasOwn(modelIntentNames,saved.id)&&Date.now()-saved.at<7*86400000)return {id:saved.id,name:modelIntentNames[saved.id]};}catch{}
-  return null;
- }
  function chooseModelIntent(id){if(!Object.hasOwn(modelIntentNames,id))return false;try{localStorage.setItem(modelIntentKey,JSON.stringify({id,at:Date.now()}));return true;}catch{return false;}}
  let host,current='account',authMode='login',generation=0,lastOrg=null,lastOrgBilling=null,invitePreview=null,me=null,staff=null,staffList=[],customers=[],sessions=[],resetToken=new URL(location.href).searchParams.get('reset_token'),supplyData={suppliers:[],offers:[]},offerDetail=null,promotionData={campaigns:[],products:[]},pricingData={products:[],proposals:[],decisions:[]},reviewData={products:[],reviews:[]};
  const opsPageCache=new Map();
@@ -63,15 +59,6 @@
    existingOrg.querySelector('.org-sidebar').innerHTML=nextOrg.querySelector('.org-sidebar').innerHTML;
    existingOrg.querySelector('.org-content').replaceWith(nextOrg.querySelector('.org-content'));
   }else host.innerHTML=header()+`<main class="live-main">${content}</main><footer class="live-footer"><span>semifly.ai · 深圳市格洛可半导体有限公司</span><span>中国区 · 独立身份与工作空间</span></footer>`;
-  const intent=selectedModelIntent();
-  if(intent&&contextKind()!=='staff'){
-   const target=['register','personal','enterprise-register','enterprise-login'].includes(current)&&host.querySelector('.live-auth-card')
-    ||current==='personal'&&host.querySelector('.personal-home-intro')
-    ||current==='enterprise'&&host.querySelector('.org-entry-intro')
-    ||current.startsWith('organization/')&&['overview','models'].includes(orgTab)&&host.querySelector(orgTab==='models'?'.org-wide-card':'.org-start-card');
-   const intro=target && typeof target.querySelector==='function'?(current==='personal'?target.querySelector(':scope > div > p'):target.querySelector(':scope > p')):null;
-   intro?.insertAdjacentHTML('afterend',`<div class="model-intent" role="status"><i aria-hidden="true"></i><span>正在了解 <b>${esc(intent.name)}</b><small>目录预览 · 尚未开放购买</small></span><a href="#catalog">查看型号 ${ico('arrow-right')}</a></div>`);
-  }
   host.classList.remove('route-loading');
  }
  async function staffContext(ticket){if(!staff){const info=await api('/api/staff/me');if(ticket!==generation)return false;staff=info.staff;}me=null;return true;}
@@ -89,7 +76,7 @@
   const money=value=>{if(value===null||value===undefined)return '暂不可读';const cents=BigInt(value),absolute=cents<0n?-cents:cents;return `${cents<0n?'-':''}¥${absolute/100n}.${String(absolute%100n).padStart(2,'0')}`;};
   const teamLink=spaces.length===1?`#organization/${spaces[0].id}/overview`:'#enterprise';
   const teamAction=spaces.length?`<a href="${teamLink}">${ico('building-2')} 企业与团队 ${ico('arrow-right')}</a>`:'';
-  mount(`<div class="personal-home"><section class="personal-home-intro"><div><span class="live-eyebrow">MY SPACE / 个人空间</span><h1>你好，${esc(me.user.name)}。</h1><p>从这里看余额、选模型，也能随时查看每一笔使用。</p><div class="personal-home-actions"><a class="live-button primary" href="#market">去模型广场 ${ico('arrow-right')}</a><a class="live-button" href="#demo/personal">体验调用流程 ${ico('arrow-right')}</a></div></div><img src="pinapi-mark.svg" alt="" aria-hidden="true"></section><section class="personal-wallet" aria-label="个人资金概览"><div class="personal-wallet-heading"><div><span class="live-eyebrow">MY BALANCE / 个人资金</span><h2>我的钱，用得明明白白。</h2></div><a class="live-button primary" href="#billing/personal">充值与付款 ${ico('arrow-right')}</a></div><div class="personal-wallet-stats"><div><span>累计充值</span><strong>${money(billing?.total_recharged_fen)}</strong></div><div><span>累计已用</span><strong>${money(billing?.total_spent_fen)}</strong></div><div class="personal-wallet-remaining"><span>当前可用余额</span><strong>${money(billing?.cash_balance_fen)}</strong></div></div><p>${billing?.payments_enabled?'使用微信或支付宝扫码付款，支付成功后余额入账。':'微信与支付宝扫码充值入口正在接入；商户开通前不会生成付款码或扣款。'}</p></section><section class="personal-home-bottom"><div><span class="live-eyebrow">NEXT STEP</span><h2>选模型 → 充值 → 创建 API Key → 查看用量</h2><p>先在模型广场了解每 1M Token 的输入和输出价格，再回到这里管理自己的余额与记录。</p><a href="#market">查看模型与价格 ${ico('arrow-right')}</a></div><div><span class="live-eyebrow">ACCOUNT</span><h2>${esc(me.user.email)}</h2><p>邮箱${me.user.emailVerified?'已验证':'待验证'} · 个人资金与企业资金分开管理</p><div class="personal-home-links"><a href="#security">账户安全 ${ico('arrow-right')}</a>${teamAction}</div></div></section></div>`);
+  mount(`<div class="personal-home"><section class="personal-home-intro"><div><span class="live-eyebrow">MY SPACE / 个人空间</span><h1>你好，${esc(me.user.name)}。</h1><p>从充值开始，选好模型并接入应用；余额与用量都能在这里查看。</p><div class="personal-home-actions"><a class="live-button primary" href="#billing/personal">充值与付款 ${ico('arrow-right')}</a><a class="live-button" href="#market">去模型广场 ${ico('arrow-right')}</a></div></div><img src="pinapi-mark.svg" alt="" aria-hidden="true"></section><section class="personal-wallet" aria-label="个人资金概览"><div class="personal-wallet-heading"><div><span class="live-eyebrow">MY BALANCE / 个人资金</span><h2>我的钱，用得明明白白。</h2></div><a class="live-button primary" href="#billing/personal">充值与付款 ${ico('arrow-right')}</a></div><div class="personal-wallet-stats"><div><span>累计充值</span><strong>${money(billing?.total_recharged_fen)}</strong></div><div><span>累计已用</span><strong>${money(billing?.total_spent_fen)}</strong></div><div class="personal-wallet-remaining"><span>当前可用余额</span><strong>${money(billing?.cash_balance_fen)}</strong></div></div><p>${billing?.payments_enabled?'使用微信或支付宝扫码付款，支付成功后余额入账。':'微信与支付宝扫码充值入口正在接入；商户开通前不会生成付款码或扣款。'}</p></section><section class="personal-home-bottom"><div><span class="live-eyebrow">NEXT STEP</span><h2>充值 → 选模型 → 创建 API Key → 部署与使用 → 查看用量</h2><p>先为个人空间充值，再按价格和能力选择模型；创建 API Key 并接入应用后，在这里查看用量与余额。</p><a href="#billing/personal">从充值开始 ${ico('arrow-right')}</a></div><div><span class="live-eyebrow">ACCOUNT</span><h2>${esc(me.user.email)}</h2><p>邮箱${me.user.emailVerified?'已验证':'待验证'} · 个人资金与企业资金分开管理</p><div class="personal-home-links"><a href="#security">账户安全 ${ico('arrow-right')}</a>${teamAction}</div></div></section></div>`);
  }
  function enterpriseV2(){
   const spaces=me.organizations||[];
