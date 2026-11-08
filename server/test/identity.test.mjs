@@ -16,7 +16,8 @@ function jar(ip='192.0.2.'+(serial++)){const cookies=new Map();return {cookies,a
  const raw=await response.text();let data;try{data=JSON.parse(raw);}catch{data=raw;}return {status:response.status,data,location:response.headers.get('location'),headers:response.headers};}};}
 async function user(label){const j=jar(),email=`${label}-${serial}@example.test`;const r=await j.call('/api/auth/sign-up/email',{method:'POST',body:{email,password,name:label,callbackURL:origin+'/#account'}});assert.equal(r.status,200,JSON.stringify(r.data));await service.mail.drain();const message=sent.findLast(m=>m.to===email&&m.subject.includes('验证'));assert.ok(message);const url=message.text.match(/https?:\/\/\S+/)[0];const verified=await j.call(url);assert.equal(verified.status,302);assert.equal((await j.call('/api/platform/me')).status,200);return {j,email,user:(await j.call('/api/platform/me')).data.user};}
 async function organization(u,name){const r=await u.j.call('/api/platform/organizations',{method:'POST',body:{name}});assert.equal(r.status,201);return r.data;}
-async function invite(owner,org,recipient,role='member',department=''){const r=await owner.j.call(`/api/platform/organizations/${org.id}/invitations`,{method:'POST',body:{name:'Test Employee',email:recipient.email,role,department}});assert.equal(r.status,201,JSON.stringify(r.data));await service.mail.drain();const link=sent.findLast(m=>m.to===recipient.email&&m.subject.includes('开通')).text.match(/#accept-invite\/(\S+)/)[1];return {token:link,id:r.data.id};}
+async function joinLink(owner,org){const r=await owner.j.call(`/api/platform/organizations/${org.id}/join-links`,{method:'POST',body:{}});assert.equal(r.status,201,JSON.stringify(r.data));return {token:r.data.url.split('#join/')[1],id:r.data.id};}
+async function applyAndApprove(owner,org,recipient,link,department=''){const r=await recipient.j.call('/api/platform/join-requests',{method:'POST',body:{token:link.token,name:recipient.user.name,department}});assert.equal(r.status,202,JSON.stringify(r.data));const view=(await owner.j.call(`/api/platform/organizations/${org.id}`)).data;const request=view.joinRequests.find(x=>x.user_id===recipient.user.id);assert.ok(request);const approval=await owner.j.call(`/api/platform/organizations/${org.id}/join-requests/${request.id}/approve`,{method:'POST',body:{}});assert.equal(approval.status,200,JSON.stringify(approval.data));return request;}
 before(async()=>{
  const databaseURL=process.env.TEST_DATABASE_URL||'postgresql://oneapi_test:local_test_only_62178@127.0.0.1:55438/oneapi_test';assert.ok(new URL(databaseURL).pathname.endsWith('_test'),'Tests require a dedicated *_test database');
  pool=new pg.Pool({connectionString:databaseURL});
@@ -64,21 +65,19 @@ test('real billing reads are isolated and cannot credit funds without a merchant
  const fundedOrg=await owner.j.call(`/api/billing/organizations/${orgA.id}`);assert.equal(fundedOrg.data.total_recharged_fen,'2500');assert.equal(fundedOrg.data.total_spent_fen,'300');assert.equal(fundedOrg.data.cash_balance_fen,'2200');
  assert.equal((await other.j.call(`/api/billing/organizations/${orgA.id}`)).status,403);
 });
-test('invitations bind verified email, are one-use, and cannot be replayed or self-promote',async()=>{
- const inv=await invite(owner,orgA,member,'member','研发');const preview=await jar().call('/api/platform/invitations/preview?token='+encodeURIComponent(inv.token));assert.equal(preview.status,200);assert.equal(preview.data.email,member.email);assert.equal(preview.data.name,'Test Employee');assert.equal(preview.data.organizationName,'Company A');assert.equal((await other.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,403);
- assert.equal((await member.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,200);assert.equal((await member.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,400);
- assert.equal((await jar().call('/api/platform/invitations/preview?token='+encodeURIComponent(inv.token))).status,400);
- const view=(await member.j.call(`/api/platform/organizations/${orgA.id}`)).data;assert.equal(view.members.length,1);
- assert.equal((await member.j.call(`/api/platform/organizations/${orgA.id}/members/${view.members[0].id}`,{method:'PATCH',body:{role:'owner'}})).status,403);
-});
-test('new enterprise invitations grant only staff access',async()=>{
- assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/invitations`,{method:'POST',body:{email:'unnamed@example.test',role:'member'}})).status,400);
- for(const role of ['admin','department_admin','billing','owner'])assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/invitations`,{method:'POST',body:{name:'Test Employee',email:'x@example.test',role,department:'研发'}})).status,400);
- const inv=await invite(owner,orgA,dept,'member','研发');assert.equal((await dept.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,200);
- assert.equal((await dept.j.call(`/api/platform/organizations/${orgA.id}/invitations`,{method:'POST',body:{name:'Test Employee',email:'x@example.test'}})).status,403);
- const view=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data;const target=view.members.find(m=>m.user_id===dept.user.id);
- assert.equal(view.invitations.find(i=>i.email===dept.email).employee_name,'Test Employee');
- assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/members/${target.id}`,{method:'PATCH',body:{role:'admin'}})).status,400);
+test('one reusable link accepts distinct verified applicants; each needs separate approval',async()=>{
+ const link=await joinLink(owner,orgA);const again=await joinLink(owner,orgA);assert.equal(again.id,link.id);assert.equal(again.token,link.token);const preview=await jar().call('/api/platform/join-links/preview?token='+encodeURIComponent(link.token));assert.equal(preview.status,200);assert.equal(preview.data.organizationName,'Company A');
+ assert.equal((await member.j.call('/api/platform/join-requests',{method:'POST',body:{token:link.token,name:'Member',role:'owner'}})).status,202);
+ assert.equal((await dept.j.call('/api/platform/join-requests',{method:'POST',body:{token:link.token,name:'Dept'}})).status,202);
+ assert.equal((await member.j.call(`/api/platform/organizations/${orgA.id}`)).status,403);
+ const pending=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data.joinRequests;assert.equal(pending.length,2);
+ assert.equal((await member.j.call(`/api/platform/organizations/${orgA.id}/join-requests/${pending[0].id}/approve`,{method:'POST',body:{}})).status,403);
+ assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/join-requests/${pending.find(x=>x.user_id===member.user.id).id}/approve`,{method:'POST',body:{}})).status,200);
+ assert.equal((await dept.j.call(`/api/platform/organizations/${orgA.id}`)).status,403);
+ const view=(await member.j.call(`/api/platform/organizations/${orgA.id}`)).data;assert.equal(view.members.length,1);assert.equal(view.members[0].role,'member');
+ assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/join-requests/${pending.find(x=>x.user_id===dept.user.id).id}/approve`,{method:'POST',body:{}})).status,200);
+ assert.equal((await dept.j.call(`/api/platform/organizations/${orgA.id}/join-links`,{method:'POST',body:{}})).status,403);
+ assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/members/${view.members[0].id}`,{method:'PATCH',body:{role:'admin'}})).status,400);
 });
 test('owner can promote staff to representative and return them to staff',async()=>{
  const target=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data.members.find(m=>m.user_id===member.user.id);
@@ -91,12 +90,12 @@ test('owner can promote staff to representative and return them to staff',async(
  const audit=(await owner.j.call(`/api/platform/organizations/${orgA.id}/audit`)).data.filter(e=>e.action==='member.updated'&&e.subject_id===target.id);
  assert.ok(audit.length>=2);
 });
-test('suspension immediately invalidates old organization access and pending invitations',async()=>{
+test('suspension removes access; revoked shared links reject new applications',async()=>{
  const m=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data.members.find(m=>m.user_id===member.user.id);
  assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/members/${m.id}`,{method:'PATCH',body:{status:'suspended'}})).status,200);
  assert.equal((await member.j.call(`/api/platform/organizations/${orgA.id}`)).status,403);assert.equal((await member.j.call('/api/platform/me')).status,200);
  assert.equal((await owner.j.call(`/api/platform/organizations/${orgA.id}/members/${m.id}`,{method:'PATCH',body:{status:'active'}})).status,200);
- const revoked=await invite(owner,orgA,other);await owner.j.call(`/api/platform/organizations/${orgA.id}/invitations/${revoked.id}/revoke`,{method:'POST',body:{}});assert.equal((await other.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:revoked.token}})).status,400);
+ const revoked=await joinLink(owner,orgA);await owner.j.call(`/api/platform/organizations/${orgA.id}/join-links/${revoked.id}/revoke`,{method:'POST',body:{}});assert.equal((await other.j.call('/api/platform/join-requests',{method:'POST',body:{token:revoked.token}})).status,400);
 });
 test('last owner cannot be removed and audit persists role mutations',async()=>{
  const own=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data.members.find(m=>m.user_id===owner.user.id);
@@ -249,8 +248,9 @@ test('password recovery consumes the token and revokes all previous sessions',as
  const payload={token:resetToken,newPassword:password+'-new'};assert.equal((await jar().call('/api/auth/reset-password',{method:'POST',body:payload})).status,200);assert.equal((await recovery.j.call('/api/platform/me')).status,401);assert.equal((await jar().call('/api/auth/reset-password',{method:'POST',body:payload})).status,400);
  assert.equal((await jar().call('/api/auth/sign-in/email',{method:'POST',body:{email:recovery.email,password}})).status,401);assert.equal((await jar().call('/api/auth/sign-in/email',{method:'POST',body:{email:recovery.email,password:payload.newPassword}})).status,200);
 });
-test('expired invitations fail and concurrent acceptance grants membership only once',async()=>{
- const inv=await invite(owner,orgA,other);await pool.query("UPDATE invitations SET expires_at=now()-interval '1 minute' WHERE id=$1",[inv.id]);assert.equal((await other.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:inv.token}})).status,400);
- const fresh=await invite(owner,orgA,other);const results=await Promise.all([1,2].map(()=>other.j.call('/api/platform/invitations/accept',{method:'POST',body:{token:fresh.token}})));assert.deepEqual(results.map(r=>r.status).sort(),[200,400]);
+test('expired shared links fail; repeated applications remain one pending request',async()=>{
+ const link=await joinLink(owner,orgA);await pool.query("UPDATE organization_join_links SET expires_at=now()-interval '1 minute' WHERE id=$1",[link.id]);assert.equal((await other.j.call('/api/platform/join-requests',{method:'POST',body:{token:link.token}})).status,400);
+ const fresh=await joinLink(owner,orgA);const results=await Promise.all([1,2].map(()=>other.j.call('/api/platform/join-requests',{method:'POST',body:{token:fresh.token}})));assert.deepEqual(results.map(r=>r.status).sort(),[202,202]);
+ const pending=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data.joinRequests.filter(x=>x.user_id===other.user.id);assert.equal(pending.length,1);
 });
 test('sign out revokes persistent customer session',async()=>{assert.equal((await owner.j.call('/api/auth/sign-out',{method:'POST',body:{}})).status,200);assert.equal((await owner.j.call('/api/platform/me')).status,401);});

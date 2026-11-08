@@ -48,7 +48,7 @@ function switchView(view){
  window.IdentityUI?.cancel();document.body.classList.remove('identity-active');const identityView=document.getElementById('identity-view');if(identityView)identityView.hidden=true;
  const section=view.startsWith('ops/')?view.slice(4):'overview';
  if(view.startsWith('ops/'))view='admin';
- const views=['market','admin','login','enterprise','personal','staff','universe'];
+ const views=['market','admin','login','universe'];
  if(!views.includes(view))view='universe';
  document.body.classList.toggle('market-active',view==='market');
  document.body.classList.toggle('welcome-active',view==='login'||view==='universe');
@@ -58,7 +58,7 @@ function switchView(view){
  views.forEach(id=>{const el=document.getElementById(id+'-view');if(el)el.hidden=id!==displayView;});
  $$('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-pressed',String(b.dataset.view===view));});
  if(view==='admin')window.OperationsUI?.render(section);
- document.title='semifly.ai · '+({market:'模型广场',admin:'运营工作台',login:'欢迎来到 semifly',enterprise:'企业工作台',personal:'个人工作台',staff:'员工管理台',universe:'宇宙欢迎页'}[view]);
+ document.title='semifly.ai · '+({market:'模型广场',admin:'运营工作台',login:'欢迎来到 semifly',universe:'宇宙欢迎页'}[view]);
  window.scrollTo(0,0);
  window.IdentityUI?.refreshPublic();
 }
@@ -137,7 +137,7 @@ $('#model-search').addEventListener('input',renderModels);$('#model-use').addEve
 $('#supply-search').addEventListener('input',renderTable);$('#status-filter').addEventListener('change',renderTable);$('#supplier-filter').addEventListener('change',renderTable);
 $('#density-button').addEventListener('click',()=>{const compact=$('#supply-table').classList.toggle('compact');$('#density-button').setAttribute('aria-pressed',String(compact));$('#density-button').innerHTML=compact?'<span data-icon=list-filter></span> 舒适视图':'<span data-icon=list-filter></span> 紧凑视图';});
 $('#drawer-close').addEventListener('click',closeDrawer);$('#drawer-backdrop').addEventListener('click',closeDrawer);
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#detail-drawer').hidden)closeDrawer();if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();const search=!$('#enterprise-view').hidden?$('#e-search'):!$('#admin-view').hidden?($('#ops-search')||$('#supply-search')):!$('#market-view').hidden?$('#model-search'):null;search?.focus();}if(e.key==='Enter'&&e.target.matches('tr[data-product],tr[data-alert]'))e.target.click();if(e.key==='Tab'&&!$('#detail-drawer').hidden){const focusable=$$('#detail-drawer button');const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#detail-drawer').hidden)closeDrawer();if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();const search=!$('#admin-view').hidden?($('#ops-search')||$('#supply-search')):!$('#market-view').hidden?$('#model-search'):null;search?.focus();}if(e.key==='Enter'&&e.target.matches('tr[data-product],tr[data-alert]'))e.target.click();if(e.key==='Tab'&&!$('#detail-drawer').hidden){const focusable=$$('#detail-drawer button');const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}});
 document.addEventListener('submit',e=>{if(e.target.id==='supplier-form'){e.preventDefault();const name=$('#supplier-name').value.trim();if(!name)return;showInfo('供应商草稿预览',escapeHtml(name),'<div class="info-box">表单体验已完成。正式产品将保存草稿，并进入合同与授权资料补充流程。本预览没有写入任何业务数据。</div>');}});
 document.addEventListener('click',async e=>{if(e.target.closest('#copy-config')){try{await navigator.clipboard.writeText($('#config-code').textContent);showToast('示例配置已复制');}catch{showToast('当前浏览器未允许复制，请选中配置文字手动复制。');}}});
 $('#export-button').addEventListener('click',()=>{const rows=[['演示报表：非真实业务数据'],['通道','供应商','状态','首内容时延 ms','完成率 %','容量占用 %','输入采购价/百万tokens'],...filteredProducts().map(p=>[p.name,p.supplier,statusNames[p.status],p.latency??'',p.success??'',p.capacity,p.cost])];const blob=new Blob(['\ufeff'+rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='oneapi-supply-demo.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);showToast('演示供应报表已导出');});

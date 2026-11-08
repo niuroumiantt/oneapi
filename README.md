@@ -72,4 +72,4 @@ OneAPI 是面向个人开发者和企业客户的模型 API 商业平台。本�
 
 企业工作台的新方案（含 WorkBuddy / Codex / Claude Code 官方资料对比、三入口、组织权限与可调拨预算）：[企业工作台设计](docs/phase-1/09-enterprise-workspace.md)。独立预览已部署到 https://oneapi.glocalstorage.cn ，实际部署版本和边界见 [部署交接](docs/handoff/oneapi-aliyun.md)。
 
-本轮体验入口：[/#login](https://oneapi.glocalstorage.cn/#login)、[/#enterprise](https://oneapi.glocalstorage.cn/#enterprise)。规则测试：在项目目录使用 Node 运行 tests/enterprise-core.test.cjs。所有额度操作仅作用于当前页面的内存样例。
+当前入口：[/#universe](https://oneapi.glocalstorage.cn/#universe)、[/#personal](https://oneapi.glocalstorage.cn/#personal)、[/#enterprise](https://oneapi.glocalstorage.cn/#enterprise)。企业代表人可生成一条链接供一人或多人申请加入，逐人审批后员工仍无预算和模型权限。规则测试在 `server` 目录运行 `npm test`，使用独立测试数据库。演示额度不代表真实资金。
