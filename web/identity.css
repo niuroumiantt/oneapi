@@ -52,12 +52,13 @@
 .org-card h3{font-size:19px;line-height:1.25;color:#1c2541;margin:7px 0 8px;letter-spacing:-.02em}
 .org-card p{font-size:12px;line-height:1.55;color:#7b8797;margin:0 0 14px}
 .org-start-card{background:#f1eee7}
-.org-purchase-steps{list-style:none;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;padding:0;margin:17px 0}
+.org-purchase-steps{list-style:none;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px;padding:0;margin:17px 0}
 .org-purchase-steps li{border:1px solid #e4e1db;background:#fffaf5;border-radius:12px;padding:11px 9px;min-width:0;display:grid;gap:5px}
 .org-purchase-steps li:first-child{border-color:#e43c2f55}
 .org-purchase-steps li span{font-size:10px;color:#e43c2f;font-weight:700}
 .org-purchase-steps li b{font-size:12px;color:#1c2541;white-space:nowrap}
 .org-purchase-steps li small{font-size:10px;color:#9a9faa;white-space:nowrap}
+.model-intent{display:flex;align-items:center;flex-wrap:wrap;gap:4px 7px;padding:9px 11px;border:1px solid #e9ded9;border-radius:10px;background:#fffaf5;color:#40516e;font-size:11px;line-height:1.5}.model-intent b{color:#1c2541}.model-intent a{color:#ba382d;font-weight:700;text-decoration:none}
 .org-primary-link,.org-secondary-link{display:inline-flex;align-items:center;justify-content:center;gap:12px;text-decoration:none;border-radius:10px;padding:11px 14px;font-size:12px;font-weight:700}
 .org-primary-link{background:#e43c2f;color:white}
 .org-secondary-link{border:1px solid #d9dce1;color:#1c2541;background:#fff}
