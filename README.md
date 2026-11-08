@@ -19,6 +19,7 @@ OneAPI 是面向个人开发者和企业客户的模型 API 商业平台。本�
 | [跨项目视觉参考包](design/spectrum/README.md) | 设计 token、可运行参考、glocal dmg 改造交接 |
 | [当前优先级与验收](docs/phase-1/00-priorities.md) | 五条工作线、共同底座、里程碑与后置范围 |
 | [供应商与供应商产品管理](docs/phase-1/07-supplier-operations.md) | 货源与准入、采购价格、资金与容量、质量故障、需求和对账 |
+| [供应商 API 验收台](docs/phase-1/19-supplier-api-lab.md) | 真实端点探测、逐笔 Token 成本、官方对照与抽样核对 |
 | [登录与身份](docs/phase-1/01-identity-and-login.md) | 微信、Google、GitHub、X；个人/企业、绑定、恢复与携码回跳 |
 | [模型广场与 Agent 接入](docs/phase-1/02-models-and-agent-onboarding.md) | 两家族入口，Cursor/TRAE/Qoder/WorkBuddy 配置与兼容边界 |
 | [支付、促销码与返佣](docs/phase-1/03-payments-and-promotions.md) | 微信/支付宝/Stripe，新老客优惠、价格口径与计佣 |

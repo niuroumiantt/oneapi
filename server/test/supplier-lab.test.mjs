@@ -1,0 +1,51 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { calculateProbeCostYuan, runSupplierProbe, validateLabBaseUrl } from '../src/supplier-lab.mjs';
+import { vault } from '../src/core.mjs';
+
+test('procurement cost splits cached and uncached input at exact token precision', () => {
+  const rates = { input_yuan_per_m: '2.000000', cached_input_yuan_per_m: '0.500000', output_yuan_per_m: '8.000000' };
+  assert.equal(calculateProbeCostYuan(rates, 1_000_000, 250_000, 100_000), '2.425000000000');
+  assert.equal(calculateProbeCostYuan(rates, 1, 0, 1), '0.000010000000');
+  assert.equal(calculateProbeCostYuan(rates, 5, null, 2), null);
+  assert.equal(calculateProbeCostYuan(rates, 5, 6, 2), null);
+});
+
+test('supplier key can only be sent to explicitly allowed HTTPS hosts', () => {
+  const previous = process.env.SUPPLIER_LAB_ALLOWED_HOSTS;
+  process.env.SUPPLIER_LAB_ALLOWED_HOSTS = 'api.deepseek.com,supplier.example.test';
+  try {
+    assert.equal(validateLabBaseUrl('https://supplier.example.test/v1/'), 'https://supplier.example.test/v1');
+    for (const url of ['http://supplier.example.test', 'https://supplier.example.test.evil.test', 'https://supplier.example.test:8443', 'https://user:pass@supplier.example.test', 'https://supplier.example.test/v1?key=secret']) {
+      assert.throws(() => validateLabBaseUrl(url));
+    }
+  } finally {
+    if (previous === undefined) delete process.env.SUPPLIER_LAB_ALLOWED_HOSTS;
+    else process.env.SUPPLIER_LAB_ALLOWED_HOSTS = previous;
+  }
+});
+
+test('a live protocol probe records one upstream attempt with usage, cost and evidence', async () => {
+  const originalFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url, options) => {
+    assert.equal(url, 'https://api.deepseek.com/chat/completions');
+    assert.equal(options.headers.Authorization, 'Bearer local-test-key');
+    assert.equal(JSON.parse(options.body).model, 'deepseek-chat');
+    return new Response(JSON.stringify({ model: 'deepseek-chat', choices: [{ message: { content: '391' } }], usage: { prompt_tokens: 20, prompt_cache_hit_tokens: 5, completion_tokens: 2, total_tokens: 22 } }), { status: 200, headers: { 'x-request-id': 'req-test-1' } });
+  };
+  try {
+    const box = vault('local-test-secret-that-is-over-32-characters');
+    const endpoint = { id: 'endpoint-1', base_url: 'https://api.deepseek.com', model_id: 'deepseek-chat', credential_ciphertext: box.seal({ key: 'local-test-key' }), input_yuan_per_m: '2.000000', cached_input_yuan_per_m: '0.500000', output_yuan_per_m: '8.000000' };
+    await runSupplierProbe(endpoint, { id: 'arithmetic', prompt: '17 x 23', maxTokens: 32, grade: output => output === '391' }, box, 'run-1', { query: async (sql, params) => calls.push({ sql, params }) });
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].sql, /INSERT INTO supplier_lab_transactions/);
+    assert.equal(calls[0].params[6], 200);
+    assert.equal(calls[0].params[8], 'req-test-1');
+    assert.deepEqual(calls[0].params.slice(10, 14), [20, 5, 2, 22]);
+    assert.equal(calls[0].params[15], 100);
+    assert.equal(JSON.parse(calls[0].params[16]).usage_present_and_consistent, true);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
