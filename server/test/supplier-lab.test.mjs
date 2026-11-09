@@ -32,6 +32,7 @@ test('a live protocol probe records one upstream attempt with usage, cost and ev
     assert.equal(url, 'https://api.deepseek.com/chat/completions');
     assert.equal(options.headers.Authorization, 'Bearer local-test-key');
     assert.equal(JSON.parse(options.body).model, 'deepseek-chat');
+    assert.deepEqual(JSON.parse(options.body).thinking, { type: 'disabled' });
     return new Response(JSON.stringify({ model: 'deepseek-chat', choices: [{ message: { content: '391' } }], usage: { prompt_tokens: 20, prompt_cache_hit_tokens: 5, completion_tokens: 2, total_tokens: 22 } }), { status: 200, headers: { 'x-request-id': 'req-test-1' } });
   };
   try {

@@ -35,22 +35,24 @@ async function readLimited(response) {
 }
 export async function runSupplierProbe(endpoint, caseDef, box, runId, pool) {
   validateLabBaseUrl(endpoint.base_url);
-  const started = performance.now(); let httpStatus = null, errorCode = null, upstreamRequestId = null, output = '', usage = null, responseModel = null;
+  const started = performance.now(); let httpStatus = null, errorCode = null, upstreamRequestId = null, output = '', usage = null, responseModel = null, finishReason = null;
   try {
     const key = box.open(endpoint.active_ciphertext ?? endpoint.credential_ciphertext).key;
-    const response = await fetch(`${endpoint.base_url}/chat/completions`, { method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: endpoint.model_id, messages: [{ role: 'user', content: caseDef.prompt }], temperature: 0, max_tokens: caseDef.maxTokens, stream: false }), signal: AbortSignal.timeout(25000) });
+    const request = { model: endpoint.model_id, messages: [{ role: 'user', content: caseDef.prompt }], temperature: 0, max_tokens: caseDef.maxTokens, stream: false };
+    if (new URL(endpoint.base_url).hostname === 'api.deepseek.com') request.thinking = { type: 'disabled' };
+    const response = await fetch(`${endpoint.base_url}/chat/completions`, { method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(request), signal: AbortSignal.timeout(25000) });
     httpStatus = response.status; upstreamRequestId = bounded(response.headers.get('x-request-id'), 120);
     if (response.ok) {
       const data = await readLimited(response);
       output = typeof data.choices?.[0]?.message?.content === 'string' ? data.choices[0].message.content : '';
-      usage = data.usage ?? null; responseModel = bounded(data.model, 120);
-      if (!output) errorCode = 'EMPTY_OUTPUT';
+      usage = data.usage ?? null; responseModel = bounded(data.model, 120); finishReason = bounded(data.choices?.[0]?.finish_reason, 40);
+      if (!output) errorCode = finishReason === 'length' ? 'OUTPUT_TRUNCATED' : 'EMPTY_OUTPUT';
     } else { errorCode = `HTTP_${response.status}`; await response.body?.cancel(); }
   } catch (error) { errorCode = error?.name === 'TimeoutError' ? 'TIMEOUT' : error?.message === 'RESPONSE_TOO_LARGE' ? 'RESPONSE_TOO_LARGE' : 'NETWORK_OR_PROTOCOL_ERROR'; }
   const input = integer(usage?.prompt_tokens), out = integer(usage?.completion_tokens), total = integer(usage?.total_tokens), cached = integer(usage?.prompt_cache_hit_tokens ?? usage?.prompt_tokens_details?.cached_tokens);
   const schemaOk = httpStatus === 200 && Boolean(output), usageOk = input !== null && out !== null && total === input + out && (cached === null || cached <= input);
   const caseOk = schemaOk && caseDef.grade(output);
-  const checks = { response_schema: schemaOk, usage_present_and_consistent: usageOk, task_passed: caseOk, response_model: responseModel, grading: 'deterministic_v1' };
+  const checks = { response_schema: schemaOk, usage_present_and_consistent: usageOk, task_passed: caseOk, response_model: responseModel, finish_reason: finishReason, grading: 'deterministic_v1' };
   const score = caseOk ? 100 : 0;
   const record = { runId, endpointId: endpoint.id, caseId: caseDef.id, promptHash: hash(caseDef.prompt), responseHash: output ? hash(output) : null, outputSample: output.slice(0, 1500), httpStatus, errorCode: errorCode ?? (!usageOk ? 'USAGE_INVALID' : null), upstreamRequestId, latencyMs: Math.round(performance.now() - started), inputTokens: input, cachedInputTokens: cached, outputTokens: out, totalTokens: total, costYuan: usageOk ? calculateProbeCostYuan(endpoint, input, cached, out) : null, score, checks };
   await pool.query('INSERT INTO supplier_lab_transactions(run_id,endpoint_id,case_id,prompt_sha256,response_sha256,output_sample,http_status,error_code,upstream_request_id,latency_ms,input_tokens,cached_input_tokens,output_tokens,total_tokens,estimated_cost_yuan,quality_score,checks) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)', [record.runId, record.endpointId, record.caseId, record.promptHash, record.responseHash, record.outputSample, record.httpStatus, record.errorCode, record.upstreamRequestId, record.latencyMs, record.inputTokens, record.cachedInputTokens, record.outputTokens, record.totalTokens, record.costYuan, record.score, JSON.stringify(record.checks)]);
