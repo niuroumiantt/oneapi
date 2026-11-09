@@ -39,12 +39,12 @@ function updatePricingExample(){
  $('#pricing-example-breakdown').textContent=`输入 ${input.toLocaleString('zh-CN')} × ¥2 / 1M + 输出 ${output.toLocaleString('zh-CN')} × ¥8 / 1M`;
 }
 function switchView(view){
- document.body.classList.toggle('catalog-active',view==='catalog'||view==='market');
  if(!view||view==='login')view='universe';
  if(window.LandingUI?.handles(view)){window.LandingUI.render(view);return;}
- window.LandingUI?.hide();
  if(view==='catalog')view='market';
  if(window.IdentityUI?.handles(view)){window.IdentityUI.route(view);return;}
+ document.body.classList.toggle('catalog-active',view==='market');
+ window.LandingUI?.hide();
  window.IdentityUI?.cancel();document.body.classList.remove('identity-active');const identityView=document.getElementById('identity-view');if(identityView)identityView.hidden=true;
  const section=view.startsWith('ops/')?view.slice(4):'overview';
  if(view.startsWith('ops/'))view='admin';
@@ -118,7 +118,7 @@ const actions={
 };
 document.addEventListener('click',event=>{
  const b=event.target.closest('button,a,tr');if(!b)return;
- if(b.dataset.view){location.hash=b.dataset.view;switchView(b.dataset.view);}
+ if(b.dataset.view){if(location.hash==='#'+b.dataset.view)switchView(b.dataset.view);else location.hash=b.dataset.view;}
  if(b.dataset.scenario){$('#model-use').value=b.dataset.scenario;renderModels();$('#catalog').scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});}
  if(b.hasAttribute('data-market-motion')){const stopped=$('.m-hero').classList.toggle('m-motion-paused');b.setAttribute('aria-pressed',String(stopped));b.setAttribute('aria-label',stopped?'播放模型广场装饰动效':'暂停模型广场装饰动效');b.textContent=stopped?'播放动效':'暂停动效';}
  if(b.dataset.family){family=b.dataset.family;$$('[data-family]').forEach(x=>x.classList.toggle('active',x===b));renderModels();}

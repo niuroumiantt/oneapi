@@ -82,5 +82,4 @@
   document.querySelector('#config-dialog').close();render(current);showToast('预览草稿已保存；刷新后恢复，不影响真实业务。');
  });
  window.OperationsUI={render};
- if(location.hash==='#admin'||location.hash.startsWith('#ops/'))switchView(location.hash.slice(1));
 })();
