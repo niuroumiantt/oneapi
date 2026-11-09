@@ -45,7 +45,34 @@ test('a live protocol probe records one upstream attempt with usage, cost and ev
     assert.equal(calls[0].params[8], 'req-test-1');
     assert.deepEqual(calls[0].params.slice(10, 14), [20, 5, 2, 22]);
     assert.equal(calls[0].params[15], 100);
-    assert.equal(JSON.parse(calls[0].params[16]).usage_present_and_consistent, true);
+    const checks = JSON.parse(calls[0].params[16]);
+    assert.equal(checks.usage_present_and_consistent, true);
+    assert.equal(checks.model_matches_request, true);
+    assert.equal(checks.usage_evidence.prompt_cache_hit_tokens, 5);
+    assert.equal(checks.cost_status, 'estimated');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('missing model, mismatched model or inconsistent cache counts cannot be accepted or priced', async () => {
+  const originalFetch = global.fetch;
+  const box = vault('local-test-secret-that-is-over-32-characters');
+  const endpoint = { id: 'endpoint-1', base_url: 'https://api.deepseek.com', model_id: 'deepseek-chat', active_ciphertext: box.seal({ key: 'local-test-key' }), input_yuan_per_m: '2', cached_input_yuan_per_m: '0.5', output_yuan_per_m: '8' };
+  const candidate = { id: 'arithmetic', prompt: '17 x 23', maxTokens: 32, grade: output => output === '391' };
+  try {
+    for (const [responseModel, cacheHit, cacheMiss, expectedCode] of [
+      [undefined, 5, 15, 'MODEL_UNREPORTED'],
+      ['different-model', 5, 15, 'MODEL_MISMATCH'],
+      ['deepseek-chat', 5, 14, 'USAGE_INVALID'],
+    ]) {
+      global.fetch = async () => new Response(JSON.stringify({ model: responseModel, choices: [{ message: { content: '391' } }], usage: { prompt_tokens: 20, prompt_cache_hit_tokens: cacheHit, prompt_cache_miss_tokens: cacheMiss, completion_tokens: 2, total_tokens: 22 } }), { status: 200 });
+      let params;
+      await runSupplierProbe(endpoint, candidate, box, 'run-1', { query: async (_sql, values) => { params = values; } });
+      assert.equal(params[7], expectedCode);
+      assert.equal(params[14], null);
+      assert.equal(JSON.parse(params[16]).cost_status, 'unavailable');
+    }
   } finally {
     global.fetch = originalFetch;
   }
