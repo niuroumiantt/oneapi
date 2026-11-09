@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateProbeCostYuan, runSupplierProbe, validateLabBaseUrl } from '../src/supplier-lab.mjs';
+import { calculateProbeCostYuan, csvCell, runSupplierProbe, supplierLabRoutes, validateLabBaseUrl } from '../src/supplier-lab.mjs';
 import { vault } from '../src/core.mjs';
 
 test('procurement cost splits cached and uncached input at exact token precision', () => {
@@ -75,5 +75,47 @@ test('missing model, mismatched model or inconsistent cache counts cannot be acc
     }
   } finally {
     global.fetch = originalFetch;
+  }
+});
+
+
+test('CSV export keeps spreadsheet formulas inert', () => {
+  assert.equal(csvCell('=IMPORTXML("https://example.test")'), `"'=IMPORTXML(""https://example.test"")"`);
+  assert.equal(csvCell('  +1'), `"'  +1"`);
+  assert.equal(csvCell('ordinary, text'), '"ordinary, text"');
+});
+
+test('manual bill comparison rejects empty and overlapping probe periods', async () => {
+  const previous = process.env.SUPPLIER_LAB_SECRET;
+  process.env.SUPPLIER_LAB_SECRET = 'local-test-secret-that-is-over-32-characters';
+  const routes = new Map();
+  const app = { get() {}, post(path, _auth, handler) { routes.set(path, handler); } };
+  const endpointId = '11111111-1111-4111-8111-111111111111';
+  let calls = 0, overlap = false, inserts = 0;
+  const db = { release() {}, async query(sql) {
+    if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+    if (sql.startsWith('SELECT id FROM supplier_lab_endpoints')) return { rows: [{ id: endpointId }] };
+    if (sql.startsWith('SELECT coalesce(sum(estimated_cost_yuan)')) return { rows: [{ cost: '0.005', calls, unpriced: 0 }] };
+    if (sql.startsWith('SELECT 1 FROM supplier_lab_reconciliations')) return { rowCount: overlap ? 1 : 0 };
+    if (sql.startsWith('INSERT INTO supplier_lab_reconciliations')) { inserts++; return { rows: [{ id: endpointId, difference_yuan: '0.001' }] }; }
+    if (sql.startsWith('INSERT INTO audit_events')) return {};
+    throw Error(`Unexpected SQL: ${sql}`);
+  } };
+  try {
+    supplierLabRoutes(app, { connect: async () => db }, () => {});
+    const handler = routes.get('/api/staff/lab/reconciliations');
+    const req = { body: { endpoint_id: endpointId, period_start: '2026-11-01T00:00:00Z', period_end: '2026-11-01T01:00:00Z', supplier_billed_yuan: '0.006', note: 'statement-123' }, staff: { status: 'active', role: 'supply', subject: 'staff-1' }, actor: { kind: 'staff', id: 'staff-1' } };
+    const res = { status(code) { assert.equal(code, 201); return this; }, json(value) { assert.equal(value.probe_calls, 1); } };
+    await assert.rejects(handler({ ...req, body: { ...req.body, note: '' } }, res), /账单编号/);
+    await assert.rejects(handler(req, res), /没有本台测试交易/);
+    calls = 1; overlap = true;
+    await assert.rejects(handler(req, res), /重叠/);
+    assert.equal(inserts, 0);
+    overlap = false;
+    await handler(req, res);
+    assert.equal(inserts, 1);
+  } finally {
+    if (previous === undefined) delete process.env.SUPPLIER_LAB_SECRET;
+    else process.env.SUPPLIER_LAB_SECRET = previous;
   }
 });

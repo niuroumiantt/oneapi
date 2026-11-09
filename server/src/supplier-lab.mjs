@@ -9,6 +9,11 @@ const CASES = Object.freeze([
 const CASE_BY_ID = new Map(CASES.map(item => [item.id, item]));
 const bounded = (value, max = 120) => typeof value === 'string' ? value.slice(0, max) : null;
 const integer = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
+export function csvCell(value) {
+  const raw = String(value ?? '');
+  const safe = /^\s*[=+\-@]/.test(raw) ? `'${raw}` : raw;
+  return `"${safe.replaceAll('\"', '\"\"')}"`;
+}
 const validRate = value => value === null || value === '' || value === undefined ? null : /^\d{1,6}(\.\d{1,6})?$/.test(String(value)) ? String(value) : (() => { throw new HttpError(400, '费率必须是非负金额，最多六位小数'); })();
 export function calculateProbeCostYuan(endpoint, input, cached, output) {
   if (input === null || output === null || endpoint.input_yuan_per_m === null || endpoint.output_yuan_per_m === null) return null;
@@ -214,12 +219,41 @@ export function supplierLabRoutes(app, pool, requireStaff) {
     res.status(202).json({ run_id: runId, status: 'running', max_upstream_calls: requested.length * (reference ? 2 : 1) });
   });
   app.get('/api/staff/lab/runs', requireStaff, async (req, res) => { access(req); res.json((await pool.query("SELECT r.id,r.supplier_endpoint_id,r.reference_endpoint_id,r.case_ids,r.status,r.created_at,r.finished_at,s.label AS supplier_label,s.model_id AS supplier_model,f.label AS reference_label,f.model_id AS reference_model,ss.name AS supplier_name,sc.label AS supplier_key_label,fs.name AS reference_supplier_name,fc.label AS reference_key_label,count(t.id)::int AS transaction_count,round(avg(t.quality_score),1) AS average_score FROM supplier_lab_runs r JOIN supplier_lab_endpoints s ON s.id=r.supplier_endpoint_id LEFT JOIN supplier_lab_endpoints f ON f.id=r.reference_endpoint_id LEFT JOIN supplier_lab_suppliers ss ON ss.id=s.supplier_id LEFT JOIN supplier_lab_credentials sc ON sc.id=s.credential_id LEFT JOIN supplier_lab_suppliers fs ON fs.id=f.supplier_id LEFT JOIN supplier_lab_credentials fc ON fc.id=f.credential_id LEFT JOIN supplier_lab_transactions t ON t.run_id=r.id GROUP BY r.id,s.id,f.id,ss.id,sc.id,fs.id,fc.id ORDER BY r.created_at DESC LIMIT 50")).rows); });
+  app.get('/api/staff/lab/transactions.csv', requireStaff, async (req, res) => {
+    access(req);
+    const runId = req.query.run_id ? id(req.query.run_id) : null;
+    const rows = (await pool.query(`SELECT t.id,t.run_id,t.case_id,t.created_at,t.http_status,t.error_code,t.upstream_request_id,t.latency_ms,t.input_tokens,t.cached_input_tokens,t.output_tokens,t.total_tokens,t.estimated_cost_yuan,t.quality_score,t.checks,e.model_id,s.name AS supplier_name,c.label AS credential_label
+      FROM supplier_lab_transactions t JOIN supplier_lab_endpoints e ON e.id=t.endpoint_id LEFT JOIN supplier_lab_suppliers s ON s.id=e.supplier_id LEFT JOIN supplier_lab_credentials c ON c.id=e.credential_id
+      WHERE ($1::uuid IS NULL OR t.run_id=$1) ORDER BY t.created_at DESC LIMIT 1000`, [runId])).rows;
+    const headers = ['本台流水','测试批次','时间 UTC','供应商','Key 别名','请求型号','返回型号','题目','HTTP','异常代码','上游请求 ID','输入 Token','缓存命中 Token','缓存未命中 Token','输出 Token','总 Token','估算采购成本 ¥','延迟 ms','题目得分'];
+    const values = rows.map(x => [x.id,x.run_id,new Date(x.created_at).toISOString(),x.supplier_name,x.credential_label,x.model_id,x.checks?.response_model,x.case_id,x.http_status,x.error_code,x.upstream_request_id,x.input_tokens,x.cached_input_tokens,x.checks?.usage_evidence?.prompt_cache_miss_tokens,x.output_tokens,x.total_tokens,x.estimated_cost_yuan,x.latency_ms,x.quality_score]);
+    res.set('Cache-Control', 'no-store');
+    res.set('Content-Disposition', 'attachment; filename="supplier-lab-transactions.csv"');
+    res.type('text/csv; charset=utf-8').send('\uFEFF' + [headers, ...values].map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n');
+  });
   app.get('/api/staff/lab/transactions', requireStaff, async (req, res) => { access(req); const runId = req.query.run_id ? id(req.query.run_id) : null; res.json((await pool.query('SELECT t.id,t.run_id,t.case_id,t.prompt_sha256,t.response_sha256,t.output_sample,t.http_status,t.error_code,t.upstream_request_id,t.latency_ms,t.input_tokens,t.cached_input_tokens,t.output_tokens,t.total_tokens,t.estimated_cost_yuan,t.quality_score,t.checks,t.created_at,e.label AS endpoint_label,e.kind,e.model_id,s.name AS supplier_name,c.label AS credential_label FROM supplier_lab_transactions t JOIN supplier_lab_endpoints e ON e.id=t.endpoint_id LEFT JOIN supplier_lab_suppliers s ON s.id=e.supplier_id LEFT JOIN supplier_lab_credentials c ON c.id=e.credential_id WHERE ($1::uuid IS NULL OR t.run_id=$1) ORDER BY t.created_at DESC LIMIT 200', [runId])).rows); });
   app.get('/api/staff/lab/summary', requireStaff, async (req, res) => { access(req); res.json((await pool.query("SELECT count(*)::int AS attempts,count(*) FILTER(WHERE error_code IS NULL AND checks->>'response_schema'='true' AND checks->>'usage_present_and_consistent'='true' AND checks->>'model_matches_request'='true')::int AS valid_responses,count(*) FILTER(WHERE checks->>'task_passed'='true')::int AS task_passes,count(*) FILTER(WHERE estimated_cost_yuan IS NULL)::int AS unpriced_attempts,count(*) FILTER(WHERE error_code IS NOT NULL)::int AS issues,round(avg(latency_ms),0) AS average_latency_ms,round((percentile_cont(0.95) WITHIN GROUP(ORDER BY latency_ms))::numeric,0) AS p95_latency_ms,round(avg(quality_score),1) AS average_task_score,coalesce(sum(input_tokens),0)::bigint AS input_tokens,coalesce(sum(output_tokens),0)::bigint AS output_tokens,coalesce(sum(estimated_cost_yuan),0) AS estimated_probe_cost_yuan FROM supplier_lab_transactions WHERE created_at>now()-interval '7 days'")).rows[0]); });
   app.post('/api/staff/lab/reconciliations', requireStaff, async (req, res) => {
-    access(req, true); const b = req.body || {}, endpointId = id(b.endpoint_id), start = new Date(b.period_start), end = new Date(b.period_end), billed = validRate(b.supplier_billed_yuan), note = typeof b.note === 'string' ? b.note.trim().slice(0, 500) : '';
-    if (!Number.isFinite(start.valueOf()) || !Number.isFinite(end.valueOf()) || start >= end || end > new Date() || !billed) throw new HttpError(400, '核对时间或供应商金额不正确');
-    const row = await transaction(pool, async db => { const e = (await db.query('SELECT id FROM supplier_lab_endpoints WHERE id=$1 FOR SHARE', [endpointId])).rows[0]; if (!e) throw new HttpError(404, '端点不存在'); const totals = (await db.query('SELECT coalesce(sum(estimated_cost_yuan),0) AS cost,count(*)::int AS calls,count(*) FILTER(WHERE estimated_cost_yuan IS NULL)::int AS unpriced FROM supplier_lab_transactions WHERE endpoint_id=$1 AND created_at >= $2 AND created_at < $3', [endpointId, start, end])).rows[0]; if (totals.unpriced) throw new HttpError(409, '区间内有无法估价的探测交易，请先核实费率'); const result = (await db.query('INSERT INTO supplier_lab_reconciliations(endpoint_id,period_start,period_end,supplier_billed_yuan,observed_cost_yuan,difference_yuan,note,created_by) VALUES($1,$2,$3,$4,$5,$4::numeric-$5::numeric,$6,$7) RETURNING *', [endpointId, start, end, billed, totals.cost, note, req.staff.subject])).rows[0]; await audit(db, req.actor, 'supplier_lab.reconciliation_created', null, result.id, { endpoint_id: endpointId, calls: totals.calls }); return { ...result, probe_calls: totals.calls }; }); res.status(201).json(row);
+    access(req, true);
+    const b = req.body || {};
+    const endpointId = id(b.endpoint_id), start = new Date(b.period_start), end = new Date(b.period_end);
+    const billed = validRate(b.supplier_billed_yuan);
+    const note = typeof b.note === 'string' ? b.note.trim() : '';
+    if (!Number.isFinite(start.valueOf()) || !Number.isFinite(end.valueOf()) || start >= end || end > new Date() || billed === null) throw new HttpError(400, '核对时间或供应商金额不正确');
+    if (note.length < 3 || note.length > 500) throw new HttpError(400, '请填写上游账单编号或导出文件编号');
+    const row = await transaction(pool, async db => {
+      const endpoint = (await db.query('SELECT id FROM supplier_lab_endpoints WHERE id=$1 FOR UPDATE', [endpointId])).rows[0];
+      if (!endpoint) throw new HttpError(404, '端点不存在');
+      const totals = (await db.query('SELECT coalesce(sum(estimated_cost_yuan),0) AS cost,count(*)::int AS calls,count(*) FILTER(WHERE estimated_cost_yuan IS NULL)::int AS unpriced FROM supplier_lab_transactions WHERE endpoint_id=$1 AND created_at >= $2 AND created_at < $3', [endpointId, start, end])).rows[0];
+      if (totals.calls === 0) throw new HttpError(409, '该时段没有本台测试交易，无法核对');
+      if (totals.unpriced) throw new HttpError(409, `该时段有 ${totals.unpriced} 笔无法估价的测试交易，请先逐笔核实`);
+      const overlap = (await db.query('SELECT 1 FROM supplier_lab_reconciliations WHERE endpoint_id=$1 AND period_start < $3 AND period_end > $2 LIMIT 1', [endpointId, start, end])).rowCount > 0;
+      if (overlap) throw new HttpError(409, '该型号已有重叠的账单核对时段，请避免重复记账');
+      const result = (await db.query('INSERT INTO supplier_lab_reconciliations(endpoint_id,period_start,period_end,supplier_billed_yuan,observed_cost_yuan,difference_yuan,note,created_by) VALUES($1,$2,$3,$4,$5,$4::numeric-$5::numeric,$6,$7) RETURNING *', [endpointId, start, end, billed, totals.cost, note, req.staff.subject])).rows[0];
+      await audit(db, req.actor, 'supplier_lab.reconciliation_created', null, result.id, { endpoint_id: endpointId, calls: totals.calls, bill_reference: note });
+      return { ...result, probe_calls: totals.calls };
+    });
+    res.status(201).json(row);
   });
   app.get('/api/staff/lab/reconciliations', requireStaff, async (req, res) => { access(req); res.json((await pool.query('SELECT c.*,e.label AS endpoint_label FROM supplier_lab_reconciliations c JOIN supplier_lab_endpoints e ON e.id=c.endpoint_id ORDER BY c.created_at DESC LIMIT 50')).rows); });
 }
