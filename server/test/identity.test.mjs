@@ -31,7 +31,7 @@ before(async()=>{
  });await new Promise(r=>idpServer.listen(0,'127.0.0.1',r));idpOrigin='http://127.0.0.1:'+idpServer.address().port;
  // Reserve a server port before constructing the fixed-origin authentication configuration.
  appServer=createServer();await new Promise(r=>appServer.listen(0,'127.0.0.1',r));origin='http://127.0.0.1:'+appServer.address().port;
- const cfg=config({APP_ORIGIN:origin,DATABASE_URL:databaseURL,BETTER_AUTH_SECRET:'test-only-strong-secret-932847239847293847',STAFF_OIDC_ISSUER:idpOrigin,STAFF_OIDC_CLIENT_ID:'oneapi-test-staff',STAFF_OIDC_CLIENT_SECRET:'test-client-secret',STAFF_BOOTSTRAP_SUB:'staff-owner'});
+ const cfg=config({APP_ORIGIN:origin,DATABASE_URL:databaseURL,BETTER_AUTH_SECRET:'test-only-strong-secret-932847239847293847',STAFF_OIDC_ISSUER:idpOrigin,STAFF_OIDC_CLIENT_ID:'oneapi-test-staff',STAFF_OIDC_CLIENT_SECRET:'test-client-secret',STAFF_BOOTSTRAP_SUB:'staff-owner',BANK_TRANSFER_VERIFIED:'true',BANK_TRANSFER_ACCOUNT_NAME:'Company Test',BANK_TRANSFER_BANK_NAME:'Test Bank Branch',BANK_TRANSFER_ACCOUNT_NUMBER:'0000000000000000'});
  service=createApp(pool,cfg,{sendMail:async m=>{sent.push(m);return {};},verify:async()=>true});await migrate(pool,service.auth);await pool.query('TRUNCATE "user",staff_members,staff_oidc_states,mail_outbox,request_limits,"rateLimit" CASCADE');appServer.on('request',service.app);
 });
 after(async()=>{appServer?.close();idpServer?.close();await pool?.end();});
@@ -50,8 +50,8 @@ test('verified registration creates durable personal identity and isolated organ
 });
 test('real billing reads are isolated and cannot credit funds without a merchant',async()=>{
  assert.equal((await jar().call('/api/billing/personal')).status,401);
- const personal=await owner.j.call('/api/billing/personal');assert.equal(personal.status,200);assert.equal(personal.data.scope,'personal');assert.equal(personal.data.cash_balance_fen,'0');assert.equal(personal.data.total_recharged_fen,'0');assert.deepEqual(personal.data.entries,[]);assert.equal(personal.data.recharge.enabled,false);assert.equal(personal.data.recharge.minimum_fen,500);
- const org=await owner.j.call(`/api/billing/organizations/${orgA.id}`);assert.equal(org.status,200);assert.equal(org.data.scope,'organization');assert.equal(org.data.cash_balance_fen,'0');assert.equal(org.data.refund.enabled,false);
+ const personal=await owner.j.call('/api/billing/personal');assert.equal(personal.status,200);assert.equal(personal.data.scope,'personal');assert.equal(personal.data.cash_balance_fen,'0');assert.equal(personal.data.total_recharged_fen,'0');assert.deepEqual(personal.data.entries,[]);assert.deepEqual(personal.data.usage_by_model,[]);assert.equal(personal.data.recharge.enabled,false);assert.equal(personal.data.recharge.minimum_fen,500);assert.equal(personal.data.bank_transfer,undefined);
+ const org=await owner.j.call(`/api/billing/organizations/${orgA.id}`);assert.equal(org.status,200);assert.equal(org.data.scope,'organization');assert.equal(org.data.cash_balance_fen,'0');assert.equal(org.data.refund.enabled,false);assert.equal(org.data.bank_transfer.enabled,true);assert.equal(org.data.bank_transfer.account_number,'0000000000000000');
  assert.equal((await other.j.call(`/api/billing/organizations/${orgA.id}`)).status,403);
  assert.equal((await owner.j.call(`/api/billing/organizations/${orgB.id}`)).status,403);
  assert.equal((await owner.j.call('/api/billing/personal',{method:'POST',body:{amount_fen:500}})).status,404);
