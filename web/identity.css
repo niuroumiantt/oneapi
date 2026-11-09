@@ -298,3 +298,13 @@ select option{font-size:14px}
 @media(max-width:850px){.personal-console-grid,.personal-usage-grid{grid-template-columns:minmax(0,1fr)}.pc-stage{max-width:calc(100vw - 64px)}.personal-model-panel,.personal-connect-panel,.personal-recent{max-width:100%}}
 @media(max-width:560px){.pc-stage{max-width:calc(100vw - 52px)}.personal-table-wrap{max-width:100%;overflow-x:auto}.personal-console-stats>div{overflow:hidden}.personal-console-stats strong{overflow:hidden;text-overflow:ellipsis}}
 .pc-topbar{position:relative;z-index:80}
+
+/* The price and the current choice remain visible at every desktop width. */
+.personal-model-panel .personal-table-wrap tr[data-live="personal-model"]{cursor:pointer}
+.personal-model-panel .personal-table-wrap tr[data-live="personal-model"]:hover > td{background:#f7f0fc}
+.personal-model-panel .personal-table-wrap tr.selected > td,.personal-model-panel .personal-table-wrap tr.selected:hover > td{background:#f0e5fa}
+.personal-model-panel .personal-table-wrap td.personal-rate{color:#171b2b;font-weight:800;font-size:13px;white-space:nowrap}
+.personal-price-period{display:inline-flex;align-items:center;gap:8px;color:#656e7d;font-size:10px;white-space:nowrap}
+.personal-price-period select{height:26px;min-width:58px;border:1px solid #d5d8e3;border-radius:5px;background:#fff;color:#252938;font-size:11px;font-weight:600}
+@media(max-width:1280px){.personal-model-panel .personal-table-wrap table{min-width:0}.personal-model-panel .personal-table-wrap th:nth-child(5),.personal-model-panel .personal-table-wrap td:nth-child(5),.personal-model-panel .personal-table-wrap th:nth-child(6),.personal-model-panel .personal-table-wrap td:nth-child(6){display:none}.personal-model-panel .personal-table-wrap th,.personal-model-panel .personal-table-wrap td{padding:7px 8px}}
+@media(max-width:700px){.personal-model-panel .personal-table-wrap th:nth-child(2),.personal-model-panel .personal-table-wrap td:nth-child(2),.personal-model-panel .personal-table-wrap th:nth-child(7),.personal-model-panel .personal-table-wrap td:nth-child(7){display:none}.personal-model-panel .personal-table-wrap th,.personal-model-panel .personal-table-wrap td{padding:7px 5px}.personal-model-name{gap:5px}.personal-model-name b{font-size:11px}.personal-model-name small{font-size:9px}.personal-model-panel .personal-table-wrap td.personal-rate{font-size:11px}.personal-price-period{font-size:0;gap:0}.personal-price-period select{font-size:11px}}
