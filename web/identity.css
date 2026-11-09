@@ -228,3 +228,9 @@ select option{font-size:14px}
 .org-section-grid>.usage-panel{min-height:210px}
 @media(max-width:900px){.personal-work-grid{grid-template-columns:1fr}}
 @media(max-width:700px){.usage-panel,.usage-next{padding:17px}.usage-panel-head{align-items:flex-start;flex-direction:column}.usage-panel .live-table-wrap{margin:14px -17px -17px}}
+
+.live-lab-entry{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:19px 24px;margin-bottom:16px;background:#eaf4ef;border-color:#b7d9c4}
+.live-lab-entry h2{margin:5px 0;font-size:20px;color:#173b2b}
+.live-lab-entry p{margin:0;font-size:12px;line-height:1.5;color:#476456}
+.live-lab-entry .live-button{flex:none;background:#173b2b;border-color:#173b2b;color:#fff}
+@media(max-width:700px){.live-lab-entry{align-items:flex-start;flex-direction:column;padding:18px}.live-lab-entry .live-button{width:100%}}

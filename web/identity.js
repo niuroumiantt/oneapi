@@ -36,7 +36,7 @@
  }
  function header(){
   const kind=contextKind();
-  const nav=kind==='staff'?(staff?'<a href="#staff-account">员工工作台</a>':''):'<a href="#universe">首页</a><a href="#market">模型广场</a><a href="#personal">我的空间</a>';
+  const nav=kind==='staff'?(staff?`<a href="#staff-account">员工工作台</a>${['platform_admin','supply'].includes(staff.role)?'<a href="/api/staff/lab/console">供应商 API 测试</a>':''}`:''):'<a href="#universe">首页</a><a href="#market">模型广场</a><a href="#personal">我的空间</a>';
   return `<header class="live-header"><a class="welcome-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"><span>It’s Your <em class="brand-ai">A</em>P<em class="brand-ai">I</em>.</span></a>${contextIndicator()}<nav aria-label="账户导航">${nav}${kind==='staff'&&!staff?'':accountMenu(staff||me?.user,staff?'staff':'customer')}</nav></header>`;
  }
  let publicTicket=0;
@@ -193,7 +193,8 @@
   }else if(['operations','support'].includes(staff.role)){customers=await api('/api/staff/customers');if(ticket!==generation)return;}
   else customers=[];
   if(customers.length||['platform_admin','operations','support'].includes(staff.role))data+=`<section class="live-panel"><div class="live-panel-title"><div><h2>客户账户</h2><p>最近 100 个真实注册账户；不会展示密码、会话凭据或客户 Key。</p></div></div><div class="live-table-wrap"><table><thead><tr><th>客户</th><th>邮箱验证</th><th>账户状态</th><th>操作</th></tr></thead><tbody>${customers.length?customers.map((u,i)=>`<tr><td><b>${esc(u.name)}</b><small>${esc(u.email)}</small></td><td>${u.emailVerified?'已验证':'未验证'}</td><td>${u.disabled?'已停用':'正常'}</td><td>${staff.role==='platform_admin'?btn(u.disabled?'恢复账户':'停用账户','customer-status',`data-index="${i}"`,'quiet'):'只读'}</td></tr>`).join(''):'<tr><td colspan="4" class="live-empty">暂无客户账户</td></tr>'}</tbody></table></div></section>`;
-  mount(hero('PLATFORM WORKSPACE',`你好，${esc(staff.name)}。`,`${staffRoles[staff.role]} · ${esc(staff.email)} · 公司身份与semifly.ai岗位双重校验`)+data+`<section class="live-panel"><div class="live-panel-title"><div><h2>业务模块</h2><p>从供应核验、商品与价格草稿，推进到支付准备和促销设计。</p></div></div><div class="live-module-grid">${[['server','供应商与产品验证','ops/supply'],['layers','模型商品与价格','ops/products'],['receipt-text','付费准备','ops/payments'],['gift','促销草稿','ops/promotions']].map(([icon,name,to])=>`<a href="#${to}">${ico(icon)}<h3>${name}</h3><span>查看进度</span></a>`).join('')}</div></section>`);
+  const labEntry=['platform_admin','supply'].includes(staff.role)?`<section class="live-panel live-lab-entry"><div><span class="live-eyebrow">SUPPLIER API LAB / 内部测试</span><h2>供应商 API 验收台</h2><p>登记供应商 Key 和型号，运行真实测试、双路对比与计费核对。</p></div><a class="live-button primary" href="/api/staff/lab/console">打开测试页面 ${ico('arrow-up-right')}</a></section>`:'';
+  mount(hero('PLATFORM WORKSPACE',`你好，${esc(staff.name)}。`,`${staffRoles[staff.role]} · ${esc(staff.email)} · 公司身份与semifly.ai岗位双重校验`)+labEntry+data+`<section class="live-panel"><div class="live-panel-title"><div><h2>业务模块</h2><p>从供应核验、商品与价格草稿，推进到支付准备和促销设计。</p></div></div><div class="live-module-grid">${[['server','供应商与产品验证','ops/supply'],['layers','模型商品与价格','ops/products'],['receipt-text','付费准备','ops/payments'],['gift','促销草稿','ops/promotions']].map(([icon,name,to])=>`<a href="#${to}">${ico(icon)}<h3>${name}</h3><span>查看进度</span></a>`).join('')}</div></section>`);
  }
  const supplyChecks={source:'供应来源',sales_rights:'服务与销售范围',model_version:'模型版本',protocol:'协议与能力',data_region:'数据处理地区',usage_billing:'用量与账单',capacity:'容量与限额'};
  const supplyStatus={candidate:'候选',reviewing:'资料核验中',blocked:'暂停',draft:'草稿'};
