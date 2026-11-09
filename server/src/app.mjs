@@ -30,6 +30,6 @@ export function createApp(pool,cfg,transport){
  app.get('/api/status',async(req,res)=>{await pool.query('SELECT 1');res.json({app:'oneapi',status:'ok',source_sha:cfg.source,stage:'identity-live',customer_registration_enabled:mail.ready,staff_login_enabled:staff.configured,payments_enabled:false,inference_enabled:false,business_ready:false});});
  app.use('/api',(_req,res)=>res.status(404).json({error:'接口不存在'}));
  app.use(express.static(new URL('../../web',import.meta.url).pathname,{index:'index.html',setHeaders(res){res.set('Cache-Control','no-store');}}));
- app.use((err,req,res,_next)=>{if(res.headersSent)return;const status=err instanceof HttpError?err.status:err.status===400?400:500;if(status===500)console.error(JSON.stringify({event:'request_failed',code:err.code||err.name||'ERROR',path:req.path.split('/').slice(0,4).join('/')}));res.status(status).json({error:status===500?'服务暂时不可用，请稍后再试。':err.message});});
+ app.use((err,req,res,_next)=>{if(res.headersSent)return;const status=err instanceof HttpError?err.status:err.status===400?400:500;if(status===401&&req.method==='GET'&&req.path==='/api/staff/lab/console')return res.redirect(302,'/api/staff/login?next=lab');if(status===500)console.error(JSON.stringify({event:'request_failed',code:err.code||err.name||'ERROR',path:req.path.split('/').slice(0,4).join('/')}));res.status(status).json({error:status===500?'服务暂时不可用，请稍后再试。':err.message});});
  return {app,auth,mail};
 }

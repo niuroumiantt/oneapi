@@ -139,6 +139,12 @@ test('real OIDC code/PKCE/nonce flow creates separate staff session; replay and 
  const same=await staff.call('/api/staff/me');assert.equal(same.status,200);
  const last=await staff.call('/api/staff/members/staff-owner',{method:'PATCH',body:{role:'support',status:'active'}});assert.equal(last.status,409);
 });
+test('supplier lab link resumes after staff sign-in and rejects arbitrary return targets',async()=>{
+ const visitor=jar();const entry=await visitor.call('/api/staff/lab/console');assert.equal(entry.status,302);assert.equal(entry.location,'/api/staff/login?next=lab');
+ const first=await visitor.call(entry.location);assert.equal(first.status,302);const code=await visitor.call(first.location);assert.equal(code.status,302);const done=await visitor.call(code.location);assert.equal(done.status,302);assert.equal(done.location,'/api/staff/lab/console');
+ assert.equal((await visitor.call('/api/staff/lab/config')).status,200);
+ const unsafe=jar();const login=await unsafe.call('/api/staff/login?next=https://example.test/');const redirect=await unsafe.call(login.location);const callback=await unsafe.call(redirect.location);assert.equal(callback.location,'/#staff-account');
+});
 test('supplier drafts and validation records persist with staff permissions and never become sale-ready',async()=>{
  const outsider=jar();assert.equal((await outsider.call('/api/staff/suppliers')).status,401);
  const created=await staff.call('/api/staff/suppliers',{method:'POST',body:{legal_name:'Fixture Model Ltd',display_name:'Fixture Model',source_type:'official',service_type:'managed_inference',next_action:'取得 SLA 与接口文档',region:'CN',reference_url:'https://example.test/provider'}});

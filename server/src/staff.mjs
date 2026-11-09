@@ -22,7 +22,8 @@ export function staffRoutes(app,pool,cfg){
  function administrator(req,res,next){if(req.staff.role!=='platform_admin'||req.staff.status!=='active')throw new HttpError(403,'仅平台管理员可执行此操作');next();}
  app.get('/api/staff/login',async(req,res)=>{
   const c=await client(),state=oidc.randomState(),nonce=oidc.randomNonce(),verifier=oidc.randomPKCECodeVerifier(),binding=token();
-  await pool.query('INSERT INTO staff_oidc_states(state_hash,binding_hash,payload) VALUES($1,$2,$3)',[hash(state),hash(binding),box.seal({state,nonce,verifier})]);
+  const destination=req.query.next==='lab'?'/api/staff/lab/console':'/#staff-account';
+  await pool.query('INSERT INTO staff_oidc_states(state_hash,binding_hash,payload) VALUES($1,$2,$3)',[hash(state),hash(binding),box.seal({state,nonce,verifier,destination})]);
   res.cookie(bindingName,binding,{...cookieOptions,maxAge:600000});
   const url=oidc.buildAuthorizationUrl(c,{redirect_uri:cfg.origin+'/api/staff/callback',scope:'openid profile email',code_challenge:await oidc.calculatePKCECodeChallenge(verifier),code_challenge_method:'S256',state,nonce});
   res.redirect(url.toString());
@@ -41,7 +42,7 @@ export function staffRoutes(app,pool,cfg){
     await db.query('INSERT INTO staff_sessions(token_hash,subject,access_payload,expires_at) VALUES($1,$2,$3,$4)',[hash(value),claims.sub,box.seal({accessToken:tokens.access_token}),new Date(Date.now()+Math.min(tokens.expires_in||300,8*3600)*1000)]);
     await audit(db,{kind:'staff',id:claims.sub},bootstrap?'staff.bootstrap':'staff.signed_in',null,claims.sub);
    });
-   res.clearCookie(bindingName,cookieOptions);res.cookie(cookieName,value,{...cookieOptions,maxAge:8*3600*1000});res.redirect('/#staff-account');
+   res.clearCookie(bindingName,cookieOptions);res.cookie(cookieName,value,{...cookieOptions,maxAge:8*3600*1000});res.redirect(flow.destination==='/api/staff/lab/console'?flow.destination:'/#staff-account');
   }catch{res.clearCookie(bindingName,cookieOptions);res.redirect('/#staff?error=authentication_failed');}
  });
  app.get('/api/staff/me',requireStaff,async(req,res)=>res.json({staff:req.staff}));
