@@ -36,7 +36,7 @@ test('a live protocol probe records one upstream attempt with usage, cost and ev
   };
   try {
     const box = vault('local-test-secret-that-is-over-32-characters');
-    const endpoint = { id: 'endpoint-1', base_url: 'https://api.deepseek.com', model_id: 'deepseek-chat', credential_ciphertext: box.seal({ key: 'local-test-key' }), input_yuan_per_m: '2.000000', cached_input_yuan_per_m: '0.500000', output_yuan_per_m: '8.000000' };
+    const endpoint = { id: 'endpoint-1', base_url: 'https://api.deepseek.com', model_id: 'deepseek-chat', credential_ciphertext: null, active_ciphertext: box.seal({ key: 'local-test-key' }), input_yuan_per_m: '2.000000', cached_input_yuan_per_m: '0.500000', output_yuan_per_m: '8.000000' };
     await runSupplierProbe(endpoint, { id: 'arithmetic', prompt: '17 x 23', maxTokens: 32, grade: output => output === '391' }, box, 'run-1', { query: async (sql, params) => calls.push({ sql, params }) });
     assert.equal(calls.length, 1);
     assert.match(calls[0].sql, /INSERT INTO supplier_lab_transactions/);
