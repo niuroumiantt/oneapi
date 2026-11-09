@@ -25,3 +25,26 @@
 @media(prefers-reduced-motion:reduce){.m-orbit-drift{animation:none}.m-motion{display:none}#market-view *{transition:none!important}#market-view .m-model:hover,.m-hero-cta:hover,.m-tool-list button:hover,.m-scenario-buttons button:hover{transform:none}}
 body.market-active #config-dialog{background:#fffdf9;border:1px solid #e9dfd5;border-radius:22px;box-shadow:0 25px 85px #271e3440}body.market-active #config-dialog .dialog-title{color:#392f44;letter-spacing:-.8px}body.market-active #config-dialog .dialog-kicker{color:#a68267}body.market-active #config-dialog .button.primary{background:#352d43;box-shadow:0 4px 10px #3629411a}body.market-active #config-dialog .button.primary:hover{background:#51405e}body.market-active #config-dialog .info-box{background:#f1edf6;color:#81718d}body.market-active #config-dialog .client-options button.active{border-color:#b79ec9;background:#f3ecf8;color:#785e8a}
 .model-next{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px}.model-next .button{min-height:38px}.model-next .button:first-child{margin-right:auto}@media(max-width:540px){.model-next .button:first-child{width:100%;margin:0}.model-next .button:not(:first-child){flex:1}}
+
+/* Public model comparison: official CNY list and calculated 80% reference. */
+#market-view .m-model-facts{display:flex;gap:7px;flex-wrap:wrap;padding:0 21px 12px;color:#6f7085;font-size:10px}
+#market-view .m-model-facts span{border:1px solid #e9e4ee;background:#f8f7fa;padding:5px 7px;border-radius:7px}
+#market-view .m-rate-preview{padding:12px 19px;background:#faf8fd;border-top:1px solid #eee8f5;margin-top:auto}
+#market-view .m-rate-preview-head{display:flex;align-items:center;justify-content:space-between;gap:6px;color:#6c6080;font-size:10px}
+#market-view .m-rate-preview-head b{white-space:nowrap;color:#8154ad}
+#market-view .m-rate-preview-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin:9px 0}
+#market-view .m-rate-preview-grid>span{font-size:9px;line-height:1.5;color:#777084}
+#market-view .m-rate-preview-grid small{display:block;color:#4b3c61;font-size:11px;white-space:nowrap}
+#market-view .m-rate-preview-grid b{color:#8d36d5;font-size:13px}
+#market-view .m-rate-preview>small{display:block;color:#8b7b95;font-size:9px;line-height:1.45}
+.m-rate-table-wrap{max-height:250px;overflow:auto;margin:13px 0}
+.m-rate-table{width:100%;border-collapse:collapse;text-align:left;font-size:11px;color:#273148}
+.m-rate-table th{color:#5e6677;background:#f3f1f8}
+.m-rate-table th,.m-rate-table td{padding:9px 10px;border-bottom:1px solid #e8e7ed}
+.m-rate-table strong{color:#8d36d5}
+.m-detail-pricing-title{margin-top:19px}
+.m-detail-rule{font-size:11px;line-height:1.6;color:#788194;margin:9px 0}
+.m-official-source{font-size:11px;color:#6c37aa;text-decoration:underline}
+@media(max-width:760px){#market-view .m-model-facts{padding:0 24px 12px}#market-view .m-rate-preview-grid b{font-size:12px}.m-rate-table{font-size:10px}}
+
+#market-view .model-desc{font-size:12px;line-height:1.55;min-height:74px;color:#675e70}#market-view .m-rate-preview-grid>span{font-size:10px}#market-view .m-rate-preview-grid small{font-size:11px}#market-view .m-rate-preview>small{font-size:10px}#market-view .m-model .card-action{font-size:12px}
