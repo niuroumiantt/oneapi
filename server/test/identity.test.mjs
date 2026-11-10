@@ -54,6 +54,7 @@ let owner,other,member,dept,billing,orgA,orgB;
 test('verified registration creates durable personal identity and isolated organization ownership',async()=>{
  owner=await user('owner');other=await user('other');member=await user('member');dept=await user('department');billing=await user('billing');orgA=await organization(owner,'Company A');orgB=await organization(other,'Company B');
  assert.equal((await owner.j.call('/api/platform/me')).data.organizations[0].role,'owner');assert.equal((await other.j.call(`/api/platform/organizations/${orgA.id}`)).status,403);assert.equal((await owner.j.call('/api/staff/members')).status,401);
+ {const before=(await owner.j.call('/api/platform/me')).data;assert.equal(before.personal_assets,false);const key=(await pool.query("INSERT INTO pilot_api_keys(owner_id,label,secret_hash,key_hint,model_id) VALUES($1,'personal-assets-check','personal-assets-check-hash','hint','deepseek-flash') RETURNING id",[before.user.id])).rows[0].id;assert.equal((await owner.j.call('/api/platform/me')).data.personal_assets,true);await pool.query('DELETE FROM pilot_api_keys WHERE id=$1',[key]);}
  const fresh=jar();for(const [k,v]of owner.j.cookies)fresh.cookies.set(k,v);assert.equal((await fresh.call(`/api/platform/organizations/${orgA.id}`)).data.organization.name,'Company A');
 });
 test('real billing reads are isolated and cannot credit funds without a merchant',async()=>{

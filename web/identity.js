@@ -328,10 +328,12 @@
   const b=me?.backoffice;if(!b?.business&&!b?.technical)return '';
   return `<nav class="pc-surface" aria-label="切换面板"><a class="active" href="#workspace">工作台</a>${b.business?'<a href="/api/staff/console#business">商务后台</a>':''}${b.technical?'<a href="/api/staff/console#technical">技术后台</a>':''}</nav>`;
  }
+ function personalVisible(){const orgs=me.organizations||[];return !orgs.length||(me.upgrade?.status!=='approved'&&Boolean(me.personal_assets));}
  function customerHeader(org=null){
   const orgs=me.organizations||[],approved=me.upgrade?.status==='approved',role=org?(customerRoles[lastOrg?.membership?.role]||'企业成员'):'个人账号',settings=org?`#organization/${esc(org.id)}/settings`:'#security';
-  const options=`${approved?'':`<option value="personal" ${!org?'selected':''}>个人工作区</option>`}${orgs.map(o=>`<option value="organization/${esc(o.id)}" ${org?.id===o.id?'selected':''}>${esc(o.name)}</option>`).join('')}${approved||orgs.length?'':'<option value="upgrade">＋ 升级为企业账号</option>'}`;
-  return `<header class="pc-topbar"><a class="welcome-brand pc-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"></a><span class="pc-title-divider"></span><strong class="pc-product-title">工作台</strong>${surfaceSwitch()}<div class="pc-topbar-actions"><span class="pc-identity">${role}</span><label class="pc-workspace">${ico('building-2')}<select data-workspace-select aria-label="当前工作空间">${options}</select></label><label class="pc-global-search">${ico('search')}<input data-personal-search aria-label="搜索模型" placeholder="搜索模型，回车查看" value="${esc(personalSearch)}"></label>${accountMenu(me.user,'customer',settings)}</div></header>`;
+  const spaces=[...(!org||personalVisible()?[{value:'personal',name:'个人工作区',current:!org}]:[]),...orgs.map(o=>({value:'organization/'+o.id,name:o.name,current:org?.id===o.id})),...(approved||orgs.length?[]:[{value:'upgrade',name:'＋ 升级为企业账号'}])];
+  const workspace=spaces.length>1?`<label class="pc-workspace">${ico('building-2')}<select data-workspace-select aria-label="当前工作空间">${spaces.map(s=>`<option value="${esc(s.value)}" ${s.current?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>`:`<span class="pc-workspace">${ico('building-2')}<span class="pc-workspace-name" title="${esc(spaces[0]?.name||'')}">${esc(spaces[0]?.name||'')}</span></span>`;
+  return `<header class="pc-topbar"><a class="welcome-brand pc-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"></a><span class="pc-title-divider"></span><strong class="pc-product-title">工作台</strong>${surfaceSwitch()}<div class="pc-topbar-actions"><span class="pc-identity">${role}</span>${workspace}<label class="pc-global-search">${ico('search')}<input data-personal-search aria-label="搜索模型" placeholder="搜索模型，回车查看" value="${esc(personalSearch)}"></label>${accountMenu(me.user,'customer',settings)}</div></header>`;
  }
  function teamUsageContent(team){
   const t=team.totals,palette=['#8e2deb','#17a673','#f58d09','#2f7de1','#e0457b','#5b6478'],modelIds=[...new Set(team.daily.map(d=>d.model_id))],color=id=>palette[modelIds.indexOf(id)%palette.length];
@@ -540,7 +542,7 @@
  function workspaceTarget(view){
   const orgs=me.organizations||[];if(view==='enterprise'&&!orgs.length)return 'upgrade';
   let saved='';try{saved=localStorage.getItem(spaceKey)||'';}catch{}
-  if(view!=='enterprise'&&saved==='personal'&&me.upgrade?.status!=='approved')return 'personal';
+  if(view!=='enterprise'&&saved==='personal'&&personalVisible())return 'personal';
   const org=orgs.find(o=>saved==='organization/'+o.id)||orgs[0];return org?'organization/'+org.id:'personal';
  }
  async function route(view){
@@ -579,7 +581,7 @@
    if(view==='staff-account'||view==='admin'||view.startsWith('ops/')){try{await staffAccount(ticket);}catch(e){if(ticket!==generation)return;me=null;staff=null;staffLogin();host.querySelector('.live-staff-entry').insertAdjacentHTML('afterbegin',note(e.message,e.status!==401));}return;}
    if(view.startsWith('join/')){staff=null;const apply=view.endsWith('/apply'),joinToken=view.slice(5,apply?-6:undefined);joinPreview=await api('/api/platform/join-links/preview?token='+encodeURIComponent(joinToken));try{me=await api('/api/platform/me');}catch(e){if(e.status!==401)throw e;me=null;authMode=apply?'login':'register';}if(ticket!==generation)return;if(apply&&me?.user){await api('/api/platform/join-requests',{token:joinToken});if(ticket!==generation)return;current='join/'+joinToken;mount(hero('JOIN REQUEST','入企申请已提交，等待企业管理者审批。','获批前没有企业预算、模型权限或 API Key。')+'<a class="live-button" href="#workspace">返回个人空间</a>');history.replaceState(null,'',location.pathname+'#'+current);return;}joinPage();return;}
    staff=null;if(!me?.user)me=await api('/api/platform/me');if(ticket!==generation)return;
-   if(['workspace','account','register','enterprise'].includes(view)){location.replace('#'+workspaceTarget(view));return;}
+   if(['workspace','account','register','enterprise'].includes(view)||(view==='personal'&&!personalVisible())){location.replace('#'+workspaceTarget(view));return;}
    if(view==='billing/personal'||view.startsWith('billing/organization/'))await billingPage(ticket,earlyBilling);
    else if(view==='demo/personal'||view.startsWith('demo/organization/'))await demoPage(ticket);
    else if(view.startsWith('organization/')){const [orgId,section]=view.slice(13).split('/');const data=await api('/api/platform/organizations/'+encodeURIComponent(orgId));if(ticket===generation){orgTab=orgSection(section);organizationV2(data);refreshOrganizationBilling(orgId,ticket);}}
