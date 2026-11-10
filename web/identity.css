@@ -359,3 +359,11 @@ select option{font-size:14px}
 
 /* Same personal workspace: real usage charts, bounded to the viewport. */
 .customer-chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:0}.customer-chart-grid>section{background:#fff;border:1px solid #e0e3ee;border-radius:10px;min-width:0;overflow:hidden}.customer-chart-grid svg{display:block;width:100%;height:clamp(150px,23vh,250px)}.customer-chart-grid h2{font-size:14px}.customer-chart-grid .personal-section-title{height:38px;min-height:38px}.chart-legend{display:flex;gap:15px;padding:0 15px 10px;flex-wrap:wrap;font-size:10px;color:#687389}.chart-legend i{display:inline-block;width:9px;height:9px;margin-right:5px;border-radius:2px}.personal-usage-intro>button{border:1px solid #ddd9ee;border-radius:6px;background:#fff;padding:6px 10px;font-size:12px;cursor:pointer}@media(max-width:700px){.customer-chart-grid{grid-template-columns:1fr}.customer-chart-grid svg{height:180px}}
+
+.employee-credit-band{display:flex;flex-wrap:wrap;align-items:center;gap:10px 28px;margin:0 0 14px;padding:12px 18px;border:1px solid #cfe6d8;border-radius:10px;background:#f4fbf7}
+.employee-credit-band>div{display:flex;align-items:baseline;gap:7px;min-width:0}
+.employee-credit-band span,.employee-credit-band small{font-size:12px;color:#4b5563}
+.employee-credit-band strong{font-size:15px;font-weight:700;color:#111522;font-variant-numeric:tabular-nums}
+.employee-credit-band>div:first-child strong{font-size:20px;color:#15803d}
+.employee-credit-band button{display:inline-flex;align-items:center;gap:6px;margin-left:auto;border:1px solid #15803d;border-radius:7px;background:#15803d;color:#fff;padding:7px 12px;font-size:13px;cursor:pointer}
+@media (max-width:640px){.employee-credit-band button{margin-left:0;width:100%;justify-content:center}}
