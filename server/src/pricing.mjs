@@ -1,9 +1,9 @@
-import { HttpError, id, transaction, audit } from './core.mjs';
+import { HttpError, id, transaction, audit,hasBusiness } from './core.mjs';
 import { supplierReadiness } from './supplier-readiness.mjs';
 
 function access(req,write=false){
- if(req.staff.status!=='active'||!['platform_admin','finance','operations','supply'].includes(req.staff.role))throw new HttpError(403,'当前岗位不能查看价格草稿');
- if(write&&!['platform_admin','finance'].includes(req.staff.role))throw new HttpError(403,'当前岗位不能设计价格草稿');
+ if(!hasBusiness(req.staff))throw new HttpError(403,'当前岗位不能查看价格草稿');
+ if(write&&!hasBusiness(req.staff))throw new HttpError(403,'当前岗位不能设计价格草稿');
 }
 function fen(value,label){
  const raw=String(value??'').trim();

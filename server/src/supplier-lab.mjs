@@ -2,7 +2,7 @@ import {usageRoutes} from './usage-reconciliation.mjs';
 import { requireTechnical } from './workspaces.mjs';
 import { HttpError, audit, hash, id, text, transaction, vault } from './core.mjs';
 
-const CASES = Object.freeze([
+export const CASES = Object.freeze([
   { id: 'arithmetic', name: '事实与计算', prompt: '请只输出 17 乘以 23 的整数结果。', expected: '严格等于 391', maxTokens: 32, grade: output => output.trim() === '391' },
   { id: 'json', name: '结构化 JSON', prompt: '只输出一个 JSON 对象，字段 result 为整数 42，字段 ok 为布尔值 true。不要 Markdown。', expected: '可解析 JSON，result=42 且 ok=true', maxTokens: 64, grade: output => { try { const value = JSON.parse(output); return value?.result === 42 && value?.ok === true; } catch { return false; } } },
   { id: 'chinese', name: '中文表达', prompt: '把 Hello, world! 翻译为简体中文。只输出译文。', expected: '包含“你好”和“世界”', maxTokens: 48, grade: output => output.includes('你好') && output.includes('世界') },

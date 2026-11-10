@@ -1,13 +1,13 @@
-import { HttpError, id, text, transaction, audit, hash } from './core.mjs';
+import { HttpError, id, text, transaction, audit, hash,hasBusiness } from './core.mjs';
 import { supplierReadiness } from './supplier-readiness.mjs';
 
 export function requireTechnical(req) {
  if(req.staff?.status!=='active'||!(req.staff.role==='platform_admin'||req.staff.technical_access===true))throw new HttpError(403,'需要技术运维权限');
 }
 export function requireBusiness(req) {
- if(req.staff?.status!=='active'||!['platform_admin','operations','supply','finance','support'].includes(req.staff.role))throw new HttpError(403,'需要业务运营权限');
+ if(!hasBusiness(req.staff))throw new HttpError(403,'需要业务运营权限');
 }
-function businessWrite(req){requireBusiness(req);if(!['platform_admin','supply'].includes(req.staff.role))throw new HttpError(403,'需要商品管理权限');}
+function businessWrite(req){requireBusiness(req);}
 export function acceptanceResult(run,tx,reconciliation){
  const expected=['arithmetic','json','chinese','context'];
  if(run.status!=='completed'||expected.some(c=>!run.case_ids.includes(c))||tx.length!==run.case_ids.length||new Set(tx.map(t=>t.case_id)).size!==tx.length||tx.some(t=>!run.case_ids.includes(t.case_id)))throw new HttpError(409,'需要已完成的完整基础题集及逐笔交易');
@@ -41,7 +41,7 @@ export function workspaceRoutes(app,pool,requireStaff,cfg){
  app.get('/api/staff/workspace/plan',requireStaff,(req,res)=>{requireBusiness(req);res.redirect(302,'/api/staff/console#'+(req.staff.role==='platform_admin'||req.staff.technical_access?'technical/servers':'business/overview'))});
  app.get('/api/staff/workspace/view',requireStaff,(req,res)=>{requireBusiness(req);res.sendFile(new URL('../private/workspace.html',import.meta.url).pathname,{dotfiles:'allow'})});
  app.get('/api/staff/workspace/console.js',requireStaff,(req,res)=>{requireBusiness(req);res.type('js').sendFile(new URL('../private/workspace.js',import.meta.url).pathname,{dotfiles:'allow'})});
- app.get('/api/staff/workspace/access',requireStaff,(req,res)=>res.json({business:req.staff.status==='active'&&['platform_admin','operations','supply','finance','support'].includes(req.staff.role),technical:req.staff.status==='active'&&(req.staff.role==='platform_admin'||req.staff.technical_access===true)}));
+ app.get('/api/staff/workspace/access',requireStaff,(req,res)=>res.json({business:hasBusiness(req.staff),technical:req.staff.status==='active'&&(req.staff.role==='platform_admin'||req.staff.technical_access===true)}));
  app.put('/api/staff/members/:subject/technical-access',requireStaff,async(req,res)=>{
   if(req.staff.role!=='platform_admin'||req.staff.status!=='active')throw new HttpError(403,'仅平台管理员可分配技术权限');
   const subject=text(req.params.subject,'员工标识',120),enabled=req.body?.enabled;
@@ -67,7 +67,7 @@ export function workspaceRoutes(app,pool,requireStaff,cfg){
    pool.query('SELECT id,display_name,product_code FROM model_products ORDER BY created_at DESC LIMIT 200'),
    pool.query('SELECT l.*,p.display_name FROM model_listing_requests l JOIN model_products p ON p.id=l.product_id ORDER BY l.created_at DESC LIMIT 100')]);
   const readiness=[];for(const p of products.rows){try{const ev=await listingEvidence(pool,p.id);readiness.push({...p,ready:true,input_fen:ev.price.input_fen_per_million,output_fen:ev.price.output_fen_per_million})}catch(e){if(!(e instanceof HttpError))throw e;readiness.push({...p,ready:false,reason:e.message})}}
-  res.json({suppliers:suppliers.rows,reports:reports.rows,products:readiness,listings:listings.rows,can_manage:['platform_admin','supply'].includes(req.staff.role),technical_access:req.staff.role==='platform_admin'||req.staff.technical_access===true});
+  res.json({suppliers:suppliers.rows,reports:reports.rows,products:readiness,listings:listings.rows,can_manage:hasBusiness(req.staff),technical_access:req.staff.role==='platform_admin'||req.staff.technical_access===true});
  });
  app.get('/api/staff/lab/handoffs',requireStaff,async(req,res)=>{requireTechnical(req);res.json((await pool.query(`SELECT v.id,v.lab_run_id,v.lab_endpoint_id,v.conclusion,v.usage_check,v.sample_count,v.created_at,o.model_name FROM supplier_validation_runs v JOIN supplier_offers o ON o.id=v.offer_id WHERE v.lab_run_id IS NOT NULL ORDER BY v.created_at DESC LIMIT 100`)).rows)});
  app.post('/api/staff/lab/runs/:id/handoff',requireStaff,async(req,res)=>{

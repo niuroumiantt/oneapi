@@ -1,5 +1,5 @@
 import * as oidc from 'openid-client';
-import { HttpError,token,hash,vault,transaction,audit,text } from './core.mjs';
+import { HttpError,token,hash,vault,transaction,audit,text,hasBusiness } from './core.mjs';
 export const staffRoles=['platform_admin','operations','supply','finance','support'];
 export function staffRoutes(app,pool,cfg){
  const box=vault(cfg.secret),cookieName=cfg.production?'__Host-oneapi_staff':'oneapi_staff',bindingName=cfg.production?'__Host-oneapi_oidc':'oneapi_oidc';
@@ -48,7 +48,7 @@ export function staffRoutes(app,pool,cfg){
  app.get('/api/staff/me',requireStaff,async(req,res)=>res.json({staff:req.staff}));
  app.post('/api/staff/logout',async(req,res)=>{await pool.query('DELETE FROM staff_sessions WHERE token_hash=$1',[hash(cookie(req,cookieName))]);res.clearCookie(cookieName,cookieOptions);res.json({ok:true});});
  app.get('/api/staff/members',requireStaff,administrator,async(req,res)=>res.json((await pool.query('SELECT subject,email,name,role,status,created_at,EXISTS(SELECT 1 FROM staff_technical_access t WHERE t.subject=staff_members.subject) AS technical_access FROM staff_members ORDER BY created_at')).rows));
- app.patch('/api/staff/members/:subject',requireStaff,administrator,async(req,res)=>{const subject=text(req.params.subject,'员工标识',120),role=req.body.role,status=req.body.status;if(!staffRoles.includes(role)||!['active','suspended'].includes(status))throw new HttpError(400,'岗位或状态不正确');
+ app.patch('/api/staff/members/:subject',requireStaff,administrator,async(req,res)=>{const subject=text(req.params.subject,'员工标识',120),role=req.body.role,status=req.body.status;if(!(role==='pending'||staffRoles.includes(role))||!['active','suspended'].includes(status))throw new HttpError(400,'岗位或状态不正确');
   await transaction(pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock(148921,2)');
    // Re-check the actor inside the same lock used by all privilege mutations.
@@ -59,7 +59,7 @@ export function staffRoutes(app,pool,cfg){
   });res.json({ok:true});
  });
  app.get('/api/staff/audit',requireStaff,administrator,async(req,res)=>res.json((await pool.query('SELECT actor_kind,actor_id,action,subject_id,created_at FROM audit_events ORDER BY id DESC LIMIT 100')).rows));
- app.get('/api/staff/customers',requireStaff,async(req,res)=>{if(req.staff.status!=='active'||!['platform_admin','operations','support'].includes(req.staff.role))throw new HttpError(403,'当前岗位没有客户管理权限');res.json((await pool.query('SELECT id,name,email,"emailVerified",disabled,"createdAt" FROM "user" ORDER BY "createdAt" DESC LIMIT 100')).rows);});
+ app.get('/api/staff/customers',requireStaff,async(req,res)=>{if(!hasBusiness(req.staff))throw new HttpError(403,'当前岗位没有客户管理权限');res.json((await pool.query('SELECT id,name,email,"emailVerified",disabled,"createdAt" FROM "user" ORDER BY "createdAt" DESC LIMIT 100')).rows);});
  app.post('/api/staff/customers/:user/status',requireStaff,administrator,async(req,res)=>{if(typeof req.body.disabled!=='boolean')throw new HttpError(400,'状态不正确');await transaction(pool,async db=>{await db.query("SELECT pg_advisory_xact_lock(148921,2)");if(!(await db.query("SELECT subject FROM staff_members WHERE subject=$1 AND role=\'platform_admin\' AND status=\'active\'",[req.staff.subject])).rowCount)throw new HttpError(403,"管理员权限已变化");const r=await db.query('UPDATE "user" SET disabled=$2 WHERE id=$1 RETURNING id',[req.params.user,req.body.disabled]);if(!r.rowCount)throw new HttpError(404,'客户不存在');await db.query('DELETE FROM session WHERE "userId"=$1',[req.params.user]);await audit(db,req.actor,'customer.status_updated',null,req.params.user,{disabled:req.body.disabled});});res.json({ok:true});});
  return {configured,requireStaff};
 }

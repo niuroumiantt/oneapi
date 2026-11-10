@@ -1,9 +1,9 @@
-import { HttpError, id, transaction, audit } from './core.mjs';
+import { HttpError, id, transaction, audit,hasBusiness } from './core.mjs';
 import { supplierReadiness } from './supplier-readiness.mjs';
 
 function access(req,write=false){
- if(req.staff.status!=='active'||!['platform_admin','supply','finance','operations'].includes(req.staff.role))throw new HttpError(403,'当前岗位不能查看商品复核');
- if(write&&!['platform_admin','supply'].includes(req.staff.role))throw new HttpError(403,'当前岗位不能提交商品复核');
+ if(!hasBusiness(req.staff))throw new HttpError(403,'当前岗位不能查看商品复核');
+ if(write&&!hasBusiness(req.staff))throw new HttpError(403,'当前岗位不能提交商品复核');
 }
 function notes(value,required=false){
  if(value===undefined&&!required)return '';

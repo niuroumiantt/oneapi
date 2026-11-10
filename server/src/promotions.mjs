@@ -1,8 +1,8 @@
-import { HttpError, id, text, transaction, audit } from './core.mjs';
+import { HttpError, id, text, transaction, audit,hasBusiness } from './core.mjs';
 
 function access(req,write=false){
- if(req.staff.status!=='active'||!['platform_admin','operations','finance'].includes(req.staff.role))throw new HttpError(403,'当前岗位不能访问活动草稿');
- if(write&&!['platform_admin','operations'].includes(req.staff.role))throw new HttpError(403,'当前岗位不能创建活动草稿');
+ if(!hasBusiness(req.staff))throw new HttpError(403,'当前岗位不能访问活动草稿');
+ if(write&&!hasBusiness(req.staff))throw new HttpError(403,'当前岗位不能创建活动草稿');
 }
 function integer(value,min,max,label){
  const n=Number(value);
