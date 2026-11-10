@@ -524,3 +524,10 @@ select option{font-size:14px}
 .pc-config-fields .pc-tool-hint{margin:4px 0 6px;padding:8px 10px;border:1px dashed #d8b24a;border-radius:6px;background:#fff8e1;color:#5f4b12;font-size:11px;line-height:1.5}
 .pc-price-fields{margin-top:10px;padding-top:8px;border-top:1px solid #e1e4ec}
 .pc-workspace-name{display:block;max-width:220px;overflow:hidden;text-overflow:ellipsis}
+.keys-guide-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:18px}
+.keys-guide-grid article{padding:14px 16px;border:1px solid #e1e4ec;border-radius:9px;background:#fff}
+.keys-guide-grid b{display:flex;align-items:center;gap:7px;font-size:13px;color:#202636}
+.keys-guide-grid b .ui-icon{--icon-size:16px;color:#7740b6}
+.keys-guide-grid p{margin:8px 0 0;font-size:12px}
+.keys-guide-grid a{color:#7740b6;font-weight:600}
+@media (max-width:760px){.keys-guide-grid{grid-template-columns:1fr}}
