@@ -387,7 +387,14 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  assert.ok((await pool.query("SELECT 1 FROM employee_calls WHERE owner_id=$1 AND settlement_source='hold_fallback'",[staffer.user.id])).rowCount===1);
  // Managers see the whole company; members only themselves; the customer panel only links to the back office.
  assert.equal((await staffer.j.call('/api/employee-credit/team')).status,403);assert.equal((await outsider.j.call('/api/employee-credit/team')).status,403);
- const team=await boss.j.call('/api/employee-credit/team');assert.equal(team.status,200,JSON.stringify(team.data));assert.equal(team.data.totals.members,2);assert.equal(team.data.members.find(m=>m.user_id===boss.user.id).granted_yuan,GRANT_YUAN,'unclaimed members still counted');
+ const team=await boss.j.call('/api/employee-credit/team');assert.equal(team.status,200,JSON.stringify(team.data));assert.equal(team.data.totals.members,2);
+ {const key=team.data.keys.find(k=>k.calls>0);assert.ok(key,'team keys carry per-key usage');assert.ok(Number(key.tokens)>0);assert.ok(Number(key.yuan)>0);
+  const own=(await staffer.j.call('/api/employee-credit/status')).data.keys.find(k=>k.id===key.id);if(own)assert.equal(own.calls,key.calls);
+  assert.equal((await outsider.j.call('/api/employee-credit/model-health')).status,403);
+  const probes=[];const saved=pilotFetch;pilotFetch=async(url,options)=>{probes.push(JSON.parse(options.body));return new Response('{}',{status:200});};
+  const health=await staffer.j.call('/api/employee-credit/model-health');assert.equal(health.status,200);assert.ok(health.data.models.some(m=>m.status==='ok'&&Number.isInteger(m.latency_ms)));
+  assert.ok(probes.length>0&&probes.every(p=>p.max_tokens===1));const count=probes.length;
+  assert.equal((await boss.j.call('/api/employee-credit/model-health')).status,200);assert.equal(probes.length,count,'probes are cached');pilotFetch=saved;}assert.equal(team.data.members.find(m=>m.user_id===boss.user.id).granted_yuan,GRANT_YUAN,'unclaimed members still counted');
  assert.ok(team.data.recent_calls.length>0);assert.equal(JSON.stringify(team.data).includes(created.data.secret),false);assert.equal(team.data.recent_calls[0].messages,undefined);
  assert.equal((await staffer.j.call(`/api/employee-credit/team/members/${boss.user.id}/grant`,{method:'POST',body:{yuan:'5'}})).status,403);
  for(const yuan of ['0','1001','abc'])assert.equal((await boss.j.call(`/api/employee-credit/team/members/${staffer.user.id}/grant`,{method:'POST',body:{yuan}})).status,400);

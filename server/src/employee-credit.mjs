@@ -100,7 +100,9 @@ async function balance(db,userId){
   FROM employee_credit_accounts a LEFT JOIN LATERAL (SELECT sum(hold_yuan) AS held FROM employee_calls WHERE owner_id=a.user_id AND ${OPEN}) h ON true WHERE a.user_id=$1`,[userId])).rows[0];
 }
 
-export function employeeCreditRoutes(app,pool,cfg,requireCustomer){
+const HEALTH_TTL_MS=10*60*1000,HEALTH_TIMEOUT_MS=20000;
+
+export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=fetch){
  const member=async req=>{
   if(!enabled(cfg))return null;
   return activeMember(pool,cfg,req.customer.id);
@@ -126,7 +128,10 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer){
    pool.query(`SELECT c.model_id,count(*)::int AS calls,count(*) FILTER(WHERE c.status='failed')::int AS failed,coalesce(sum(c.input_tokens),0)::bigint AS input_tokens,coalesce(sum(c.output_tokens),0)::bigint AS output_tokens,coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.created_at>=now()-interval '30 days' GROUP BY 1 ORDER BY 6 DESC`,[org]),
    pool.query(`SELECT to_char(c.created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD') AS day,c.model_id,count(*)::int AS calls,coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.created_at>=now()-interval '14 days' GROUP BY 1,2 ORDER BY 1,2`,[org]),
    pool.query(`SELECT c.id,c.created_at,c.model_id,c.status,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.charged_yuan,c.hold_yuan,c.latency_ms,u.name,k.label AS key_label FROM ${companyCalls} JOIN "user" u ON u.id=c.owner_id JOIN employee_api_keys k ON k.id=c.key_id ORDER BY c.created_at DESC LIMIT 50`,[org]),
-   pool.query(`SELECT k.id,k.owner_id,k.label,k.key_hint,k.created_at,k.revoked_at,u.name FROM employee_api_keys k JOIN employee_credit_accounts a ON a.user_id=k.owner_id AND a.organization_id=$1 JOIN "user" u ON u.id=k.owner_id ORDER BY k.revoked_at IS NULL DESC,k.created_at DESC LIMIT 100`,[org]),
+   pool.query(`SELECT k.id,k.owner_id,k.label,k.key_hint,k.created_at,k.revoked_at,u.name,coalesce(s.calls,0)::int AS calls,coalesce(s.tokens,0)::bigint AS tokens,coalesce(s.yuan,0) AS yuan,s.last_call_at
+    FROM employee_api_keys k JOIN employee_credit_accounts a ON a.user_id=k.owner_id AND a.organization_id=$1 JOIN "user" u ON u.id=k.owner_id
+    LEFT JOIN (SELECT c.key_id,count(*) AS calls,sum(coalesce(c.input_tokens,0)+coalesce(c.output_tokens,0)) AS tokens,sum(coalesce(c.charged_yuan,0)) AS yuan,max(c.created_at) AS last_call_at FROM ${companyCalls} GROUP BY c.key_id) s ON s.key_id=k.id
+    ORDER BY k.revoked_at IS NULL DESC,k.created_at DESC LIMIT 100`,[org]),
    pool.query(`SELECT coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.settled_at>=(date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai')`,[org])
   ]);
   const active=members.rows.filter(m=>m.status==='active'),sum=f=>active.reduce((t,m)=>t+units(m[f]),0n),granted=sum('granted_yuan'),spent=sum('spent_yuan'),held=sum('held_yuan');
@@ -166,13 +171,38 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer){
   });
   res.json(account);
  });
+ const health={at:0,models:[],running:null};
+ async function probeModels(){
+  const [routes,paused]=await Promise.all([employeeRoutes(pool,cfg,{includePaused:true}),pool.query('SELECT model_id FROM channel_states WHERE paused')]);
+  const live=new Map(routes.map(r=>[r.model.id,r])),stopped=new Set(paused.rows.map(r=>r.model_id));
+  return Promise.all(OFFICIAL_MODELS.map(async model=>{
+   const route=live.get(model.id),checked_at=new Date().toISOString(),base={model_id:model.id,name:model.name};
+   if(!route)return {...base,status:'unavailable',latency_ms:null,checked_at};
+   if(stopped.has(model.id))return {...base,status:'paused',latency_ms:null,checked_at};
+   const started=performance.now();
+   try{
+    const secret=await upstreamSecret(route,cfg);
+    const response=await upstreamFetch(`${route.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+secret,'Content-Type':'application/json'},body:JSON.stringify({model:model.upstreamModel,messages:[{role:'user',content:'ping'}],max_tokens:1,stream:false}),redirect:'error',signal:AbortSignal.timeout(HEALTH_TIMEOUT_MS)});
+    const latency_ms=Math.round(performance.now()-started);await response.body?.cancel().catch(()=>{});
+    return {...base,status:response.ok?'ok':'failed',latency_ms,checked_at};
+   }catch(error){return {...base,status:'failed',latency_ms:null,error:error.name==='TimeoutError'?'timeout':'network',checked_at};}
+  }));
+ }
+ // Platform-paid probes with max_tokens 1; never charged to an employee and never stored.
+ app.get('/api/employee-credit/model-health',requireCustomer,async(req,res)=>{
+  if(!await member(req))throw new HttpError(403,'当前账号不是公司员工，未开放公司额度');
+  if(Date.now()-health.at>HEALTH_TTL_MS){health.running??=probeModels().then(models=>{health.models=models;health.at=Date.now();}).finally(()=>{health.running=null;});await health.running;}
+  res.json({checked_at:new Date(health.at).toISOString(),refresh_seconds:HEALTH_TTL_MS/1000,models:health.models});
+ });
  app.get('/api/employee-credit/status',requireCustomer,async(req,res)=>{
   const organization=await member(req);
   if(!organization)return res.json({enabled:false});
   await ensureAccount(pool,cfg,req);
   const [money,keys,calls,available,daily,period]=await Promise.all([
    balance(pool,req.customer.id),
-   pool.query('SELECT id,label,key_hint,created_at,revoked_at FROM employee_api_keys WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 20',[req.customer.id]),
+   pool.query(`SELECT k.id,k.label,k.key_hint,k.created_at,k.revoked_at,coalesce(u.calls,0)::int AS calls,coalesce(u.tokens,0)::bigint AS tokens,coalesce(u.yuan,0) AS yuan,u.last_call_at
+    FROM employee_api_keys k LEFT JOIN (SELECT key_id,count(*) AS calls,sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)) AS tokens,sum(coalesce(charged_yuan,0)) AS yuan,max(created_at) AS last_call_at FROM employee_calls WHERE owner_id=$1 GROUP BY key_id) u ON u.key_id=k.id
+    WHERE k.owner_id=$1 ORDER BY k.created_at DESC LIMIT 20`,[req.customer.id]),
    pool.query('SELECT c.id,k.label AS key_label,c.model_id,c.status,c.hold_yuan,c.charged_yuan,c.settlement_source,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.latency_ms,c.error_code,c.created_at FROM employee_calls c JOIN employee_api_keys k ON k.id=c.key_id WHERE c.owner_id=$1 ORDER BY c.created_at DESC LIMIT 30',[req.customer.id]),
    employeeRoutes(pool,cfg),
    pool.query("SELECT to_char(created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD') AS day,model_id,count(*)::int AS calls,coalesce(sum(charged_yuan),0) AS yuan FROM employee_calls WHERE owner_id=$1 AND created_at>=now()-interval '14 days' GROUP BY 1,2 ORDER BY 1,2",[req.customer.id]),
