@@ -13,8 +13,8 @@
  const opsPageCache=new Map();
  if(resetToken)history.replaceState(null,'',location.pathname+'#reset-password');
  const handles=v=>['workspace','enterprise-register','enterprise-login','register','personal','personal/usage','enterprise','account','reset-password','staff','staff-account','admin','security','demo/personal','billing/personal','upgrade','support'].includes(v)||v.startsWith('billing/organization/')||v.startsWith('demo/organization/')||v.startsWith('organization/')||v.startsWith('join/')||v.startsWith('ops/');
- let orgLoadedAt=0;
- async function api(path,body,method){if(body||method)orgLoadedAt=0;const r=await fetch(path,{method:method||(body?'POST':'GET'),headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,credentials:'same-origin',cache:'no-store'});let data;try{data=await r.json();}catch{data={};}if(!r.ok){const err=Error(data.error||translate(data.code,data.message)||'暂时无法完成，请稍后重试。');err.status=r.status;throw err;}return data;}
+ let orgLoadedAt=0,panelDataAt=0,modelHealth=null,modelHealthAt=0,modelHealthTried=0,modelHealthLoading=false;
+ async function api(path,body,method){if(body||method){orgLoadedAt=0;panelDataAt=0;lastOrgBilling=null;}const r=await fetch(path,{method:method||(body?'POST':'GET'),headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,credentials:'same-origin',cache:'no-store'});let data;try{data=await r.json();}catch{data={};}if(!r.ok){const err=Error(data.error||translate(data.code,data.message)||'暂时无法完成，请稍后重试。');err.status=r.status;throw err;}return data;}
  async function customerSignedIn(){try{return !!(await api('/api/platform/me')).user;}catch(e){return e.status!==401;}}
  function translate(code,message){const known={INVALID_EMAIL_OR_PASSWORD:'邮箱或密码不正确。',EMAIL_NOT_VERIFIED:'请先到邮箱完成验证；可重发验证邮件。',PASSWORD_TOO_SHORT:'密码至少需要 12 个字符。',PASSWORD_TOO_LONG:'密码不能超过 128 个字符。',INVALID_TOKEN:'链接无效或已经过期，请重新申请。',INVALID_PASSWORD:'当前密码不正确。',TOO_MANY_REQUESTS:'操作频繁，请稍后重试。',USER_ALREADY_EXISTS:'该邮箱已注册，请登录或找回密码。'};return known[code]||(message&&/^[\u3400-\u9fff]/.test(message)?message:'操作未完成，请检查输入或稍后重试。');}
  const btn=(label,action,attrs='',kind='')=>`<button class="live-button ${kind}" data-live="${action}" ${attrs}>${label}</button>`;
@@ -87,7 +87,9 @@
  const personalDiscount=value=>window.SemiflyPrice?.discountedRate(value)||'待发布';
  const personalPrice=value=>creditActive()?'¥'+Number(value):personalDiscount(value);
  function personalModelMeasurement(modelId){
-  if(creditActive()){const c=(panelOrg?.permissions?.manager&&teamUsage?teamUsage.recent_calls:employeeCredit.recent_calls||[]).find(row=>row.model_id===modelId);if(!c)return {latency:'待实测',status:'可调用',tone:''};if(c.status==='failed')return {latency:'—',status:'上次失败',tone:'failed'};if(c.status==='pending')return {latency:'测试中',status:'进行中',tone:''};return {latency:c.latency_ms==null?'—':`${Math.round(c.latency_ms)} ms`,status:'最近成功',tone:'live',time:new Date(c.created_at).toLocaleString('zh-CN')};}
+  if(creditActive()){const h=modelHealth?.get(modelId);
+   if(h){if(h.status==='ok')return {latency:`${h.latency_ms} ms`,status:'实测正常',tone:'live',time:msTime(h.checked_at)};if(h.status==='failed')return {latency:h.error==='timeout'?'超时':'—',status:'实测失败',tone:'failed'};if(h.status==='paused')return {latency:'—',status:'已暂停',tone:'stale'};return {latency:'—',status:'未接通',tone:'stale'};}
+   const c=(panelOrg?.permissions?.manager&&teamUsage?teamUsage.recent_calls:employeeCredit.recent_calls||[]).find(row=>row.model_id===modelId);if(!c)return {latency:modelHealthLoading?'测量中':'待实测',status:'可调用',tone:''};if(c.status==='failed')return {latency:'—',status:'上次失败',tone:'failed'};if(c.status==='pending')return {latency:'测试中',status:'进行中',tone:''};return {latency:c.latency_ms==null?'—':`${Math.round(c.latency_ms)} ms`,status:'最近成功',tone:'live',time:new Date(c.created_at).toLocaleString('zh-CN')};}
   const call=personalPilot?.enabled?(personalPilot.recent_calls||[]).find(row=>row.model_id===modelId):null;
   if(!call)return {latency:'待实测',status:'待验收',tone:''};
   if(call.status==='pending')return {latency:'测试中',status:'进行中',tone:''};
@@ -198,9 +200,48 @@
   const rows=callPage.items.map(x=>`<tr><td>${new Date(x.created_at).toLocaleString('zh-CN')}</td><td>${esc(x.model_id)}<small>${esc(x.key_label)}</small></td><td>${x.input_tokens??'—'} / ${x.cached_input_tokens??'—'} / ${x.output_tokens??'—'}</td><td>${x.status==='settled'?employeeYuan(x.charged_yuan):x.status==='failed'?'¥0':'预留 '+employeeYuan(x.hold_yuan)}</td><td>${esc(state[x.status]||x.status)}</td></tr>`).join('');
   const views=[['setup','接入配置'],['keys',`我的 Key · ${keys.filter(k=>!k.revoked_at).length}`],['calls',`逐笔调用 · ${calls.length}`]],view=pageView('employee-keys',views);
   const setup=`<div class="key-workbench"><div class="key-workbench-main"><form id="live-employee-create" class="key-create-form"><label>选择模型<select data-employee-key-model${c.model_ids.length?'':' disabled'}>${c.model_ids.length?(c.models||[]).map(m=>`<option value="${esc(m.id)}"${m.id===employeeKeyModelId(c)?' selected':''}>${esc(m.name)}</option>`).join(''):'<option>暂无可用模型</option>'}</select><small>一把 Key 可调用全部模型，这里决定右侧的模型。</small></label><label>用途名称<input name="label" required maxlength="50" placeholder="例如：我的 Agent"></label><button class="personal-key-button personal-key-button-active" type="submit">${ico('command')} 生成 API Key</button><div role="status"></div></form><p class="live-small">最多保留 ${c.key_limit} 枚有效 Key。离开公司企业空间后 Key 自动失效。</p></div>${employeeKeyPanel(c)}</div>`;
-  const list=`<div class="pilot-key-list">${keys.length?keys.map(k=>`<div><span><b>${esc(k.label)}</b><small>尾号 ${esc(k.key_hint)} · ${k.revoked_at?'已停用':'可调用'}</small></span>${k.revoked_at?'':`<button type="button" data-live="employee-revoke" data-id="${esc(k.id)}">停用</button>`}</div>`).join(''):'<p>尚未生成 Key。</p>'}</div>`;
+  const list=keyTable(keys,{action:'employee-revoke'});
   const table=`<div class="personal-table-wrap"><table><thead><tr><th>时间</th><th>模型 / Key</th><th>输入 / 缓存 / 输出</th><th>金额</th><th>状态</th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="personal-model-empty">尚无调用记录。</td></tr>'}</tbody></table></div>${callPage.pager}`;
   return tabbedPage('employee-keys',views,view==='keys'?list:view==='calls'?table:setup);
+ }
+ function warmOrg(orgId){
+  setTimeout(()=>{
+   if(lastOrg?.organization?.id!==orgId)return;
+   const redraw=()=>{if(panelOrg&&lastOrg?.organization?.id===orgId&&['support','settings'].includes(orgTab))organizationV2(lastOrg);};
+   loadPanelData('tickets','/api/support/tickets',redraw);loadPanelData('sessions','/api/auth/list-sessions',redraw);
+   if(lastOrg.permissions?.manager&&!(lastOrgBilling?.id===orgId&&Date.now()-lastOrgBilling.at<orgFreshMs))api('/api/billing/organizations/'+encodeURIComponent(orgId)).then(data=>{lastOrgBilling={id:orgId,data,at:Date.now()};}).catch(()=>{});
+  },300);
+ }
+ function loadModelHealth(redraw){
+  if(!creditActive()||modelHealthLoading||Date.now()-modelHealthTried<5*60000)return;
+  modelHealthLoading=true;modelHealthTried=Date.now();
+  api('/api/employee-credit/model-health').then(r=>{modelHealth=new Map(r.models.map(m=>[m.model_id,m]));modelHealthAt=Date.parse(r.checked_at)||Date.now();}).catch(()=>{}).finally(()=>{modelHealthLoading=false;redraw();});
+ }
+ function msTime(value){
+  if(!value)return '—';const d=new Date(value),p=Object.fromEntries(new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(d).map(x=>[x.type,x.value]));
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}.${String(d.getMilliseconds()).padStart(3,'0')}`;
+ }
+ function connectedFor(from,to){
+  const ms=Math.max(0,(to?Date.parse(to):Date.now())-Date.parse(from)),d=Math.floor(ms/86400000),h=Math.floor(ms%86400000/3600000),m=Math.floor(ms%3600000/60000);
+  return d?`${d} 天 ${h} 小时`:h?`${h} 小时 ${m} 分`:`${m} 分钟`;
+ }
+ function usageBar(used,granted){
+  const g=Number(granted),u=Number(used),pct=g>0?Math.min(100,u/g*100):0,tone=pct>=90?'high':pct>=60?'mid':'low',label=u>0&&pct<0.1?'<0.1':pct.toFixed(pct<10?1:0);
+  return `<span class="usage-meter ${tone}" title="已用 ${label}%"><i style="width:${pct.toFixed(2)}%"></i></span><b class="usage-pct">${label}%</b>`;
+ }
+ function keyTable(keys,{owner=false,action}={}){
+  if(!keys.length)return '<p class="personal-model-empty">尚未生成 Key。</p>';
+  return `<div class="personal-table-wrap"><table class="key-usage-table"><thead><tr><th>Key</th>${owner?'<th>员工</th>':''}<th>创建时间</th><th>已接通</th><th>调用</th><th>Token</th><th>金额</th><th>状态</th><th></th></tr></thead><tbody>${keys.map(k=>`<tr><td><b>${esc(k.label)}</b><small>尾号 ${esc(k.key_hint)}</small></td>${owner?`<td>${esc(k.name)}</td>`:''}<td class="mono">${msTime(k.created_at)}</td><td>${k.revoked_at?`${connectedFor(k.created_at,k.revoked_at)} · 已停用`:`${connectedFor(k.created_at)} · 至今`}</td><td>${Number(k.calls||0).toLocaleString('zh-CN')}</td><td>${Number(k.tokens||0).toLocaleString('zh-CN')}</td><td>${employeeYuan(k.yuan||0)}</td><td><span class="live-pill ${k.revoked_at?'muted':''}">${k.revoked_at?'已停用':'可调用'}</span></td><td>${k.revoked_at?'':`<button type="button" data-live="${action}" data-id="${esc(k.id)}">停用</button>`}</td></tr>`).join('')}</tbody></table></div>`;
+ }
+ function managerOverview(hero,trend,connect,attention){
+  const team=teamUsage,share=m=>Number(m.spent_yuan)/Math.max(Number(m.granted_yuan),0.01),tab=(t,text)=>`<button type="button" data-live="org-tab" data-tab="${t}">${text}</button>`;
+  const members=team.members.filter(m=>m.status==='active').sort((a,b)=>share(b)-share(a)).slice(0,6);
+  const quota=`<section class="personal-pilot-log mgr-quota"><div class="personal-section-title"><h2>员工额度使用</h2>${tab('people','全部员工')}</div><div class="mgr-quota-list">${members.map(m=>`<div class="mgr-quota-row"><span class="mgr-quota-name"><b>${esc(m.name)}</b><small>${esc(m.department||'未分组')}</small></span><span class="mgr-quota-meter">${usageBar(m.spent_yuan,m.granted_yuan)}</span><span class="mgr-quota-amount">${employeeYuan(m.spent_yuan)} / ${employeeYuan(m.granted_yuan)}</span>${btn('调整','team-quota',`data-user="${esc(m.user_id)}" data-name="${esc(m.name)}"`,'quiet')}</div>`).join('')||'<p class="personal-model-empty">暂无员工。</p>'}</div></section>`;
+  const routed=employeeCredit.models||[],catalog=personalCatalog(),ids=[...new Set([...routed.map(m=>m.id),...(modelHealth?[...modelHealth.keys()]:[])])];
+  const price=id=>{const r=routed.find(m=>m.id===id);return r?`¥${Number(r.input_yuan)} / ¥${Number(r.output_yuan)}`:'—';},name=id=>routed.find(m=>m.id===id)?.name||modelHealth?.get(id)?.name||catalog.find(m=>m.id===id)?.name||id;
+  const checked=modelHealthAt?new Date(modelHealthAt).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hourCycle:'h23'}):'';
+  const models=`<section class="personal-pilot-log mgr-models"><div class="personal-section-title"><h2>模型状态</h2><span>${checked?`实测于 ${checked} · 每 10 分钟更新`:modelHealthLoading?'正在实测…':'尚未实测'}</span></div><div class="personal-table-wrap"><table><thead><tr><th>模型</th><th>状态</th><th>延迟</th><th>输入 / 输出（¥/百万）</th></tr></thead><tbody>${ids.map(id=>{const x=personalModelMeasurement(id);return `<tr><td><b>${esc(name(id))}</b><small>${esc(id)}</small></td><td><span class="personal-status ${x.tone}">${x.status}</span></td><td>${x.latency}</td><td>${price(id)}</td></tr>`;}).join('')||'<tr><td colspan="4" class="personal-model-empty">暂无已接通的模型。</td></tr>'}</tbody></table></div></section>`;
+  return `<div class="overview-page mgr-overview">${hero}<div class="mgr-grid"><div class="mgr-col">${trend}${models}</div><div class="mgr-col">${quota}${attention}${connect}</div></div></div>`;
  }
  function overviewData(){
   const credit=creditActive(),team=credit&&panelOrg?.permissions?.manager?teamUsage:null;
@@ -233,6 +274,7 @@
   const catalog=personalCatalog(),inUse=catalog.filter(m=>d.used.includes(m.id)),shown=(inUse.length?inUse:catalog).slice(0,6);
   const models=`<section class="personal-pilot-log"><div class="personal-section-title"><h2>${inUse.length?'我在用的模型':'可用模型'}</h2>${tabLink('models','查看全部')}</div><div class="personal-table-wrap"><table><thead><tr><th>模型</th><th>状态</th><th>延迟</th><th>输入 / 输出（¥/百万）</th></tr></thead><tbody>${shown.map(m=>{const x=personalModelMeasurement(m.id),r=personalBaseRate(m);return `<tr><td><b>${esc(m.name)}</b><small>${esc(m.upstreamId)}</small></td><td><span class="personal-status ${x.tone}">${x.status}</span></td><td>${x.latency}</td><td>${personalPrice(r.miss)} / ${personalPrice(r.output)}</td></tr>`;}).join('')||'<tr><td colspan="4" class="personal-model-empty">暂无模型。</td></tr>'}</tbody></table></div></section>`;
   const attention=`<section class="personal-pilot-log overview-attention"><div class="personal-section-title"><h2>需要处理</h2></div>${d.attention.length?`<ul>${d.attention.map(x=>`<li>${x}</li>`).join('')}</ul>`:'<p class="personal-model-empty">暂无需要处理的事项。</p>'}</section>`;
+  if(panelOrg?.permissions?.manager&&creditActive()&&teamUsage)return managerOverview(hero,trend,connect,attention);
   return `<div class="overview-page">${hero}<div class="overview-grid">${trend}${connect}${models}${attention}</div></div>`;
  }
  function personalDashboardContent(){
@@ -348,18 +390,18 @@
   const bars=days.map(day=>`<div class="team-bar" title="${day} · ${employeeYuan(dayTotal(day))}">${dayRows(day).map(d=>`<i style="height:${Math.max(Number(d.yuan)/max*100,Number(d.yuan)>0?2:0)}%;background:${color(d.model_id)}" title="${esc(d.model_id)} · ${employeeYuan(d.yuan)} · ${d.calls} 次"></i>`).join('')}<small>${day.slice(5)}</small></div>`).join('');
   const hasCalls=t.calls_30d>0||team.recent_calls.length>0;
   const memberPage=pagedRows('team-members',team.members.filter(m=>m.status==='active')),recentPage=pagedRows('team-recent',team.recent_calls);
-  const memberRows=memberPage.items.map(m=>{const left=Math.max(0,Number(m.granted_yuan)-Number(m.spent_yuan)-Number(m.held_yuan));return `<tr><td><b>${esc(m.name)}</b><small>${esc(m.department||'未分组')}</small></td><td>${employeeYuan(m.spent_yuan)} / ${employeeYuan(m.granted_yuan)}</td><td>${employeeYuan(left)}</td><td>${m.calls_30d}</td><td>${Number(m.tokens_30d).toLocaleString('zh-CN')}</td><td>${m.last_call_at?new Date(m.last_call_at).toLocaleString('zh-CN'):'尚未使用'}</td><td>${m.active_keys}</td><td>${btn('调整额度','team-quota',`data-user="${esc(m.user_id)}" data-name="${esc(m.name)}"`,'quiet')}</td></tr>`;}).join('');
+  const memberRows=memberPage.items.map(m=>{const left=Math.max(0,Number(m.granted_yuan)-Number(m.spent_yuan)-Number(m.held_yuan));return `<tr><td><b>${esc(m.name)}</b><small>${esc(m.department||'未分组')}</small></td><td class="usage-cell"><span>${employeeYuan(m.spent_yuan)} / ${employeeYuan(m.granted_yuan)}</span>${usageBar(m.spent_yuan,m.granted_yuan)}</td><td>${employeeYuan(left)}</td><td>${m.calls_30d}</td><td>${Number(m.tokens_30d).toLocaleString('zh-CN')}</td><td>${m.last_call_at?new Date(m.last_call_at).toLocaleString('zh-CN'):'尚未使用'}</td><td>${m.active_keys}</td><td>${btn('调整额度','team-quota',`data-user="${esc(m.user_id)}" data-name="${esc(m.name)}"`,'quiet')}</td></tr>`;}).join('');
   const attention=team.members.filter(m=>m.status==='active'&&Number(m.granted_yuan)>0&&(Number(m.granted_yuan)-Number(m.spent_yuan)-Number(m.held_yuan))/Number(m.granted_yuan)<0.1).map(m=>`<li><b>${esc(m.name)}</b> 额度即将用完</li>`).join('');
   const models=team.models.map(m=>`<tr><td><i class="team-dot" style="background:${color(m.model_id)}"></i>${esc(m.model_id)}</td><td>${m.calls}${m.failed?` · 失败 ${m.failed}`:''}</td><td>${(Number(m.input_tokens)+Number(m.output_tokens)).toLocaleString('zh-CN')}</td><td>${employeeYuan(m.yuan)}</td></tr>`).join('');
   const state={pending:'进行中',awaiting_bill:'结算中',settled:'已结算',failed:'失败 · 未扣'};
   const recent=recentPage.items.map(c=>`<tr><td>${new Date(c.created_at).toLocaleString('zh-CN')}</td><td>${esc(c.name)}<small>${esc(c.key_label)}</small></td><td>${esc(c.model_id)}</td><td>${c.input_tokens??'—'} / ${c.cached_input_tokens??'—'} / ${c.output_tokens??'—'}</td><td>${c.status==='settled'?employeeYuan(c.charged_yuan):c.status==='failed'?'¥0':'预留 '+employeeYuan(c.hold_yuan)}</td><td>${esc(state[c.status]||c.status)}</td></tr>`).join('');
-  const keys=team.keys.filter(k=>!k.revoked_at).map(k=>`<div><span><b>${esc(k.label)}</b><small>${esc(k.name)} · 尾号 ${esc(k.key_hint)}</small></span><button type="button" data-live="team-key-revoke" data-id="${esc(k.id)}">停用</button></div>`).join('');
+  const keys=team.keys.length?keyTable(team.keys,{owner:true,action:'team-key-revoke'}):'';
   const views=[['trend','消费趋势'],['members','员工用量'],...(models?[['models','模型用量']]:[]),...(keys?[['keys','员工 Key']]:[]),...(recent?[['recent','逐笔调用']]:[])],view=pageView('team-usage',views);
   const trend=`${hasCalls?`<div class="team-bars">${bars}</div><div class="chart-legend">${modelIds.map(id=>`<span><i class="team-dot" style="background:${color(id)}"></i>${esc(id)}</span>`).join('')}</div>`:'<p class="personal-model-empty">还没有员工调用。员工生成 Key 并开始调用后，这里会显示真实消费。</p>'}${attention?`<div class="team-attention"><b>需要关注</b><ul>${attention}</ul></div>`:''}`;
   const memberTable=`<div class="personal-table-wrap"><table><thead><tr><th>员工</th><th>已用 / 额度</th><th>剩余</th><th>调用</th><th>Token</th><th>最近使用</th><th>有效 Key</th><th>操作</th></tr></thead><tbody>${memberRows||'<tr><td colspan="8" class="personal-model-empty">暂无员工。</td></tr>'}</tbody></table></div>${memberPage.pager}`;
   const modelTable=`<div class="personal-table-wrap"><table><thead><tr><th>模型</th><th>调用</th><th>Token</th><th>消费</th></tr></thead><tbody>${models}</tbody></table></div>`;
   const recentTable=`<div class="personal-table-wrap"><table><thead><tr><th>时间</th><th>员工 / Key</th><th>模型</th><th>输入 / 缓存 / 输出</th><th>金额</th><th>状态</th></tr></thead><tbody>${recent}</tbody></table></div>${recentPage.pager}`;
-  return tabbedPage('team-usage',views,view==='members'?memberTable:view==='models'?modelTable:view==='keys'?`<div class="pilot-key-list">${keys}</div>`:view==='recent'?recentTable:trend);
+  return tabbedPage('team-usage',views,view==='members'?memberTable:view==='models'?modelTable:view==='keys'?keys:view==='recent'?recentTable:trend);
  }
  function memberUsageContent(){
   const state={pending:'进行中',awaiting_bill:'结算中',settled:'已结算',failed:'失败 · 未扣'},rows=(employeeCredit.recent_calls||[]).map(x=>`<tr><td>${new Date(x.created_at).toLocaleString('zh-CN')}</td><td>${esc(x.model_id)}<small>${esc(x.key_label)}</small></td><td>${x.input_tokens??'—'} / ${x.cached_input_tokens??'—'} / ${x.output_tokens??'—'}</td><td>${x.status==='settled'?employeeYuan(x.charged_yuan):x.status==='failed'?'¥0':'预留 '+employeeYuan(x.hold_yuan)}</td><td>${esc(state[x.status]||x.status)}</td></tr>`).join('');
@@ -369,11 +411,12 @@
   const {organization:o,membership:m,members,permissions:p}=data;
   if(orgShown!==o.id)orgShown=o.id;
   lastOrg=data;panelOrg=data;
+  if(['overview','models'].includes(orgTab))loadModelHealth(()=>{if(panelOrg&&lastOrg?.organization?.id===o.id&&['overview','models'].includes(orgTab))organizationV2(lastOrg);});
   const manager=Boolean(p.manager),credit=creditActive(),team=credit&&manager?teamUsage:null;
   const pending=data.joinRequests||[],joinLink=(data.joinLinks||[])[0],active=members.filter(person=>person.status==='active').length;
   panelRedraw=null;if(orgTab==='support')loadPanelData('tickets','/api/support/tickets',()=>organizationV2(lastOrg));if(orgTab==='settings')loadPanelData('sessions','/api/auth/list-sessions',()=>organizationV2(lastOrg));
   if(![...'overview models keys usage support settings'.split(' '),...(manager?['people']:[])].includes(orgTab))orgTab='overview';
-  const usageOf=person=>{const row=team?.members.find(x=>x.user_id===person.user_id);return row?`${employeeYuan(row.spent_yuan)} / ${employeeYuan(row.granted_yuan)}`:'—';};
+  const usageOf=person=>{const row=team?.members.find(x=>x.user_id===person.user_id);return row?`<span class="usage-cell"><span>${employeeYuan(row.spent_yuan)} / ${employeeYuan(row.granted_yuan)}</span>${usageBar(row.spent_yuan,row.granted_yuan)}</span>`:'—';};
   const memberRow=(person,index)=>{const self=person.user_id===me.user.id,on=person.status==='active';return `<tr><td><b>${esc(person.name)}</b>${self?' <span class="live-pill muted">当前账号</span>':''}<small>${esc(person.email)}</small></td><td>${customerRoles[person.role]||'企业成员'}</td><td>${esc(person.department)||'未分组'}</td><td><span class="live-pill ${on?'':'muted'}">${on?'已启用':'已停用'}</span></td><td class="org-usage-cell">${usageOf(person)}</td><td class="org-actions">${credit&&on?btn('调整额度','team-quota',`data-user="${esc(person.user_id)}" data-name="${esc(person.name)}"`,'quiet'):''}${btn('管理','edit-member',`data-index="${index}"`,'quiet')}${self?'':btn(on?'停用':'启用','member-toggle',`data-index="${index}"`,'quiet')}</td></tr>`;};
   const pendingRow=i=>`<tr><td><b>${esc(i.display_name)}</b><small>${esc(i.email)}</small></td><td>申请加入</td><td>${esc(i.department)||'未分组'}</td><td><span class="live-pill muted">待审批</span></td><td class="org-usage-cell">—</td><td class="org-actions">${btn('批准','approve-request',`data-id="${i.id}"`,'primary')} ${btn('拒绝','reject-request',`data-id="${i.id}"`,'quiet')}</td></tr>`;
   const grantNote=credit?'批准后自动获得 ¥10 公司额度':'批准后加入企业空间';
@@ -530,7 +573,9 @@
   const orgId=current.startsWith('billing/organization/')?current.slice('billing/organization/'.length):null;
   if(orgId){if(lastOrg?.organization?.id!==orgId)lastOrg=await api('/api/platform/organizations/'+encodeURIComponent(orgId));if(ticket!==generation)return;if(!lastOrg.permissions.manager){location.replace('#organization/'+orgId+'/overview');return;}}
   const prefetched=earlyBilling?await earlyBilling:null;if(prefetched?.error)throw prefetched.error;
-  const data=prefetched?prefetched.data:await api(orgId?'/api/billing/organizations/'+encodeURIComponent(orgId):'/api/billing/personal');if(ticket!==generation)return;
+  const cachedBilling=orgId&&lastOrgBilling?.id===orgId&&Date.now()-lastOrgBilling.at<orgFreshMs?lastOrgBilling.data:null;
+  const data=prefetched?prefetched.data:cachedBilling||await api(orgId?'/api/billing/organizations/'+encodeURIComponent(orgId):'/api/billing/personal');if(ticket!==generation)return;
+  if(orgId&&!cachedBilling)lastOrgBilling={id:orgId,data,at:Date.now()};
   const org=orgId?lastOrg.organization:null;panelOrg=org?lastOrg:null;
   const draw=()=>{
    const name=org?org.name:'个人',bank=data.bank_transfer,views=[['recharge','充值'],...(org?[['transfer','对公转账']]:[]),['history',`资金记录 · ${data.entries.length}`]],view=pageView('billing',views);
@@ -558,7 +603,7 @@
   const org=orgs.find(o=>saved==='organization/'+o.id)||orgs[0];return org?'organization/'+org.id:'personal';
  }
  async function route(view){
-  const previous=current,wasIdentityActive=document.body.classList.contains('identity-active');current=view;authMode=['register','enterprise-register'].includes(view)?'register':'login';publicTicket++;const ticket=++generation;panelData={tickets:null,sessions:null};panelRedraw=null;
+  const previous=current,wasIdentityActive=document.body.classList.contains('identity-active');current=view;authMode=['register','enterprise-register'].includes(view)?'register':'login';publicTicket++;const ticket=++generation;if(Date.now()-panelDataAt>60000){panelData={tickets:null,sessions:null};panelDataAt=Date.now();}panelRedraw=null;
   if(!host){host=document.createElement('div');host.id='identity-view';host.hidden=true;document.body.append(host);}
   document.body.classList.add('identity-route-pending');
   resetScrollOnMount=(!wasIdentityActive||previous!==view)&&!(previous.startsWith('ops/')&&view.startsWith('ops/'))&&!(previous.startsWith('organization/')&&view.startsWith('organization/')&&previous.split('/')[1]===view.split('/')[1]);
@@ -598,7 +643,7 @@
    const personalTarget=personalRedirect(view);if(personalTarget){location.replace('#'+personalTarget);return;}
    if(view==='billing/personal'||view.startsWith('billing/organization/'))await billingPage(ticket,earlyBilling);
    else if(view==='demo/personal'||view.startsWith('demo/organization/'))await demoPage(ticket);
-   else if(view.startsWith('organization/')){const [orgId,section]=view.slice(13).split('/');const creditPromise=fetchOrgCredit(orgId,Boolean(me.organizations?.find(o=>o.id===orgId)?.is_manager));const data=await api('/api/platform/organizations/'+encodeURIComponent(orgId));const credit=await creditPromise;if(ticket===generation){orgTab=orgSection(section);employeeCredit=credit.status;teamUsage=credit.team;orgLoadedAt=Date.now();organizationV2(data);}}
+   else if(view.startsWith('organization/')){const [orgId,section]=view.slice(13).split('/');if(lastOrg?.organization?.id===orgId&&Date.now()-orgLoadedAt<orgFreshMs){orgTab=orgSection(section);organizationV2(lastOrg);warmOrg(orgId);}else{const creditPromise=fetchOrgCredit(orgId,Boolean(me.organizations?.find(o=>o.id===orgId)?.is_manager));const data=await api('/api/platform/organizations/'+encodeURIComponent(orgId));const credit=await creditPromise;if(ticket===generation){orgTab=orgSection(section);employeeCredit=credit.status;teamUsage=credit.team;orgLoadedAt=Date.now();organizationV2(data);warmOrg(orgId);}}}
    else if(view==='upgrade')upgradePage();else if(view==='support')supportPage();
    else if(view==='security')securityPage();else await account(ticket,earlyBilling);
   }catch(e){if(ticket!==generation)return;if(e.status===401){me=null;authForm();}else mount(hero('YOUR WORKSPACE','暂时无法打开这个空间。','请核对账号及企业权限。')+note(e.message,true)+'<a class="live-button" href="#workspace">返回工作台</a>');}
@@ -627,8 +672,8 @@
    else if(action==='pilot-refresh'){personalPilot=await api('/api/pilot/status');const rows=host?.querySelector('[data-personal-rows]');if(personalTab==='models'&&rows)rows.innerHTML=personalCatalogRows().html;if(personalTab==='usage')updatePersonalDashboard();showToast('实测数据已刷新；没有向模型发送请求。');}
    else if(action==='pilot-create'){form('创建平台测试 Key',`<label>用途名称<input name="label" required maxlength="50" placeholder="例如：我的 Agent"></label><label>调用模型<select name="model_id" required>${personalPilot.model_ids.map(id=>`<option value="${esc(id)}" ${id===personalSelected?'selected':''}>${esc(modelIntentNames[id]||id)}</option>`).join('')}</select></label><label><input type="checkbox" name="confirm_model" value="yes" required> 我确认这枚 Key 只能调用我选择的型号；两款模型共用每天 10 次测试额度。</label><p class="live-small">Key 只显示一次，请立即保存。正式付费 Key 还须由付款方确认可用模型和预算上限。</p>`,'live-pilot-create','生成测试 Key');}
    else if(action==='employee-open-keys'){if(panelOrg)location.hash='organization/'+panelOrg.organization.id+'/keys';else{personalTab='keys';updatePersonalDashboard();}}
-   else if(action==='team-quota'){const row=teamUsage?.members.find(x=>x.user_id===b.dataset.user);if(!row)throw Error('额度数据还在读取，请稍后再试。');const granted=Number(row.granted_yuan),used=Number(row.spent_yuan)+Number(row.held_yuan),floor=(Math.ceil(used*100)/100).toFixed(2);form('调整 '+esc(b.dataset.name)+' 的额度',`<input type="hidden" name="user" value="${esc(b.dataset.user)}"><div class="quota-facts"><div><span>当前额度</span><b>${employeeYuan(granted)}</b></div><div><span>已用与结算中</span><b>${employeeYuan(used)}</b></div><div><span>剩余</span><b>${employeeYuan(Math.max(0,granted-used))}</b></div></div><label>新的总额度（元）<input name="yuan" inputmode="decimal" required value="${granted.toFixed(2)}"></label><p class="live-small">调高即追加，调低即收回未使用的部分，最低 ¥${floor}。操作会写入操作记录。</p>${btn('收回全部剩余额度','quota-fill',`type="button" data-value="${floor}"`,'quiet')}`,'live-team-quota','保存额度');}
-   else if(action==='quota-fill'){document.querySelector('#live-team-quota [name=yuan]').value=b.dataset.value;}
+   else if(action==='team-quota'){const row=teamUsage?.members.find(x=>x.user_id===b.dataset.user);if(!row)throw Error('额度数据还在读取，请稍后再试。');const granted=Number(row.granted_yuan),used=Number(row.spent_yuan)+Number(row.held_yuan),floor=(Math.ceil(used*100)/100).toFixed(2);form('调整 '+esc(b.dataset.name)+' 的额度',`<input type="hidden" name="user" value="${esc(b.dataset.user)}"><div class="quota-facts"><div><span>当前额度</span><b>${employeeYuan(granted)}</b></div><div><span>已用与结算中</span><b>${employeeYuan(used)}</b></div><div><span>剩余</span><b>${employeeYuan(Math.max(0,granted-used))}</b></div></div><div class="quota-field"><span>新的总额度（元）</span><div class="quota-input"><input type="range" data-quota-range data-used="${used}" min="${floor}" max="${Math.min(10000,Math.max(50,Math.ceil(Math.max(granted,used)*3/10)*10))}" step="any" value="${granted}" aria-label="拖动调整额度"><input name="yuan" data-quota-number inputmode="decimal" required value="${granted.toFixed(2)}" aria-label="新的总额度（元）"></div><div class="quota-scale"><span>最低 ¥${floor}</span><output data-quota-share>${used>0?`已用占新额度 ${(used/Math.max(granted,0.01)*100).toFixed(1)}%`:'尚未使用'}</output><span>¥${Math.min(10000,Math.max(50,Math.ceil(Math.max(granted,used)*3/10)*10))}</span></div></div><p class="live-small">调高即追加，调低即收回未使用的部分，最低 ¥${floor}。操作会写入操作记录。</p>${btn('收回全部剩余额度','quota-fill',`type="button" data-value="${floor}"`,'quiet')}`,'live-team-quota','保存额度');}
+   else if(action==='quota-fill'){const f=document.querySelector('#live-team-quota');f.querySelector('[name=yuan]').value=b.dataset.value;syncQuota(f.querySelector('[name=yuan]'));}
    else if(action==='member-toggle'){const m=lastOrg.members[Number(b.dataset.index)];if(m.status==='active')dialog('停用 '+esc(m.name),`<p class="live-small">停用后，该员工不能进入企业空间，名下 Key 立即失效，已发额度保留。可以随时重新启用。</p>${btn('确认停用','confirm-toggle',`data-index="${b.dataset.index}"`,'danger')}`);else{await api(`/api/platform/organizations/${lastOrg.organization.id}/members/${m.id}`,{status:'active'},'PATCH');await route(current);showToast('已重新启用。');}}
    else if(action==='confirm-toggle'){const m=lastOrg.members[Number(b.dataset.index)];await api(`/api/platform/organizations/${lastOrg.organization.id}/members/${m.id}`,{status:'suspended'},'PATCH');document.querySelector('#config-dialog').close();await route(current);showToast('已停用。');}
    else if(action==='team-key-revoke'){if(confirm('停用后这枚 Key 将不能再调用，确定停用吗？')){await api('/api/employee-credit/team/keys/'+encodeURIComponent(b.dataset.id)+'/revoke',{});const open=document.querySelector('#config-dialog');if(open?.open)open.close();await refreshOrganizationBilling(lastOrg.organization.id,generation);showToast('Key 已停用。');}}
@@ -755,6 +800,12 @@
  document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.account-menu[open]').forEach(menu=>{menu.open=false;menu.querySelector('summary').focus();});});
  window.addEventListener('focus',()=>{if(!document.body.classList.contains('identity-active'))refreshPublic();});
  window.IdentityUI={refreshPublic,chooseModelIntent,customerSignedIn,handles:v=>handles(v)||v.startsWith('staff?'),route,cancel:()=>{generation++;lastOrg=null;lastOrgBilling=null;opsPageCache.clear();document.body.classList.remove('identity-route-pending');}};
+ function syncQuota(source){
+  const form=source.form,range=form?.querySelector('[data-quota-range]'),number=form?.querySelector('[data-quota-number]'),share=form?.querySelector('[data-quota-share]');if(!range||!number)return;
+  if(source===range)number.value=Math.max(Number(range.min),Math.round(Number(range.value)*2)/2).toFixed(2);else if(number.value.trim()!==''&&Number.isFinite(Number(number.value)))range.value=number.value;
+  const used=Number(range.dataset.used),total=Number(number.value);if(share)share.textContent=used>0&&total>0?`已用占新额度 ${Math.min(100,used/total*100).toFixed(1)}%`:'尚未使用';
+ }
+ document.addEventListener('input',e=>{if(e.target.matches?.('[data-quota-range],[data-quota-number]'))syncQuota(e.target);});
  document.addEventListener('change',e=>{if(!e.target.matches('[data-workspace-select]'))return;if(e.target.value!=='upgrade')try{localStorage.setItem(spaceKey,e.target.value);}catch{}location.hash=e.target.value;});
  document.addEventListener('keydown',e=>{if(e.key!=='Enter'||!e.target.closest?.('.pc-global-search')||host?.querySelector('[data-personal-rows]'))return;if(panelOrg&&lastOrg)location.hash='organization/'+lastOrg.organization.id+'/models';else{personalTab='models';if(panelRedraw)location.hash='personal';else updatePersonalDashboard();}});
 })();
