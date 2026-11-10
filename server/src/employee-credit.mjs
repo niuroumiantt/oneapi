@@ -3,6 +3,7 @@ import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import { HttpError,hash,id,text,token,transaction,audit,vault } from './core.mjs';
+import { isManager } from './organizations.mjs';
 import { OFFICIAL_MODELS,findOfficialModel,priceMultiplier } from './official-models.mjs';
 
 // One 10-yuan grant per employee, never topped up automatically. Usage is charged at official list prices.
@@ -104,6 +105,51 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer){
   return activeMember(pool,cfg,req.customer.id);
  };
  const requireMember=async req=>{if(!await member(req))throw new HttpError(403,'当前账号不是公司员工，未开放公司额度');return ensureAccount(pool,cfg,req);};
+ const requireManager=async req=>{
+  if(!enabled(cfg))throw new HttpError(404,'公司额度尚未开通');
+  const org=cfg.employeeCredit.organizationId,m=(await pool.query("SELECT role FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",[org,req.customer.id])).rows[0];
+  if(!m||!isManager(m.role))throw new HttpError(403,'仅企业管理者可以操作');
+  return org;
+ };
+ const companyCalls="employee_calls c JOIN employee_credit_accounts a ON a.user_id=c.owner_id AND a.organization_id=$1";
+ // Usage metadata only: prompts and answers are never stored or returned.
+ app.get('/api/employee-credit/team',requireCustomer,async(req,res)=>{
+  const org=await requireManager(req);
+  const [members,models,daily,recent,keys,month]=await Promise.all([
+   pool.query(`SELECT m.user_id,u.name,u.email,m.department,m.role,m.status,coalesce(a.granted_yuan,$2::numeric) AS granted_yuan,coalesce(a.spent_yuan,0) AS spent_yuan,coalesce(h.held,0) AS held_yuan,coalesce(c.calls,0)::int AS calls_30d,coalesce(c.tokens,0)::bigint AS tokens_30d,c.last_call_at,coalesce(k.keys,0)::int AS active_keys
+    FROM memberships m JOIN "user" u ON u.id=m.user_id LEFT JOIN employee_credit_accounts a ON a.user_id=m.user_id
+    LEFT JOIN LATERAL (SELECT sum(hold_yuan) AS held FROM employee_calls WHERE owner_id=m.user_id AND ${OPEN}) h ON true
+    LEFT JOIN LATERAL (SELECT count(*) AS calls,sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)) AS tokens,max(created_at) AS last_call_at FROM employee_calls WHERE owner_id=m.user_id AND created_at>=now()-interval '30 days') c ON true
+    LEFT JOIN LATERAL (SELECT count(*) AS keys FROM employee_api_keys WHERE owner_id=m.user_id AND revoked_at IS NULL) k ON true
+    WHERE m.organization_id=$1 ORDER BY coalesce(a.spent_yuan,0) DESC,m.created_at`,[org,GRANT_YUAN]),
+   pool.query(`SELECT c.model_id,count(*)::int AS calls,count(*) FILTER(WHERE c.status='failed')::int AS failed,coalesce(sum(c.input_tokens),0)::bigint AS input_tokens,coalesce(sum(c.output_tokens),0)::bigint AS output_tokens,coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.created_at>=now()-interval '30 days' GROUP BY 1 ORDER BY 6 DESC`,[org]),
+   pool.query(`SELECT to_char(c.created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD') AS day,c.model_id,count(*)::int AS calls,coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.created_at>=now()-interval '14 days' GROUP BY 1,2 ORDER BY 1,2`,[org]),
+   pool.query(`SELECT c.id,c.created_at,c.model_id,c.status,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.charged_yuan,c.hold_yuan,u.name,k.label AS key_label FROM ${companyCalls} JOIN "user" u ON u.id=c.owner_id JOIN employee_api_keys k ON k.id=c.key_id ORDER BY c.created_at DESC LIMIT 50`,[org]),
+   pool.query(`SELECT k.id,k.label,k.key_hint,k.created_at,k.revoked_at,u.name FROM employee_api_keys k JOIN employee_credit_accounts a ON a.user_id=k.owner_id AND a.organization_id=$1 JOIN "user" u ON u.id=k.owner_id ORDER BY k.revoked_at IS NULL DESC,k.created_at DESC LIMIT 100`,[org]),
+   pool.query(`SELECT coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.settled_at>=(date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai')`,[org])
+  ]);
+  const active=members.rows.filter(m=>m.status==='active'),sum=f=>active.reduce((t,m)=>t+units(m[f]),0n),granted=sum('granted_yuan'),spent=sum('spent_yuan'),held=sum('held_yuan');
+  res.json({totals:{granted_yuan:format(granted),spent_yuan:format(spent),held_yuan:format(held),available_yuan:format(granted-spent-held>0n?granted-spent-held:0n),month_yuan:month.rows[0].yuan,calls_30d:active.reduce((t,m)=>t+m.calls_30d,0),active_members:active.filter(m=>m.calls_30d>0).length,members:active.length},members:members.rows,models:models.rows,daily:daily.rows,recent_calls:recent.rows,keys:keys.rows});
+ });
+ app.post('/api/employee-credit/team/keys/:key/revoke',requireCustomer,async(req,res)=>{
+  const org=await requireManager(req),keyId=id(req.params.key);
+  const result=await transaction(pool,async db=>{
+   const key=(await db.query('UPDATE employee_api_keys k SET revoked_at=now() FROM employee_credit_accounts a WHERE k.id=$1 AND k.revoked_at IS NULL AND a.user_id=k.owner_id AND a.organization_id=$2 RETURNING k.id',[keyId,org])).rows[0];
+   if(!key)throw new HttpError(404,'有效 Key 不存在');
+   await audit(db,req.actor,'employee_credit.key_revoked_by_manager',org,keyId);return key;
+  });
+  res.json(result);
+ });
+ app.post('/api/employee-credit/team/members/:user/grant',requireCustomer,async(req,res)=>{
+  const org=await requireManager(req),userId=text(req.params.user,'员工',64),raw=String(req.body?.yuan??'');
+  if(!/^\d{1,4}(\.\d{1,2})?$/.test(raw)||units(raw)<=0n||units(raw)>1000n*SCALE)throw new HttpError(400,'追加金额需在 0.01 至 1000 元之间');
+  const account=await transaction(pool,async db=>{
+   if(!(await db.query("SELECT 1 FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",[org,userId])).rowCount)throw new HttpError(404,'有效员工不存在');
+   const row=(await db.query('INSERT INTO employee_credit_accounts(user_id,organization_id,granted_yuan) VALUES($1,$2,$3::numeric+$4::numeric) ON CONFLICT(user_id) DO UPDATE SET granted_yuan=employee_credit_accounts.granted_yuan+$4::numeric RETURNING granted_yuan,spent_yuan',[userId,org,GRANT_YUAN,raw])).rows[0];
+   await audit(db,req.actor,'employee_credit.topped_up',org,userId,{yuan:raw});return row;
+  });
+  res.json(account);
+ });
  app.get('/api/employee-credit/status',requireCustomer,async(req,res)=>{
   const organization=await member(req);
   if(!organization)return res.json({enabled:false});
@@ -114,7 +160,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer){
    pool.query('SELECT c.id,k.label AS key_label,c.model_id,c.status,c.hold_yuan,c.charged_yuan,c.settlement_source,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.latency_ms,c.error_code,c.created_at FROM employee_calls c JOIN employee_api_keys k ON k.id=c.key_id WHERE c.owner_id=$1 ORDER BY c.created_at DESC LIMIT 30',[req.customer.id]),
    routes(pool,cfg)
   ]);
-  res.json({enabled:true,organization_name:organization.name,...money,base_url:cfg.origin+'/v1',model_ids:available.map(r=>r.model.id),models:available.map(r=>publicModel(r.model)),key_limit:MAX_KEYS,max_output_tokens:MAX_OUTPUT,keys:keys.rows,recent_calls:calls.rows});
+  res.json({enabled:true,organization_id:organization.id,organization_name:organization.name,...money,base_url:cfg.origin+'/v1',model_ids:available.map(r=>r.model.id),models:available.map(r=>publicModel(r.model)),key_limit:MAX_KEYS,max_output_tokens:MAX_OUTPUT,keys:keys.rows,recent_calls:calls.rows});
  });
  app.post('/api/employee-credit/keys',requireCustomer,async(req,res)=>{
   await requireMember(req);
