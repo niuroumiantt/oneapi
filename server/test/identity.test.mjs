@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { generateKeyPair,exportJWK,SignJWT } from 'jose';
 import { createApp } from '../src/app.mjs';
 import { GRANT_YUAN,holdYuan,employeeRequest,usageFrom,settleEmployeeCalls } from '../src/employee-credit.mjs';
-import { vault } from '../src/core.mjs';
+import { vault,hasBusiness } from '../src/core.mjs';
 import { findOfficialModel,officialPeak } from '../src/official-models.mjs';
 import { migrate } from '../src/migrate.mjs';
 import { config } from '../src/core.mjs';
@@ -21,7 +21,7 @@ function jar(ip='192.0.2.'+(serial++)){const cookies=new Map();return {cookies,a
  for(const c of response.headers.getSetCookie()){const part=c.split(';')[0],at=part.indexOf('=');cookies.set(part.slice(0,at),part.slice(at+1));}
  const raw=await response.text();let data;try{data=JSON.parse(raw);}catch{data=raw;}return {status:response.status,data,location:response.headers.get('location'),headers:response.headers};}};}
 async function user(label){const j=jar(),email=`${label}-${serial}@example.test`;const r=await j.call('/api/auth/sign-up/email',{method:'POST',body:{email,password,name:label,callbackURL:origin+'/#account'}});assert.equal(r.status,200,JSON.stringify(r.data));await service.mail.drain();const message=sent.findLast(m=>m.to===email&&m.subject.includes('验证'));assert.ok(message);const url=message.text.match(/https?:\/\/\S+/)[0];const verified=await j.call(url);assert.equal(verified.status,302);assert.equal((await j.call('/api/platform/me')).status,200);return {j,email,user:(await j.call('/api/platform/me')).data.user};}
-async function organization(u,name){const r=await u.j.call('/api/platform/organizations',{method:'POST',body:{name}});assert.equal(r.status,201);return r.data;}
+async function organization(u,name){const r=await pool.query('INSERT INTO organizations(name,created_by) VALUES($1,$2) RETURNING id,name,region,created_at',[name,u.user.id]);await pool.query("INSERT INTO memberships(organization_id,user_id,role) VALUES($1,$2,'owner')",[r.rows[0].id,u.user.id]);return r.rows[0];}
 async function joinLink(owner,org){const r=await owner.j.call(`/api/platform/organizations/${org.id}/join-links`,{method:'POST',body:{}});assert.equal(r.status,201,JSON.stringify(r.data));return {token:r.data.url.split('#join/')[1],id:r.data.id};}
 async function applyAndApprove(owner,org,recipient,link,department=''){const r=await recipient.j.call('/api/platform/join-requests',{method:'POST',body:{token:link.token,name:recipient.user.name,department}});assert.equal(r.status,202,JSON.stringify(r.data));const view=(await owner.j.call(`/api/platform/organizations/${org.id}`)).data;const request=view.joinRequests.find(x=>x.user_id===recipient.user.id);assert.ok(request);const approval=await owner.j.call(`/api/platform/organizations/${org.id}/join-requests/${request.id}/approve`,{method:'POST',body:{}});assert.equal(approval.status,200,JSON.stringify(approval.data));return request;}
 before(async()=>{
@@ -251,8 +251,7 @@ test('supplier drafts and validation records persist with staff permissions and 
 });
 test('new employee requires local approval; disabled customer sessions and revoked IdP tokens stop working',async()=>{
  identity={sub:'staff-second',email:'second@example.test',name:'Second',staff_approved:true};const second=jar();await staffLogin(second);assert.equal((await second.call('/api/staff/me')).data.staff.status,'pending');assert.equal((await second.call('/api/staff/customers')).status,403);
- assert.equal((await staff.call('/api/staff/members/staff-second',{method:'PATCH',body:{role:'finance',status:'active'}})).status,200);assert.equal((await second.call('/api/staff/me')).status,401);await staffLogin(second);assert.equal((await second.call('/api/staff/customers')).status,403);assert.equal((await second.call('/api/staff/suppliers')).status,200);assert.equal((await second.call('/api/staff/model-products')).status,200);assert.equal((await second.call('/api/staff/promotion-campaigns')).status,200);assert.equal((await second.call('/api/staff/promotion-campaigns',{method:'POST',body:{}})).status,403);assert.equal((await second.call('/api/staff/model-products',{method:'POST',body:{offer_id:'00000000-0000-0000-0000-000000000000',display_name:'No',product_code:'finance-denied'}})).status,403);assert.equal((await second.call('/api/staff/suppliers',{method:'POST',body:{legal_name:'No',display_name:'No',source_type:'official',region:'CN'}})).status,403);
- assert.equal((await second.call('/api/staff/supplier-offers/00000000-0000-0000-0000-000000000000/tests',{method:'POST',body:{}})).status,403);
+ assert.equal((await staff.call('/api/staff/members/staff-second',{method:'PATCH',body:{role:'finance',status:'active'}})).status,200);assert.equal((await second.call('/api/staff/me')).status,401);await staffLogin(second);assert.equal((await second.call('/api/staff/customers')).status,200,'any business access can see customers');assert.equal((await second.call('/api/staff/suppliers')).status,200);assert.equal((await second.call('/api/staff/model-products')).status,200);assert.equal((await second.call('/api/staff/promotion-campaigns')).status,200);
  assert.equal((await staff.call(`/api/staff/customers/${member.user.id}/status`,{method:'POST',body:{disabled:true}})).status,200);assert.equal((await member.j.call('/api/platform/me')).status,401);
  revoked=true;assert.equal((await staff.call('/api/staff/me')).status,401);revoked=false;
 });
@@ -402,6 +401,7 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  assert.deepEqual((await outsider.j.call('/api/platform/me')).data.backoffice,{business:false,technical:false});
  await pool.query("INSERT INTO staff_members(subject,email,name,role,status) VALUES('panel-admin',$1,'Panel','platform_admin','active')",[boss.user.email]);assert.deepEqual((await boss.j.call('/api/platform/me')).data.backoffice,{business:true,technical:true});await pool.query("DELETE FROM staff_members WHERE subject='panel-admin'");
  const managedKey=await staffer.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'Managed'}});assert.equal((await staffer.j.call('/api/employee-credit/team/keys/'+managedKey.data.key.id+'/revoke',{method:'POST',body:{}})).status,403);assert.equal((await boss.j.call('/api/employee-credit/team/keys/'+managedKey.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call({},managedKey.data.secret)).status,401);
+ await pool.query("INSERT INTO channel_states(model_id,paused,updated_by) VALUES('glm-5.3',true,'t')");assert.equal((await call()).status,503,'paused channel');await pool.query("DELETE FROM channel_states WHERE model_id='glm-5.3'");
  // Leaving the company ends access at once, and re-joining never grants a second allowance.
  const membership=(await boss.j.call(`/api/platform/organizations/${company.id}`)).data.members.find(m=>m.user_id===staffer.user.id);
  assert.equal((await boss.j.call(`/api/platform/organizations/${company.id}/members/${membership.id}`,{method:'PATCH',body:{status:'suspended'}})).status,200);
@@ -410,6 +410,45 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  s=await status();assert.equal(Number(s.granted_yuan),grantedBefore+2.5,'re-activation grants nothing new');
  assert.equal((await staffer.j.call('/api/employee-credit/keys/'+created.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call()).status,401);
  appCfg.employeeCredit.organizationId='';
+});
+test('back office: two switches, one-way enterprise upgrade, tickets, channel pause and budgeted stress runs',async()=>{
+ assert.equal(hasBusiness({status:'active',role:'support'}),true);assert.equal(hasBusiness({status:'active',role:'pending'}),false);assert.equal(hasBusiness({status:'suspended',role:'operations'}),false);
+ const u=await user('upgrade-person'),other=await user('upgrade-other');
+ assert.equal((await u.j.call('/api/platform/organizations',{method:'POST',body:{name:'Direct'}})).status,403);
+ const form={legal_name:'升级测试有限公司',credit_code:'91440300ABCDEFGH1X',contact_name:'联系人',contact_phone:'13800000000'};
+ assert.equal((await u.j.call('/api/platform/upgrade',{method:'POST',body:form})).status,400,'must confirm');
+ assert.equal((await u.j.call('/api/platform/upgrade',{method:'POST',body:{...form,credit_code:'bad',confirm_irreversible:true}})).status,400);
+ assert.equal((await u.j.call('/api/platform/upgrade',{method:'POST',body:{...form,confirm_irreversible:true}})).status,201);
+ assert.equal((await u.j.call('/api/platform/upgrade',{method:'POST',body:{...form,confirm_irreversible:true}})).status,409);
+ assert.equal((await u.j.call('/api/platform/me')).data.upgrade.status,'pending');
+ assert.equal((await jar().call('/api/staff/workspace/business')).status,401);
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ let biz=(await admin.call('/api/staff/workspace/business')).data;let request=biz.upgrades.find(x=>x.email===u.user.email);assert.equal(request.status,'pending');assert.equal(biz.models.length,6);
+ assert.equal((await admin.call(`/api/staff/upgrades/${request.id}/reject`,{method:'POST',body:{}})).status,400,'needs reason');
+ assert.equal((await admin.call(`/api/staff/upgrades/${request.id}/reject`,{method:'POST',body:{reason:'资料不全'}})).status,200);
+ assert.equal((await u.j.call('/api/platform/me')).data.upgrade.reject_reason,'资料不全');
+ assert.equal((await u.j.call('/api/platform/upgrade',{method:'POST',body:{...form,confirm_irreversible:true}})).status,201,'can reapply');
+ const cash=(await pool.query('INSERT INTO billing_accounts(owner_id,cash_balance_fen) VALUES($1,500) RETURNING id',[u.user.id])).rows[0].id;
+ biz=(await admin.call('/api/staff/workspace/business')).data;request=biz.upgrades.find(x=>x.email===u.user.email&&x.status==='pending');
+ const approved=await admin.call(`/api/staff/upgrades/${request.id}/approve`,{method:'POST',body:{}});assert.equal(approved.status,200);
+ assert.equal((await admin.call(`/api/staff/upgrades/${request.id}/approve`,{method:'POST',body:{}})).status,409);
+ const me=(await u.j.call('/api/platform/me')).data;assert.equal(me.upgrade.status,'approved');assert.equal(me.organizations[0].name,form.legal_name);assert.equal(me.organizations[0].is_manager,true);
+ const moved=(await pool.query('SELECT owner_id,organization_id,cash_balance_fen FROM billing_accounts WHERE id=$1',[cash])).rows[0];assert.equal(moved.owner_id,null);assert.equal(moved.organization_id,approved.data.organization_id);assert.equal(Number(moved.cash_balance_fen),500);
+ assert.equal((await u.j.call('/api/platform/upgrade',{method:'POST',body:{...form,confirm_irreversible:true}})).status,409,'no second upgrade or downgrade path');
+ const ticket=await other.j.call('/api/support/tickets',{method:'POST',body:{subject:'调用失败',body:'GLM 返回 500'}});assert.equal(ticket.status,201);assert.equal((await u.j.call('/api/support/tickets')).data.length,0,'tickets are private');
+ assert.equal((await admin.call('/api/staff/tickets/'+ticket.data.id,{method:'POST',body:{status:'bad'}})).status,400);assert.equal((await admin.call('/api/staff/tickets/'+ticket.data.id,{method:'POST',body:{status:'closed',staff_note:'已恢复'}})).status,200);assert.equal((await other.j.call('/api/support/tickets')).data[0].staff_note,'已恢复');
+ assert.equal((await admin.call('/api/staff/lab/channels/nope',{method:'POST',body:{paused:true,reason:'x'}})).status,404);assert.equal((await admin.call('/api/staff/lab/channels/glm-5.3',{method:'POST',body:{paused:true}})).status,400);
+ assert.equal((await admin.call('/api/staff/lab/channels/glm-5.3',{method:'POST',body:{paused:true,reason:'上游故障'}})).status,200);let channels=(await admin.call('/api/staff/lab/channels')).data;assert.equal(channels.find(c=>c.id==='glm-5.3').paused,true);
+ assert.equal((await admin.call('/api/staff/lab/channels/glm-5.3',{method:'POST',body:{paused:false}})).status,200);
+ const supplier=(await pool.query("INSERT INTO supplier_lab_suppliers(name,kind,created_by) VALUES('Stress fixture','supplier','staff-owner') RETURNING id")).rows[0].id;
+ const credential=(await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,'stress','https://kerapi.cn/v1',$2,'fp','staff-owner') RETURNING id",[supplier,vault(process.env.SUPPLIER_LAB_SECRET).seal({key:'fixture-stress'})])).rows[0].id;
+ const endpoint=(await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES('stress','supplier','https://kerapi.cn/v1','stress-model','fp','staff-owner',$1,$2) RETURNING id",[supplier,credential])).rows[0].id;
+ process.env.SUPPLIER_LAB_ALLOWED_HOSTS='api.deepseek.com,kerapi.cn';
+ const start=body=>admin.call('/api/staff/lab/stress',{method:'POST',body:{endpoint_id:endpoint,concurrency:2,requests:4,budget_yuan:1,...body}});
+ assert.equal((await start({})).status,400,'needs rates');await pool.query('UPDATE supplier_lab_endpoints SET input_yuan_per_m=1000,cached_input_yuan_per_m=1,output_yuan_per_m=1000 WHERE id=$1',[endpoint]);
+ assert.equal((await start({budget_yuan:0.01})).status,400,'over budget');assert.equal((await start({concurrency:11})).status,400);
+ const realFetch=globalThis.fetch;let upstreamHits=0;globalThis.fetch=(url,options)=>{if(!String(url).startsWith('https://kerapi.cn'))return realFetch(url,options);upstreamHits++;return Promise.resolve(new Response(JSON.stringify({id:'s',model:'stress-model',choices:[{message:{role:'assistant',content:'391'},finish_reason:'stop'}],usage:{prompt_tokens:10,completion_tokens:2,total_tokens:12}}),{status:200,headers:{'content-type':'application/json','x-request-id':'s'}}));};
+ try{const started=await start({});assert.equal(started.status,202,JSON.stringify(started.data));let runs;for(let i=0;i<50;i++){runs=(await admin.call('/api/staff/lab/stress')).data.runs;if(runs[0].finished_at)break;await new Promise(r=>setTimeout(r,50));}assert.ok(runs[0].finished_at);assert.equal(runs[0].done,4);assert.equal(upstreamHits,4);}finally{globalThis.fetch=realFetch;}
 });
 test('sign out revokes persistent customer session',async()=>{assert.equal((await owner.j.call('/api/auth/sign-out',{method:'POST',body:{}})).status,200);assert.equal((await owner.j.call('/api/platform/me')).status,401);});
 test('two workspaces share credentials, actual acceptance and fail-closed catalog releases',async()=>{
@@ -423,7 +462,7 @@ test('two workspaces share credentials, actual acceptance and fail-closed catalo
  assert.equal((await admin.call('/api/staff/members/technical-fixture/technical-access',{method:'PUT',body:{enabled:true}})).status,200);
  assert.equal((await tech.call('/api/staff/lab/config')).status,200);assert.equal((await tech.call('/api/staff/observability')).status,200);
  appCfg.metricsFile=join(pilotDir,'metrics.json');await writeFile(appCfg.metricsFile,JSON.stringify({schema:1,collected_at:new Date().toISOString(),cpu_percent:12,network:{interface:'eth0',rx_bps:0},services:[],secret:'never-forward-this'}));const observed=await tech.call('/api/staff/observability');assert.equal(observed.data.status,'ok');assert.equal(observed.data.cpu_percent,12);assert.ok(!JSON.stringify(observed.data).includes('never-forward-this'));
- assert.equal((await tech.call('/api/staff/suppliers',{method:'POST',body:{}})).status,403);
+ assert.equal((await tech.call('/api/staff/suppliers',{method:'POST',body:{}})).status,400,'business access reaches validation');
  assert.equal((await admin.call('/api/staff/lab/suppliers',{method:'POST',body:{name:'Duplicate'}})).status,410);
  const supplier=await admin.call('/api/staff/suppliers',{method:'POST',body:{display_name:'Shared supplier',legal_name:'Shared legal',source_type:'unconfirmed',region:'CN'}});assert.equal(supplier.status,201);
  assert.ok((await tech.call('/api/staff/lab/suppliers')).data.some(s=>s.id===supplier.data.id));

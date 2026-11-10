@@ -1,5 +1,7 @@
 import { createHash, randomBytes, createCipheriv, createDecipheriv, hkdfSync } from 'node:crypto';
 export class HttpError extends Error { constructor(status,message){super(message);this.status=status;} }
+// Back-office access is two switches: business (any assigned role) and technical.
+export const hasBusiness=staff=>staff?.status==='active'&&staff.role!=='pending';
 export const hash=v=>createHash('sha256').update(v).digest('hex');
 export const token=()=>randomBytes(32).toString('base64url');
 export function text(value,label,max=100){if(typeof value!=='string'||!value.trim()||value.trim().length>max)throw new HttpError(400,`${label}格式不正确`);return value.trim();}
