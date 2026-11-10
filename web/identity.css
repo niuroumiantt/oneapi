@@ -367,3 +367,19 @@ select option{font-size:14px}
 .employee-credit-band>div:first-child strong{font-size:20px;color:#15803d}
 .employee-credit-band button{display:inline-flex;align-items:center;gap:6px;margin-left:auto;border:1px solid #15803d;border-radius:7px;background:#15803d;color:#fff;padding:7px 12px;font-size:13px;cursor:pointer}
 @media (max-width:640px){.employee-credit-band button{margin-left:0;width:100%;justify-content:center}}
+
+.pc-surface{display:flex;align-items:center;gap:2px;margin-left:14px;padding:3px;border:1px solid #dfe2ed;border-radius:9px;background:#f6f7fb}
+.pc-surface a{padding:5px 11px;border-radius:6px;color:#4b5365;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap}
+.pc-surface a.active{background:#fff;color:#7a26d9;box-shadow:0 1px 2px rgba(20,24,40,.12)}
+.pc-identity{padding:4px 10px;border-radius:999px;background:#efe4ff;color:#6d23c4;font-size:12px;font-weight:700;white-space:nowrap}
+.employee-credit-reminder{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;padding:10px 16px;border:1px solid #cfe6d8;border-radius:10px;background:#f4fbf7;color:#27413a;font-size:13px;text-decoration:none}
+.team-usage{display:grid;gap:14px}
+.team-bars{display:grid;grid-template-columns:repeat(14,minmax(0,1fr));align-items:end;gap:8px;height:170px;margin-top:12px}
+.team-bar{position:relative;display:flex;flex-direction:column-reverse;justify-content:flex-start;height:100%;padding-bottom:18px}
+.team-bar i{display:block;width:100%;border-radius:2px 2px 0 0}
+.team-bar small{position:absolute;left:0;right:0;bottom:0;color:#7d8699;font-size:10px;text-align:center}
+.team-dot{display:inline-block;width:9px;height:9px;margin-right:6px;border-radius:50%}
+.team-attention{padding:12px 16px;border:1px solid #f5d7a8;border-radius:10px;background:#fff9ef}.team-attention ul{margin:6px 0 0;padding-left:18px;font-size:13px}
+.team-usage td small,.personal-pilot-log td small{display:block;color:#7d8699}
+@media(max-width:900px){.pc-identity{display:none}}
+@media(max-width:850px){.pc-surface{display:none}.team-bars{gap:3px}.team-bar small{font-size:8px}}

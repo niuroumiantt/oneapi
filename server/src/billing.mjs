@@ -1,4 +1,5 @@
 import { HttpError,id } from './core.mjs';
+import { isManager } from './organizations.mjs';
 
 function disabled(account,entries,scope,totalRecharged){
  return {scope,currency:'CNY',cash_balance_fen:String(account?.cash_balance_fen||0),total_spent_fen:String(account?.total_spent_fen||0),total_recharged_fen:String(totalRecharged||0),entries,usage_by_model:[],recharge:{enabled:false,minimum_fen:500,channels:[]},refund:{enabled:false,fee_policy:'pending_review'},payments_enabled:false};
@@ -18,7 +19,7 @@ export function billingRoutes(app,pool,requireCustomer,cfg){
  });
  app.get('/api/billing/organizations/:org',requireCustomer,async(req,res)=>{
   const org=id(req.params.org),membership=(await pool.query("SELECT role FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",[org,req.customer.id])).rows[0];
-  if(!membership||membership.role!=='owner')throw new HttpError(403,'仅企业代表人可以查看企业资金');
+  if(!membership||!isManager(membership.role))throw new HttpError(403,'仅企业管理者可以查看企业资金');
   const account=(await pool.query('SELECT id,cash_balance_fen,total_spent_fen FROM billing_accounts WHERE organization_id=$1',[org])).rows[0];
   const bank=cfg.bankTransfer||{enabled:false};
   const bankTransfer=bank.enabled?{enabled:true,account_name:bank.accountName,bank_name:bank.bankName,account_number:bank.accountNumber}:{enabled:false};
