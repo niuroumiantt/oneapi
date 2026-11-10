@@ -482,3 +482,24 @@ select option{font-size:14px}
 .overview-attention ul{margin:0;padding:10px 16px 12px 32px;font-size:13px;line-height:1.8}
 @media(max-width:900px){.overview-grid{grid-template-columns:minmax(0,1fr)}.overview-primary{margin-left:0}}
 .overview-grid table{min-width:0;width:100%}.overview-row button{flex:none;white-space:nowrap}
+@media(min-width:851px){
+.overview-page{flex:1;min-height:0;margin-top:8px;gap:10px;grid-template-rows:auto minmax(0,1fr)}
+.overview-hero{padding:9px 18px}
+.overview-balance strong{font-size:26px}
+.overview-grid{min-height:0;gap:10px;grid-template-rows:minmax(0,1fr) auto}
+.overview-grid>section{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.overview-grid .personal-section-title{flex:none;height:36px}
+.overview-grid .team-bars{flex:1;height:auto;min-height:0;margin-top:6px;padding:0 10px}
+.overview-grid .chart-legend{flex:none}
+.overview-row{padding:5px 14px}
+.overview-grid .personal-table-wrap th{height:26px}
+.overview-grid .personal-table-wrap td{height:28px;padding-top:1px;padding-bottom:1px}
+.overview-grid .personal-table-wrap td small{display:inline;margin-left:6px}
+.overview-attention ul{flex:1;min-height:0;overflow:auto;margin:0;padding:6px 16px 6px 32px;line-height:1.6}
+}
+@media(min-width:851px) and (max-height:660px){
+.overview-grid .personal-section-title{height:30px}
+.overview-row{padding:2px 14px}
+.overview-grid .team-bars{margin-top:2px}
+.overview-row code{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+}
