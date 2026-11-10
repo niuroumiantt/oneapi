@@ -1,0 +1,7 @@
+# Reuse the currently deployed, inspected Node runtime and production dependencies.
+# The pilot changes only application source and adds no package dependency.
+ARG NODE_RUNTIME_DONOR=oneapi-identity:7a9cf16
+FROM ${NODE_RUNTIME_DONOR}
+USER root
+COPY --chown=1000:1000 server /app/server
+USER 1000:1000

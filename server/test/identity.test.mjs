@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 import pg from 'pg';
 import { createServer } from 'node:http';
 import { randomBytes,createHash } from 'node:crypto';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { generateKeyPair,exportJWK,SignJWT } from 'jose';
 import { createApp } from '../src/app.mjs';
 import { migrate } from '../src/migrate.mjs';
 import { config } from '../src/core.mjs';
-let pool,appServer,idpServer,service,origin,idpOrigin,identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true},revoked=false;
+let pool,appServer,idpServer,service,origin,idpOrigin,appCfg,pilotDir,pilotFetch=fetch,identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true},revoked=false;
 const sent=[],codes=new Map(),access=new Map();let serial=1;
 const password='Local-only!Testing-1842';
 function jar(ip='192.0.2.'+(serial++)){const cookies=new Map();return {cookies,async call(path,{method='GET',body,headers={}}={}){
@@ -32,9 +35,10 @@ before(async()=>{
  // Reserve a server port before constructing the fixed-origin authentication configuration.
  appServer=createServer();await new Promise(r=>appServer.listen(0,'127.0.0.1',r));origin='http://127.0.0.1:'+appServer.address().port;
  const cfg=config({APP_ORIGIN:origin,DATABASE_URL:databaseURL,BETTER_AUTH_SECRET:'test-only-strong-secret-932847239847293847',STAFF_OIDC_ISSUER:idpOrigin,STAFF_OIDC_CLIENT_ID:'oneapi-test-staff',STAFF_OIDC_CLIENT_SECRET:'test-client-secret',STAFF_BOOTSTRAP_SUB:'staff-owner',BANK_TRANSFER_VERIFIED:'true',BANK_TRANSFER_ACCOUNT_NAME:'Company Test',BANK_TRANSFER_BANK_NAME:'Test Bank Branch',BANK_TRANSFER_ACCOUNT_NUMBER:'0000000000000000'});
+ appCfg=cfg;cfg.pilotFetch=(...args)=>pilotFetch(...args);
  service=createApp(pool,cfg,{sendMail:async m=>{sent.push(m);return {};},verify:async()=>true});await migrate(pool,service.auth);await pool.query('TRUNCATE "user",staff_members,staff_oidc_states,mail_outbox,request_limits,"rateLimit" CASCADE');appServer.on('request',service.app);
 });
-after(async()=>{appServer?.close();idpServer?.close();await pool?.end();});
+after(async()=>{appServer?.close();idpServer?.close();await pool?.end();if(pilotDir)await rm(pilotDir,{recursive:true,force:true});});
 test('email must be verified; unknown identity cannot read workspace; CSRF is rejected',async()=>{
  const j=jar();assert.equal((await j.call('/api/platform/me')).status,401);
  const r=await j.call('/api/auth/sign-up/email',{method:'POST',body:{email:'unverified@example.test',password,name:'Unverified'}});assert.equal(r.status,200);assert.equal((await j.call('/api/platform/me')).status,401);
@@ -258,5 +262,34 @@ test('expired shared links fail; repeated applications remain one pending reques
  const link=await joinLink(owner,orgA);await pool.query("UPDATE organization_join_links SET expires_at=now()-interval '1 minute' WHERE id=$1",[link.id]);assert.equal((await other.j.call('/api/platform/join-requests',{method:'POST',body:{token:link.token}})).status,400);
  const fresh=await joinLink(owner,orgA);const results=await Promise.all([1,2].map(()=>other.j.call('/api/platform/join-requests',{method:'POST',body:{token:fresh.token}})));assert.deepEqual(results.map(r=>r.status).sort(),[202,202]);
  const pending=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data.joinRequests.filter(x=>x.user_id===other.user.id);assert.equal(pending.length,1);
+});
+test('personal pilot keys are scoped, hashed, capped and record real upstream usage',async()=>{
+ pilotDir=await mkdtemp(join(tmpdir(),'oneapi-pilot-'));
+ const keyFile=join(pilotDir,'upstream-key');await writeFile(keyFile,'fixture-upstream-secret\n',{mode:0o600});
+ appCfg.pilot.keyFile=keyFile;appCfg.pilot.emails.add(owner.email);
+ pilotFetch=async(url,options)=>{
+  assert.equal(url,'https://api.deepseek.com/chat/completions');
+  assert.equal(options.headers.Authorization,'Bearer fixture-upstream-secret');
+  assert.equal(JSON.parse(options.body).model,'deepseek-flash');
+  return new Response(JSON.stringify({id:'fixture-call',model:'deepseek-flash',choices:[{message:{role:'assistant',content:'OK'},finish_reason:'stop'}],usage:{prompt_tokens:7,prompt_cache_hit_tokens:2,completion_tokens:1}}),{status:200,headers:{'Content-Type':'application/json'}});
+ };
+ assert.equal((await jar().call('/api/pilot/status')).status,401);
+ assert.equal((await other.j.call('/api/pilot/status')).data.enabled,false);
+ assert.equal((await other.j.call('/api/pilot/keys',{method:'POST',body:{label:'Unauthorized'}})).status,403);
+ const created=await owner.j.call('/api/pilot/keys',{method:'POST',body:{label:'My Agent'}});
+ assert.equal(created.status,201,JSON.stringify(created.data));
+ const secret=created.data.secret;assert.match(secret,/^sf_test_[A-Za-z0-9_-]{43}$/);
+ const stored=(await pool.query('SELECT secret_hash FROM pilot_api_keys WHERE id=$1',[created.data.key.id])).rows[0];
+ assert.notEqual(stored.secret_hash,secret);assert.equal(stored.secret_hash,createHash('sha256').update(secret).digest('hex'));
+ assert.equal((await owner.j.call('/api/pilot/status')).data.keys[0].secret,undefined);
+ const call=()=>owner.j.call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+secret},body:{model:'deepseek-flash',messages:[{role:'user',content:'Reply OK'}],max_tokens:16}});
+ assert.equal((await call()).status,200);
+ const status=(await owner.j.call('/api/pilot/status')).data;
+ assert.equal(status.calls_today,1);assert.equal(status.recent_calls[0].input_tokens,7);assert.equal(status.recent_calls[0].cache_hit_tokens,2);
+ assert.equal((await owner.j.call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+secret},body:{model:'deepseek-flash',stream:true,messages:[{role:'user',content:'No'}]}})).status,400);
+ for(let n=1;n<10;n++)assert.equal((await call()).status,200);
+ assert.equal((await call()).status,429);
+ assert.equal((await owner.j.call('/api/pilot/keys/'+created.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);
+ assert.equal((await call()).status,401);
 });
 test('sign out revokes persistent customer session',async()=>{assert.equal((await owner.j.call('/api/auth/sign-out',{method:'POST',body:{}})).status,200);assert.equal((await owner.j.call('/api/platform/me')).status,401);});
