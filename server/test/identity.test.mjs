@@ -8,6 +8,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateKeyPair,exportJWK,SignJWT } from 'jose';
 import { createApp } from '../src/app.mjs';
+import { GRANT_YUAN,holdYuan,employeeRequest,usageFrom,settleEmployeeCalls } from '../src/employee-credit.mjs';
+import { vault } from '../src/core.mjs';
 import { migrate } from '../src/migrate.mjs';
 import { config } from '../src/core.mjs';
 let pool,appServer,idpServer,service,origin,idpOrigin,appCfg,pilotDir,pilotFetch=fetch,identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true},revoked=false;
@@ -318,6 +320,67 @@ test('personal pilot keys are scoped, hashed, capped and record real upstream us
  assert.equal((await call()).status,401);
  assert.equal((await owner.j.call('/api/pilot/keys/'+proCreated.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);
  assert.equal((await proCall()).status,401);
+});
+test('employee credit is one-time, company-only, reserved before calling and settled at the real KerAPI amount',async()=>{
+ assert.equal(holdYuan({input:'2',cached:'0.5',output:'8'},{input:1000,cached:400,output:100}),'0.004400000000');
+ assert.throws(()=>employeeRequest({model:'x',messages:[{}]},new Set(['y'])),/未开放/);
+ assert.deepEqual(usageFrom({prompt_tokens:10,completion_tokens:2,prompt_tokens_details:{cached_tokens:4}}),{input:10,output:2,cached:4});
+ const boss=await user('company-boss'),staffer=await user('company-staff'),outsider=await user('company-outsider');
+ const company=await organization(boss,'Company'),link=await joinLink(boss,company);await applyAndApprove(boss,company,staffer,link);
+ await organization(outsider,'Self Serve Inc');
+ assert.equal((await staffer.j.call('/api/employee-credit/status')).data.enabled,false,'disabled until configured');
+ await pool.query("INSERT INTO staff_members(subject,email,name) VALUES('credit-fixture','credit@example.test','Credit') ON CONFLICT DO NOTHING");
+ const supplier=(await pool.query("INSERT INTO supplier_lab_suppliers(name,kind,created_by) VALUES('KerAPI credit fixture','supplier','credit-fixture') RETURNING id")).rows[0].id;
+ const credential=(await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,'credit','https://kerapi.cn/v1',$2,'fp','credit-fixture') RETURNING id",[supplier,vault(process.env.SUPPLIER_LAB_SECRET).seal({key:'fixture-kerapi-secret'})])).rows[0].id;
+ await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,input_yuan_per_m,cached_input_yuan_per_m,output_yuan_per_m,created_by,supplier_id,credential_id) VALUES('credit','supplier','https://kerapi.cn/v1','credit-model','fp',2,0.5,8,'credit-fixture',$1,$2)",[supplier,credential]);
+ appCfg.employeeCredit.organizationId=company.id;appCfg.employeeCredit.models.add('credit-model');
+ assert.equal((await outsider.j.call('/api/employee-credit/status')).data.enabled,false);
+ assert.equal((await outsider.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'No'}})).status,403);
+ for(let i=0;i<2;i++){const s=(await staffer.j.call('/api/employee-credit/status')).data;assert.equal(s.enabled,true);assert.equal(Number(s.available_yuan),10);assert.deepEqual(s.model_ids,['credit-model']);}
+ assert.equal(GRANT_YUAN,'10.000000000000');
+ assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='employee_credit.granted' AND subject_id=$1",[staffer.user.id])).rows[0].n,1);
+ const created=await staffer.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'Agent'}});assert.equal(created.status,201);assert.match(created.data.secret,/^sf_emp_/);
+ assert.notEqual((await pool.query('SELECT secret_hash FROM employee_api_keys WHERE id=$1',[created.data.key.id])).rows[0].secret_hash,created.data.secret);
+ assert.equal(JSON.stringify((await staffer.j.call('/api/employee-credit/status')).data).includes(created.data.secret),false);
+ let upstreamCalls=[],serial2=0,reply=()=>{const n=++serial2;return new Response(JSON.stringify({id:'c'+n,model:'credit-model',choices:[{message:{role:'assistant',content:'ok'}}],usage:{prompt_tokens:100,completion_tokens:10,total_tokens:110}}),{status:200,headers:{'content-type':'application/json','x-request-id':'req-'+n}});};
+ pilotFetch=async(url,options)=>{upstreamCalls.push({url,options});return reply();};
+ const call=(body={},key=created.data.secret)=>jar().call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+key},body:{model:'credit-model',messages:[{role:'user',content:'hi'}],max_tokens:100,...body}});
+ const status=async()=>(await staffer.j.call('/api/employee-credit/status')).data;
+ assert.equal((await jar().call('/v1/models',{headers:{Authorization:'Bearer '+created.data.secret}})).data.data[0].id,'credit-model');
+ const first=await call();assert.equal(first.status,200,JSON.stringify(first.data));
+ assert.equal(upstreamCalls[0].url,'https://kerapi.cn/v1/chat/completions');assert.equal(upstreamCalls[0].options.headers.Authorization,'Bearer fixture-kerapi-secret');
+ let s=await status();assert.equal(Number(s.spent_yuan),0);assert.equal(Number(s.held_yuan),0.00056,'hold shrinks to reported usage at peak price');
+ assert.equal((await call({messages:[{role:'user',content:'x'.repeat(20000)}]})).status,200,'accepts prompts above the 16 KB app-wide limit');
+ const sync=(await pool.query("INSERT INTO supplier_usage_syncs(credential_id,record_count,response_sha256,created_by) VALUES($1,1,'h','t') RETURNING id",[credential])).rows[0].id;
+ const bill=(request,amount,currency='CNY')=>pool.query('INSERT INTO supplier_usage_records(credential_id,request_id,model_id,occurred_at,evidence,sync_id) VALUES($1,$2,$3,now(),$4,$5)',[credential,request,'credit-model',{amount,currency},sync]);
+ await bill('req-1','0.000126000000');await settleEmployeeCalls(pool);await settleEmployeeCalls(pool);
+ s=await status();assert.equal(Number(s.spent_yuan),0.000126,'real amount charged exactly once');
+ const settled=s.recent_calls.find(c=>c.status==='settled');assert.equal(settled.settlement_source,'supplier_log');
+ pilotFetch=async()=>new Response('data: {"choices":[{"delta":{"content":"a"}}]}\n\ndata: {"choices":[],"usage":{"prompt_tokens":50,"completion_tokens":5}}\n\ndata: [DONE]\n\n',{status:200,headers:{'content-type':'text/event-stream','x-request-id':'req-stream'}});
+ const streamed=await call({stream:true});assert.equal(streamed.status,200);assert.match(streamed.data,/\[DONE\]/);
+ assert.equal((await pool.query("SELECT output_tokens FROM employee_calls WHERE upstream_request_id='req-stream'")).rows[0].output_tokens,5,'stream usage captured');
+ pilotFetch=async()=>new Response(JSON.stringify({error:{message:'bad fixture-kerapi-secret'}}),{status:500});
+ const before=Number((await status()).held_yuan);const broken=await call();assert.equal(broken.status,502);assert.equal(JSON.stringify(broken.data).includes('fixture-kerapi-secret'),false);assert.equal(Number((await status()).held_yuan),before,'failed call releases its hold');
+ // Exhausted: only one of two concurrent calls fits, and the upstream is never asked for the other.
+ pilotFetch=async()=>reply();await pool.query("UPDATE employee_calls SET status='failed' WHERE owner_id=$1 AND status='awaiting_bill'",[staffer.user.id]);
+ const room=holdYuan({input:'2',cached:'0.5',output:'8'},{input:Buffer.byteLength(JSON.stringify({messages:[{role:'user',content:'hi'}]})),output:100});
+ await pool.query('UPDATE employee_credit_accounts SET spent_yuan=granted_yuan-$2::numeric WHERE user_id=$1',[staffer.user.id,room]);
+ const racing=await Promise.all([call(),call()]);assert.deepEqual(racing.map(r=>r.status).sort(),[200,402]);
+ // A bill above the hold never overdraws, and an unbilled call falls back to its hold after the grace period.
+ const open=(await pool.query("SELECT upstream_request_id FROM employee_calls WHERE owner_id=$1 AND status='awaiting_bill'",[staffer.user.id])).rows[0].upstream_request_id;
+ await bill(open,'9.000000000000');await settleEmployeeCalls(pool);
+ s=await status();assert.equal(Number(s.available_yuan),0);assert.equal(s.spent_yuan,s.granted_yuan);
+ await pool.query('UPDATE employee_credit_accounts SET spent_yuan=5 WHERE user_id=$1',[staffer.user.id]);
+ await call();await pool.query("UPDATE employee_calls SET created_at=now()-interval '2 days' WHERE owner_id=$1 AND status='awaiting_bill'",[staffer.user.id]);await settleEmployeeCalls(pool);
+ assert.ok((await status()).recent_calls.some(c=>c.settlement_source==='hold_fallback'));
+ // Leaving the company ends access at once, and re-joining never grants a second allowance.
+ const membership=(await boss.j.call(`/api/platform/organizations/${company.id}`)).data.members.find(m=>m.user_id===staffer.user.id);
+ assert.equal((await boss.j.call(`/api/platform/organizations/${company.id}/members/${membership.id}`,{method:'PATCH',body:{status:'suspended'}})).status,200);
+ assert.equal((await call()).status,401);assert.equal((await status()).enabled,false);
+ assert.equal((await boss.j.call(`/api/platform/organizations/${company.id}/members/${membership.id}`,{method:'PATCH',body:{status:'active'}})).status,200);
+ s=await status();assert.equal(Number(s.granted_yuan),10);
+ assert.equal((await staffer.j.call('/api/employee-credit/keys/'+created.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call()).status,401);
+ appCfg.employeeCredit.organizationId='';appCfg.employeeCredit.models.clear();
 });
 test('sign out revokes persistent customer session',async()=>{assert.equal((await owner.j.call('/api/auth/sign-out',{method:'POST',body:{}})).status,200);assert.equal((await owner.j.call('/api/platform/me')).status,401);});
 test('two workspaces share credentials, actual acceptance and fail-closed catalog releases',async()=>{
