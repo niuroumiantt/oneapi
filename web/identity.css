@@ -312,6 +312,10 @@ select option{font-size:14px}
 /* Resizable model and access panels. The handle disappears when panels stack. */
 .personal-console-grid{grid-template-columns:minmax(0,var(--personal-model-share,62%)) 10px minmax(0,1fr);gap:8px}
 .personal-pane-handle{display:flex;align-items:center;justify-content:center;min-width:10px;border-radius:8px;cursor:col-resize;touch-action:none}
+.personal-latency.live,.personal-status.live{color:#14833e;font-weight:700}
+.personal-latency.live::before{content:"";display:inline-block;width:7px;height:7px;margin-right:6px;border-radius:50%;background:#20bc5d;box-shadow:0 0 0 3px #dff8e7;vertical-align:1px}
+.personal-status.failed{color:#b54848}.personal-status.stale{color:#798397}
+.personal-evidence-refresh{margin-left:8px;padding:0;border:0;background:none;color:#7d2dbd;font:700 10px/1.4 inherit;text-decoration:underline;cursor:pointer}
 .personal-pane-handle span{display:block;width:3px;height:60px;border-radius:3px;background:#c7bddb;transition:background .15s}
 .personal-pane-handle:hover span,.personal-pane-handle:focus-visible span{background:#a338ee}
 .personal-pane-handle:focus-visible{outline:2px solid #a338ee;outline-offset:2px}
