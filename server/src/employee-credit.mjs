@@ -160,7 +160,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer){
    pool.query('SELECT c.id,k.label AS key_label,c.model_id,c.status,c.hold_yuan,c.charged_yuan,c.settlement_source,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.latency_ms,c.error_code,c.created_at FROM employee_calls c JOIN employee_api_keys k ON k.id=c.key_id WHERE c.owner_id=$1 ORDER BY c.created_at DESC LIMIT 30',[req.customer.id]),
    routes(pool,cfg)
   ]);
-  res.json({enabled:true,organization_id:organization.id,organization_name:organization.name,...money,base_url:cfg.origin+'/v1',model_ids:available.map(r=>r.model.id),models:available.map(r=>publicModel(r.model)),key_limit:MAX_KEYS,keys:keys.rows,recent_calls:calls.rows});
+  res.json({enabled:true,organization_id:organization.id,organization_name:organization.name,...money,base_url:cfg.origin+'/v1',model_ids:available.map(r=>r.model.id),models:available.map(r=>publicModel(r.model)),key_limit:MAX_KEYS,max_output_tokens:MAX_OUTPUT,keys:keys.rows,recent_calls:calls.rows});
  });
  app.post('/api/employee-credit/keys',requireCustomer,async(req,res)=>{
   await requireMember(req);

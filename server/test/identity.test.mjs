@@ -340,7 +340,7 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  appCfg.employeeCredit.organizationId=company.id;
  assert.equal((await outsider.j.call('/api/employee-credit/status')).data.enabled,false);
  assert.equal((await outsider.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'No'}})).status,403);
- for(let i=0;i<2;i++){const s=(await staffer.j.call('/api/employee-credit/status')).data;assert.equal(s.enabled,true);assert.equal(Number(s.available_yuan),10);assert.deepEqual(s.model_ids,['deepseek-flash','deepseek-v4-pro','glm-5.3']);assert.equal(s.models[2].input_yuan,'8');}
+ for(let i=0;i<2;i++){const s=(await staffer.j.call('/api/employee-credit/status')).data;assert.equal(s.enabled,true);assert.equal(s.max_output_tokens,8192);assert.ok(s.base_url.endsWith('/v1'));assert.equal(Number(s.available_yuan),10);assert.deepEqual(s.model_ids,['deepseek-flash','deepseek-v4-pro','glm-5.3']);assert.equal(s.models[2].input_yuan,'8');}
  assert.equal(GRANT_YUAN,'10.000000000000');
  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='employee_credit.granted' AND subject_id=$1",[staffer.user.id])).rows[0].n,1);
  const created=await staffer.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'Agent'}});assert.equal(created.status,201);assert.match(created.data.secret,/^sf_emp_/);
