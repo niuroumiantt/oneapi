@@ -38,6 +38,7 @@ export function workspaceRoutes(app,pool,requireStaff,cfg){
  for(const path of ['/api/staff/console','/api/staff/workspace/console'])app.get(path,requireStaff,(req,res)=>{requireBusiness(req);res.sendFile(new URL('../private/admin-shell.html',import.meta.url).pathname,{dotfiles:'allow'})});
  app.get('/api/staff/console.js',requireStaff,(req,res)=>{requireBusiness(req);res.type('js').sendFile(new URL('../private/admin-shell.js',import.meta.url).pathname,{dotfiles:'allow'})});
  app.get('/api/staff/workspace/bridge.js',requireStaff,(req,res)=>{requireBusiness(req);res.type('js').sendFile(new URL('../private/workspace-bridge.js',import.meta.url).pathname,{dotfiles:'allow'})});
+ app.get('/api/staff/workspace/plan',requireStaff,(req,res)=>{requireBusiness(req);res.sendFile(new URL('../private/admin-plan.html',import.meta.url).pathname,{dotfiles:'allow'})});
  app.get('/api/staff/workspace/view',requireStaff,(req,res)=>{requireBusiness(req);res.sendFile(new URL('../private/workspace.html',import.meta.url).pathname,{dotfiles:'allow'})});
  app.get('/api/staff/workspace/console.js',requireStaff,(req,res)=>{requireBusiness(req);res.type('js').sendFile(new URL('../private/workspace.js',import.meta.url).pathname,{dotfiles:'allow'})});
  app.get('/api/staff/workspace/access',requireStaff,(req,res)=>res.json({business:req.staff.status==='active'&&['platform_admin','operations','supply','finance','support'].includes(req.staff.role),technical:req.staff.status==='active'&&(req.staff.role==='platform_admin'||req.staff.technical_access===true)}));

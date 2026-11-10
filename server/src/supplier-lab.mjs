@@ -238,6 +238,30 @@ export function supplierLabRoutes(app, pool, requireStaff) {
     access(req,true); const {completion,...result}=await startSupplierRun(pool,box,req.body||{},req.staff.subject,req.actor);
     void completion; res.status(202).json(result);
   });
+  app.get('/api/staff/lab/supplier-dashboard',requireStaff,async(req,res)=>{
+    access(req);const supplierId=id(req.query.supplier_id),endpointId=req.query.endpoint_id?id(req.query.endpoint_id):null;
+    const page=Number(req.query.page||0);if(!Number.isSafeInteger(page)||page<0||page>10000)throw new HttpError(400,'页码不正确');
+    const supplier=(await pool.query('SELECT id,display_name,legal_name,status FROM suppliers WHERE id=$1',[supplierId])).rows[0];
+    if(!supplier)throw new HttpError(404,'供应商不存在');
+    const models=(await pool.query(`SELECT e.id,e.model_id,e.label,e.credential_id,e.disabled_at,c.label AS credential_label,c.disabled_at AS credential_disabled_at,
+      e.input_yuan_per_m,e.cached_input_yuan_per_m,e.output_yuan_per_m,
+      count(t.id)::int AS lifetime_calls,coalesce(sum(t.input_tokens),0)::text AS lifetime_input,coalesce(sum(t.output_tokens),0)::text AS lifetime_output,
+      count(t.id) FILTER(WHERE t.created_at >= date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai')::int AS month_calls,
+      coalesce(sum(t.input_tokens+t.output_tokens) FILTER(WHERE t.created_at >= date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai'),0)::text AS month_tokens,
+      count(t.id) FILTER(WHERE t.error_code IS NOT NULL)::int AS issues,
+      count(t.id) FILTER(WHERE t.estimated_cost_yuan IS NULL)::int AS unpriced_calls,
+      sum(t.estimated_cost_yuan)::text AS known_cost_yuan,
+      last.created_at AS last_test_at,last.latency_ms AS last_latency_ms,last.http_status AS last_http_status,last.error_code AS last_error_code
+      FROM supplier_lab_endpoints e JOIN supplier_lab_suppliers s ON s.id=e.supplier_id
+      LEFT JOIN supplier_lab_credentials c ON c.id=e.credential_id LEFT JOIN supplier_lab_transactions t ON t.endpoint_id=e.id
+      LEFT JOIN LATERAL(SELECT created_at,latency_ms,http_status,error_code FROM supplier_lab_transactions WHERE endpoint_id=e.id ORDER BY created_at DESC,id DESC LIMIT 1) last ON true
+      WHERE s.canonical_supplier_id=$1 GROUP BY e.id,c.id,last.created_at,last.latency_ms,last.http_status,last.error_code ORDER BY e.model_id,c.label,e.id`,[supplierId])).rows;
+    if(endpointId&&!models.some(m=>m.id===endpointId))throw new HttpError(404,'该型号不属于此供应商');
+    const records=(await pool.query(`SELECT t.id,t.endpoint_id,t.case_id,t.created_at,t.http_status,t.error_code,t.latency_ms,t.input_tokens,t.cached_input_tokens,t.output_tokens,t.estimated_cost_yuan,t.upstream_request_id,t.output_sample,t.quality_score,t.checks,e.model_id,c.label AS credential_label
+      FROM supplier_lab_transactions t JOIN supplier_lab_endpoints e ON e.id=t.endpoint_id JOIN supplier_lab_suppliers s ON s.id=e.supplier_id
+      LEFT JOIN supplier_lab_credentials c ON c.id=e.credential_id WHERE s.canonical_supplier_id=$1 AND ($2::uuid IS NULL OR e.id=$2) ORDER BY t.created_at DESC,t.id DESC LIMIT 5 OFFSET $3`,[supplierId,endpointId,page*5])).rows;
+    res.json({supplier,models,records,page,page_size:5,total_records:models.filter(m=>!endpointId||m.id===endpointId).reduce((n,m)=>n+m.lifetime_calls,0),scope:'platform_lab_only',month_timezone:'Asia/Shanghai',collected_at:new Date().toISOString()});
+  });
   app.get('/api/staff/lab/runs', requireStaff, async (req, res) => { access(req); res.json((await pool.query("SELECT r.id,r.supplier_endpoint_id,r.reference_endpoint_id,r.case_ids,r.status,r.created_at,r.finished_at,s.label AS supplier_label,s.model_id AS supplier_model,f.label AS reference_label,f.model_id AS reference_model,ss.name AS supplier_name,sc.label AS supplier_key_label,fs.name AS reference_supplier_name,fc.label AS reference_key_label,count(t.id)::int AS transaction_count,round(avg(t.quality_score),1) AS average_score FROM supplier_lab_runs r JOIN supplier_lab_endpoints s ON s.id=r.supplier_endpoint_id LEFT JOIN supplier_lab_endpoints f ON f.id=r.reference_endpoint_id LEFT JOIN supplier_lab_suppliers ss ON ss.id=s.supplier_id LEFT JOIN supplier_lab_credentials sc ON sc.id=s.credential_id LEFT JOIN supplier_lab_suppliers fs ON fs.id=f.supplier_id LEFT JOIN supplier_lab_credentials fc ON fc.id=f.credential_id LEFT JOIN supplier_lab_transactions t ON t.run_id=r.id GROUP BY r.id,s.id,f.id,ss.id,sc.id,fs.id,fc.id ORDER BY r.created_at DESC LIMIT 50")).rows); });
   app.get('/api/staff/lab/transactions.csv', requireStaff, async (req, res) => {
     access(req);
@@ -245,8 +269,8 @@ export function supplierLabRoutes(app, pool, requireStaff) {
     const rows = (await pool.query(`SELECT t.id,t.run_id,t.case_id,t.created_at,t.output_sample,t.http_status,t.error_code,t.upstream_request_id,t.latency_ms,t.input_tokens,t.cached_input_tokens,t.output_tokens,t.total_tokens,t.estimated_cost_yuan,t.quality_score,t.checks,e.model_id,s.name AS supplier_name,c.label AS credential_label
       FROM supplier_lab_transactions t JOIN supplier_lab_endpoints e ON e.id=t.endpoint_id LEFT JOIN supplier_lab_suppliers s ON s.id=e.supplier_id LEFT JOIN supplier_lab_credentials c ON c.id=e.credential_id
       WHERE ($1::uuid IS NULL OR t.run_id=$1) ORDER BY t.created_at DESC LIMIT 1000`, [runId])).rows;
-    const headers = ['本台流水','测试批次','时间 UTC','供应商','Key 别名','请求型号','返回型号','题目','HTTP','异常代码','上游请求 ID','输入 Token','缓存命中 Token','缓存未命中 Token','输出 Token','总 Token','估算采购成本 ¥','延迟 ms','题目得分','响应 ID（不等同请求 ID）','请求开始 UTC','请求结束 UTC','输出结果','结束原因'];
-    const values = rows.map(x => [x.id,x.run_id,new Date(x.created_at).toISOString(),x.supplier_name,x.credential_label,x.model_id,x.checks?.response_model,x.case_id,x.http_status,x.error_code,x.upstream_request_id,x.input_tokens,x.cached_input_tokens,x.checks?.usage_evidence?.prompt_cache_miss_tokens,x.output_tokens,x.total_tokens,x.estimated_cost_yuan,x.latency_ms,x.quality_score,x.checks?.response_id,x.checks?.started_at,x.checks?.finished_at,x.output_sample,x.checks?.finish_reason]);
+    const headers = ['本台流水','测试批次','时间 UTC','供应商','Key 别名','请求型号','返回型号','题目','HTTP','异常代码','上游请求 ID','输入 Token','缓存命中 Token','缓存未命中 Token','输出 Token','总 Token','估算采购成本 ¥','延迟 ms','题目得分','响应 ID（不等同请求 ID）','请求开始 UTC','请求结束 UTC','输出结果','结束原因','输出中推理 Token（不可重复相加）'];
+    const values = rows.map(x => [x.id,x.run_id,new Date(x.created_at).toISOString(),x.supplier_name,x.credential_label,x.model_id,x.checks?.response_model,x.case_id,x.http_status,x.error_code,x.upstream_request_id,x.input_tokens,x.cached_input_tokens,x.checks?.usage_evidence?.prompt_cache_miss_tokens,x.output_tokens,x.total_tokens,x.estimated_cost_yuan,x.latency_ms,x.quality_score,x.checks?.response_id,x.checks?.started_at,x.checks?.finished_at,x.output_sample,x.checks?.finish_reason,x.checks?.reasoning_tokens]);
     res.set('Cache-Control', 'no-store');
     res.set('Content-Disposition', 'attachment; filename="supplier-lab-transactions.csv"');
     res.type('text/csv; charset=utf-8').send('\uFEFF' + [headers, ...values].map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n');
