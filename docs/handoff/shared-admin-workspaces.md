@@ -24,3 +24,11 @@
 ## 仍需业务完成
 
 KerAPI 采购合同、主体、费率、原厂版本证据、真实测试和账单对账完成前不能销售。当前公开推理仅已有试点；新目录发布没有自动改变试点路由。统一 SSO 与客户邮箱登录仍为两种会话，公开账号菜单提供平台员工入口，不按邮箱字符串自动提升权限。
+
+## 生产回执
+
+- 已部署代码 SHA `ed5d832fb9734f786350648a2253bb72e617658b`，镜像 `oneapi-identity:ed5d832` 健康。公网 `/api/status` 与静态 `release.json` 一致。
+- 发布前备份 `/srv/oneapi-backups/oneapi-20261110T040317Z.dump`；旧配置分别在 identity.before-ed5d832.env、compose.before-ed5d832.env、pilot.override.before-ed5d832.yml，旧镜像 b8d295c 保留。
+- 已迁入 1 枚 KerAPI Key，5 个候选型号及采购产品关联；生产测试任务 0、发布申请 0。没有调用上游或开放消费，采购费率保持未知。
+- 公网两工作台匿名访问均 302 到正确员工登录回跳地址；本机 8800 旧入口 307 到公网 credentials 页，旧列表 410。原明文文件保留，不再被本机当前服务加载。
+- 注意：通过 stdin 执行部署脚本时，docker compose run 必须加 `</dev/null`，防止其消费后续脚本输入。此次迁移后使用独立受回滚保护的 finish 脚本完成镜像切换，已核验健康。
