@@ -1,8 +1,8 @@
-import { HttpError, id, text, transaction, audit } from './core.mjs';
+import { HttpError, id, text, transaction, audit,hasBusiness } from './core.mjs';
 
 function access(req,write=false){
- if(req.staff.status!=='active'||!['platform_admin','supply','operations','finance'].includes(req.staff.role))throw new HttpError(403,'当前岗位不能查看供应验收');
- if(write&&!['platform_admin','supply'].includes(req.staff.role))throw new HttpError(403,'当前岗位不能登记供应验收');
+ if(!hasBusiness(req.staff))throw new HttpError(403,'当前岗位不能查看供应验收');
+ if(write&&!hasBusiness(req.staff))throw new HttpError(403,'当前岗位不能登记供应验收');
 }
 function integer(value,min,max,label,optional=false){
  if(optional&&(value===undefined||value===null||value===''))return null;
