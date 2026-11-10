@@ -523,3 +523,4 @@ select option{font-size:14px}
 /* 接入配置：操作说明醒目，价格放在输入项和生成按钮之后。 */
 .pc-config-fields .pc-tool-hint{margin:4px 0 6px;padding:8px 10px;border:1px dashed #d8b24a;border-radius:6px;background:#fff8e1;color:#5f4b12;font-size:11px;line-height:1.5}
 .pc-price-fields{margin-top:10px;padding-top:8px;border-top:1px solid #e1e4ec}
+.pc-workspace-name{display:block;max-width:220px;overflow:hidden;text-overflow:ellipsis}
