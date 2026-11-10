@@ -27,3 +27,19 @@ KerAPI 首批 4 笔：202 输入 +145 输出，其中缓存0，总347。实际�
 1. 平台管理员在服务器页配置阿里云RAM只读资源和账单权限；然后同步验证，未知费用不可当0。
 2. 与KerAPI确认合同基价、缓存、分时、取整、生效时间；业务复核客户价后再上架，不能无通知传导上游涨价。
 3. 支付/e签宝生产账号、企业正式调用与计费需后续接通；本轮未自动启用。
+
+## 生产发布回执
+
+已部署代码 `7ca8c21945a47567e26777c6058e9ea58643b147`（镜像 oneapi-identity:7ca8c21），公网 /api/status 与 /release.json 一致；客户页面已引用新 identity.da94ff3149d9.js。API healthy，oneapi-monitor.timer active。发布前备份 `/srv/oneapi-backups/oneapi-20261110T070451Z.dump`。
+2026-11-10 15:06 CST 生产只读同步成功，27条、5型号；本台原4笔全部 matched、差额0，仍只有4笔测试，没有新增付费调用。云连接配置数0，资源账单尚待凭据。
+已同步窗口按型号金额（不是整个账户账单）：DeepSeek Flash 9笔/0.001862；GLM-5.3-FlashX 4笔/0.003360；GLM-5.3-Flash 5笔/0.001204；GLM-5.3 5笔/0.017066；DeepSeek Flash-0910 4笔/0.001120。原始日志19字段、该最新记录other17字段，其他记录可有额外字段，均可展开。
+未登录云观察、上游核账、个人试点统计接口均401。payments_enabled=false、inference_enabled=false、pilot_inference_enabled=true，原有两账号试点边界保持。
+
+快捷入口：
+- https://oneapi.glocalstorage.cn/api/staff/console?supplier=272261eb-b55a-431b-acb8-37f0976d7bb5#technical/supplier
+- https://oneapi.glocalstorage.cn/api/staff/console?supplier=272261eb-b55a-431b-acb8-37f0976d7bb5#technical/billing
+- https://oneapi.glocalstorage.cn/api/staff/console?supplier=272261eb-b55a-431b-acb8-37f0976d7bb5#technical/upstream
+- https://oneapi.glocalstorage.cn/api/staff/console#technical/servers
+- https://oneapi.glocalstorage.cn/#personal/usage
+
+业务侧仍以技术人员明确交付报告为准；当前4题质量未全部通过、合同价未确认，不自动转为可上架商品。若需要业务直接预览实时核账摘要，需在后续工作中提供不包含上游原始敏感信息的只读视图。
