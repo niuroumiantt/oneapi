@@ -1,15 +1,15 @@
 import express from 'express';
 import { once } from 'node:events';
+import { readFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import { HttpError,hash,id,text,token,transaction,audit,vault } from './core.mjs';
+import { OFFICIAL_MODELS,findOfficialModel,priceMultiplier } from './official-models.mjs';
 
-// Fixed by the business decision: one 10-yuan grant per employee, never topped up automatically.
+// One 10-yuan grant per employee, never topped up automatically. Usage is charged at official list prices.
 export const GRANT_YUAN='10.000000000000';
 const MAX_KEYS=5,MAX_CONCURRENT=3,PER_MINUTE=60,DEFAULT_OUTPUT=4096,MAX_OUTPUT=8192,MAX_MESSAGES=500;
-// KerAPI's observed time-of-day rule doubles the base price; holds must cover it.
-const PEAK_MULTIPLIER=2n;
 const UPSTREAM_TIMEOUT_MS=300000,STALE_PENDING='15 minutes',BILL_GRACE='24 hours';
-const KERAPI_ORIGIN='https://kerapi.cn';
+const KERAPI_ORIGIN='https://kerapi.cn',DEEPSEEK_BASE='https://api.deepseek.com';
 const SCALE=1000000000000n;
 const keyPattern=/^Bearer (sf_emp_[A-Za-z0-9_-]{43})$/;
 const decimalPattern=/^\d{1,12}(\.\d{1,12})?$/;
@@ -19,27 +19,27 @@ const units=v=>{const [whole,fraction='']=String(v).split('.');return BigInt(who
 const format=v=>`${v/SCALE}.${String(v%SCALE).padStart(12,'0')}`;
 const tokens=v=>Number.isSafeInteger(v)&&v>=0?v:null;
 
-/** Upper bound for a call at peak pricing, rounded up to the ledger's precision. */
-export function holdYuan(rate,{input,cached=0,output}){
+/** Price of a usage amount at the given time-of-day multiplier, rounded up to the ledger's precision. */
+export function holdYuan(rate,{input,cached=0,output},multiplier=1){
  const base=BigInt(input-cached)*units(rate.input)+BigInt(cached)*units(rate.cached??rate.input)+BigInt(output)*units(rate.output);
- return format((base*PEAK_MULTIPLIER+999999n)/1000000n);
+ return format((base*BigInt(multiplier)+999999n)/1000000n);
 }
 
 /** Validates the caller's body and returns the upstream payload plus its billing bound. */
-export function employeeRequest(body,allowed){
+export function employeeRequest(body){
  if(!body||typeof body!=='object'||Array.isArray(body))throw new HttpError(400,'请求必须是 JSON 对象');
- if(!allowed.has(body.model))throw new HttpError(403,'这个模型未开放给公司额度');
+ const model=findOfficialModel(body.model);if(!model)throw new HttpError(403,'这个模型未开放给公司额度');
  if(!Array.isArray(body.messages)||body.messages.length<1||body.messages.length>MAX_MESSAGES)throw new HttpError(400,`messages 需包含 1 至 ${MAX_MESSAGES} 条消息`);
  if(body.n!==undefined&&body.n!==1)throw new HttpError(400,'公司额度仅支持 n=1');
  if(body.max_tokens!==undefined&&body.max_completion_tokens!==undefined)throw new HttpError(400,'max_tokens 与 max_completion_tokens 只能传一个');
  const output=body.max_tokens??body.max_completion_tokens??DEFAULT_OUTPUT;
  if(!Number.isInteger(output)||output<1||output>MAX_OUTPUT)throw new HttpError(400,`max_tokens 必须在 1 至 ${MAX_OUTPUT} 之间`);
  const {max_completion_tokens:_ignored,...rest}=body,stream=body.stream===true;
- const payload={...rest,max_tokens:output,stream};
+ const payload={...rest,model:model.upstreamModel,max_tokens:output,stream};
  if(stream)payload.stream_options={...(body.stream_options||{}),include_usage:true};
  // One token never encodes fewer than one UTF-8 byte of the serialized prompt.
  const input=Buffer.byteLength(JSON.stringify({messages:body.messages,tools:body.tools,functions:body.functions}));
- return {payload,stream,input,output};
+ return {model,payload,stream,input,output};
 }
 
 export function usageFrom(usage){
@@ -49,18 +49,36 @@ export function usageFrom(usage){
  return {input,output,cached:cached===null||cached>input?0:cached};
 }
 
-function enabled(cfg){return Boolean(cfg.employeeCredit?.organizationId&&cfg.employeeCredit?.models?.size&&process.env.SUPPLIER_LAB_SECRET);}
+function enabled(cfg){return Boolean(cfg.employeeCredit?.organizationId&&process.env.SUPPLIER_LAB_SECRET);}
 
-async function endpoints(db,cfg,modelIds=[...cfg.employeeCredit.models]){
- const rows=(await db.query(`SELECT DISTINCT ON (e.model_id) e.model_id,e.base_url,e.credential_id,c.credential_ciphertext,
-  e.input_yuan_per_m AS input,coalesce(e.cached_input_yuan_per_m,e.input_yuan_per_m) AS cached,e.output_yuan_per_m AS output
+async function deepseekKey(cfg){
+ if(!cfg.pilot?.keyFile)return '';
+ try{return (await readFile(cfg.pilot.keyFile,'utf8')).trim();}catch{return '';}
+}
+
+/** Official models that currently have a working upstream route. */
+async function routes(db,cfg){
+ const wanted=OFFICIAL_MODELS.filter(m=>m.upstream==='kerapi').map(m=>m.upstreamModel);
+ const rows=(await db.query(`SELECT DISTINCT ON (e.model_id) e.model_id,e.base_url,e.credential_id,c.credential_ciphertext
   FROM supplier_lab_endpoints e JOIN supplier_lab_credentials c ON c.id=e.credential_id JOIN supplier_lab_suppliers s ON s.id=e.supplier_id
   WHERE e.model_id=ANY($1::text[]) AND e.kind='supplier' AND e.disabled_at IS NULL AND c.disabled_at IS NULL AND s.disabled_at IS NULL
-   AND e.input_yuan_per_m IS NOT NULL AND e.output_yuan_per_m IS NOT NULL
    AND NOT EXISTS(SELECT 1 FROM suppliers p WHERE p.id=s.canonical_supplier_id AND p.status='blocked')
-  ORDER BY e.model_id,e.created_at DESC`,[modelIds])).rows;
- return rows.filter(r=>{try{return new URL(r.base_url).origin===KERAPI_ORIGIN;}catch{return false;}});
+  ORDER BY e.model_id,e.created_at DESC`,[wanted])).rows.filter(r=>{try{return new URL(r.base_url).origin===KERAPI_ORIGIN;}catch{return false;}});
+ const byModel=new Map(rows.map(r=>[r.model_id,r])),hasDeepseek=Boolean(await deepseekKey(cfg));
+ return OFFICIAL_MODELS.flatMap(model=>{
+  if(model.upstream==='deepseek')return hasDeepseek?[{model,baseUrl:DEEPSEEK_BASE,credentialId:null}]:[];
+  const row=byModel.get(model.upstreamModel);
+  return row?[{model,baseUrl:row.base_url,credentialId:row.credential_id,ciphertext:row.credential_ciphertext}]:[];
+ });
 }
+
+async function upstreamSecret(route,cfg){
+ const secret=route.credentialId?vault(process.env.SUPPLIER_LAB_SECRET).open(route.ciphertext).key:await deepseekKey(cfg);
+ if(!secret)throw Error('UPSTREAM_KEY_MISSING');
+ return secret;
+}
+
+const publicModel=({id,name,family,tags,uses,rates,peakPricing})=>({id,name,family,tags,uses,input_yuan:rates.input,cached_yuan:rates.cached,output_yuan:rates.output,peak_multiplier:peakPricing?2:1});
 
 async function activeMember(db,cfg,userId){
  return (await db.query("SELECT o.id,o.name FROM memberships m JOIN organizations o ON o.id=m.organization_id WHERE m.organization_id=$1 AND m.user_id=$2 AND m.status='active'",[cfg.employeeCredit.organizationId,userId])).rows[0];
@@ -94,9 +112,9 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer){
    balance(pool,req.customer.id),
    pool.query('SELECT id,label,key_hint,created_at,revoked_at FROM employee_api_keys WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 20',[req.customer.id]),
    pool.query('SELECT c.id,k.label AS key_label,c.model_id,c.status,c.hold_yuan,c.charged_yuan,c.settlement_source,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.latency_ms,c.error_code,c.created_at FROM employee_calls c JOIN employee_api_keys k ON k.id=c.key_id WHERE c.owner_id=$1 ORDER BY c.created_at DESC LIMIT 30',[req.customer.id]),
-   endpoints(pool,cfg)
+   routes(pool,cfg)
   ]);
-  res.json({enabled:true,organization_name:organization.name,...money,base_url:cfg.origin+'/v1',model_ids:available.map(r=>r.model_id),key_limit:MAX_KEYS,keys:keys.rows,recent_calls:calls.rows});
+  res.json({enabled:true,organization_name:organization.name,...money,base_url:cfg.origin+'/v1',model_ids:available.map(r=>r.model.id),models:available.map(r=>publicModel(r.model)),key_limit:MAX_KEYS,keys:keys.rows,recent_calls:calls.rows});
  });
  app.post('/api/employee-credit/keys',requireCustomer,async(req,res)=>{
   await requireMember(req);
@@ -140,39 +158,47 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   if(count>PER_MINUTE){res.set('Retry-After','60');throw new HttpError(429,'请求过于频繁');}
  }
  const fail=(callId,code,started)=>pool.query("UPDATE employee_calls SET status='failed',error_code=$2,latency_ms=$3,finished_at=now() WHERE id=$1 AND status='pending'",[callId,code,Math.round(performance.now()-started)]);
- /** Keeps the funds held until KerAPI's real amount arrives, shrinking the hold once usage is known. */
- async function answered(callId,requestId,usage,rate,started){
-  const hold=usage?holdYuan(rate,usage):null;
-  await pool.query(`UPDATE employee_calls SET status='awaiting_bill',upstream_request_id=$2,input_tokens=$3,cached_input_tokens=$4,output_tokens=$5,hold_yuan=CASE WHEN $6::numeric IS NULL THEN hold_yuan ELSE LEAST(hold_yuan,$6::numeric) END,latency_ms=$7,finished_at=now() WHERE id=$1 AND status='pending'`,
-   [callId,requestId,usage?.input??null,usage?.cached??null,usage?.output??null,hold,Math.round(performance.now()-started)]);
+ /** Charges the official price as soon as usage is known; without usage the hold stays until a bill arrives. */
+ async function answered(call,requestId,usage,started){
+  const latency=Math.round(performance.now()-started);
+  if(!usage){await pool.query("UPDATE employee_calls SET status='awaiting_bill',upstream_request_id=$2,latency_ms=$3,finished_at=now() WHERE id=$1 AND status='pending'",[call.id,requestId,latency]);return;}
+  const amount=holdYuan(call.rates,usage,call.multiplier);
+  await transaction(pool,async db=>{
+   const account=(await db.query('SELECT granted_yuan-spent_yuan AS remaining FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[call.ownerId])).rows[0];
+   // Never overdrawn, even when real usage exceeds the pre-call bound; actual_yuan keeps the true price.
+   const charged=(await db.query(`UPDATE employee_calls SET status='settled',upstream_request_id=$2,input_tokens=$3,cached_input_tokens=$4,output_tokens=$5,actual_yuan=$6::numeric,charged_yuan=LEAST($6::numeric,$7::numeric),settlement_source='official_price',latency_ms=$8,finished_at=now(),settled_at=now() WHERE id=$1 AND status='pending' RETURNING charged_yuan`,
+    [call.id,requestId,usage.input,usage.cached,usage.output,amount,account.remaining,latency])).rows[0];
+   if(charged)await db.query('UPDATE employee_credit_accounts SET spent_yuan=spent_yuan+$2 WHERE user_id=$1',[call.ownerId,charged.charged_yuan]);
+  });
  }
  app.get('/v1/models',(req,res,next)=>isEmployee(req)?next():next('route'),async(req,res)=>{
   await authenticate(req);
-  res.json({object:'list',data:(await endpoints(pool,cfg)).map(r=>({id:r.model_id,object:'model',owned_by:'semifly'}))});
+  res.json({object:'list',data:(await routes(pool,cfg)).map(r=>({id:r.model.id,object:'model',owned_by:'semifly'}))});
  });
  app.post('/v1/chat/completions',(req,res,next)=>isEmployee(req)?parser(req,res,next):next('route'),async(req,res)=>{
   const key=await authenticate(req);
   await limit(key.key_id,res);
-  const {payload,stream,input,output}=employeeRequest(req.body,cfg.employeeCredit.models);
-  const route=(await endpoints(pool,cfg,[payload.model]))[0];
+  const {model,payload,stream,input,output}=employeeRequest(req.body);
+  const route=(await routes(pool,cfg)).find(r=>r.model.id===model.id);
   if(!route)throw new HttpError(503,'这个模型暂时不可用');
-  const rate={input:route.input,cached:route.cached,output:route.output},hold=holdYuan(rate,{input,output});
+  const multiplier=priceMultiplier(model,new Date(),cfg.employeeCredit.holidays),hold=holdYuan(model.rates,{input,output},multiplier);
   const callId=await transaction(pool,async db=>{
    // The row lock serialises reservations so concurrent calls cannot overspend.
    await db.query('SELECT user_id FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[key.owner_id]);
    const money=await balance(db,key.owner_id);
    const active=(await db.query(`SELECT count(*)::int AS count FROM employee_calls WHERE owner_id=$1 AND status='pending' AND created_at>now()-interval '${STALE_PENDING}'`,[key.owner_id])).rows[0].count;
    if(active>=MAX_CONCURRENT){res.set('Retry-After','5');throw new HttpError(429,`同时最多 ${MAX_CONCURRENT} 个请求`);}
-   if(units(money.available_yuan<0?0:money.available_yuan)<units(hold))throw new HttpError(402,'公司额度不足以覆盖这次调用的上限；可调小 max_tokens，或等待结算中的费用释放');
-   return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,status,hold_yuan) VALUES($1,$2,$3,$4,'pending',$5) RETURNING id",[key.key_id,key.owner_id,payload.model,route.credential_id,hold])).rows[0].id;
+   if(units(money.available_yuan<0?0:money.available_yuan)<units(hold))throw new HttpError(402,'公司额度不足以覆盖这次调用的上限，可调小 max_tokens');
+   return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan) VALUES($1,$2,$3,$4,$5,$6,'pending',$7) RETURNING id",[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold])).rows[0].id;
   });
+  const call={id:callId,ownerId:key.owner_id,rates:model.rates,multiplier};
   const started=performance.now(),abort=new AbortController();
   // 'finish' also fires 'close'; only a close before the response ended is a disconnect.
   res.on('close',()=>{if(!res.writableEnded)abort.abort();});
   let response,upstreamKey;
   try{
-   upstreamKey=vault(process.env.SUPPLIER_LAB_SECRET).open(route.credential_ciphertext).key;
-   response=await upstreamFetch(`${route.base_url}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify(payload),redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)])});
+   upstreamKey=await upstreamSecret(route,cfg);
+   response=await upstreamFetch(`${route.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify(payload),redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)])});
   }catch(error){
    await fail(callId,error.name==='TimeoutError'?'UPSTREAM_TIMEOUT':'UPSTREAM_FAILED',started);
    throw new HttpError(502,'上游调用失败；本次未扣额度');
@@ -188,8 +214,8 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   if(!stream){
    let result;
    try{result=await response.json();}
-   catch{await answered(callId,requestId,null,rate,started);throw new HttpError(502,'上游响应格式异常');}
-   await answered(callId,requestId,usageFrom(result.usage),rate,started);
+   catch{await answered(call,requestId,null,started);throw new HttpError(502,'上游响应格式异常');}
+   await answered(call,requestId,usageFrom(result.usage),started);
    return res.json(result);
   }
   res.status(200).set({'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache','X-Accel-Buffering':'no'});res.flushHeaders();
@@ -208,13 +234,13 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   }catch{/* A dropped stream may still be billed, so it keeps the hold below. */}
   finally{
    await reader.cancel().catch(()=>{});
-   await answered(callId,requestId,usage,rate,started);
+   await answered(call,requestId,usage,started);
    res.end();
   }
  });
 }
 
-/** Applies KerAPI's real amounts. Runs after each usage sync; safe to repeat. */
+/** Settles calls whose response carried no usage, from KerAPI's log or the hold. Safe to repeat. */
 export async function settleEmployeeCalls(pool){
  await pool.query(`UPDATE employee_calls SET status='awaiting_bill',finished_at=now(),error_code='STALE_PENDING' WHERE status='pending' AND created_at<now()-interval '${STALE_PENDING}'`);
  const billed=(await pool.query(`SELECT c.id,c.owner_id,r.evidence->>'amount' AS amount FROM employee_calls c JOIN supplier_usage_records r ON r.credential_id=c.credential_id AND r.request_id=c.upstream_request_id
