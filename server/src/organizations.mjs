@@ -27,13 +27,13 @@ export function organizationRoutes(app,pool,cfg,requireCustomer){
   res.json({organization:org,membership:m,members,joinLinks,joinRequests,permissions:{manager:isManager(m.role),manageMembers:isManager(m.role),manageOwners:isManager(m.role),viewBilling:isManager(m.role)}});
  });
  app.post(prefix+'/organizations/:org/join-links',requireCustomer,async(req,res)=>{const result=await transaction(pool,async db=>{
-  const actor=await member(db,req.params.org,req.customer.id,true);if(!isManager(actor.role))throw new HttpError(403,'仅企业代表人可生成邀请链接');
+  const actor=await member(db,req.params.org,req.customer.id,true);if(!isManager(actor.role))throw new HttpError(403,'仅企业管理者可生成邀请链接');
   const existing=(await db.query("SELECT id,token_secret,expires_at FROM organization_join_links WHERE organization_id=$1 AND status='active' AND expires_at>now() ORDER BY created_at DESC LIMIT 1",[req.params.org])).rows[0];if(existing)return {id:existing.id,expires_at:existing.expires_at,url:cfg.origin+'/#join/'+linkVault.open(existing.token_secret)};
   const secret=token(),row=(await db.query("INSERT INTO organization_join_links(organization_id,created_by,token_hash,token_secret,expires_at) VALUES($1,$2,$3,$4,now()+interval '7 days') RETURNING id,expires_at",[req.params.org,req.customer.id,hash(secret),linkVault.seal(secret)])).rows[0];
   await audit(db,req.actor,'join_link.created',req.params.org,row.id);return {...row,url:cfg.origin+'/#join/'+secret};
  });res.status(201).json(result);});
  app.post(prefix+'/organizations/:org/join-links/:link/revoke',requireCustomer,async(req,res)=>{await transaction(pool,async db=>{
-  const actor=await member(db,req.params.org,req.customer.id,true);if(!isManager(actor.role))throw new HttpError(403,'仅企业代表人可撤销邀请链接');
+  const actor=await member(db,req.params.org,req.customer.id,true);if(!isManager(actor.role))throw new HttpError(403,'仅企业管理者可撤销邀请链接');
   const result=await db.query("UPDATE organization_join_links SET status='revoked' WHERE id=$1 AND organization_id=$2 AND status='active' RETURNING id",[id(req.params.link),req.params.org]);if(!result.rowCount)throw new HttpError(404,'有效邀请链接不存在');
   await audit(db,req.actor,'join_link.revoked',req.params.org,req.params.link);
  });res.json({ok:true});});
@@ -42,13 +42,13 @@ export function organizationRoutes(app,pool,cfg,requireCustomer){
   await db.query('SELECT id FROM organizations WHERE id=$1 FOR UPDATE',[found.organization_id]);
   const link=(await db.query('SELECT * FROM organization_join_links WHERE id=$1',[found.id])).rows[0];if(link.status!=='active'||new Date(link.expires_at)<=new Date())throw new HttpError(400,'企业邀请链接已失效');
   const existing=await db.query('SELECT 1 FROM memberships WHERE organization_id=$1 AND user_id=$2',[link.organization_id,req.customer.id]);if(existing.rowCount)throw new HttpError(409,'你已是这家企业的成员');
-  const prior=(await db.query('SELECT id,status FROM organization_join_requests WHERE organization_id=$1 AND user_id=$2',[link.organization_id,req.customer.id])).rows[0];if(prior){if(prior.status==='pending')return {organizationId:link.organization_id,status:'pending'};throw new HttpError(409,'已有处理结果，请联系企业代表人');}
+  const prior=(await db.query('SELECT id,status FROM organization_join_requests WHERE organization_id=$1 AND user_id=$2',[link.organization_id,req.customer.id])).rows[0];if(prior){if(prior.status==='pending')return {organizationId:link.organization_id,status:'pending'};throw new HttpError(409,'已有处理结果，请联系企业管理者');}
   const name=text(req.body.name||req.customer.name,'姓名',80),department=typeof req.body.department==='string'?req.body.department.trim():'';if(department.length>80)throw new HttpError(400,'部门名称过长');
   const row=(await db.query("INSERT INTO organization_join_requests(organization_id,link_id,user_id,display_name,department) VALUES($1,$2,$3,$4,$5) RETURNING id",[link.organization_id,link.id,req.customer.id,name,department])).rows[0];
   await audit(db,req.actor,'join_request.created',link.organization_id,row.id);return {organizationId:link.organization_id,status:'pending'};
  });res.status(202).json(result);});
  app.post(prefix+'/organizations/:org/join-requests/:request/:decision',requireCustomer,async(req,res)=>{const decision=req.params.decision;if(!['approve','reject'].includes(decision))throw new HttpError(404,'操作不存在');await transaction(pool,async db=>{
-  const actor=await member(db,req.params.org,req.customer.id,true);if(!isManager(actor.role))throw new HttpError(403,'仅企业代表人可审核加入申请');
+  const actor=await member(db,req.params.org,req.customer.id,true);if(!isManager(actor.role))throw new HttpError(403,'仅企业管理者可审核加入申请');
   const request=(await db.query('SELECT * FROM organization_join_requests WHERE id=$1 AND organization_id=$2 FOR UPDATE',[id(req.params.request),req.params.org])).rows[0];if(!request)throw new HttpError(404,'加入申请不存在');if(request.status!=='pending')throw new HttpError(409,'申请已处理');
   if(decision==='approve'){const exists=await db.query('SELECT 1 FROM memberships WHERE organization_id=$1 AND user_id=$2',[req.params.org,request.user_id]);if(exists.rowCount)throw new HttpError(409,'申请人已是企业成员');await db.query("INSERT INTO memberships(organization_id,user_id,role,department) VALUES($1,$2,'member',$3)",[req.params.org,request.user_id,request.department]);}
   await db.query('UPDATE organization_join_requests SET status=$2,reviewed_by=$3,reviewed_at=now() WHERE id=$1',[request.id,decision==='approve'?'approved':'rejected',req.customer.id]);
