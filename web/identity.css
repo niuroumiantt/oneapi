@@ -422,3 +422,17 @@ select option{font-size:14px}
 .team-usage td small,.personal-pilot-log td small{display:block;color:#7d8699}
 @media(max-width:900px){.pc-identity{display:none}}
 @media(max-width:850px){.pc-surface{display:none}.team-bars{gap:3px}.team-bar small{font-size:8px}}
+
+.personal-console-stats[hidden]{display:none}
+.overview-page{display:grid;gap:14px;margin-top:11px}
+.overview-hero{display:flex;flex-wrap:wrap;align-items:center;gap:18px 36px;padding:18px 22px;border:1px solid #dfe2ed;border-radius:12px;background:#fff}
+.overview-balance{display:grid;gap:3px;min-width:220px}.overview-balance span{font-size:13px;color:#4b5365}.overview-balance strong{font-size:32px;line-height:1.15;font-weight:750;color:#111522;font-variant-numeric:tabular-nums}.overview-balance small{font-size:12px;color:#7d8699}
+.overview-figures{display:flex;flex-wrap:wrap;gap:12px 36px;flex:1}.overview-figures div{display:grid;gap:3px}.overview-figures span{font-size:12px;color:#7d8699}.overview-figures b{font-size:18px;color:#1c1e29;font-variant-numeric:tabular-nums}
+.overview-primary{display:inline-flex;align-items:center;gap:6px;margin-left:auto;padding:9px 18px;border-radius:8px;background:#7a26d9;color:#fff;font-size:14px;font-weight:600;text-decoration:none}
+.overview-grid{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:14px}
+.overview-empty{display:grid;justify-items:start;gap:8px;padding:26px 16px;color:#5b6478;font-size:13px}.overview-empty p{margin:0}
+.overview-page button,.overview-page .personal-section-title button{border:1px solid #d0d4df;border-radius:6px;background:#fff;padding:6px 11px;font-size:12px;cursor:pointer}
+.overview-connect .overview-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-top:1px solid #eef0f6}.overview-row>div{display:grid;gap:3px;min-width:0}.overview-row small{font-size:11px;color:#7d8699}.overview-row code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}.overview-sample{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.overview-attention ul{margin:0;padding:10px 16px 12px 32px;font-size:13px;line-height:1.8}
+@media(max-width:900px){.overview-grid{grid-template-columns:minmax(0,1fr)}.overview-primary{margin-left:0}}
+.overview-grid table{min-width:0;width:100%}.overview-row button{flex:none;white-space:nowrap}

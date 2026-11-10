@@ -354,7 +354,7 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  assert.deepEqual((await jar().call('/v1/models',{headers:{Authorization:'Bearer '+created.data.secret}})).data.data.map(m=>m.id),['deepseek-flash','deepseek-v4-pro','glm-5.3']);
  const first=await call({model:'GLM-5.3'});assert.equal(first.status,200,JSON.stringify(first.data));
  assert.equal(upstreamCalls[0].url,'https://kerapi.cn/v1/chat/completions');assert.equal(upstreamCalls[0].options.headers.Authorization,'Bearer fixture-kerapi-secret');assert.equal(JSON.parse(upstreamCalls[0].options.body).model,'GLM-5.3');
- let s=await status();assert.equal(Number(s.spent_yuan),0.00108,'official price charged at completion');assert.equal(Number(s.held_yuan),0);assert.equal(s.recent_calls[0].model_id,'glm-5.3');assert.equal(s.recent_calls[0].settlement_source,'official_price');
+ let s=await status();assert.equal(Number(s.spent_yuan),0.00108,'official price charged at completion');assert.equal(s.calls_30d,1);assert.equal(s.failed_30d,0);assert.equal(Number(s.month_yuan),0.00108);assert.equal(s.daily[0].model_id,'glm-5.3');assert.equal(Number(s.held_yuan),0);assert.equal(s.recent_calls[0].model_id,'glm-5.3');assert.equal(s.recent_calls[0].settlement_source,'official_price');
  const before=Number(s.spent_yuan);
  assert.equal((await call({model:'deepseek-v4-pro'})).status,200);const pro=upstreamCalls.at(-1);assert.equal(pro.url,'https://api.deepseek.com/chat/completions');assert.equal(pro.options.headers.Authorization,'Bearer fixture-upstream-secret');
  s=await status();assert.ok([0.000585,0.00117].includes(Number((Number(s.spent_yuan)-before).toFixed(9))),'V4 Pro official price with time-of-day multiplier');
