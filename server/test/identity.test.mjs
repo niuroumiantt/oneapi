@@ -287,6 +287,7 @@ test('personal pilot keys are scoped, hashed, capped and record real upstream us
  const stored=(await pool.query('SELECT secret_hash FROM pilot_api_keys WHERE id=$1',[created.data.key.id])).rows[0];
  assert.notEqual(stored.secret_hash,secret);assert.equal(stored.secret_hash,createHash('sha256').update(secret).digest('hex'));
  assert.equal((await owner.j.call('/api/pilot/status')).data.keys[0].secret,undefined);
+ const spentBefore=(await owner.j.call('/api/billing/personal')).data.total_spent_fen;
  const call=()=>owner.j.call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+secret},body:{model:'deepseek-flash',messages:[{role:'user',content:'Reply OK'}],max_tokens:16}});
  assert.equal((await call()).status,200);
  const proCreated=await owner.j.call('/api/pilot/keys',{method:'POST',body:{label:'Reasoning Agent',model_id:'deepseek-v4-pro',confirm_model:true}});
@@ -299,6 +300,13 @@ test('personal pilot keys are scoped, hashed, capped and record real upstream us
  const status=(await owner.j.call('/api/pilot/status')).data;
  assert.deepEqual(status.model_ids,['deepseek-flash','deepseek-v4-pro']);
  assert.equal(status.calls_today,2);assert.equal(status.recent_calls[0].model_id,'deepseek-v4-pro');assert.equal(status.recent_calls[0].input_tokens,7);assert.equal(status.recent_calls[0].cache_hit_tokens,2);assert.equal(Number(status.recent_calls[0].estimated_upstream_yuan),0.0000726);
+ assert.equal(status.usage_window_days,30);
+ assert.deepEqual(status.usage_by_model.map(row=>[row.model_id,row.successful_calls,Number(row.input_tokens),Number(row.cache_hit_tokens)]),[['deepseek-flash',1,7,2],['deepseek-v4-pro',1,7,2]]);
+ assert.equal(status.usage_by_key.length,2);
+ assert.equal(status.usage_by_key.find(row=>row.key_id===created.data.key.id).successful_calls,1);
+ assert.equal(status.recent_calls[0].key_label,'Reasoning Agent');
+ assert.equal(status.recent_calls[0].secret,undefined);
+ assert.equal((await owner.j.call('/api/billing/personal')).data.total_spent_fen,spentBefore);
  assert.equal((await owner.j.call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+secret},body:{model:'deepseek-flash',stream:true,messages:[{role:'user',content:'No'}]}})).status,400);
  for(let n=2;n<10;n++)assert.equal((await call()).status,200);
  assert.equal((await call()).status,429);
