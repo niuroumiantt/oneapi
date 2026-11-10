@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateProbeCostYuan, csvCell, runSupplierProbe, supplierLabRoutes, validateLabBaseUrl } from '../src/supplier-lab.mjs';
+import { startSupplierRun, calculateProbeCostYuan, csvCell, runSupplierProbe, supplierLabRoutes, validateLabBaseUrl } from '../src/supplier-lab.mjs';
 import { vault } from '../src/core.mjs';
 
 test('procurement cost splits cached and uncached input at exact token precision', () => {
@@ -33,7 +33,7 @@ test('a live protocol probe records one upstream attempt with usage, cost and ev
     assert.equal(options.headers.Authorization, 'Bearer local-test-key');
     assert.equal(JSON.parse(options.body).model, 'deepseek-chat');
     assert.deepEqual(JSON.parse(options.body).thinking, { type: 'disabled' });
-    return new Response(JSON.stringify({ model: 'deepseek-chat', choices: [{ message: { content: '391' } }], usage: { prompt_tokens: 20, prompt_cache_hit_tokens: 5, completion_tokens: 2, total_tokens: 22 } }), { status: 200, headers: { 'x-request-id': 'req-test-1' } });
+    return new Response(JSON.stringify({ id:'completion-test',created:12345,model: 'deepseek-chat', choices: [{ message: { content: '391' } }], usage: { prompt_tokens: 20, prompt_cache_hit_tokens: 5, completion_tokens: 2, total_tokens: 22 } }), { status: 200, headers: { 'x-request-id': 'req-test-1' } });
   };
   try {
     const box = vault('local-test-secret-that-is-over-32-characters');
@@ -49,7 +49,7 @@ test('a live protocol probe records one upstream attempt with usage, cost and ev
     assert.equal(checks.usage_present_and_consistent, true);
     assert.equal(checks.model_matches_request, true);
     assert.equal(checks.usage_evidence.prompt_cache_hit_tokens, 5);
-    assert.equal(checks.cost_status, 'estimated');
+    assert.equal(checks.cost_status, 'estimated');assert.equal(checks.response_id,'completion-test');assert.equal(checks.response_created,12345);assert.ok(checks.started_at<=checks.finished_at);assert.deepEqual(checks.request_parameters,{temperature:0,max_tokens:32,stream:false});
   } finally {
     global.fetch = originalFetch;
   }
@@ -118,4 +118,12 @@ test('manual bill comparison rejects empty and overlapping probe periods', async
     if (previous === undefined) delete process.env.SUPPLIER_LAB_SECRET;
     else process.env.SUPPLIER_LAB_SECRET = previous;
   }
+});
+
+
+test('operator first run rejects a duplicate before any upstream request', async()=>{
+ const endpointId='11111111-1111-4111-8111-111111111111';let network=0;const original=global.fetch;global.fetch=async()=>{network++;throw Error('unexpected_network')};
+ const db={release(){},async query(sql){if(sql.startsWith('SELECT 1 FROM supplier_lab_runs'))return {rowCount:1};return {rows:[]}}};
+ const pool={connect:async()=>db,query:async()=>({rows:[{id:endpointId,kind:'supplier',base_url:'https://api.deepseek.com',model_id:'deepseek-chat'}]})};
+ try{await assert.rejects(startSupplierRun(pool,{}, {supplier_endpoint_id:endpointId,case_ids:['arithmetic']},'test',{kind:'system',id:'test'},{firstRunOnly:true}),e=>e.status===409);assert.equal(network,0)}finally{global.fetch=original}
 });

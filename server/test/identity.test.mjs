@@ -320,9 +320,11 @@ test('sign out revokes persistent customer session',async()=>{assert.equal((awai
 test('two workspaces share credentials, actual acceptance and fail-closed catalog releases',async()=>{
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;
  const admin=jar();await staffLogin(admin);
+ for(const path of ['/api/staff/console','/api/staff/console.js','/api/staff/workspace/view','/api/staff/lab/view','/api/staff/workspace/bridge.js'])assert.equal((await admin.call(path)).status,200,path);
+ assert.equal((await jar().call('/api/staff/console')).location,'/api/staff/login?next=business');
  identity={sub:'technical-fixture',email:'technical@example.test',name:'Technician',staff_approved:true};const tech=jar();await staffLogin(tech);
  assert.equal((await admin.call('/api/staff/members/technical-fixture',{method:'PATCH',body:{role:'support',status:'active'}})).status,200);await staffLogin(tech);
- assert.equal((await tech.call('/api/staff/lab/config')).status,403);
+ assert.equal((await tech.call('/api/staff/lab/config')).status,403);assert.equal((await tech.call('/api/staff/lab/view')).status,403);
  assert.equal((await admin.call('/api/staff/members/technical-fixture/technical-access',{method:'PUT',body:{enabled:true}})).status,200);
  assert.equal((await tech.call('/api/staff/lab/config')).status,200);
  assert.equal((await tech.call('/api/staff/suppliers',{method:'POST',body:{}})).status,403);

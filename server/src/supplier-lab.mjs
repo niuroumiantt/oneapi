@@ -41,15 +41,16 @@ async function readLimited(response) {
 }
 export async function runSupplierProbe(endpoint, caseDef, box, runId, pool) {
   validateLabBaseUrl(endpoint.base_url);
-  const started = performance.now(); let httpStatus = null, errorCode = null, upstreamRequestId = null, output = '', usage = null, responseModel = null, finishReason = null;
+  const startedAt = new Date().toISOString(), started = performance.now(); let responseId = null, responseCreated = null, reasoningTokens = null; let httpStatus = null, errorCode = null, upstreamRequestId = null, output = '', usage = null, responseModel = null, finishReason = null;
   try {
     const key = box.open(endpoint.active_ciphertext ?? endpoint.credential_ciphertext).key;
     const request = { model: endpoint.model_id, messages: [{ role: 'user', content: caseDef.prompt }], temperature: 0, max_tokens: caseDef.maxTokens, stream: false };
     if (new URL(endpoint.base_url).hostname === 'api.deepseek.com') request.thinking = { type: 'disabled' };
     const response = await fetch(`${endpoint.base_url}/chat/completions`, { method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(request), signal: AbortSignal.timeout(25000) });
-    httpStatus = response.status; upstreamRequestId = bounded(response.headers.get('x-request-id'), 120);
+    httpStatus = response.status; upstreamRequestId = bounded(response.headers.get('x-request-id') || response.headers.get('x-oneapi-request-id'), 120);
     if (response.ok) {
       const data = await readLimited(response);
+      responseId=bounded(data.id,120); responseCreated=integer(data.created); reasoningTokens=integer(data.usage?.completion_tokens_details?.reasoning_tokens);
       output = typeof data.choices?.[0]?.message?.content === 'string' ? data.choices[0].message.content : '';
       usage = data.usage ?? null; responseModel = bounded(data.model, 120); finishReason = bounded(data.choices?.[0]?.finish_reason, 40);
       if (!output) errorCode = finishReason === 'length' ? 'OUTPUT_TRUNCATED' : 'EMPTY_OUTPUT';
@@ -77,6 +78,8 @@ export async function runSupplierProbe(endpoint, caseDef, box, runId, pool) {
   const checks = { response_schema: schemaOk, usage_present_and_consistent: usageOk, task_passed: caseOk,
     requested_model: endpoint.model_id, response_model: responseModel, model_matches_request: modelMatchesRequest,
     finish_reason: finishReason, usage_evidence: usageEvidence,
+    started_at:startedAt,finished_at:new Date().toISOString(),response_id:responseId,response_created:responseCreated,reasoning_tokens:reasoningTokens,
+    request_parameters:{temperature:0,max_tokens:caseDef.maxTokens,stream:false},
     cache_count_status: cached === null ? 'not_reported' : 'reported',
     cost_status: costYuan !== null ? 'estimated' : 'unavailable',
     grading: 'deterministic_v1' };
@@ -92,13 +95,26 @@ async function executeRun(pool, box, runId, supplier, reference, cases) {
     await pool.query("UPDATE supplier_lab_runs SET status='failed',finished_at=now() WHERE id=$1", [runId]).catch(() => {});
   }
 }
+export async function startSupplierRun(pool,box,b,staffSubject,actor,{firstRunOnly=false}={}) {
+    if (!box) throw new HttpError(503, '验收加密服务未配置'); const supplierId = id(b.supplier_endpoint_id), referenceId = b.reference_endpoint_id ? id(b.reference_endpoint_id) : null;
+    if (referenceId === supplierId) throw new HttpError(400, '对比端点不能与供应端点相同');
+    const requested = Array.isArray(b.case_ids) ? b.case_ids : []; if (!requested.length || requested.length > 4 || new Set(requested).size !== requested.length || requested.some(x => !CASE_BY_ID.has(x))) throw new HttpError(400, '请选择 1 至 4 个固定任务');
+    const endpoints = (await pool.query(`SELECT e.*,coalesce(c.credential_ciphertext,e.credential_ciphertext) AS active_ciphertext FROM supplier_lab_endpoints e LEFT JOIN supplier_lab_credentials c ON c.id=e.credential_id LEFT JOIN supplier_lab_suppliers s ON s.id=e.supplier_id WHERE e.id=ANY($1::uuid[]) AND e.disabled_at IS NULL AND (c.id IS NULL OR c.disabled_at IS NULL) AND (s.id IS NULL OR (s.disabled_at IS NULL AND NOT EXISTS(SELECT 1 FROM suppliers p WHERE p.id=s.canonical_supplier_id AND p.status='blocked')))`, [[supplierId, referenceId].filter(Boolean)])).rows;
+    const supplier = endpoints.find(x => x.id === supplierId && x.kind === 'supplier'), reference = referenceId ? endpoints.find(x => x.id === referenceId) : null;
+    if (!supplier || (referenceId && !reference)) throw new HttpError(400, '型号不存在、Key 已停用或类型不匹配');
+    validateLabBaseUrl(supplier.base_url);
+    if (reference) validateLabBaseUrl(reference.base_url);
+    const runId = await transaction(pool, async db => { await db.query('SELECT pg_advisory_xact_lock(148921,9)'); if(firstRunOnly && (await db.query('SELECT 1 FROM supplier_lab_runs WHERE supplier_endpoint_id=$1 OR reference_endpoint_id=$1',[supplierId])).rowCount) throw new HttpError(409,'该型号已有测试，拒绝重复首批执行'); await db.query("UPDATE supplier_lab_runs SET status='failed',finished_at=now() WHERE status='running' AND created_at<now()-interval '5 minutes'"); const active = Number((await db.query("SELECT count(*) AS n FROM supplier_lab_runs WHERE status='running'")).rows[0].n); if (active >= 2) throw new HttpError(429, '已有验收任务运行中，请稍后再试'); const row = (await db.query('INSERT INTO supplier_lab_runs(supplier_endpoint_id,reference_endpoint_id,case_ids,created_by) VALUES($1,$2,$3,$4) RETURNING id', [supplierId, referenceId, requested, staffSubject])).rows[0]; await audit(db, actor, 'supplier_lab.run_started', null, row.id, { supplier_endpoint_id: supplierId, reference_endpoint_id: referenceId, case_ids: requested, invocation: firstRunOnly ? 'operator_first_run' : 'console' }); return row.id; });
+    return {run_id:runId,status:'running',max_upstream_calls:requested.length*(reference?2:1),completion:executeRun(pool,box,runId,supplier,reference,requested.map(x=>CASE_BY_ID.get(x)))};
+}
 export function supplierLabRoutes(app, pool, requireStaff) {
   const secret = process.env.SUPPLIER_LAB_SECRET;
   const box = secret?.length >= 32 ? vault(secret) : null;
   const access = (req, write = false) => { requireTechnical(req); if (write && !box) throw new HttpError(503, '验收台凭据加密密钥尚未配置'); };
-  app.get('/api/staff/lab/console', requireStaff, (req, res) => { access(req); res.set('Cache-Control', 'no-store'); res.sendFile(new URL('../private/supplier-lab.html', import.meta.url).pathname); });
-  app.get('/api/staff/lab/console.js', requireStaff, (req, res) => { access(req); res.set('Cache-Control', 'no-store'); res.type('js').sendFile(new URL('../private/supplier-lab.js', import.meta.url).pathname); });
-  app.get('/api/staff/lab/logo.svg', requireStaff, (req, res) => { access(req); res.set('Cache-Control', 'no-store'); res.type('svg').sendFile(new URL('../private/supplier-lab-logo.svg', import.meta.url).pathname); });
+  app.get('/api/staff/lab/console', requireStaff, (req, res) => { access(req); res.set('Cache-Control', 'no-store'); res.sendFile(new URL('../private/admin-shell.html', import.meta.url).pathname,{dotfiles:'allow'}); });
+  app.get('/api/staff/lab/view', requireStaff, (req, res) => { access(req); res.sendFile(new URL('../private/supplier-lab.html', import.meta.url).pathname,{dotfiles:'allow'}); });
+  app.get('/api/staff/lab/console.js', requireStaff, (req, res) => { access(req); res.set('Cache-Control', 'no-store'); res.type('js').sendFile(new URL('../private/supplier-lab.js', import.meta.url).pathname,{dotfiles:'allow'}); });
+  app.get('/api/staff/lab/logo.svg', requireStaff, (req, res) => { access(req); res.set('Cache-Control', 'no-store'); res.type('svg').sendFile(new URL('../private/supplier-lab-logo.svg', import.meta.url).pathname,{dotfiles:'allow'}); });
   app.get('/api/staff/lab/config', requireStaff, (req, res) => { access(req); res.json({ ready: Boolean(box), allowed_hosts: (process.env.SUPPLIER_LAB_ALLOWED_HOSTS || 'api.deepseek.com').split(',').map(x => x.trim()).filter(Boolean), cases: CASES.map(({ id, name, prompt, expected, maxTokens }) => ({ id, name, prompt, expected, max_tokens: maxTokens })), customer_traffic_connected: false }); });
   app.get('/api/staff/lab/suppliers', requireStaff, async (req,res)=>{
     access(req);
@@ -219,27 +235,18 @@ export function supplierLabRoutes(app, pool, requireStaff) {
     res.status(201).json(row);
   });
   app.post('/api/staff/lab/runs', requireStaff, async (req, res) => {
-    access(req, true); const b = req.body || {}, supplierId = id(b.supplier_endpoint_id), referenceId = b.reference_endpoint_id ? id(b.reference_endpoint_id) : null;
-    if (referenceId === supplierId) throw new HttpError(400, '对比端点不能与供应端点相同');
-    const requested = Array.isArray(b.case_ids) ? b.case_ids : []; if (!requested.length || requested.length > 4 || new Set(requested).size !== requested.length || requested.some(x => !CASE_BY_ID.has(x))) throw new HttpError(400, '请选择 1 至 4 个固定任务');
-    const endpoints = (await pool.query(`SELECT e.*,coalesce(c.credential_ciphertext,e.credential_ciphertext) AS active_ciphertext FROM supplier_lab_endpoints e LEFT JOIN supplier_lab_credentials c ON c.id=e.credential_id LEFT JOIN supplier_lab_suppliers s ON s.id=e.supplier_id WHERE e.id=ANY($1::uuid[]) AND e.disabled_at IS NULL AND (c.id IS NULL OR c.disabled_at IS NULL) AND (s.id IS NULL OR (s.disabled_at IS NULL AND NOT EXISTS(SELECT 1 FROM suppliers p WHERE p.id=s.canonical_supplier_id AND p.status='blocked')))`, [[supplierId, referenceId].filter(Boolean)])).rows;
-    const supplier = endpoints.find(x => x.id === supplierId && x.kind === 'supplier'), reference = referenceId ? endpoints.find(x => x.id === referenceId) : null;
-    if (!supplier || (referenceId && !reference)) throw new HttpError(400, '型号不存在、Key 已停用或类型不匹配');
-    validateLabBaseUrl(supplier.base_url);
-    if (reference) validateLabBaseUrl(reference.base_url);
-    const runId = await transaction(pool, async db => { await db.query('SELECT pg_advisory_xact_lock(148921,9)'); await db.query("UPDATE supplier_lab_runs SET status='failed',finished_at=now() WHERE status='running' AND created_at<now()-interval '5 minutes'"); const active = Number((await db.query("SELECT count(*) AS n FROM supplier_lab_runs WHERE status='running'")).rows[0].n); if (active >= 2) throw new HttpError(429, '已有验收任务运行中，请稍后再试'); const row = (await db.query('INSERT INTO supplier_lab_runs(supplier_endpoint_id,reference_endpoint_id,case_ids,created_by) VALUES($1,$2,$3,$4) RETURNING id', [supplierId, referenceId, requested, req.staff.subject])).rows[0]; await audit(db, req.actor, 'supplier_lab.run_started', null, row.id, { supplier_endpoint_id: supplierId, reference_endpoint_id: referenceId, case_ids: requested }); return row.id; });
-    void executeRun(pool, box, runId, supplier, reference, requested.map(x => CASE_BY_ID.get(x)));
-    res.status(202).json({ run_id: runId, status: 'running', max_upstream_calls: requested.length * (reference ? 2 : 1) });
+    access(req,true); const {completion,...result}=await startSupplierRun(pool,box,req.body||{},req.staff.subject,req.actor);
+    void completion; res.status(202).json(result);
   });
   app.get('/api/staff/lab/runs', requireStaff, async (req, res) => { access(req); res.json((await pool.query("SELECT r.id,r.supplier_endpoint_id,r.reference_endpoint_id,r.case_ids,r.status,r.created_at,r.finished_at,s.label AS supplier_label,s.model_id AS supplier_model,f.label AS reference_label,f.model_id AS reference_model,ss.name AS supplier_name,sc.label AS supplier_key_label,fs.name AS reference_supplier_name,fc.label AS reference_key_label,count(t.id)::int AS transaction_count,round(avg(t.quality_score),1) AS average_score FROM supplier_lab_runs r JOIN supplier_lab_endpoints s ON s.id=r.supplier_endpoint_id LEFT JOIN supplier_lab_endpoints f ON f.id=r.reference_endpoint_id LEFT JOIN supplier_lab_suppliers ss ON ss.id=s.supplier_id LEFT JOIN supplier_lab_credentials sc ON sc.id=s.credential_id LEFT JOIN supplier_lab_suppliers fs ON fs.id=f.supplier_id LEFT JOIN supplier_lab_credentials fc ON fc.id=f.credential_id LEFT JOIN supplier_lab_transactions t ON t.run_id=r.id GROUP BY r.id,s.id,f.id,ss.id,sc.id,fs.id,fc.id ORDER BY r.created_at DESC LIMIT 50")).rows); });
   app.get('/api/staff/lab/transactions.csv', requireStaff, async (req, res) => {
     access(req);
     const runId = req.query.run_id ? id(req.query.run_id) : null;
-    const rows = (await pool.query(`SELECT t.id,t.run_id,t.case_id,t.created_at,t.http_status,t.error_code,t.upstream_request_id,t.latency_ms,t.input_tokens,t.cached_input_tokens,t.output_tokens,t.total_tokens,t.estimated_cost_yuan,t.quality_score,t.checks,e.model_id,s.name AS supplier_name,c.label AS credential_label
+    const rows = (await pool.query(`SELECT t.id,t.run_id,t.case_id,t.created_at,t.output_sample,t.http_status,t.error_code,t.upstream_request_id,t.latency_ms,t.input_tokens,t.cached_input_tokens,t.output_tokens,t.total_tokens,t.estimated_cost_yuan,t.quality_score,t.checks,e.model_id,s.name AS supplier_name,c.label AS credential_label
       FROM supplier_lab_transactions t JOIN supplier_lab_endpoints e ON e.id=t.endpoint_id LEFT JOIN supplier_lab_suppliers s ON s.id=e.supplier_id LEFT JOIN supplier_lab_credentials c ON c.id=e.credential_id
       WHERE ($1::uuid IS NULL OR t.run_id=$1) ORDER BY t.created_at DESC LIMIT 1000`, [runId])).rows;
-    const headers = ['本台流水','测试批次','时间 UTC','供应商','Key 别名','请求型号','返回型号','题目','HTTP','异常代码','上游请求 ID','输入 Token','缓存命中 Token','缓存未命中 Token','输出 Token','总 Token','估算采购成本 ¥','延迟 ms','题目得分'];
-    const values = rows.map(x => [x.id,x.run_id,new Date(x.created_at).toISOString(),x.supplier_name,x.credential_label,x.model_id,x.checks?.response_model,x.case_id,x.http_status,x.error_code,x.upstream_request_id,x.input_tokens,x.cached_input_tokens,x.checks?.usage_evidence?.prompt_cache_miss_tokens,x.output_tokens,x.total_tokens,x.estimated_cost_yuan,x.latency_ms,x.quality_score]);
+    const headers = ['本台流水','测试批次','时间 UTC','供应商','Key 别名','请求型号','返回型号','题目','HTTP','异常代码','上游请求 ID','输入 Token','缓存命中 Token','缓存未命中 Token','输出 Token','总 Token','估算采购成本 ¥','延迟 ms','题目得分','响应 ID（不等同请求 ID）','请求开始 UTC','请求结束 UTC','输出结果','结束原因'];
+    const values = rows.map(x => [x.id,x.run_id,new Date(x.created_at).toISOString(),x.supplier_name,x.credential_label,x.model_id,x.checks?.response_model,x.case_id,x.http_status,x.error_code,x.upstream_request_id,x.input_tokens,x.cached_input_tokens,x.checks?.usage_evidence?.prompt_cache_miss_tokens,x.output_tokens,x.total_tokens,x.estimated_cost_yuan,x.latency_ms,x.quality_score,x.checks?.response_id,x.checks?.started_at,x.checks?.finished_at,x.output_sample,x.checks?.finish_reason]);
     res.set('Cache-Control', 'no-store');
     res.set('Content-Disposition', 'attachment; filename="supplier-lab-transactions.csv"');
     res.type('text/csv; charset=utf-8').send('\uFEFF' + [headers, ...values].map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n');

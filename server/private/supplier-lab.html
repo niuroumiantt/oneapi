@@ -28,10 +28,13 @@ th,td{border-color:#4e7055;padding:9px 8px}th{background:#294632;color:var(--lab
 .compare-setup .panel{min-width:0}.compare-setup .field{display:grid}.compare-setup .quick-toggle{display:inline-block;margin-top:12px}.quick-form{margin-top:14px;padding-top:14px;border-top:1px solid var(--lab-line)}.quick-form[hidden]{display:none}.quick-form .field input,.quick-form .field select{width:100%;min-width:0}
 /* Keep the shell steady; long tables scroll inside the work area. */
 @media(min-width:981px){body{height:100dvh;overflow:hidden}.layout{height:calc(100dvh - 62px);min-height:0}.side{min-height:0}.main{height:100%;min-height:0;display:flex;flex-direction:column}.body{overflow:auto;min-height:0;flex:1}.panel{box-shadow:none}.intro p{margin-bottom:0}.steps{margin-top:10px}}
+body>header{display:none!important}.shell,.layout{height:100dvh!important;min-height:0!important}.side{min-height:0!important}
+.live-cases{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.live-case{background:#1a3424;padding:10px;border:1px solid var(--lab-line);border-radius:5px;font-size:11px;min-width:0}.live-case pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:70px;overflow:auto}.live-case small{display:block;color:var(--lab-muted);line-height:1.6}.live-progress{width:100%;height:8px;accent-color:var(--lab-accent);margin:10px 0}.live-id{font:10px var(--lab-mono);overflow-wrap:anywhere}.live-head{display:flex;justify-content:space-between;gap:10px;align-items:center}@media(max-width:980px){.live-cases{grid-template-columns:1fr 1fr}}
+@media(min-width:1100px){.cases{grid-template-columns:repeat(4,1fr)}.cases label{padding:9px}.cases .help{font-size:10px;margin-top:4px!important}}
 </style>
 </head>
 <body>
 <header class="top"><div class="brand"><img src="/api/staff/lab/logo.svg" alt="semifly.ai"><span>技术运维工作台</span></div><a href="/api/staff/workspace/console">切换业务运营 ↗</a></header>
-<div class="layout"><aside class="side"><div><h2>技术运维</h2><p>从真实调用出发，逐笔看清质量、用量与成本。</p><nav class="nav" id="nav"></nav></div><footer>内部工具 · 仅已授权技术人员与平台管理员<br>测试请求会消耗上游额度</footer></aside><main class="main"><div class="intro"><div><small>SUPPLIER API LAB</small><h1 id="pageTitle">验收总览</h1><p id="pageSub">每一次测试都留下可追溯的交易记录。</p></div><span class="badge" id="configBadge">正在检查配置</span></div><div class="alert" id="alert"></div><div class="body" id="content"></div></main></div><div class="status" id="toast" role="status"></div>
+<div class="layout"><aside class="side"><div><h2>技术运维</h2><p>从真实调用出发，逐笔看清质量、用量与成本。</p><nav class="nav" id="nav"></nav></div><footer>内部工具 · 仅已授权技术人员与平台管理员<br>测试请求会消耗上游额度</footer></aside><main class="main"><div class="intro"><div><small>SUPPLIER API LAB</small><h1 id="pageTitle">验收总览</h1><p id="pageSub">每一次测试都留下可追溯的交易记录。</p></div><span class="badge" id="configBadge">正在检查配置</span></div><div class="alert" id="alert"></div><div class="body"><section id="liveRun" aria-label="测试进度"></section><div id="content"></div></div></main></div><div class="status" id="toast" role="status"></div>
 <script src="/api/staff/lab/console.js" defer></script>
-</body></html>
+</body><script src="/api/staff/workspace/bridge.js" defer></script></html>
