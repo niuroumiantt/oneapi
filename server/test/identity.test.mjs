@@ -393,6 +393,14 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  const grantedBefore=Number((await status()).granted_yuan);assert.equal((await boss.j.call(`/api/employee-credit/team/members/${staffer.user.id}/grant`,{method:'POST',body:{yuan:'2.50'}})).status,200);assert.equal(Number((await status()).granted_yuan),grantedBefore+2.5);
  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='employee_credit.topped_up' AND subject_id=$1",[staffer.user.id])).rows[0].n,1);
  assert.equal((await boss.j.call(`/api/employee-credit/team/members/${outsider.user.id}/grant`,{method:'POST',body:{yuan:'1'}})).status,404);
+ assert.equal((await staffer.j.call(`/api/employee-credit/team/members/${staffer.user.id}/quota`,{method:'POST',body:{yuan:'50'}})).status,403);
+ for(const yuan of ['-1','10000.01','abc'])assert.equal((await boss.j.call(`/api/employee-credit/team/members/${staffer.user.id}/quota`,{method:'POST',body:{yuan}})).status,400);
+ assert.equal((await boss.j.call(`/api/employee-credit/team/members/${outsider.user.id}/quota`,{method:'POST',body:{yuan:'1'}})).status,404);
+ const quota=await status(),quotaFloor=Number(quota.spent_yuan)+Number(quota.held_yuan);
+ assert.equal((await boss.j.call(`/api/employee-credit/team/members/${staffer.user.id}/quota`,{method:'POST',body:{yuan:'20.00'}})).status,200);assert.equal(Number((await status()).granted_yuan),20);
+ assert.equal((await boss.j.call(`/api/employee-credit/team/members/${staffer.user.id}/quota`,{method:'POST',body:{yuan:(Math.ceil(quotaFloor*100)/100).toFixed(2)}})).status,200);
+ if(quotaFloor>=0.01)assert.equal((await boss.j.call(`/api/employee-credit/team/members/${staffer.user.id}/quota`,{method:'POST',body:{yuan:'0'}})).status,409);
+ assert.equal((await boss.j.call(`/api/employee-credit/team/members/${staffer.user.id}/quota`,{method:'POST',body:{yuan:quota.granted_yuan.replace(/(\.\d{2})\d*$/,'$1')}})).status,200);
  assert.equal((await staffer.j.call('/api/billing/organizations/'+company.id)).status,403);
  await pool.query("UPDATE memberships SET role='admin' WHERE organization_id=$1 AND user_id=$2",[company.id,staffer.user.id]);
  assert.equal((await staffer.j.call('/api/employee-credit/team')).status,200,'admin is a manager');assert.equal((await staffer.j.call('/api/billing/organizations/'+company.id)).status,200,'admin can read company funds');assert.equal((await staffer.j.call(`/api/platform/organizations/${company.id}`)).data.permissions.manager,true);

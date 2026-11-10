@@ -250,9 +250,9 @@ select option{font-size:14px}
 .pc-topbar .account-menu summary{min-height:0;padding:2px;border:0;background:transparent}.pc-topbar .account-avatar{width:30px;height:30px;background:#e4dafa;color:#49365f}.pc-topbar .account-label,.pc-topbar .account-menu summary>.ui-icon{display:none}
 .pc-sidebar{grid-row:2;min-height:0;border-right:1px solid #e1e4ee;background:linear-gradient(90deg,#f9fafc,#f5f6fb);padding:12px 10px}
 .pc-sidebar nav{display:flex;flex-direction:column;align-items:center;gap:8px}
-.pc-sidebar nav button,.pc-sidebar nav a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;width:65px;height:60px;border:0;border-radius:11px;background:transparent;color:#343b4c;font:600 11px/1.15 inherit;cursor:pointer;text-decoration:none}
-.pc-sidebar .ui-icon{--icon-size:23px}.pc-sidebar [data-tab=models] .ui-icon{color:#9a35f3}.pc-sidebar [data-tab=keys] .ui-icon{color:#f28c16}.pc-sidebar [data-tab=usage] .ui-icon{color:#25bc50}.pc-sidebar a[href^="#billing"] .ui-icon{color:#9840ef}.pc-sidebar a[href="#security"] .ui-icon{color:#656b7a}
-.pc-sidebar nav button.active{color:#8e2deb;background:#efe4ff}.pc-sidebar nav button:hover,.pc-sidebar nav a:hover{background:#ececf7}
+.pc-sidebar nav button,.pc-sidebar nav a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;width:65px;height:60px;border:0;border-radius:11px;background:transparent;color:#343b4c;font-family:inherit;font-size:11px;font-weight:600;line-height:1.15;cursor:pointer;text-decoration:none}
+.pc-sidebar .ui-icon{--icon-size:23px}.pc-sidebar [data-tab=models] .ui-icon{color:#9a35f3}.pc-sidebar [data-tab=keys] .ui-icon{color:#f28c16}.pc-sidebar [data-tab=usage] .ui-icon{color:#25bc50}.pc-sidebar [data-nav=billing] .ui-icon{color:#9840ef}.pc-sidebar [data-nav=settings] .ui-icon{color:#656b7a}
+.pc-sidebar nav button.active,.pc-sidebar nav a.active{color:#8e2deb;background:#efe4ff}.pc-sidebar nav button:hover,.pc-sidebar nav a:hover{background:#ececf7}
 .pc-stage{grid-column:2;grid-row:2;display:flex;flex-direction:column;min-height:0;min-width:0;overflow:auto;padding:0 12px 0 13px}
 .personal-console-tabs{display:flex;align-items:end;gap:36px;height:60px;min-height:60px;padding:0 15px;border-bottom:1px solid #e0e3ec;background:transparent}
 .personal-console-tabs button{height:49px;padding:0 8px;border:0;border-bottom:3px solid transparent;background:transparent;color:#404557;font:600 15px/1.2 inherit;cursor:pointer;white-space:nowrap}
@@ -503,3 +503,20 @@ select option{font-size:14px}
 .overview-grid .team-bars{margin-top:2px}
 .overview-row code{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 }
+/* 账单、支持、设置与工作台共用同一套卡片、表单和按钮。 */
+.pc-brand.welcome-brand img{width:126px;height:42px}.pc-brand.welcome-brand:before{width:24px;height:30px}
+.personal-console .live-button,.personal-console-active #config-dialog .live-button{min-height:32px;padding:6px 13px;border-radius:7px;font-size:12px;font-weight:600}
+.personal-console .live-button.primary,.personal-console-active #config-dialog .live-button.primary{border:1px solid #7c2fd6;background:#7c2fd6;color:#fff}
+.personal-console .live-button.primary:hover,.personal-console-active #config-dialog .live-button.primary:hover{background:#6a25bd}
+.personal-console .live-button.quiet,.personal-console-active #config-dialog .live-button.quiet{border:1px solid #d0d4df;background:#fff;color:#2c3040}
+.personal-console .live-button.quiet:hover,.personal-console-active #config-dialog .live-button.quiet:hover{border-color:#7c2fd6;color:#6a25bd}
+.org-actions{white-space:nowrap}.org-actions .live-button{margin-right:6px}
+.panel-title{margin:0 0 5px;font-size:17px;font-weight:700;color:#1b1e2d}
+.panel-form{max-width:520px}.panel-form h3{margin:14px 0 4px;font-size:14px}.panel-form .live-small{margin:0 0 4px}
+.panel-settings{max-width:620px}.panel-setting-action{margin-top:14px}
+.pc-tab-body .live-session-list article{padding:10px 0;border-bottom:1px solid #eceef4}.pc-tab-body .live-session-list p{margin:5px 0 0;font-size:13px;color:#4b5365}
+.pc-tab-body .billing-pay-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px}
+.pc-tab-body .billing-methods{margin-bottom:12px}
+.quota-facts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.quota-facts div{display:grid;gap:3px;padding:10px;border:1px solid #e0e3ee;border-radius:8px}.quota-facts span{font-size:11px;color:#667085}.quota-facts b{font-size:15px}
+.member-keys{display:grid;gap:6px;font-size:13px}.member-keys>div{display:flex;align-items:center;justify-content:space-between;gap:10px}.member-keys small{margin-left:8px;color:#667085}
+@media(max-width:560px){.quota-facts{grid-template-columns:1fr}.pc-tab-body .billing-pay-head{flex-direction:column}}
