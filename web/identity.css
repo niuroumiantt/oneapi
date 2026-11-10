@@ -379,8 +379,34 @@ select option{font-size:14px}
 .key-guide-example{margin:8px 0;border:1px solid #e3e6ee;border-radius:7px;background:#fafbfe}
 .key-guide-example summary{padding:8px 11px;color:#3f4a5c;font-size:12.5px;cursor:pointer}
 .key-guide-example pre{margin:0;padding:10px 11px;border-top:1px solid #e3e6ee;color:#1c2541;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
-.key-guide-help{margin-top:14px}
-.key-guide-help h3{margin:0 0 4px;font-size:14px}
+.personal-pilot-keys:has(.key-workbench),.personal-pilot-keys:has(.key-workbench)~.personal-pilot-log{flex:none;overflow:visible}
+.key-workbench{display:grid;grid-template-columns:minmax(260px,360px) minmax(0,1fr);gap:22px;align-items:start;margin-top:14px}
+.key-workbench-main{min-width:0}
+.key-create-form{display:grid;gap:12px}
+.key-create-form label{display:grid;gap:5px;color:#3f4a5c;font-size:12.5px;font-weight:600}
+.key-create-form label small{color:#748093;font-size:11.5px;font-weight:400}
+.key-create-form select,.key-create-form input{width:100%;box-sizing:border-box;min-height:38px;padding:7px 10px;border:1px solid #d6dae4;border-radius:7px;background:#fff;color:#1c2541;font:inherit;font-size:13px;font-weight:400}
+.personal-pilot-keys .key-create-form .personal-key-button{width:100%;margin:0}
+.key-agent-panel{display:grid;gap:10px;min-width:0;padding:16px 18px;border:1px solid #e0e3ec;border-radius:10px;background:#fafbfe}
+.key-agent-panel h3{margin:0;font-size:15px}
+.personal-state-panel .key-agent-panel p{margin:0;max-width:none}
+.key-agent-tool{display:grid;gap:5px;color:#3f4a5c;font-size:12.5px;font-weight:600}
+.key-agent-tool select,.pc-config-fields select{width:100%;box-sizing:border-box;min-height:34px;padding:5px 9px;border:1px solid #d6dae4;border-radius:7px;background:#fff;color:#1c2541;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.pc-tool-hint{margin:0 0 3px;color:#657083;font-size:11.5px;line-height:1.5}
+.key-agent-snippet{margin:0;padding:10px 11px;max-height:220px;overflow:auto;border:1px solid #e3e6ee;border-radius:7px;background:#fff;color:#1c2541;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.5}
+.key-agent-rows{display:grid;gap:7px}
+.key-agent-row{display:grid;grid-template-columns:20px 104px minmax(0,1fr) 52px;align-items:center;gap:8px;min-height:40px;padding:6px 8px 6px 10px;border:1px solid #e2e5ef;border-radius:8px;background:#fff}
+.key-agent-index{display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#efe4ff;color:#6d23c4;font-size:11px;font-weight:700}
+.key-agent-row small{color:#657083;font-size:12px}
+.key-agent-row code{min-width:0;color:#251835;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;overflow-wrap:anywhere}
+.key-agent-row code.is-muted{color:#8a93a6}
+.key-agent-row code.is-secret{padding:3px 6px;border-radius:5px;background:#f7f1fd}
+.key-agent-copy{justify-self:end;border:1px solid #d0d4df;border-radius:6px;background:#fff;color:#1c2541;padding:5px 9px;font-size:12px;cursor:pointer}
+.key-agent-copy:hover,.key-agent-copy-all:hover{border-color:#7a26d9;color:#7a26d9}
+.key-agent-copy-all{justify-self:start;border:1px solid #d0d4df;border-radius:7px;background:#fff;color:#1c2541;padding:7px 14px;font-size:12.5px;font-weight:600;cursor:pointer}
+.key-agent-warning{padding:8px 11px;border-radius:7px;background:#fff6e5;color:#7a4a00!important;font-size:12.5px;font-weight:600}
+@media(max-width:900px){.key-workbench{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:480px){.key-agent-row{grid-template-columns:20px minmax(0,1fr) 52px}.key-agent-row small{grid-column:2/4}.key-agent-row code{grid-column:2}.key-agent-row .key-agent-copy,.key-agent-row>span:last-child:not(.key-agent-index){grid-column:3}}
 .pc-surface{display:flex;align-items:center;gap:2px;margin-left:14px;padding:3px;border:1px solid #dfe2ed;border-radius:9px;background:#f6f7fb}
 .pc-surface a{padding:5px 11px;border-radius:6px;color:#4b5365;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap}
 .pc-surface a.active{background:#fff;color:#7a26d9;box-shadow:0 1px 2px rgba(20,24,40,.12)}
