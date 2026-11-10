@@ -48,14 +48,16 @@ export function pilotInferenceRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
  const permitted=email=>enabled()&&cfg.pilot.emails.has(String(email||'').toLowerCase());
  const access=req=>{if(!permitted(req.customer.email))throw new HttpError(403,'当前账号未开放真实测试调用');};
  const current=async ownerId=>{
-  const [keys,calls,recent,models,keyUsage]=await Promise.all([
+  const chartEnd=new Date(),chartStart=new Date(chartEnd-86400000);
+  const [keys,calls,recent,models,keyUsage,series]=await Promise.all([
    pool.query('SELECT id,label,model_id,key_hint,created_at,revoked_at FROM pilot_api_keys WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 20',[ownerId]),
    pool.query(`SELECT count(*)::int AS count FROM pilot_calls WHERE owner_id=$1 AND created_at>=${dayStart}`,[ownerId]),
    pool.query('SELECT c.id,c.key_id,k.label AS key_label,c.model_id,c.status,c.input_tokens,c.cache_hit_tokens,c.output_tokens,c.estimated_upstream_yuan,c.latency_ms,c.error_code,c.created_at FROM pilot_calls c JOIN pilot_api_keys k ON k.id=c.key_id WHERE c.owner_id=$1 ORDER BY c.created_at DESC LIMIT 50',[ownerId]),
    pool.query("SELECT model_id,count(*) FILTER(WHERE status='succeeded')::int AS successful_calls,count(*) FILTER(WHERE status='failed')::int AS failed_calls,coalesce(sum(input_tokens) FILTER(WHERE status='succeeded'),0)::bigint AS input_tokens,coalesce(sum(cache_hit_tokens) FILTER(WHERE status='succeeded'),0)::bigint AS cache_hit_tokens,coalesce(sum(output_tokens) FILTER(WHERE status='succeeded'),0)::bigint AS output_tokens,coalesce(sum(estimated_upstream_yuan) FILTER(WHERE status='succeeded'),0) AS estimated_upstream_yuan FROM pilot_calls WHERE owner_id=$1 AND created_at>=now()-interval '30 days' GROUP BY model_id ORDER BY model_id",[ownerId]),
-   pool.query("SELECT key_id,count(*) FILTER(WHERE status='succeeded')::int AS successful_calls,count(*) FILTER(WHERE status='failed')::int AS failed_calls,max(created_at) AS last_call_at FROM pilot_calls WHERE owner_id=$1 AND created_at>=now()-interval '30 days' GROUP BY key_id",[ownerId])
+   pool.query("SELECT key_id,count(*) FILTER(WHERE status='succeeded')::int AS successful_calls,count(*) FILTER(WHERE status='failed')::int AS failed_calls,max(created_at) AS last_call_at FROM pilot_calls WHERE owner_id=$1 AND created_at>=now()-interval '30 days' GROUP BY key_id",[ownerId]),
+   pool.query("SELECT date_trunc('hour',created_at) AS hour,model_id,count(*)::int AS calls,count(*) FILTER(WHERE status='failed')::int AS failed,coalesce(sum(input_tokens),0)::bigint AS input_tokens,coalesce(sum(cache_hit_tokens),0)::bigint AS cache_hit_tokens,coalesce(sum(output_tokens),0)::bigint AS output_tokens FROM pilot_calls WHERE owner_id=$1 AND created_at>=$2 AND created_at<$3 GROUP BY 1,2 ORDER BY 1,2",[ownerId,chartStart,chartEnd])
   ]);
-  return {enabled:true,model_ids:[...MODEL_RATES.keys()],base_url:cfg.origin+'/v1',daily_limit:DAILY_LIMIT,calls_today:calls.rows[0].count,keys:keys.rows,recent_calls:recent.rows,usage_by_model:models.rows,usage_by_key:keyUsage.rows,usage_window_days:30};
+  return {enabled:true,model_ids:[...MODEL_RATES.keys()],base_url:cfg.origin+'/v1',daily_limit:DAILY_LIMIT,calls_today:calls.rows[0].count,keys:keys.rows,recent_calls:recent.rows,usage_by_model:models.rows,usage_by_key:keyUsage.rows,usage_window_days:30,usage_chart:{start:chartStart.toISOString(),end:chartEnd.toISOString(),bucket_minutes:60,rows:series.rows,billing_state:'pilot_not_billed'}};
  };
  app.get('/api/pilot/status',requireCustomer,async(req,res)=>{
   if(!permitted(req.customer.email))return res.json({enabled:false});

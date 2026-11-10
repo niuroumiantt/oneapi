@@ -305,6 +305,9 @@ test('personal pilot keys are scoped, hashed, capped and record real upstream us
  assert.deepEqual(status.usage_by_model.map(row=>[row.model_id,row.successful_calls,Number(row.input_tokens),Number(row.cache_hit_tokens)]),[['deepseek-flash',1,7,2],['deepseek-v4-pro',1,7,2]]);
  assert.equal(status.usage_by_key.length,2);
  assert.equal(status.usage_by_key.find(row=>row.key_id===created.data.key.id).successful_calls,1);
+ assert.equal(status.usage_chart.billing_state,'pilot_not_billed');
+ assert.equal(status.usage_chart.rows.reduce((n,r)=>n+Number(r.input_tokens),0),14);
+ assert.equal(status.usage_chart.rows.reduce((n,r)=>n+Number(r.output_tokens),0),2);
  assert.equal(status.recent_calls[0].key_label,'Reasoning Agent');
  assert.equal(status.recent_calls[0].secret,undefined);
  assert.equal((await owner.j.call('/api/billing/personal')).data.total_spent_fen,spentBefore);
@@ -341,6 +344,19 @@ test('two workspaces share credentials, actual acceptance and fail-closed catalo
  for(const caseId of ids)await pool.query(`INSERT INTO supplier_lab_transactions(run_id,endpoint_id,case_id,prompt_sha256,http_status,latency_ms,input_tokens,cached_input_tokens,output_tokens,total_tokens,estimated_cost_yuan,quality_score,checks,created_at) VALUES($1,$2,$3,'fixture',200,120,10,0,1,11,0.000014,100,$4,now()-interval '9 minutes 30 seconds')`,[run.id,endpoint.data.id,caseId,JSON.stringify({usage_present_and_consistent:true,model_matches_request:true,task_passed:true})]);
  const dashboard=await tech.call('/api/staff/lab/supplier-dashboard?supplier_id='+supplier.data.id);assert.equal(dashboard.status,200,JSON.stringify(dashboard.data));assert.equal(dashboard.data.models.length,1);assert.equal(dashboard.data.models[0].lifetime_calls,4);assert.equal(dashboard.data.models[0].lifetime_input,'40');assert.equal(dashboard.data.records.length,4);assert.equal(dashboard.data.scope,'platform_lab_only');
  assert.equal((await tech.call('/api/staff/lab/supplier-dashboard?supplier_id='+supplier.data.id+'&endpoint_id=11111111-1111-4111-8111-111111111111')).status,404);
+ const savedFetch=global.fetch;
+ await pool.query("UPDATE supplier_lab_credentials SET base_url='https://kerapi.cn/v1' WHERE id=$1",[key.data.id]);
+ await pool.query("UPDATE supplier_lab_transactions SET upstream_request_id='fixture-'||case_id WHERE run_id=$1",[run.id]);
+ global.fetch=async(url,options)=>{if(String(url)==='https://kerapi.cn/api/log/token')return new Response(JSON.stringify({success:true,data:ids.map(c=>({request_id:'fixture-'+c,model_name:'test-model',created_at:Math.floor(Date.now()/1000),type:2,prompt_tokens:10,completion_tokens:1,quota:1,other:JSON.stringify({cache_tokens:0,billing_amount:'0.000014',billing_currency:{code:'CNY'},authorization:'redact-me'})}))}),{status:200});return savedFetch(url,options)};
+ try{
+  assert.equal((await jar().call('/api/staff/lab/usage-reconciliation?supplier_id='+supplier.data.id)).status,401);
+  const synced=await tech.call('/api/staff/lab/credentials/'+key.data.id+'/sync-usage',{method:'POST',body:{}});assert.equal(synced.status,200,JSON.stringify(synced.data));assert.equal(synced.data.record_count,4);
+  const checked=await tech.call('/api/staff/lab/usage-reconciliation?supplier_id='+supplier.data.id);assert.equal(checked.status,200);assert.equal(checked.data.rows.length,4);assert.ok(checked.data.rows.every(r=>r.status==='matched'));assert.ok(!JSON.stringify(checked.data).includes('redact-me'));assert.ok(!JSON.stringify(checked.data).includes('fake-key-only-for-tests'));
+  assert.equal((await tech.call('/api/staff/lab/credentials/'+key.data.id+'/sync-usage',{method:'POST',body:{}})).data.cached,true);
+  assert.equal((await tech.call('/api/staff/observability/aliyun')).data.configured,false);
+  assert.equal((await tech.call('/api/staff/observability/aliyun/configure',{method:'POST',body:{}})).status,403);
+  assert.equal((await admin.call('/api/staff/observability/aliyun/configure',{method:'POST',body:{}})).status,400);
+ }finally{global.fetch=savedFetch;await pool.query("UPDATE supplier_lab_credentials SET base_url='https://api.deepseek.com' WHERE id=$1",[key.data.id])}
  const bill=await tech.call('/api/staff/lab/reconciliations',{method:'POST',body:{endpoint_id:endpoint.data.id,period_start:new Date(Date.now()-11*60000).toISOString(),period_end:new Date(Date.now()-8*60000).toISOString(),supplier_billed_yuan:'0.000056',note:'upstream-statement-fixture'}});assert.equal(bill.status,201,JSON.stringify(bill.data));
  assert.equal((await tech.call('/api/staff/lab/endpoints/'+endpoint.data.id+'/rates',{method:'POST',body:{input_yuan_per_m:'2'}})).status,409);
  const report=await tech.call('/api/staff/lab/runs/'+run.id+'/handoff',{method:'POST',body:{endpoint_id:endpoint.data.id,reconciliation_id:bill.data.id}});assert.equal(report.status,201,JSON.stringify(report.data));assert.equal(report.data.conclusion,'passed');

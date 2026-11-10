@@ -1,3 +1,4 @@
+import {usageRoutes} from './usage-reconciliation.mjs';
 import { requireTechnical } from './workspaces.mjs';
 import { HttpError, audit, hash, id, text, transaction, vault } from './core.mjs';
 
@@ -112,6 +113,7 @@ export async function startSupplierRun(pool,box,b,staffSubject,actor,{firstRunOn
 export function supplierLabRoutes(app, pool, requireStaff) {
   const secret = process.env.SUPPLIER_LAB_SECRET;
   const box = secret?.length >= 32 ? vault(secret) : null;
+  usageRoutes(app,pool,requireStaff,box);
   const access = (req, write = false) => { requireTechnical(req); if (write && !box) throw new HttpError(503, '验收台凭据加密密钥尚未配置'); };
   app.get('/api/staff/lab/console', requireStaff, (req, res) => { access(req); res.set('Cache-Control', 'no-store'); res.sendFile(new URL('../private/admin-shell.html', import.meta.url).pathname,{dotfiles:'allow'}); });
   app.get('/api/staff/lab/view', requireStaff, (req, res) => { access(req); res.sendFile(new URL('../private/supplier-lab.html', import.meta.url).pathname,{dotfiles:'allow'}); });

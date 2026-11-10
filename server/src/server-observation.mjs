@@ -23,6 +23,6 @@ export function serverObservationRoutes(app,pool,requireStaff,cfg) {
   let result;
   try{const raw=await readFile(cfg.metricsFile||process.env.ONEAPI_METRICS_FILE||'/run/oneapi-observability/snapshot.json','utf8');if(raw.length>32768)throw Error('TOO_LARGE');result=projectMetrics(JSON.parse(raw));}
   catch{result={status:'unavailable',collected_at:null,error:'尚未取得服务器采样，请检查采集服务。'};}
-  res.json({...result,serving_source_sha:sha(cfg.source),server_time:new Date().toISOString()});
+  res.json({...result,provider:'aliyun',host_purpose:'api_production',serving_source_sha:sha(cfg.source),server_time:new Date().toISOString()});
  });
 }
