@@ -104,7 +104,9 @@ export async function startSupplierRun(pool,box,b,staffSubject,actor,{firstRunOn
     if (!supplier || (referenceId && !reference)) throw new HttpError(400, '型号不存在、Key 已停用或类型不匹配');
     validateLabBaseUrl(supplier.base_url);
     if (reference) validateLabBaseUrl(reference.base_url);
-    const runId = await transaction(pool, async db => { await db.query('SELECT pg_advisory_xact_lock(148921,9)'); if(firstRunOnly && (await db.query('SELECT 1 FROM supplier_lab_runs WHERE supplier_endpoint_id=$1 OR reference_endpoint_id=$1',[supplierId])).rowCount) throw new HttpError(409,'该型号已有测试，拒绝重复首批执行'); await db.query("UPDATE supplier_lab_runs SET status='failed',finished_at=now() WHERE status='running' AND created_at<now()-interval '5 minutes'"); const active = Number((await db.query("SELECT count(*) AS n FROM supplier_lab_runs WHERE status='running'")).rows[0].n); if (active >= 2) throw new HttpError(429, '已有验收任务运行中，请稍后再试'); const row = (await db.query('INSERT INTO supplier_lab_runs(supplier_endpoint_id,reference_endpoint_id,case_ids,created_by) VALUES($1,$2,$3,$4) RETURNING id', [supplierId, referenceId, requested, staffSubject])).rows[0]; await audit(db, actor, 'supplier_lab.run_started', null, row.id, { supplier_endpoint_id: supplierId, reference_endpoint_id: referenceId, case_ids: requested, invocation: firstRunOnly ? 'operator_first_run' : 'console' }); return row.id; });
+    const runId = await transaction(pool, async db => { await db.query('SELECT pg_advisory_xact_lock(148921,9)');
+      const usable=await db.query(`SELECT e.id FROM supplier_lab_endpoints e LEFT JOIN supplier_lab_credentials c ON c.id=e.credential_id WHERE e.id=ANY($1::uuid[]) AND e.disabled_at IS NULL AND (c.id IS NULL OR c.disabled_at IS NULL) FOR SHARE OF e`,[[supplierId,...(referenceId?[referenceId]:[])]]);
+      if(usable.rowCount!==(referenceId?2:1))throw new HttpError(409,'Key 或型号状态已变化，请重新选择'); if(firstRunOnly && (await db.query('SELECT 1 FROM supplier_lab_runs WHERE supplier_endpoint_id=$1 OR reference_endpoint_id=$1',[supplierId])).rowCount) throw new HttpError(409,'该型号已有测试，拒绝重复首批执行'); await db.query("UPDATE supplier_lab_runs SET status='failed',finished_at=now() WHERE status='running' AND created_at<now()-interval '5 minutes'"); const active = Number((await db.query("SELECT count(*) AS n FROM supplier_lab_runs WHERE status='running'")).rows[0].n); if (active >= 2) throw new HttpError(429, '已有验收任务运行中，请稍后再试'); const row = (await db.query('INSERT INTO supplier_lab_runs(supplier_endpoint_id,reference_endpoint_id,case_ids,created_by) VALUES($1,$2,$3,$4) RETURNING id', [supplierId, referenceId, requested, staffSubject])).rows[0]; await audit(db, actor, 'supplier_lab.run_started', null, row.id, { supplier_endpoint_id: supplierId, reference_endpoint_id: referenceId, case_ids: requested, invocation: firstRunOnly ? 'operator_first_run' : 'console' }); return row.id; });
     return {run_id:runId,status:'running',max_upstream_calls:requested.length*(reference?2:1),completion:executeRun(pool,box,runId,supplier,reference,requested.map(x=>CASE_BY_ID.get(x)))};
 }
 export function supplierLabRoutes(app, pool, requireStaff) {
@@ -129,7 +131,7 @@ export function supplierLabRoutes(app, pool, requireStaff) {
   app.post('/api/staff/lab/suppliers', requireStaff, (req,res)=>{access(req);throw new HttpError(410,'供应商统一在业务工作台建立，请使用供应采购入口');});
   app.get('/api/staff/lab/credentials', requireStaff, async (req,res)=>{
     access(req);
-    res.json((await pool.query(`SELECT c.id,c.supplier_id,c.label,c.base_url,c.credential_fingerprint,c.created_at,c.disabled_at,
+    res.json((await pool.query(`SELECT c.id,s.canonical_supplier_id AS supplier_id,c.label,c.base_url,c.credential_fingerprint,c.created_at,c.disabled_at,c.replaces_credential_id,c.rotation_completed_at,
       s.name AS supplier_name,s.kind,count(DISTINCT e.id) FILTER (WHERE e.disabled_at IS NULL)::int AS model_count,
       max(t.created_at) AS last_test_at FROM supplier_lab_credentials c JOIN supplier_lab_suppliers s ON s.id=c.supplier_id
       LEFT JOIN supplier_lab_endpoints e ON e.credential_id=c.id LEFT JOIN supplier_lab_transactions t ON t.endpoint_id=e.id
@@ -152,6 +154,50 @@ export function supplierLabRoutes(app, pool, requireStaff) {
     });
     res.status(201).json(row);
   });
+// Create a separate credential generation. Historical endpoints and reports stay immutable.
+  app.post('/api/staff/lab/credentials/:id/replacement',requireStaff,async(req,res)=>{
+    access(req,true);const oldId=id(req.params.id),b=req.body||{},label=text(b.label,'新 Key 别名',100),key=text(b.api_key,'API Key',1000);
+    if(/\s/.test(key))throw new HttpError(400,'API Key 不可包含空白字符');
+    if(!Array.isArray(b.endpoint_ids)||!b.endpoint_ids.length||b.endpoint_ids.length>100)throw new HttpError(400,'请选择新 Key 允许测试的型号');
+    const endpointIds=[...new Set(b.endpoint_ids.map(id))];
+    const row=await transaction(pool,async db=>{
+      const old=(await db.query(`SELECT c.*,s.canonical_supplier_id FROM supplier_lab_credentials c JOIN supplier_lab_suppliers s ON s.id=c.supplier_id JOIN suppliers p ON p.id=s.canonical_supplier_id WHERE c.id=$1 AND s.disabled_at IS NULL AND p.status<>'blocked' FOR UPDATE OF c`,[oldId])).rows[0];
+      if(!old)throw new HttpError(404,'Key 不存在或供应商已停用');
+      validateLabBaseUrl(old.base_url);
+      if((await db.query('SELECT 1 FROM supplier_lab_credentials WHERE replaces_credential_id=$1 AND disabled_at IS NULL',[oldId])).rowCount)throw new HttpError(409,'已有替换版本，请先完成验证或停用该替换版本');
+      const endpoints=(await db.query('SELECT * FROM supplier_lab_endpoints WHERE credential_id=$1 AND id=ANY($2::uuid[]) AND disabled_at IS NULL ORDER BY created_at FOR SHARE',[oldId,endpointIds])).rows;
+      if(endpoints.length!==endpointIds.length)throw new HttpError(400,'所选型号不属于此 Key 或已停用');
+      await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',[old.base_url+':'+hash(key)]);
+      if((await db.query('SELECT 1 FROM supplier_lab_credentials WHERE base_url=$1 AND credential_fingerprint=$2',[old.base_url,hash(key).slice(0,12)])).rowCount)throw new HttpError(409,'这枚 Key 已登记，请使用上游新生成的 Key');
+      if((await db.query('SELECT 1 FROM supplier_lab_credentials WHERE supplier_id=$1 AND label=$2',[old.supplier_id,label])).rowCount)throw new HttpError(409,'别名已使用，请为新版本起一个不同名称');
+      const replacement=(await db.query(`INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by,replaces_credential_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,label,credential_fingerprint,replaces_credential_id`,[old.supplier_id,label,old.base_url,box.seal({key}),hash(key).slice(0,12),req.staff.subject,oldId])).rows[0];
+      const newEndpoints=[];
+      for(const e of endpoints){const next=(await db.query(`INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,input_yuan_per_m,cached_input_yuan_per_m,output_yuan_per_m,created_by,supplier_id,credential_id,offer_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id,model_id`,[e.label,e.kind,old.base_url,e.model_id,replacement.credential_fingerprint,e.input_yuan_per_m,e.cached_input_yuan_per_m,e.output_yuan_per_m,req.staff.subject,old.supplier_id,replacement.id,e.offer_id])).rows[0];newEndpoints.push(next);}
+      await audit(db,req.actor,'supplier_lab.key_replacement_prepared',null,replacement.id,{previous_credential_id:oldId,endpoint_ids:newEndpoints.map(e=>e.id)});
+      return {...replacement,endpoints:newEndpoints,stage:'awaiting_validation'};
+    });res.status(201).json(row);
+  });
+  app.post('/api/staff/lab/credentials/:id/complete-replacement',requireStaff,async(req,res)=>{
+    access(req,true);const newId=id(req.params.id);
+    await transaction(pool,async db=>{
+      // Serialize with test starts so no old-key task can race the retirement check.
+      await db.query('SELECT pg_advisory_xact_lock(148921,9)');
+      const replacement=(await db.query('SELECT * FROM supplier_lab_credentials WHERE id=$1 AND disabled_at IS NULL FOR UPDATE',[newId])).rows[0];
+      if(!replacement?.replaces_credential_id)throw new HttpError(404,'未找到有效替换版本');
+      const oldId=replacement.replaces_credential_id;
+      await db.query('SELECT id FROM supplier_lab_credentials WHERE id=$1 FOR UPDATE',[oldId]);
+      if(replacement.rotation_completed_at)return;
+      const endpoints=(await db.query('SELECT id FROM supplier_lab_endpoints WHERE credential_id=$1 AND disabled_at IS NULL FOR SHARE',[newId])).rows;
+      if(!endpoints.length)throw new HttpError(409,'替换 Key 尚无可用型号');
+      for(const e of endpoints){const latest=(await db.query(`SELECT t.* FROM supplier_lab_transactions t JOIN supplier_lab_runs r ON r.id=t.run_id WHERE t.endpoint_id=$1 AND r.status='completed' ORDER BY t.created_at DESC LIMIT 1`,[e.id])).rows[0];
+        if(!latest||latest.http_status!==200||latest.error_code||latest.checks?.model_matches_request!==true||latest.checks?.usage_present_and_consistent!==true)throw new HttpError(409,'请先对新 Key 每个所选型号完成真实测试，取得有效响应和用量；本操作不自动发起付费调用');}
+      if((await db.query(`SELECT 1 FROM supplier_lab_runs r JOIN supplier_lab_endpoints e ON e.id=r.supplier_endpoint_id OR e.id=r.reference_endpoint_id WHERE r.status='running' AND e.credential_id=ANY($1::uuid[])`,[[oldId,newId]])).rowCount)throw new HttpError(409,'相关 Key 仍有测试在运行，请等待完成');
+      await db.query('UPDATE supplier_lab_credentials SET disabled_at=coalesce(disabled_at,now()) WHERE id=$1',[oldId]);
+      await db.query('UPDATE supplier_lab_credentials SET rotation_completed_at=now() WHERE id=$1',[newId]);
+      await audit(db,req.actor,'supplier_lab.key_replacement_completed',null,newId,{previous_credential_id:oldId,scope:'lab_only'});
+    });res.json({ok:true,scope:'lab_only'});
+  });
+
   app.post('/api/staff/lab/credentials/:id/disable',requireStaff,async(req,res)=>{
     access(req,true);const credentialId=id(req.params.id);
     await transaction(pool,async db=>{

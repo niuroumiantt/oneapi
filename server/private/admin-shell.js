@@ -1,6 +1,6 @@
 (()=>{'use strict';
 const panes=document.querySelector('#panes'),message=document.querySelector('#message'),frames={},positions={business:'overview',technical:'monitor'};let access=null,current=null,supplier=new URLSearchParams(location.search).get('supplier')||'';
-const known={business:['overview','suppliers','reports','products','accounts'],technical:['supplier','handoff','releases','suppliers','credentials','models','tests','compare','transactions','billing','monitor']};
+const known={business:['overview','suppliers','reports','products','accounts'],technical:['servers','supplier','handoff','releases','suppliers','credentials','models','tests','compare','transactions','billing','monitor']};
 function route(workspace,section){if(!access?.[workspace])return;section=known[workspace].includes(section)?section:positions[workspace];positions[workspace]=section;current=workspace;document.body.classList.toggle('technical',workspace==='technical');
  for(const button of document.querySelectorAll('[data-workspace]'))button.setAttribute('aria-selected',String(button.dataset.workspace===workspace));
  if(!frames[workspace]){const frame=document.createElement('iframe');frame.title=workspace==='technical'?'技术运维工作台':'业务运营工作台';frame.id='workspace-'+workspace;frame.src='/api/staff/'+(workspace==='technical'?'lab':'workspace')+'/view'+(supplier?'?supplier='+encodeURIComponent(supplier):'')+'#'+section;frames[workspace]=frame;panes.append(frame)}

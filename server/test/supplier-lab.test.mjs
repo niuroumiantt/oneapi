@@ -123,7 +123,7 @@ test('manual bill comparison rejects empty and overlapping probe periods', async
 
 test('operator first run rejects a duplicate before any upstream request', async()=>{
  const endpointId='11111111-1111-4111-8111-111111111111';let network=0;const original=global.fetch;global.fetch=async()=>{network++;throw Error('unexpected_network')};
- const db={release(){},async query(sql){if(sql.startsWith('SELECT 1 FROM supplier_lab_runs'))return {rowCount:1};return {rows:[]}}};
+ const db={release(){},async query(sql){if(sql.includes('SELECT e.id FROM supplier_lab_endpoints'))return {rowCount:1,rows:[{id:endpointId}]};if(sql.startsWith('SELECT 1 FROM supplier_lab_runs'))return {rowCount:1};return {rows:[]}}};
  const pool={connect:async()=>db,query:async()=>({rows:[{id:endpointId,kind:'supplier',base_url:'https://api.deepseek.com',model_id:'deepseek-chat'}]})};
  try{await assert.rejects(startSupplierRun(pool,{}, {supplier_endpoint_id:endpointId,case_ids:['arithmetic']},'test',{kind:'system',id:'test'},{firstRunOnly:true}),e=>e.status===409);assert.equal(network,0)}finally{global.fetch=original}
 });

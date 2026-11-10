@@ -324,9 +324,10 @@ test('two workspaces share credentials, actual acceptance and fail-closed catalo
  assert.equal((await jar().call('/api/staff/console')).location,'/api/staff/login?next=business');
  identity={sub:'technical-fixture',email:'technical@example.test',name:'Technician',staff_approved:true};const tech=jar();await staffLogin(tech);
  assert.equal((await admin.call('/api/staff/members/technical-fixture',{method:'PATCH',body:{role:'support',status:'active'}})).status,200);await staffLogin(tech);
- assert.equal((await tech.call('/api/staff/lab/config')).status,403);assert.equal((await tech.call('/api/staff/lab/view')).status,403);
+ assert.equal((await tech.call('/api/staff/lab/config')).status,403);assert.equal((await tech.call('/api/staff/lab/view')).status,403);assert.equal((await tech.call('/api/staff/observability')).status,403);assert.equal((await jar().call('/api/staff/observability')).status,401);
  assert.equal((await admin.call('/api/staff/members/technical-fixture/technical-access',{method:'PUT',body:{enabled:true}})).status,200);
- assert.equal((await tech.call('/api/staff/lab/config')).status,200);
+ assert.equal((await tech.call('/api/staff/lab/config')).status,200);assert.equal((await tech.call('/api/staff/observability')).status,200);
+ appCfg.metricsFile=join(pilotDir,'metrics.json');await writeFile(appCfg.metricsFile,JSON.stringify({schema:1,collected_at:new Date().toISOString(),cpu_percent:12,network:{interface:'eth0',rx_bps:0},services:[],secret:'never-forward-this'}));const observed=await tech.call('/api/staff/observability');assert.equal(observed.data.status,'ok');assert.equal(observed.data.cpu_percent,12);assert.ok(!JSON.stringify(observed.data).includes('never-forward-this'));
  assert.equal((await tech.call('/api/staff/suppliers',{method:'POST',body:{}})).status,403);
  assert.equal((await admin.call('/api/staff/lab/suppliers',{method:'POST',body:{name:'Duplicate'}})).status,410);
  const supplier=await admin.call('/api/staff/suppliers',{method:'POST',body:{display_name:'Shared supplier',legal_name:'Shared legal',source_type:'unconfirmed',region:'CN'}});assert.equal(supplier.status,201);
@@ -354,7 +355,22 @@ test('two workspaces share credentials, actual acceptance and fail-closed catalo
  const listing=await admin.call('/api/staff/workspace/listings',{method:'POST',body:{product_id:product.data.id}});assert.equal(listing.status,201,JSON.stringify(listing.data));
  assert.equal((await tech.call('/api/staff/lab/releases/'+listing.data.id+'/publish',{method:'POST',body:{}})).status,200);
  assert.ok((await jar().call('/api/catalog/published')).data.products.some(p=>p.id===product.data.id));
- assert.equal((await tech.call('/api/staff/lab/credentials/'+key.data.id+'/disable',{method:'POST',body:{}})).status,200);
+ const rotateBody={label:'Replacement generation 2',api_key:'new-fake-key-tests-only',endpoint_ids:[endpoint.data.id]};
+ assert.equal((await tech.call('/api/staff/lab/credentials/'+key.data.id+'/replacement',{method:'POST',body:{...rotateBody,endpoint_ids:['11111111-1111-4111-8111-111111111111']}})).status,400);
+ const rotated=await tech.call('/api/staff/lab/credentials/'+key.data.id+'/replacement',{method:'POST',body:rotateBody});assert.equal(rotated.status,201,JSON.stringify(rotated.data));
+ assert.ok(!JSON.stringify(rotated.data).includes('new-fake-key'));assert.equal(rotated.data.endpoints.length,1);
+ const newEndpoint=rotated.data.endpoints[0].id;assert.notEqual(newEndpoint,endpoint.data.id);
+ assert.equal((await pool.query('SELECT disabled_at FROM supplier_lab_credentials WHERE id=$1',[key.data.id])).rows[0].disabled_at,null);
+ assert.equal((await tech.call('/api/staff/lab/credentials/'+key.data.id+'/replacement',{method:'POST',body:{...rotateBody,label:'Another'}})).status,409);
+ assert.equal((await tech.call('/api/staff/lab/credentials/'+rotated.data.id+'/complete-replacement',{method:'POST',body:{}})).status,409);
+ const validation=(await pool.query("INSERT INTO supplier_lab_runs(supplier_endpoint_id,case_ids,status,created_by,finished_at) VALUES($1,ARRAY['arithmetic'],'completed','technical-fixture',now()) RETURNING id",[newEndpoint])).rows[0];
+ await pool.query(`INSERT INTO supplier_lab_transactions(run_id,endpoint_id,case_id,prompt_sha256,http_status,latency_ms,quality_score,checks) VALUES($1,$2,'arithmetic','fixture',200,150,100,'{"model_matches_request":true,"usage_present_and_consistent":true}')`,[validation.id,newEndpoint]);
+ assert.equal((await tech.call('/api/staff/lab/credentials/'+rotated.data.id+'/complete-replacement',{method:'POST',body:{}})).status,200);
+ assert.equal((await tech.call('/api/staff/lab/credentials/'+rotated.data.id+'/complete-replacement',{method:'POST',body:{}})).status,200);
+ assert.ok((await pool.query('SELECT disabled_at FROM supplier_lab_credentials WHERE id=$1',[key.data.id])).rows[0].disabled_at);
+ assert.equal((await pool.query('SELECT count(*)::int AS n FROM supplier_lab_transactions WHERE endpoint_id=$1',[endpoint.data.id])).rows[0].n,4);
+ assert.equal((await pool.query('SELECT count(*)::int AS n FROM supplier_lab_transactions WHERE endpoint_id=$1',[newEndpoint])).rows[0].n,1);
+
  assert.ok(!(await jar().call('/api/catalog/published')).data.products.some(p=>p.id===product.data.id));
  assert.equal((await admin.call('/api/staff/members/technical-fixture/technical-access',{method:'PUT',body:{enabled:false}})).status,200);
  assert.equal((await tech.call('/api/staff/lab/config')).status,403);
