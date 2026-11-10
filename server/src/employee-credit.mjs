@@ -125,7 +125,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer){
     WHERE m.organization_id=$1 ORDER BY coalesce(a.spent_yuan,0) DESC,m.created_at`,[org,GRANT_YUAN]),
    pool.query(`SELECT c.model_id,count(*)::int AS calls,count(*) FILTER(WHERE c.status='failed')::int AS failed,coalesce(sum(c.input_tokens),0)::bigint AS input_tokens,coalesce(sum(c.output_tokens),0)::bigint AS output_tokens,coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.created_at>=now()-interval '30 days' GROUP BY 1 ORDER BY 6 DESC`,[org]),
    pool.query(`SELECT to_char(c.created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD') AS day,c.model_id,count(*)::int AS calls,coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.created_at>=now()-interval '14 days' GROUP BY 1,2 ORDER BY 1,2`,[org]),
-   pool.query(`SELECT c.id,c.created_at,c.model_id,c.status,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.charged_yuan,c.hold_yuan,u.name,k.label AS key_label FROM ${companyCalls} JOIN "user" u ON u.id=c.owner_id JOIN employee_api_keys k ON k.id=c.key_id ORDER BY c.created_at DESC LIMIT 50`,[org]),
+   pool.query(`SELECT c.id,c.created_at,c.model_id,c.status,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.charged_yuan,c.hold_yuan,c.latency_ms,u.name,k.label AS key_label FROM ${companyCalls} JOIN "user" u ON u.id=c.owner_id JOIN employee_api_keys k ON k.id=c.key_id ORDER BY c.created_at DESC LIMIT 50`,[org]),
    pool.query(`SELECT k.id,k.label,k.key_hint,k.created_at,k.revoked_at,u.name FROM employee_api_keys k JOIN employee_credit_accounts a ON a.user_id=k.owner_id AND a.organization_id=$1 JOIN "user" u ON u.id=k.owner_id ORDER BY k.revoked_at IS NULL DESC,k.created_at DESC LIMIT 100`,[org]),
    pool.query(`SELECT coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.settled_at>=(date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai')`,[org])
   ]);
@@ -155,13 +155,15 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer){
   const organization=await member(req);
   if(!organization)return res.json({enabled:false});
   await ensureAccount(pool,cfg,req);
-  const [money,keys,calls,available]=await Promise.all([
+  const [money,keys,calls,available,daily,period]=await Promise.all([
    balance(pool,req.customer.id),
    pool.query('SELECT id,label,key_hint,created_at,revoked_at FROM employee_api_keys WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 20',[req.customer.id]),
    pool.query('SELECT c.id,k.label AS key_label,c.model_id,c.status,c.hold_yuan,c.charged_yuan,c.settlement_source,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.latency_ms,c.error_code,c.created_at FROM employee_calls c JOIN employee_api_keys k ON k.id=c.key_id WHERE c.owner_id=$1 ORDER BY c.created_at DESC LIMIT 30',[req.customer.id]),
-   employeeRoutes(pool,cfg)
+   employeeRoutes(pool,cfg),
+   pool.query("SELECT to_char(created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD') AS day,model_id,count(*)::int AS calls,coalesce(sum(charged_yuan),0) AS yuan FROM employee_calls WHERE owner_id=$1 AND created_at>=now()-interval '14 days' GROUP BY 1,2 ORDER BY 1,2",[req.customer.id]),
+   pool.query("SELECT count(*)::int AS calls_30d,count(*) FILTER(WHERE status='failed')::int AS failed_30d,coalesce(sum(charged_yuan) FILTER(WHERE settled_at>=(date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai')),0) AS month_yuan FROM employee_calls WHERE owner_id=$1 AND created_at>=now()-interval '30 days'",[req.customer.id])
   ]);
-  res.json({enabled:true,organization_id:organization.id,organization_name:organization.name,...money,base_url:cfg.origin+'/v1',model_ids:available.map(r=>r.model.id),models:available.map(r=>publicModel(r.model)),key_limit:MAX_KEYS,max_output_tokens:MAX_OUTPUT,keys:keys.rows,recent_calls:calls.rows});
+  res.json({enabled:true,organization_id:organization.id,organization_name:organization.name,...money,base_url:cfg.origin+'/v1',model_ids:available.map(r=>r.model.id),models:available.map(r=>publicModel(r.model)),daily:daily.rows,...period.rows[0],key_limit:MAX_KEYS,max_output_tokens:MAX_OUTPUT,keys:keys.rows,recent_calls:calls.rows});
  });
  app.post('/api/employee-credit/keys',requireCustomer,async(req,res)=>{
   await requireMember(req);
