@@ -1,4 +1,4 @@
-> 当前实现：个人/企业真实邮箱身份、企业成员权限、员工 OIDC/MFA 与岗位授权。详见 [真实身份与权限](docs/phase-1/13-live-identity.md)。仅两个指定账号可使用限额 DeepSeek Flash 测试调用；正式模型销售、付费和促销尚未开放。
+> 当前实现：个人/企业真实邮箱身份、企业成员权限、员工 OIDC/MFA 与岗位授权。详见 [真实身份与权限](docs/phase-1/13-live-identity.md)。仅两个指定账号可使用限额 DeepSeek Flash / V4 Pro 测试调用；正式模型销售、付费和促销尚未开放。
 
 # OneAPI 模型 API 交易平台
 

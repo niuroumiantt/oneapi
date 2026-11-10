@@ -3,7 +3,10 @@ import { readFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import { HttpError, hash, id, text, token, transaction, audit } from './core.mjs';
 
-const MODEL='deepseek-flash';
+const MODEL_RATES=new Map([
+ ['deepseek-flash',{miss:2,hit:0.04,output:8}],
+ ['deepseek-v4-pro',{miss:9,hit:0.3,output:27}]
+]);
 const DAILY_LIMIT=10;
 const MAX_OUTPUT_TOKENS=256;
 const MAX_INPUT_CHARS=4000;
@@ -13,7 +16,7 @@ const keyPattern=/^Bearer (sf_test_[A-Za-z0-9_-]{43})$/;
 const permittedRoles=new Set(['system','user','assistant']);
 
 export function validatePilotRequest(body){
- if(!body||body.model!==MODEL||body.stream===true)throw new HttpError(400,'测试通道仅支持 deepseek-flash 的非流式调用');
+ if(!body||!MODEL_RATES.has(body.model)||body.stream===true)throw new HttpError(400,'测试通道仅支持 DeepSeek Flash、V4 Pro 的非流式调用');
  if(!Array.isArray(body.messages)||body.messages.length<1||body.messages.length>10)throw new HttpError(400,'messages 需包含 1 至 10 条消息');
  let chars=0;
  for(const message of body.messages){
@@ -26,15 +29,17 @@ export function validatePilotRequest(body){
  const temperature=body.temperature===undefined?undefined:Number(body.temperature);
  if(temperature!==undefined&&(!Number.isFinite(temperature)||temperature<0||temperature>2))throw new HttpError(400,'temperature 需在 0 至 2 之间');
  if(['tools','tool_choice','functions','function_call','response_format','n','max_completion_tokens'].some(k=>body[k]!==undefined))throw new HttpError(400,'测试通道暂不支持工具、JSON 模式或多候选输出');
- return {model:MODEL,messages:body.messages.map(m=>({role:m.role,content:m.content})),max_tokens:maxTokens,stream:false,thinking:{type:'disabled'},...(temperature===undefined?{}:{temperature})};
+ return {model:body.model,messages:body.messages.map(m=>({role:m.role,content:m.content})),max_tokens:maxTokens,stream:false,thinking:{type:'disabled'},...(temperature===undefined?{}:{temperature})};
 }
 
-export function pilotUsage(usage){
+export function pilotUsage(usage,modelId){
  const input=Number(usage?.prompt_tokens),output=Number(usage?.completion_tokens),hit=Number(usage?.prompt_cache_hit_tokens||0);
  const miss=Number(usage?.prompt_cache_miss_tokens??input-hit);
  if(!Number.isSafeInteger(input)||input<0||!Number.isSafeInteger(output)||output<0||!Number.isSafeInteger(hit)||hit<0||!Number.isSafeInteger(miss)||miss<0||hit+miss!==input||(usage?.total_tokens!=null&&Number(usage.total_tokens)!==input+output))throw new Error('UPSTREAM_USAGE_MISSING');
  // Conservative peak estimate, kept outside the customer cash ledger.
- const estimate=Math.ceil((((input-hit)*2+hit*0.04+output*8)/1_000_000)*100_000_000)/100_000_000;
+ const rate=MODEL_RATES.get(modelId);
+ if(!rate)throw new Error('UPSTREAM_MODEL_MISMATCH');
+ const estimate=Math.ceil((((input-hit)*rate.miss+hit*rate.hit+output*rate.output)/1_000_000)*100_000_000)/100_000_000;
  return {input,output,hit,estimate};
 }
 
@@ -44,11 +49,11 @@ export function pilotInferenceRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
  const access=req=>{if(!permitted(req.customer.email))throw new HttpError(403,'当前账号未开放真实测试调用');};
  const current=async ownerId=>{
   const [keys,calls,recent]=await Promise.all([
-   pool.query('SELECT id,label,key_hint,created_at,revoked_at FROM pilot_api_keys WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 20',[ownerId]),
+   pool.query('SELECT id,label,model_id,key_hint,created_at,revoked_at FROM pilot_api_keys WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 20',[ownerId]),
    pool.query(`SELECT count(*)::int AS count FROM pilot_calls WHERE owner_id=$1 AND created_at>=${dayStart}`,[ownerId]),
    pool.query('SELECT id,model_id,status,input_tokens,cache_hit_tokens,output_tokens,estimated_upstream_yuan,latency_ms,created_at FROM pilot_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 10',[ownerId])
   ]);
-  return {enabled:true,model_id:MODEL,base_url:cfg.origin+'/v1',daily_limit:DAILY_LIMIT,calls_today:calls.rows[0].count,keys:keys.rows,recent_calls:recent.rows};
+  return {enabled:true,model_ids:[...MODEL_RATES.keys()],base_url:cfg.origin+'/v1',daily_limit:DAILY_LIMIT,calls_today:calls.rows[0].count,keys:keys.rows,recent_calls:recent.rows};
  };
  app.get('/api/pilot/status',requireCustomer,async(req,res)=>{
   if(!permitted(req.customer.email))return res.json({enabled:false});
@@ -57,15 +62,18 @@ export function pilotInferenceRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
   res.json(await current(req.customer.id));
  });
  app.post('/api/pilot/keys',requireCustomer,async(req,res)=>{
-  access(req);const label=text(req.body?.label,'Key 名称',50);const secret='sf_test_'+token();
+  access(req);const label=text(req.body?.label,'Key 名称',50),modelId=req.body?.model_id;
+  if(!MODEL_RATES.has(modelId))throw new HttpError(400,'请选择可用的测试模型');
+  if(req.body?.confirm_model!==true)throw new HttpError(400,'请明确确认这枚 Key 的模型范围');
+  const secret='sf_test_'+token();
   try{if(!(await readFile(cfg.pilot.keyFile,'utf8')).trim())throw Error('missing');}
   catch{throw new HttpError(503,'测试通道尚未配置');}
   const key=await transaction(pool,async db=>{
    await db.query('SELECT id FROM "user" WHERE id=$1 FOR UPDATE',[req.customer.id]);
    const count=(await db.query('SELECT count(*)::int AS count FROM pilot_api_keys WHERE owner_id=$1 AND revoked_at IS NULL',[req.customer.id])).rows[0].count;
    if(count>=3)throw new HttpError(409,'最多保留 3 枚有效测试 Key，请先停用旧 Key');
-   const created=(await db.query('INSERT INTO pilot_api_keys(owner_id,label,secret_hash,key_hint) VALUES($1,$2,$3,$4) RETURNING id,label,key_hint,created_at',[req.customer.id,label,hash(secret),secret.slice(-6)])).rows[0];
-   await audit(db,req.actor,'pilot.key_created',null,created.id,{model_id:MODEL});return created;
+   const created=(await db.query('INSERT INTO pilot_api_keys(owner_id,label,model_id,secret_hash,key_hint) VALUES($1,$2,$3,$4,$5) RETURNING id,label,model_id,key_hint,created_at',[req.customer.id,label,modelId,hash(secret),secret.slice(-6)])).rows[0];
+   await audit(db,req.actor,'pilot.key_created',null,created.id,{model_id:modelId});return created;
   });
   res.status(201).json({key,secret,show_once:true});
  });
@@ -89,8 +97,9 @@ export function pilotInferenceRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
   if(!match)throw new HttpError(401,'平台测试 Key 无效');
   if(JSON.stringify(req.body||{}).length>8192)throw new HttpError(413,'请求内容过大');
   const payload=validatePilotRequest(req.body);
-  const owner=(await pool.query('SELECT k.id AS key_id,k.owner_id,u.email,u."emailVerified" AS verified,u.disabled FROM pilot_api_keys k JOIN "user" u ON u.id=k.owner_id WHERE k.secret_hash=$1 AND k.revoked_at IS NULL',[hash(match[1])])).rows[0];
+  const owner=(await pool.query('SELECT k.id AS key_id,k.owner_id,k.model_id,u.email,u."emailVerified" AS verified,u.disabled FROM pilot_api_keys k JOIN "user" u ON u.id=k.owner_id WHERE k.secret_hash=$1 AND k.revoked_at IS NULL',[hash(match[1])])).rows[0];
   if(!owner||!owner.verified||owner.disabled||!permitted(owner.email))throw new HttpError(401,'平台测试 Key 无效');
+  if(owner.model_id!==payload.model)throw new HttpError(403,'这枚测试 Key 未获准调用所选模型');
   const callId=await transaction(pool,async db=>{
    await db.query('SELECT id FROM "user" WHERE id=$1 FOR UPDATE',[owner.owner_id]);
    const key=(await db.query('SELECT id FROM pilot_api_keys WHERE id=$1 AND revoked_at IS NULL FOR UPDATE',[owner.key_id])).rows[0];
@@ -98,7 +107,7 @@ export function pilotInferenceRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
    const count=(await db.query(`SELECT count(*)::int AS count, count(*) FILTER (WHERE status='pending' AND created_at>now()-interval '90 seconds')::int AS pending FROM pilot_calls WHERE owner_id=$1 AND created_at>=${dayStart}`,[owner.owner_id])).rows[0];
    if(count.count>=DAILY_LIMIT){res.set('Retry-After','86400');throw new HttpError(429,'今日测试调用额度已用完');}
    if(count.pending){res.set('Retry-After','90');throw new HttpError(429,'已有测试调用正在进行，请稍后再试');}
-   return (await db.query("INSERT INTO pilot_calls(key_id,owner_id,model_id,status) VALUES($1,$2,$3,'pending') RETURNING id",[owner.key_id,owner.owner_id,MODEL])).rows[0].id;
+   return (await db.query("INSERT INTO pilot_calls(key_id,owner_id,model_id,status) VALUES($1,$2,$3,'pending') RETURNING id",[owner.key_id,owner.owner_id,payload.model])).rows[0].id;
   });
   const started=performance.now();
   let result;
@@ -108,10 +117,11 @@ export function pilotInferenceRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
    const response=await upstreamFetch(UPSTREAM,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(45000),redirect:'error'});
    if(!response.ok)throw Error('UPSTREAM_HTTP_'+response.status);
    result=await response.json();
-   const usage=pilotUsage(result.usage);
+   if(result.model!==payload.model)throw Error('UPSTREAM_MODEL_MISMATCH');
+   const usage=pilotUsage(result.usage,payload.model);
    await pool.query("UPDATE pilot_calls SET status='succeeded',input_tokens=$2,cache_hit_tokens=$3,output_tokens=$4,estimated_upstream_yuan=$5,upstream_request_id=$6,latency_ms=$7,finished_at=now() WHERE id=$1",[callId,usage.input,usage.hit,usage.output,usage.estimate,String(result.id||'').slice(0,120),Math.round(performance.now()-started)]);
   }catch(error){
-   const code=/^UPSTREAM_HTTP_[0-9]{3}$/.test(error.message)?error.message:error.name==='TimeoutError'?'UPSTREAM_TIMEOUT':error.message==='UPSTREAM_USAGE_MISSING'?'UPSTREAM_USAGE_MISSING':'UPSTREAM_FAILED';
+   const code=/^UPSTREAM_HTTP_[0-9]{3}$/.test(error.message)?error.message:error.name==='TimeoutError'?'UPSTREAM_TIMEOUT':['UPSTREAM_USAGE_MISSING','UPSTREAM_MODEL_MISMATCH'].includes(error.message)?error.message:'UPSTREAM_FAILED';
    await pool.query("UPDATE pilot_calls SET status='failed',error_code=$2,latency_ms=$3,finished_at=now() WHERE id=$1",[callId,code,Math.round(performance.now()-started)]);
    throw new HttpError(502,'上游测试调用失败；本次未计入成功用量');
   }
