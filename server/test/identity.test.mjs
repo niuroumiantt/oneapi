@@ -22,6 +22,7 @@ async function organization(u,name){const r=await u.j.call('/api/platform/organi
 async function joinLink(owner,org){const r=await owner.j.call(`/api/platform/organizations/${org.id}/join-links`,{method:'POST',body:{}});assert.equal(r.status,201,JSON.stringify(r.data));return {token:r.data.url.split('#join/')[1],id:r.data.id};}
 async function applyAndApprove(owner,org,recipient,link,department=''){const r=await recipient.j.call('/api/platform/join-requests',{method:'POST',body:{token:link.token,name:recipient.user.name,department}});assert.equal(r.status,202,JSON.stringify(r.data));const view=(await owner.j.call(`/api/platform/organizations/${org.id}`)).data;const request=view.joinRequests.find(x=>x.user_id===recipient.user.id);assert.ok(request);const approval=await owner.j.call(`/api/platform/organizations/${org.id}/join-requests/${request.id}/approve`,{method:'POST',body:{}});assert.equal(approval.status,200,JSON.stringify(approval.data));return request;}
 before(async()=>{
+ process.env.SUPPLIER_LAB_SECRET="test-only-laboratory-secret-1234567890123456";
  const databaseURL=process.env.TEST_DATABASE_URL||'postgresql://oneapi_test:local_test_only_62178@127.0.0.1:55438/oneapi_test';assert.ok(new URL(databaseURL).pathname.endsWith('_test'),'Tests require a dedicated *_test database');
  pool=new pg.Pool({connectionString:databaseURL});
  const {privateKey,publicKey}=await generateKeyPair('RS256'),jwk={...await exportJWK(publicKey),kid:'fixture',alg:'RS256',use:'sig'};
@@ -316,3 +317,42 @@ test('personal pilot keys are scoped, hashed, capped and record real upstream us
  assert.equal((await proCall()).status,401);
 });
 test('sign out revokes persistent customer session',async()=>{assert.equal((await owner.j.call('/api/auth/sign-out',{method:'POST',body:{}})).status,200);assert.equal((await owner.j.call('/api/platform/me')).status,401);});
+test('two workspaces share credentials, actual acceptance and fail-closed catalog releases',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;
+ const admin=jar();await staffLogin(admin);
+ identity={sub:'technical-fixture',email:'technical@example.test',name:'Technician',staff_approved:true};const tech=jar();await staffLogin(tech);
+ assert.equal((await admin.call('/api/staff/members/technical-fixture',{method:'PATCH',body:{role:'support',status:'active'}})).status,200);await staffLogin(tech);
+ assert.equal((await tech.call('/api/staff/lab/config')).status,403);
+ assert.equal((await admin.call('/api/staff/members/technical-fixture/technical-access',{method:'PUT',body:{enabled:true}})).status,200);
+ assert.equal((await tech.call('/api/staff/lab/config')).status,200);
+ assert.equal((await tech.call('/api/staff/suppliers',{method:'POST',body:{}})).status,403);
+ assert.equal((await admin.call('/api/staff/lab/suppliers',{method:'POST',body:{name:'Duplicate'}})).status,410);
+ const supplier=await admin.call('/api/staff/suppliers',{method:'POST',body:{display_name:'Shared supplier',legal_name:'Shared legal',source_type:'unconfirmed',region:'CN'}});assert.equal(supplier.status,201);
+ assert.ok((await tech.call('/api/staff/lab/suppliers')).data.some(s=>s.id===supplier.data.id));
+ const key=await tech.call('/api/staff/lab/credentials',{method:'POST',body:{supplier_id:supplier.data.id,label:'Unified key',base_url:'https://api.deepseek.com',api_key:'fake-key-only-for-tests'}});assert.equal(key.status,201,JSON.stringify(key.data));
+ assert.equal(key.data.credential_ciphertext,undefined);
+ const endpoint=await tech.call('/api/staff/lab/endpoints',{method:'POST',body:{credential_id:key.data.id,label:'Shared model',model_id:'test-model',input_yuan_per_m:'1',cached_input_yuan_per_m:'0.1',output_yuan_per_m:'4'}});assert.equal(endpoint.status,201,JSON.stringify(endpoint.data));assert.ok(endpoint.data.offer_id);
+ const overview=await admin.call('/api/staff/workspace/overview');assert.equal(overview.status,200);assert.ok(!JSON.stringify(overview.data).includes('fake-key-only-for-tests'));
+ const ids=['arithmetic','json','chinese','context'];
+ const run=(await pool.query("INSERT INTO supplier_lab_runs(supplier_endpoint_id,case_ids,status,created_by,created_at,finished_at) VALUES($1,$2,'completed','technical-fixture',now()-interval '10 minutes',now()-interval '9 minutes') RETURNING *",[endpoint.data.id,ids])).rows[0];
+ for(const caseId of ids)await pool.query(`INSERT INTO supplier_lab_transactions(run_id,endpoint_id,case_id,prompt_sha256,http_status,latency_ms,input_tokens,cached_input_tokens,output_tokens,total_tokens,estimated_cost_yuan,quality_score,checks,created_at) VALUES($1,$2,$3,'fixture',200,120,10,0,1,11,0.000014,100,$4,now()-interval '9 minutes 30 seconds')`,[run.id,endpoint.data.id,caseId,JSON.stringify({usage_present_and_consistent:true,model_matches_request:true,task_passed:true})]);
+ const bill=await tech.call('/api/staff/lab/reconciliations',{method:'POST',body:{endpoint_id:endpoint.data.id,period_start:new Date(Date.now()-11*60000).toISOString(),period_end:new Date(Date.now()-8*60000).toISOString(),supplier_billed_yuan:'0.000056',note:'upstream-statement-fixture'}});assert.equal(bill.status,201,JSON.stringify(bill.data));
+ assert.equal((await tech.call('/api/staff/lab/endpoints/'+endpoint.data.id+'/rates',{method:'POST',body:{input_yuan_per_m:'2'}})).status,409);
+ const report=await tech.call('/api/staff/lab/runs/'+run.id+'/handoff',{method:'POST',body:{endpoint_id:endpoint.data.id,reconciliation_id:bill.data.id}});assert.equal(report.status,201,JSON.stringify(report.data));assert.equal(report.data.conclusion,'passed');
+ assert.ok((await admin.call('/api/staff/workspace/overview')).data.reports.some(r=>r.id===report.data.id&&r.lab_run_id===run.id));
+ const product=await admin.call('/api/staff/model-products',{method:'POST',body:{offer_id:endpoint.data.offer_id,display_name:'Shared product',product_code:'shared-product'}});assert.equal(product.status,201);
+ assert.equal((await admin.call('/api/staff/workspace/listings',{method:'POST',body:{product_id:product.data.id}})).status,409);
+ // Fixtures emulate already-approved business documents; publisher still rechecks live references.
+ await pool.query("UPDATE supplier_offer_checks SET result='documented',evidence_url='https://example.test/evidence',checked_at=now() WHERE offer_id=$1",[endpoint.data.offer_id]);
+ const price=(await pool.query("INSERT INTO model_price_proposals(model_product_id,input_fen_per_million,output_fen_per_million,evidence_url,created_by) VALUES($1,100,400,'https://example.test/price','staff-owner') RETURNING id",[product.data.id])).rows[0];
+ const review=(await pool.query("INSERT INTO model_product_reviews(model_product_id,offer_id,validation_run_id,price_proposal_id,status,requested_by,reviewed_by,decided_at) VALUES($1,$2,$3,$4,'internally_reviewed','staff-owner','staff-reviewer',now()) RETURNING id",[product.data.id,endpoint.data.offer_id,report.data.id,price.id])).rows[0];
+ await pool.query("INSERT INTO model_price_decisions(price_proposal_id,product_review_id,status,notes,decided_by) VALUES($1,$2,'approved','Fixture price approved','staff-reviewer')",[price.id,review.id]);
+ const listing=await admin.call('/api/staff/workspace/listings',{method:'POST',body:{product_id:product.data.id}});assert.equal(listing.status,201,JSON.stringify(listing.data));
+ assert.equal((await tech.call('/api/staff/lab/releases/'+listing.data.id+'/publish',{method:'POST',body:{}})).status,200);
+ assert.ok((await jar().call('/api/catalog/published')).data.products.some(p=>p.id===product.data.id));
+ assert.equal((await tech.call('/api/staff/lab/credentials/'+key.data.id+'/disable',{method:'POST',body:{}})).status,200);
+ assert.ok(!(await jar().call('/api/catalog/published')).data.products.some(p=>p.id===product.data.id));
+ assert.equal((await admin.call('/api/staff/members/technical-fixture/technical-access',{method:'PUT',body:{enabled:false}})).status,200);
+ assert.equal((await tech.call('/api/staff/lab/config')).status,403);
+ assert.equal((await jar().call('/api/staff/workspace/console')).location,'/api/staff/login?next=business');
+});

@@ -11,18 +11,18 @@ export function staffRoutes(app,pool,cfg){
  function approved(info){return typeof info.sub==='string'&&info.staff_approved===true;}
  async function requireStaff(req,res,next){
   const value=cookie(req,cookieName);if(!value)throw new HttpError(401,'请先使用公司身份登录');
-  const row=(await pool.query("SELECT s.*,m.email,m.name,m.role,m.status FROM staff_sessions s JOIN staff_members m ON m.subject=s.subject WHERE token_hash=$1 AND expires_at>now() AND last_seen>now()-interval '30 minutes'",[hash(value)])).rows[0];
+  const row=(await pool.query("SELECT s.*,m.email,m.name,m.role,m.status,EXISTS(SELECT 1 FROM staff_technical_access ta WHERE ta.subject=m.subject) AS technical_access FROM staff_sessions s JOIN staff_members m ON m.subject=s.subject WHERE token_hash=$1 AND expires_at>now() AND last_seen>now()-interval '30 minutes'",[hash(value)])).rows[0];
   if(!row)throw new HttpError(401,'员工会话已过期，请重新登录');
   let info;try{info=await oidc.fetchUserInfo(await client(),box.open(row.access_payload).accessToken,row.subject);}catch{await pool.query('DELETE FROM staff_sessions WHERE token_hash=$1',[hash(value)]);throw new HttpError(401,'公司身份会话已失效，请重新登录');}
   if(!approved(info)){await pool.query('DELETE FROM staff_sessions WHERE token_hash=$1',[hash(value)]);throw new HttpError(403,'公司员工身份未获准访问');}
   if(row.status==='suspended')throw new HttpError(403,'员工权限已停用');
-  req.staff={subject:row.subject,email:row.email,name:row.name,role:row.role,status:row.status};req.actor={kind:'staff',id:row.subject};
+  req.staff={subject:row.subject,email:row.email,name:row.name,role:row.role,status:row.status,technical_access:row.role==='platform_admin'||row.technical_access===true};req.actor={kind:'staff',id:row.subject};
   await pool.query('UPDATE staff_sessions SET last_seen=now() WHERE token_hash=$1',[hash(value)]);next();
  }
  function administrator(req,res,next){if(req.staff.role!=='platform_admin'||req.staff.status!=='active')throw new HttpError(403,'仅平台管理员可执行此操作');next();}
  app.get('/api/staff/login',async(req,res)=>{
   const c=await client(),state=oidc.randomState(),nonce=oidc.randomNonce(),verifier=oidc.randomPKCECodeVerifier(),binding=token();
-  const destination=req.query.next==='lab'?'/api/staff/lab/console':'/#staff-account';
+  const destination=req.query.next==='lab'?'/api/staff/lab/console':req.query.next==='business'?'/api/staff/workspace/console':'/#staff-account';
   await pool.query('INSERT INTO staff_oidc_states(state_hash,binding_hash,payload) VALUES($1,$2,$3)',[hash(state),hash(binding),box.seal({state,nonce,verifier,destination})]);
   res.cookie(bindingName,binding,{...cookieOptions,maxAge:600000});
   const url=oidc.buildAuthorizationUrl(c,{redirect_uri:cfg.origin+'/api/staff/callback',scope:'openid profile email',code_challenge:await oidc.calculatePKCECodeChallenge(verifier),code_challenge_method:'S256',state,nonce});
@@ -42,12 +42,12 @@ export function staffRoutes(app,pool,cfg){
     await db.query('INSERT INTO staff_sessions(token_hash,subject,access_payload,expires_at) VALUES($1,$2,$3,$4)',[hash(value),claims.sub,box.seal({accessToken:tokens.access_token}),new Date(Date.now()+Math.min(tokens.expires_in||300,8*3600)*1000)]);
     await audit(db,{kind:'staff',id:claims.sub},bootstrap?'staff.bootstrap':'staff.signed_in',null,claims.sub);
    });
-   res.clearCookie(bindingName,cookieOptions);res.cookie(cookieName,value,{...cookieOptions,maxAge:8*3600*1000});res.redirect(flow.destination==='/api/staff/lab/console'?flow.destination:'/#staff-account');
+   res.clearCookie(bindingName,cookieOptions);res.cookie(cookieName,value,{...cookieOptions,maxAge:8*3600*1000});res.redirect(['/api/staff/lab/console','/api/staff/workspace/console'].includes(flow.destination)?flow.destination:'/#staff-account');
   }catch{res.clearCookie(bindingName,cookieOptions);res.redirect('/#staff?error=authentication_failed');}
  });
  app.get('/api/staff/me',requireStaff,async(req,res)=>res.json({staff:req.staff}));
  app.post('/api/staff/logout',async(req,res)=>{await pool.query('DELETE FROM staff_sessions WHERE token_hash=$1',[hash(cookie(req,cookieName))]);res.clearCookie(cookieName,cookieOptions);res.json({ok:true});});
- app.get('/api/staff/members',requireStaff,administrator,async(req,res)=>res.json((await pool.query('SELECT subject,email,name,role,status,created_at FROM staff_members ORDER BY created_at')).rows));
+ app.get('/api/staff/members',requireStaff,administrator,async(req,res)=>res.json((await pool.query('SELECT subject,email,name,role,status,created_at,EXISTS(SELECT 1 FROM staff_technical_access t WHERE t.subject=staff_members.subject) AS technical_access FROM staff_members ORDER BY created_at')).rows));
  app.patch('/api/staff/members/:subject',requireStaff,administrator,async(req,res)=>{const subject=text(req.params.subject,'员工标识',120),role=req.body.role,status=req.body.status;if(!staffRoles.includes(role)||!['active','suspended'].includes(status))throw new HttpError(400,'岗位或状态不正确');
   await transaction(pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock(148921,2)');

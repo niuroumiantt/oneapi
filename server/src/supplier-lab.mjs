@@ -1,3 +1,4 @@
+import { requireTechnical } from './workspaces.mjs';
 import { HttpError, audit, hash, id, text, transaction, vault } from './core.mjs';
 
 const CASES = Object.freeze([
@@ -94,32 +95,22 @@ async function executeRun(pool, box, runId, supplier, reference, cases) {
 export function supplierLabRoutes(app, pool, requireStaff) {
   const secret = process.env.SUPPLIER_LAB_SECRET;
   const box = secret?.length >= 32 ? vault(secret) : null;
-  const access = (req, write = false) => { if (req.staff.status !== 'active' || !['platform_admin', 'supply'].includes(req.staff.role)) throw new HttpError(403, '当前岗位不能访问供应商验收台'); if (write && !box) throw new HttpError(503, '验收台凭据加密密钥尚未配置'); };
+  const access = (req, write = false) => { requireTechnical(req); if (write && !box) throw new HttpError(503, '验收台凭据加密密钥尚未配置'); };
   app.get('/api/staff/lab/console', requireStaff, (req, res) => { access(req); res.set('Cache-Control', 'no-store'); res.sendFile(new URL('../private/supplier-lab.html', import.meta.url).pathname); });
   app.get('/api/staff/lab/console.js', requireStaff, (req, res) => { access(req); res.set('Cache-Control', 'no-store'); res.type('js').sendFile(new URL('../private/supplier-lab.js', import.meta.url).pathname); });
   app.get('/api/staff/lab/logo.svg', requireStaff, (req, res) => { access(req); res.set('Cache-Control', 'no-store'); res.type('svg').sendFile(new URL('../private/supplier-lab-logo.svg', import.meta.url).pathname); });
   app.get('/api/staff/lab/config', requireStaff, (req, res) => { access(req); res.json({ ready: Boolean(box), allowed_hosts: (process.env.SUPPLIER_LAB_ALLOWED_HOSTS || 'api.deepseek.com').split(',').map(x => x.trim()).filter(Boolean), cases: CASES.map(({ id, name, prompt, expected, maxTokens }) => ({ id, name, prompt, expected, max_tokens: maxTokens })), customer_traffic_connected: false }); });
-  app.get('/api/staff/lab/suppliers', requireStaff, async (req, res) => {
+  app.get('/api/staff/lab/suppliers', requireStaff, async (req,res)=>{
     access(req);
-    res.json((await pool.query(`SELECT s.id,s.name,s.legal_name,s.kind,s.created_at,s.disabled_at,
-      count(DISTINCT c.id) FILTER (WHERE c.disabled_at IS NULL)::int AS key_count,
-      count(DISTINCT e.id) FILTER (WHERE e.disabled_at IS NULL)::int AS model_count,
-      max(t.created_at) AS last_test_at
-      FROM supplier_lab_suppliers s LEFT JOIN supplier_lab_credentials c ON c.supplier_id=s.id
-      LEFT JOIN supplier_lab_endpoints e ON e.supplier_id=s.id
-      LEFT JOIN supplier_lab_transactions t ON t.endpoint_id=e.id
-      GROUP BY s.id ORDER BY s.created_at DESC LIMIT 100`)).rows);
+    res.json((await pool.query(`SELECT p.id,p.display_name AS name,p.legal_name,CASE WHEN p.source_type='official' THEN 'reference' ELSE 'supplier' END AS kind,
+      p.created_at,CASE WHEN p.status='blocked' THEN p.updated_at ELSE NULL END AS disabled_at,
+      count(DISTINCT c.id) FILTER(WHERE c.disabled_at IS NULL)::int AS key_count,
+      count(DISTINCT e.id) FILTER(WHERE e.disabled_at IS NULL)::int AS model_count,max(t.created_at) AS last_test_at
+      FROM suppliers p LEFT JOIN supplier_lab_suppliers s ON s.canonical_supplier_id=p.id
+      LEFT JOIN supplier_lab_credentials c ON c.supplier_id=s.id LEFT JOIN supplier_lab_endpoints e ON e.credential_id=c.id
+      LEFT JOIN supplier_lab_transactions t ON t.endpoint_id=e.id GROUP BY p.id ORDER BY p.created_at DESC LIMIT 200`)).rows);
   });
-  app.post('/api/staff/lab/suppliers', requireStaff, async (req, res) => {
-    access(req, true);
-    const b=req.body||{}, name=text(b.name,'供应商名称',100), legalName=typeof b.legal_name==='string'?b.legal_name.trim():'', kind=b.kind;
-    if (legalName.length>160 || !['supplier','reference'].includes(kind)) throw new HttpError(400,'供应商类型或主体名称不正确');
-    const row=await transaction(pool,async db=>{
-      const result=(await db.query('INSERT INTO supplier_lab_suppliers(name,legal_name,kind,created_by) VALUES($1,$2,$3,$4) RETURNING id,name,legal_name,kind,created_at,disabled_at',[name,legalName,kind,req.staff.subject])).rows[0];
-      await audit(db,req.actor,'supplier_lab.supplier_created',null,result.id,{kind}); return result;
-    });
-    res.status(201).json(row);
-  });
+  app.post('/api/staff/lab/suppliers', requireStaff, (req,res)=>{access(req);throw new HttpError(410,'供应商统一在业务工作台建立，请使用供应采购入口');});
   app.get('/api/staff/lab/credentials', requireStaff, async (req,res)=>{
     access(req);
     res.json((await pool.query(`SELECT c.id,c.supplier_id,c.label,c.base_url,c.credential_fingerprint,c.created_at,c.disabled_at,
@@ -133,9 +124,14 @@ export function supplierLabRoutes(app, pool, requireStaff) {
     const b=req.body||{}, supplierId=id(b.supplier_id), label=text(b.label,'Key 别名',100), baseUrl=validateLabBaseUrl(b.base_url), key=text(b.api_key,'API Key',1000);
     if (/\s/.test(key)) throw new HttpError(400,'API Key 不可包含空白字符');
     const row=await transaction(pool,async db=>{
-      const supplier=(await db.query('SELECT id FROM supplier_lab_suppliers WHERE id=$1 AND disabled_at IS NULL FOR SHARE',[supplierId])).rows[0];
+      const supplier=(await db.query("SELECT * FROM suppliers WHERE id=$1 AND status<>'blocked' FOR SHARE",[supplierId])).rows[0];
       if(!supplier) throw new HttpError(404,'供应商不存在或已停用');
-      const result=(await db.query('INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,supplier_id,label,base_url,credential_fingerprint,created_at,disabled_at',[supplierId,label,baseUrl,box.seal({key}),hash(key).slice(0,12),req.staff.subject])).rows[0];
+      await db.query(`INSERT INTO supplier_lab_suppliers(id,name,legal_name,kind,created_by,canonical_supplier_id)
+        VALUES($1,$2,$3,$4,$5,$1) ON CONFLICT(canonical_supplier_id) DO NOTHING`,[supplierId,supplier.display_name,supplier.legal_name,supplier.source_type==='official'?'reference':'supplier',req.staff.subject]);
+      const labSupplier=(await db.query('SELECT id FROM supplier_lab_suppliers WHERE canonical_supplier_id=$1',[supplierId])).rows[0];
+      await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',[baseUrl+':'+hash(key)]);
+      if((await db.query('SELECT id FROM supplier_lab_credentials WHERE base_url=$1 AND credential_fingerprint=$2',[baseUrl,hash(key).slice(0,12)])).rowCount)throw new HttpError(409,'这枚 Key 已登记，请复用已有凭据；如已停用请使用上游新生成的 Key');
+      const result=(await db.query('INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,supplier_id,label,base_url,credential_fingerprint,created_at,disabled_at',[labSupplier.id,label,baseUrl,box.seal({key}),hash(key).slice(0,12),req.staff.subject])).rows[0];
       await audit(db,req.actor,'supplier_lab.credential_created',null,result.id,{supplier_id:supplierId,host:new URL(baseUrl).hostname}); return result;
     });
     res.status(201).json(row);
@@ -150,7 +146,7 @@ export function supplierLabRoutes(app, pool, requireStaff) {
   });
   app.get('/api/staff/lab/endpoints',requireStaff,async(req,res)=>{
     access(req);
-    res.json((await pool.query(`SELECT e.id,e.label,e.kind,e.base_url,e.model_id,e.supplier_id,e.credential_id,
+    res.json((await pool.query(`SELECT e.id,e.offer_id,e.label,e.kind,e.base_url,e.model_id,e.supplier_id,e.credential_id,
       e.credential_fingerprint,e.input_yuan_per_m,e.cached_input_yuan_per_m,e.output_yuan_per_m,e.created_at,e.disabled_at,
       s.name AS supplier_name,c.label AS credential_label,c.disabled_at AS credential_disabled_at
       FROM supplier_lab_endpoints e LEFT JOIN supplier_lab_suppliers s ON s.id=e.supplier_id
@@ -160,8 +156,8 @@ export function supplierLabRoutes(app, pool, requireStaff) {
     access(req,true);const b=req.body||{},credentialId=id(b.credential_id),label=text(b.label,'型号名称',100),model=text(b.model_id,'上游型号 ID',120);
     const rates=[validRate(b.input_yuan_per_m),validRate(b.cached_input_yuan_per_m),validRate(b.output_yuan_per_m)];
     const row=await transaction(pool,async db=>{
-      const source=(await db.query(`SELECT c.id,c.supplier_id,c.base_url,c.credential_fingerprint,s.kind FROM supplier_lab_credentials c
-        JOIN supplier_lab_suppliers s ON s.id=c.supplier_id WHERE c.id=$1 AND c.disabled_at IS NULL AND s.disabled_at IS NULL FOR SHARE OF c,s`,[credentialId])).rows[0];
+      const source=(await db.query(`SELECT c.id,c.supplier_id,c.base_url,c.credential_fingerprint,s.kind,s.canonical_supplier_id FROM supplier_lab_credentials c
+        JOIN supplier_lab_suppliers s ON s.id=c.supplier_id WHERE c.id=$1 AND c.disabled_at IS NULL AND s.disabled_at IS NULL AND NOT EXISTS(SELECT 1 FROM suppliers p WHERE p.id=s.canonical_supplier_id AND p.status='blocked') FOR SHARE OF c,s`,[credentialId])).rows[0];
       if(!source)throw new HttpError(404,'Key 不存在或已停用');
       const duplicate=(await db.query('SELECT id FROM supplier_lab_endpoints WHERE credential_id=$1 AND model_id=$2 AND disabled_at IS NULL',[credentialId,model])).rows[0];
       if(duplicate)throw new HttpError(409,'这枚 Key 已登记该型号');
@@ -170,8 +166,25 @@ export function supplierLabRoutes(app, pool, requireStaff) {
         VALUES($1,$2,$3,$4,NULL,$5,$6,$7,$8,$9,$10,$11)
         RETURNING id,label,kind,base_url,model_id,credential_fingerprint,input_yuan_per_m,cached_input_yuan_per_m,output_yuan_per_m,created_at,supplier_id,credential_id`,
         [label,source.kind,source.base_url,model,source.credential_fingerprint,...rates,req.staff.subject,source.supplier_id,credentialId])).rows[0];
+      await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',[source.canonical_supplier_id+':'+model]);
+      let offer=(await db.query("SELECT id FROM supplier_offers WHERE supplier_id=$1 AND upstream_model_id=$2 AND status<>'blocked' ORDER BY created_at LIMIT 1",[source.canonical_supplier_id,model])).rows[0];
+      if(!offer){offer=(await db.query(`INSERT INTO supplier_offers(supplier_id,model_name,upstream_model_id,protocol,region,created_by)
+        SELECT id,$2,$3,'openai_compatible',region,$4 FROM suppliers WHERE id=$1 RETURNING id`,[source.canonical_supplier_id,label,model,req.staff.subject])).rows[0];
+        await db.query("INSERT INTO supplier_offer_checks(offer_id,check_key) SELECT $1,unnest(ARRAY['source','sales_rights','model_version','protocol','data_region','usage_billing','capacity'])",[offer.id]);}
+      await db.query('UPDATE supplier_lab_endpoints SET offer_id=$2 WHERE id=$1',[result.id,offer.id]);result.offer_id=offer.id;
       await audit(db,req.actor,'supplier_lab.endpoint_created',null,result.id,{supplier_id:source.supplier_id,credential_id:credentialId,model_id:model});return result;
     });res.status(201).json(row);
+  });
+  app.post('/api/staff/lab/endpoints/:id/rates',requireStaff,async(req,res)=>{
+    access(req,true);const endpointId=id(req.params.id),b=req.body||{};
+    const rates=[validRate(b.input_yuan_per_m),validRate(b.cached_input_yuan_per_m),validRate(b.output_yuan_per_m)];
+    await transaction(pool,async db=>{
+      const e=(await db.query('SELECT id FROM supplier_lab_endpoints WHERE id=$1 AND disabled_at IS NULL FOR UPDATE',[endpointId])).rows[0];
+      if(!e)throw new HttpError(404,'型号不存在或已停用');
+      if((await db.query('SELECT 1 FROM supplier_lab_runs WHERE supplier_endpoint_id=$1 OR reference_endpoint_id=$1 LIMIT 1',[endpointId])).rowCount)throw new HttpError(409,'已有测试的费率不能改写；请停用旧型号并为同一 Key 登记新费率版本');
+      await db.query('UPDATE supplier_lab_endpoints SET input_yuan_per_m=$2,cached_input_yuan_per_m=$3,output_yuan_per_m=$4 WHERE id=$1',[endpointId,...rates]);
+      await audit(db,req.actor,'supplier_lab.rates_set',null,endpointId);
+    });res.json({ok:true});
   });
   app.post('/api/staff/lab/endpoints/:id/disable', requireStaff, async (req, res) => {
     access(req,true);const endpointId=id(req.params.id);
@@ -188,7 +201,7 @@ export function supplierLabRoutes(app, pool, requireStaff) {
   app.post('/api/staff/lab/credentials/:id/discover',requireStaff,async(req,res)=>{
     access(req,true);const credentialId=id(req.params.id);
     const credential=(await pool.query(`SELECT c.* FROM supplier_lab_credentials c JOIN supplier_lab_suppliers s ON s.id=c.supplier_id
-      WHERE c.id=$1 AND c.disabled_at IS NULL AND s.disabled_at IS NULL`,[credentialId])).rows[0];
+      WHERE c.id=$1 AND c.disabled_at IS NULL AND s.disabled_at IS NULL AND NOT EXISTS(SELECT 1 FROM suppliers p WHERE p.id=s.canonical_supplier_id AND p.status='blocked')`,[credentialId])).rows[0];
     if(!credential)throw new HttpError(404,'Key 不存在或已停用');
     validateLabBaseUrl(credential.base_url);
     const started=performance.now();let httpStatus=null,errorCode=null,modelIds=[],responseHash=null,upstreamRequestId=null;
@@ -209,7 +222,7 @@ export function supplierLabRoutes(app, pool, requireStaff) {
     access(req, true); const b = req.body || {}, supplierId = id(b.supplier_endpoint_id), referenceId = b.reference_endpoint_id ? id(b.reference_endpoint_id) : null;
     if (referenceId === supplierId) throw new HttpError(400, '对比端点不能与供应端点相同');
     const requested = Array.isArray(b.case_ids) ? b.case_ids : []; if (!requested.length || requested.length > 4 || new Set(requested).size !== requested.length || requested.some(x => !CASE_BY_ID.has(x))) throw new HttpError(400, '请选择 1 至 4 个固定任务');
-    const endpoints = (await pool.query(`SELECT e.*,coalesce(c.credential_ciphertext,e.credential_ciphertext) AS active_ciphertext FROM supplier_lab_endpoints e LEFT JOIN supplier_lab_credentials c ON c.id=e.credential_id LEFT JOIN supplier_lab_suppliers s ON s.id=e.supplier_id WHERE e.id=ANY($1::uuid[]) AND e.disabled_at IS NULL AND (c.id IS NULL OR c.disabled_at IS NULL) AND (s.id IS NULL OR s.disabled_at IS NULL)`, [[supplierId, referenceId].filter(Boolean)])).rows;
+    const endpoints = (await pool.query(`SELECT e.*,coalesce(c.credential_ciphertext,e.credential_ciphertext) AS active_ciphertext FROM supplier_lab_endpoints e LEFT JOIN supplier_lab_credentials c ON c.id=e.credential_id LEFT JOIN supplier_lab_suppliers s ON s.id=e.supplier_id WHERE e.id=ANY($1::uuid[]) AND e.disabled_at IS NULL AND (c.id IS NULL OR c.disabled_at IS NULL) AND (s.id IS NULL OR (s.disabled_at IS NULL AND NOT EXISTS(SELECT 1 FROM suppliers p WHERE p.id=s.canonical_supplier_id AND p.status='blocked')))`, [[supplierId, referenceId].filter(Boolean)])).rows;
     const supplier = endpoints.find(x => x.id === supplierId && x.kind === 'supplier'), reference = referenceId ? endpoints.find(x => x.id === referenceId) : null;
     if (!supplier || (referenceId && !reference)) throw new HttpError(400, '型号不存在、Key 已停用或类型不匹配');
     validateLabBaseUrl(supplier.base_url);
@@ -231,7 +244,7 @@ export function supplierLabRoutes(app, pool, requireStaff) {
     res.set('Content-Disposition', 'attachment; filename="supplier-lab-transactions.csv"');
     res.type('text/csv; charset=utf-8').send('\uFEFF' + [headers, ...values].map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n');
   });
-  app.get('/api/staff/lab/transactions', requireStaff, async (req, res) => { access(req); const runId = req.query.run_id ? id(req.query.run_id) : null; res.json((await pool.query('SELECT t.id,t.run_id,t.case_id,t.prompt_sha256,t.response_sha256,t.output_sample,t.http_status,t.error_code,t.upstream_request_id,t.latency_ms,t.input_tokens,t.cached_input_tokens,t.output_tokens,t.total_tokens,t.estimated_cost_yuan,t.quality_score,t.checks,t.created_at,e.label AS endpoint_label,e.kind,e.model_id,s.name AS supplier_name,c.label AS credential_label FROM supplier_lab_transactions t JOIN supplier_lab_endpoints e ON e.id=t.endpoint_id LEFT JOIN supplier_lab_suppliers s ON s.id=e.supplier_id LEFT JOIN supplier_lab_credentials c ON c.id=e.credential_id WHERE ($1::uuid IS NULL OR t.run_id=$1) ORDER BY t.created_at DESC LIMIT 200', [runId])).rows); });
+  app.get('/api/staff/lab/transactions', requireStaff, async (req, res) => { access(req); const runId = req.query.run_id ? id(req.query.run_id) : null; res.json((await pool.query('SELECT t.id,t.run_id,t.endpoint_id,t.case_id,t.prompt_sha256,t.response_sha256,t.output_sample,t.http_status,t.error_code,t.upstream_request_id,t.latency_ms,t.input_tokens,t.cached_input_tokens,t.output_tokens,t.total_tokens,t.estimated_cost_yuan,t.quality_score,t.checks,t.created_at,e.label AS endpoint_label,e.kind,e.model_id,s.name AS supplier_name,c.label AS credential_label FROM supplier_lab_transactions t JOIN supplier_lab_endpoints e ON e.id=t.endpoint_id LEFT JOIN supplier_lab_suppliers s ON s.id=e.supplier_id LEFT JOIN supplier_lab_credentials c ON c.id=e.credential_id WHERE ($1::uuid IS NULL OR t.run_id=$1) ORDER BY t.created_at DESC LIMIT 200', [runId])).rows); });
   app.get('/api/staff/lab/summary', requireStaff, async (req, res) => { access(req); res.json((await pool.query("SELECT count(*)::int AS attempts,count(*) FILTER(WHERE error_code IS NULL AND checks->>'response_schema'='true' AND checks->>'usage_present_and_consistent'='true' AND checks->>'model_matches_request'='true')::int AS valid_responses,count(*) FILTER(WHERE checks->>'task_passed'='true')::int AS task_passes,count(*) FILTER(WHERE estimated_cost_yuan IS NULL)::int AS unpriced_attempts,count(*) FILTER(WHERE error_code IS NOT NULL)::int AS issues,round(avg(latency_ms),0) AS average_latency_ms,round((percentile_cont(0.95) WITHIN GROUP(ORDER BY latency_ms))::numeric,0) AS p95_latency_ms,round(avg(quality_score),1) AS average_task_score,coalesce(sum(input_tokens),0)::bigint AS input_tokens,coalesce(sum(output_tokens),0)::bigint AS output_tokens,coalesce(sum(estimated_cost_yuan),0) AS estimated_probe_cost_yuan FROM supplier_lab_transactions WHERE created_at>now()-interval '7 days'")).rows[0]); });
   app.post('/api/staff/lab/reconciliations', requireStaff, async (req, res) => {
     access(req, true);

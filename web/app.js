@@ -155,3 +155,6 @@ window.addEventListener('hashchange',()=>{switchView(location.hash.slice(1));});
 renderModels();renderTable();
 
 fetch('release.json', {cache:'no-store'}).then(r=>r.ok?r.json():null).then(r=>{if(r?.source_sha)document.querySelector('#release-version').textContent='PREVIEW · '+r.source_sha.slice(0,7);}).catch(()=>{});
+
+async function refreshPublishedCatalog(){const host=document.getElementById('published-catalog');if(!host)return;try{const r=await fetch('/api/catalog/published',{cache:'no-store'});if(!r.ok)return;const data=await r.json();host.hidden=!data.products?.length;host.innerHTML='<h3>已发布产品与批准售价</h3>'+data.products.map(p=>`<article style="padding:16px;border:1px solid #ded9eb;border-radius:10px;margin:10px 0"><b>${escapeHtml(p.name)}</b> · <code>${escapeHtml(p.model_id)}</code><p>${escapeHtml(p.summary)}</p><span>输入 ¥${escapeHtml(p.input_yuan_per_m)} / 输出 ¥${escapeHtml(p.output_yuan_per_m)} · 每百万 Token</span><small style="display:block">目录已发布 · 正式购买和调用待开放；缓存及其他价格条件以正式报价为准。</small></article>`).join('')}catch{host.hidden=true}}
+addEventListener('hashchange',()=>{if(['#market','#catalog'].includes(location.hash))void refreshPublishedCatalog()});void refreshPublishedCatalog();

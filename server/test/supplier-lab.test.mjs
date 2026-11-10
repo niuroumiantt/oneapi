@@ -104,7 +104,7 @@ test('manual bill comparison rejects empty and overlapping probe periods', async
   try {
     supplierLabRoutes(app, { connect: async () => db }, () => {});
     const handler = routes.get('/api/staff/lab/reconciliations');
-    const req = { body: { endpoint_id: endpointId, period_start: '2026-11-01T00:00:00Z', period_end: '2026-11-01T01:00:00Z', supplier_billed_yuan: '0.006', note: 'statement-123' }, staff: { status: 'active', role: 'supply', subject: 'staff-1' }, actor: { kind: 'staff', id: 'staff-1' } };
+    const req = { body: { endpoint_id: endpointId, period_start: '2026-11-01T00:00:00Z', period_end: '2026-11-01T01:00:00Z', supplier_billed_yuan: '0.006', note: 'statement-123' }, staff: { status: 'active', role: 'supply', technical_access:true, subject: 'staff-1' }, actor: { kind: 'staff', id: 'staff-1' } };
     const res = { status(code) { assert.equal(code, 201); return this; }, json(value) { assert.equal(value.probe_calls, 1); } };
     await assert.rejects(handler({ ...req, body: { ...req.body, note: '' } }, res), /账单编号/);
     await assert.rejects(handler(req, res), /没有本台测试交易/);
