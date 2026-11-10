@@ -126,7 +126,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer){
    pool.query(`SELECT c.model_id,count(*)::int AS calls,count(*) FILTER(WHERE c.status='failed')::int AS failed,coalesce(sum(c.input_tokens),0)::bigint AS input_tokens,coalesce(sum(c.output_tokens),0)::bigint AS output_tokens,coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.created_at>=now()-interval '30 days' GROUP BY 1 ORDER BY 6 DESC`,[org]),
    pool.query(`SELECT to_char(c.created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD') AS day,c.model_id,count(*)::int AS calls,coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.created_at>=now()-interval '14 days' GROUP BY 1,2 ORDER BY 1,2`,[org]),
    pool.query(`SELECT c.id,c.created_at,c.model_id,c.status,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.charged_yuan,c.hold_yuan,c.latency_ms,u.name,k.label AS key_label FROM ${companyCalls} JOIN "user" u ON u.id=c.owner_id JOIN employee_api_keys k ON k.id=c.key_id ORDER BY c.created_at DESC LIMIT 50`,[org]),
-   pool.query(`SELECT k.id,k.label,k.key_hint,k.created_at,k.revoked_at,u.name FROM employee_api_keys k JOIN employee_credit_accounts a ON a.user_id=k.owner_id AND a.organization_id=$1 JOIN "user" u ON u.id=k.owner_id ORDER BY k.revoked_at IS NULL DESC,k.created_at DESC LIMIT 100`,[org]),
+   pool.query(`SELECT k.id,k.owner_id,k.label,k.key_hint,k.created_at,k.revoked_at,u.name FROM employee_api_keys k JOIN employee_credit_accounts a ON a.user_id=k.owner_id AND a.organization_id=$1 JOIN "user" u ON u.id=k.owner_id ORDER BY k.revoked_at IS NULL DESC,k.created_at DESC LIMIT 100`,[org]),
    pool.query(`SELECT coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.settled_at>=(date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai')`,[org])
   ]);
   const active=members.rows.filter(m=>m.status==='active'),sum=f=>active.reduce((t,m)=>t+units(m[f]),0n),granted=sum('granted_yuan'),spent=sum('spent_yuan'),held=sum('held_yuan');
@@ -148,6 +148,21 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer){
    if(!(await db.query("SELECT 1 FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",[org,userId])).rowCount)throw new HttpError(404,'有效员工不存在');
    const row=(await db.query('INSERT INTO employee_credit_accounts(user_id,organization_id,granted_yuan) VALUES($1,$2,$3::numeric+$4::numeric) ON CONFLICT(user_id) DO UPDATE SET granted_yuan=employee_credit_accounts.granted_yuan+$4::numeric RETURNING granted_yuan,spent_yuan',[userId,org,GRANT_YUAN,raw])).rows[0];
    await audit(db,req.actor,'employee_credit.topped_up',org,userId,{yuan:raw});return row;
+  });
+  res.json(account);
+ });
+ // Sets the total allowance: raising tops up, lowering takes back what has not been used or reserved.
+ app.post('/api/employee-credit/team/members/:user/quota',requireCustomer,async(req,res)=>{
+  const org=await requireManager(req),userId=text(req.params.user,'员工',64),raw=String(req.body?.yuan??'');
+  if(!/^\d{1,5}(\.\d{1,2})?$/.test(raw)||units(raw)>10000n*SCALE)throw new HttpError(400,'额度需在 0 至 10000 元之间');
+  const account=await transaction(pool,async db=>{
+   if(!(await db.query("SELECT 1 FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",[org,userId])).rowCount)throw new HttpError(404,'有效员工不存在');
+   await db.query('INSERT INTO employee_credit_accounts(user_id,organization_id,granted_yuan) VALUES($1,$2,$3) ON CONFLICT(user_id) DO NOTHING',[userId,org,GRANT_YUAN]);
+   await db.query('SELECT user_id FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[userId]);
+   const money=await balance(db,userId);
+   if(units(raw)<units(money.spent_yuan)+units(money.held_yuan))throw new HttpError(409,'额度不能低于已用和结算中的金额');
+   const row=(await db.query('UPDATE employee_credit_accounts SET granted_yuan=$2 WHERE user_id=$1 RETURNING granted_yuan,spent_yuan',[userId,raw])).rows[0];
+   await audit(db,req.actor,'employee_credit.quota_set',org,userId,{before:money.granted_yuan,after:raw});return row;
   });
   res.json(account);
  });

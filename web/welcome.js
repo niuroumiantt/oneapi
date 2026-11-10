@@ -6,7 +6,7 @@
     $('#login-view').innerHTML=`<div class="welcome-page">
   <header class="welcome-header">
     <a class="welcome-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"><span>It’s Your <em class="brand-ai">A</em>P<em class="brand-ai">I</em>.</span></a>
-    <nav aria-label="欢迎页导航"><a href="#market">模型广场 <span data-icon="arrow-up-right"></span></a><a href="#personal">我的空间</a><a class="welcome-enterprise-link" href="#enterprise-register">企业客户</a><div data-account-slot><a class="live-signin" href="#personal"><span data-icon="user-round"></span>登录 / 注册</a></div><div class="universe-clock"><span>北京时间</span><time id="universe-clock" aria-live="off">--:--:--.---</time></div></nav>
+    <nav aria-label="欢迎页导航"><a href="#market">模型广场 <span data-icon="arrow-up-right"></span></a><a href="#workspace">工作台</a><div data-account-slot><a class="live-signin" href="#workspace"><span data-icon="user-round"></span>登录 / 注册</a></div><div class="universe-clock"><span>北京时间</span><time id="universe-clock" aria-live="off">--:--:--.---</time></div></nav>
   </header>
   <main class="welcome-main">
     <div class="universe-scene" aria-hidden="true"><canvas id="universe-canvas"></canvas><div class="universe-nebula"></div><div id="solar-bodies"></div><div class="universe-near-world"></div></div>
@@ -20,15 +20,13 @@
       <div class="welcome-entry-inner">
 
         <h2 id="welcome-entry-title">从这里出发。</h2>
-        <p class="welcome-entry-lead">选择适合你的使用方式。</p>
+        <p class="welcome-entry-lead">一个账号，个人和企业都能用。</p>
         <div class="welcome-personal-choice">
-          <span class="welcome-choice-kicker"><i aria-hidden="true"></i> 推荐 · 个人用户</span>
-          <h3>为自己的想法，找到好模型。</h3>
-          <p>自己选模型、充值和使用，费用都在个人空间里。</p>
-          <a class="welcome-continue" id="welcome-continue" href="#register"><span id="welcome-continue-label">个人注册 · 开始我的旅程</span><span class="welcome-continue-arrow" data-icon="arrow-right"></span></a>
-          <p class="welcome-preview-note">已有个人账号？<a href="#personal">个人登录</a></p>
+                    <h3>为你的想法，找到好模型。</h3>
+          <p>选模型、充值和使用都在工作台。企业成员登录后，按权限看到自己的额度或团队管理。</p>
+          <a class="welcome-continue" id="welcome-continue" href="#workspace"><span id="welcome-continue-label">登录 / 注册</span><span class="welcome-continue-arrow" data-icon="arrow-right"></span></a>
+          <p class="welcome-preview-note">个人和企业用同一个账号，登录后按权限显示功能。</p>
         </div>
-        <div class="welcome-enterprise-choice"><div class="welcome-enterprise-heading"><span data-icon="building-2" aria-hidden="true"></span><div><strong>企业用户</strong><small>为团队采购、分配与管理 API</small></div></div><div class="welcome-enterprise-guide"><a href="#enterprise-register">企业注册 <span data-icon="arrow-right"></span></a><a href="#enterprise-login">企业登录 <span data-icon="arrow-right"></span></a></div></div>
         <div class="welcome-explore"><span>还想先看看？</span><a href="#market">逛逛模型广场 <span data-icon="arrow-up-right"></span></a></div>
       </div>
 
