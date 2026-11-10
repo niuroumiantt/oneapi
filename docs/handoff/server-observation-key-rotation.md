@@ -31,3 +31,11 @@ Migration 023 仅新增 replaces_credential_id 和 rotation_completed_at，无�
 ## 后续边界
 
 上游对账仍缺 KerAPI 12:27:34–12:27:41 同 Key 的原始账单；4笔测试输入202/输出145，采购费率未知仍不按0元估价。监测不是持续模型探测，页面轮询不耗 Token。模型持续质量与生产客户逐笔用量属于后续独立接入，不能用本台测试样本冒充。
+
+## 生产发布回执（已核验）
+
+2026-11-10 14:12 CST，API/静态均为 `e04dd484b310c708c20931b64afd3802b73804d1`，API 镜像 oneapi-identity:e04dd48。数据库备份 `/srv/oneapi-backups/oneapi-20261110T060840Z.dump`。oneapi-monitor.timer active，应用内可读取只读 snapshot；没有挂 Docker socket。
+14:12:30 实际样本 CPU60.86%、内存42.26%、eth0入89188bps/出230913bps，API/DB/共享入口均 running/healthy。指标随采样变化，不能把本条静态记录当实时值。未登录观测接口401。
+生产仍只有1枚原凭据、0替换版本、4笔原调用（输入202、输出145），没有新增付费测试。支付/全量调用开关仍关闭，原限定账号试点保持开启。
+个人/企业共享工作台入口 `https://oneapi.glocalstorage.cn/#personal`；服务器 `https://oneapi.glocalstorage.cn/api/staff/console#technical/servers`；KerAPI `https://oneapi.glocalstorage.cn/api/staff/console?supplier=272261eb-b55a-431b-acb8-37f0976d7bb5#technical/supplier`。
+本回执为纯文档后续提交，运行代码仍以上述发布 SHA 为准。
