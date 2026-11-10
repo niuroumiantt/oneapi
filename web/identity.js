@@ -13,7 +13,8 @@
  const opsPageCache=new Map();
  if(resetToken)history.replaceState(null,'',location.pathname+'#reset-password');
  const handles=v=>['workspace','enterprise-register','enterprise-login','register','personal','personal/usage','enterprise','account','reset-password','staff','staff-account','admin','security','demo/personal','billing/personal','upgrade','support'].includes(v)||v.startsWith('billing/organization/')||v.startsWith('demo/organization/')||v.startsWith('organization/')||v.startsWith('join/')||v.startsWith('ops/');
- async function api(path,body,method){const r=await fetch(path,{method:method||(body?'POST':'GET'),headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,credentials:'same-origin',cache:'no-store'});let data;try{data=await r.json();}catch{data={};}if(!r.ok){const err=Error(data.error||translate(data.code,data.message)||'暂时无法完成，请稍后重试。');err.status=r.status;throw err;}return data;}
+ let orgLoadedAt=0;
+ async function api(path,body,method){if(body||method)orgLoadedAt=0;const r=await fetch(path,{method:method||(body?'POST':'GET'),headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,credentials:'same-origin',cache:'no-store'});let data;try{data=await r.json();}catch{data={};}if(!r.ok){const err=Error(data.error||translate(data.code,data.message)||'暂时无法完成，请稍后重试。');err.status=r.status;throw err;}return data;}
  async function customerSignedIn(){try{return !!(await api('/api/platform/me')).user;}catch(e){return e.status!==401;}}
  function translate(code,message){const known={INVALID_EMAIL_OR_PASSWORD:'邮箱或密码不正确。',EMAIL_NOT_VERIFIED:'请先到邮箱完成验证；可重发验证邮件。',PASSWORD_TOO_SHORT:'密码至少需要 12 个字符。',PASSWORD_TOO_LONG:'密码不能超过 128 个字符。',INVALID_TOKEN:'链接无效或已经过期，请重新申请。',INVALID_PASSWORD:'当前密码不正确。',TOO_MANY_REQUESTS:'操作频繁，请稍后重试。',USER_ALREADY_EXISTS:'该邮箱已注册，请登录或找回密码。'};return known[code]||(message&&/^[\u3400-\u9fff]/.test(message)?message:'操作未完成，请检查输入或稍后重试。');}
  const btn=(label,action,attrs='',kind='')=>`<button class="live-button ${kind}" data-live="${action}" ${attrs}>${label}</button>`;
@@ -317,16 +318,20 @@
  const organizationMoney=value=>{if(value===null||value===undefined)return '读取中';const cents=BigInt(value),absolute=cents<0n?-cents:cents;return `${cents<0n?'-':''}¥${absolute/100n}.${String(absolute%100n).padStart(2,'0')}`;};
  async function refreshOrganizationBilling(orgId,ticket){
   if(lastOrg?.organization?.id!==orgId)return;
-  const status=await api('/api/employee-credit/status').catch(()=>({enabled:false}));
-  const team=status.enabled&&status.organization_id===orgId&&lastOrg.permissions.manager?await api('/api/employee-credit/team').catch(()=>null):null;
+  const {status,team}=await fetchOrgCredit(orgId,Boolean(lastOrg.permissions.manager));
   if(ticket!==generation||lastOrg?.organization?.id!==orgId||!current.startsWith('organization/'+orgId))return;
-  employeeCredit=status;teamUsage=team;organizationV2(lastOrg);
+  employeeCredit=status;teamUsage=team;orgLoadedAt=Date.now();organizationV2(lastOrg);
  }
  const orgSections=['overview','budget','models','keys','usage','people','support','settings'];
  const orgSection=section=>({budget:'usage'}[section]||(orgSections.includes(section)?section:'overview'));
  function surfaceSwitch(){
   const b=me?.backoffice;if(!b?.business&&!b?.technical)return '';
   return `<nav class="pc-surface" aria-label="切换面板"><a class="active" href="#workspace">工作台</a>${b.business?'<a href="/api/staff/console#business">商务后台</a>':''}${b.technical?'<a href="/api/staff/console#technical">技术后台</a>':''}</nav>`;
+ }
+ const orgFreshMs=30000;
+ async function fetchOrgCredit(orgId,manager){
+  const [status,team]=await Promise.all([api('/api/employee-credit/status').catch(()=>({enabled:false})),manager?api('/api/employee-credit/team').catch(()=>null):null]);
+  return {status,team:status.enabled&&status.organization_id===orgId?team:null};
  }
  function personalVisible(){const orgs=me.organizations||[];return !orgs.length||(me.upgrade?.status!=='approved'&&Boolean(me.personal_assets));}
  function customerHeader(org=null){
@@ -539,6 +544,12 @@
  }
  const spaceKey='semifly.workspace.v1';
  // 登录后的唯一落点：优先上次选择的空间，否则进入所属企业，没有企业才是个人空间。
+ function personalRedirect(view){
+  if(view==='upgrade'&&me.organizations?.length)return workspaceTarget('workspace');
+  if(personalVisible())return '';
+  const home=workspaceTarget('workspace'),manager=me.organizations.find(o=>home==='organization/'+o.id)?.is_manager;
+  return {personal:home,support:home+'/support',security:home+'/settings','billing/personal':manager?'billing/'+home:home}[view]||'';
+ }
  function workspaceTarget(view){
   const orgs=me.organizations||[];if(view==='enterprise'&&!orgs.length)return 'upgrade';
   let saved='';try{saved=localStorage.getItem(spaceKey)||'';}catch{}
@@ -554,8 +565,9 @@
   const [,orgId,section]=view.match(/^organization\/([^/]+)\/?([^/]*)$/)||[];
   if(wasIdentityActive&&me?.user&&previous!==view&&(previous===`organization/${orgId}`||previous.startsWith(`organization/${orgId}/`))&&lastOrg?.organization?.id===orgId&&orgSections.includes(section)){
    orgTab=orgSection(section);organizationV2(lastOrg);
+   if(Date.now()-orgLoadedAt<orgFreshMs)return;
    try{const updated=await api('/api/platform/organizations/'+encodeURIComponent(orgId));if(ticket===generation&&current===view&&JSON.stringify(updated)!==JSON.stringify(lastOrg))organizationV2(updated);if(ticket===generation&&current===view)refreshOrganizationBilling(orgId,ticket);}
-   catch(e){if(ticket===generation){if(e.status===401){me=null;lastOrg=null;lastOrgBilling=null;authForm();}else if(e.status===403||e.status===404){lastOrg=null;lastOrgBilling=null;mount(hero('YOUR WORKSPACE','暂时无法打开这个空间。','请核对账号及企业权限。')+note(e.message,true)+'<a class="live-button" href="#workspace">返回我的空间</a>');}}}
+   catch(e){if(ticket===generation){if(e.status===401){me=null;lastOrg=null;lastOrgBilling=null;authForm();}else if(e.status===403||e.status===404){lastOrg=null;lastOrgBilling=null;mount(hero('YOUR WORKSPACE','暂时无法打开这个空间。','请核对账号及企业权限。')+note(e.message,true)+'<a class="live-button" href="#workspace">返回工作台</a>');}}}
    return;
   }
   const staffView=view==='staff-account'||view==='admin'||view.startsWith('ops/');if(!host.innerHTML.trim())host.innerHTML='<div class="live-loading" role="status">正在打开你的工作空间…</div>';
@@ -581,13 +593,14 @@
    if(view==='staff-account'||view==='admin'||view.startsWith('ops/')){try{await staffAccount(ticket);}catch(e){if(ticket!==generation)return;me=null;staff=null;staffLogin();host.querySelector('.live-staff-entry').insertAdjacentHTML('afterbegin',note(e.message,e.status!==401));}return;}
    if(view.startsWith('join/')){staff=null;const apply=view.endsWith('/apply'),joinToken=view.slice(5,apply?-6:undefined);joinPreview=await api('/api/platform/join-links/preview?token='+encodeURIComponent(joinToken));try{me=await api('/api/platform/me');}catch(e){if(e.status!==401)throw e;me=null;authMode=apply?'login':'register';}if(ticket!==generation)return;if(apply&&me?.user){await api('/api/platform/join-requests',{token:joinToken});if(ticket!==generation)return;current='join/'+joinToken;mount(hero('JOIN REQUEST','入企申请已提交，等待企业管理者审批。','获批前没有企业预算、模型权限或 API Key。')+'<a class="live-button" href="#workspace">返回个人空间</a>');history.replaceState(null,'',location.pathname+'#'+current);return;}joinPage();return;}
    staff=null;if(!me?.user)me=await api('/api/platform/me');if(ticket!==generation)return;
-   if(['workspace','account','register','enterprise'].includes(view)||(view==='personal'&&!personalVisible())){location.replace('#'+workspaceTarget(view));return;}
+   if(['workspace','account','register','enterprise'].includes(view)){location.replace('#'+workspaceTarget(view));return;}
+   const personalTarget=personalRedirect(view);if(personalTarget){location.replace('#'+personalTarget);return;}
    if(view==='billing/personal'||view.startsWith('billing/organization/'))await billingPage(ticket,earlyBilling);
    else if(view==='demo/personal'||view.startsWith('demo/organization/'))await demoPage(ticket);
-   else if(view.startsWith('organization/')){const [orgId,section]=view.slice(13).split('/');const data=await api('/api/platform/organizations/'+encodeURIComponent(orgId));if(ticket===generation){orgTab=orgSection(section);organizationV2(data);refreshOrganizationBilling(orgId,ticket);}}
+   else if(view.startsWith('organization/')){const [orgId,section]=view.slice(13).split('/');const creditPromise=fetchOrgCredit(orgId,Boolean(me.organizations?.find(o=>o.id===orgId)?.is_manager));const data=await api('/api/platform/organizations/'+encodeURIComponent(orgId));const credit=await creditPromise;if(ticket===generation){orgTab=orgSection(section);employeeCredit=credit.status;teamUsage=credit.team;orgLoadedAt=Date.now();organizationV2(data);}}
    else if(view==='upgrade')upgradePage();else if(view==='support')supportPage();
    else if(view==='security')securityPage();else await account(ticket,earlyBilling);
-  }catch(e){if(ticket!==generation)return;if(e.status===401){me=null;authForm();}else mount(hero('YOUR WORKSPACE','暂时无法打开这个空间。','请核对账号及企业权限。')+note(e.message,true)+'<a class="live-button" href="#workspace">返回我的空间</a>');}
+  }catch(e){if(ticket!==generation)return;if(e.status===401){me=null;authForm();}else mount(hero('YOUR WORKSPACE','暂时无法打开这个空间。','请核对账号及企业权限。')+note(e.message,true)+'<a class="live-button" href="#workspace">返回工作台</a>');}
  }
  function setPersonalPaneShare(grid,share){
   const width=grid.getBoundingClientRect().width;

@@ -14,7 +14,7 @@ async function scope(db,req,org,manage=false){
  id(org);
  const m=(await db.query("SELECT role FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",[org,req.customer.id])).rows[0];
  if(!m)throw new HttpError(403,'没有这个企业的访问权限');
- if(manage&&!['owner','admin'].includes(m.role))throw new HttpError(403,'只有企业代表人可以管理采购和额度');
+ if(manage&&!['owner','admin'].includes(m.role))throw new HttpError(403,'只有企业管理者可以管理采购和额度');
  return {owner:null,organization:org,role:m.role};
 }
 async function wallet(db,s){
@@ -71,7 +71,7 @@ export function demoJourneyRoutes(app,pool,requireCustomer){
  app.post('/api/demo/keys',requireCustomer,async(req,res)=>{const org=req.body.organization_id||null,codes=modelCodes(req.body.model_codes),label=text(req.body.label,'接入名称',80);
   const key=await transaction(pool,async db=>{const s=await scope(db,req,org),w=await wallet(db,s);if(Number(w.balance_fen)<=0)throw new HttpError(409,'请先完成模拟付款');
    const selected=(await db.query('SELECT model_code FROM demo_model_grants WHERE wallet_id=$1',[w.id])).rows.map(r=>r.model_code);if(codes.some(code=>!selected.includes(code)))throw new HttpError(409,'请先在模型清单选择这些型号');
-   if(org){const a=(await db.query('SELECT limit_fen,spent_fen FROM demo_allocations WHERE wallet_id=$1 AND user_id=$2',[w.id,req.customer.id])).rows[0];if(!a||Number(a.limit_fen)<=Number(a.spent_fen))throw new HttpError(409,'请企业代表人先分配可用额度');if(s.role==='member'){const permitted=(await db.query('SELECT model_code FROM demo_member_models WHERE wallet_id=$1 AND user_id=$2',[w.id,req.customer.id])).rows.map(r=>r.model_code);if(codes.some(code=>!permitted.includes(code)))throw new HttpError(403,'企业未授权此员工使用该型号');}}
+   if(org){const a=(await db.query('SELECT limit_fen,spent_fen FROM demo_allocations WHERE wallet_id=$1 AND user_id=$2',[w.id,req.customer.id])).rows[0];if(!a||Number(a.limit_fen)<=Number(a.spent_fen))throw new HttpError(409,'请企业管理者先分配可用额度');if(s.role==='member'){const permitted=(await db.query('SELECT model_code FROM demo_member_models WHERE wallet_id=$1 AND user_id=$2',[w.id,req.customer.id])).rows.map(r=>r.model_code);if(codes.some(code=>!permitted.includes(code)))throw new HttpError(403,'企业未授权此员工使用该型号');}}
    const created=(await db.query('INSERT INTO demo_keys(wallet_id,user_id,model_code,label) VALUES($1,$2,$3,$4) RETURNING id,label,model_code,status',[w.id,req.customer.id,codes[0],label])).rows[0];for(const code of codes)await db.query('INSERT INTO demo_key_models(key_id,model_code) VALUES($1,$2)',[created.id,code]);return {...created,model_codes:codes};
   });res.status(201).json({simulated:true,key});});
  app.post('/api/demo/keys/:key/usage',requireCustomer,async(req,res)=>{const org=req.body.organization_id||null,input=integer(req.body.input_tokens,'输入 Token',1,1000000),output=integer(req.body.output_tokens,'输出 Token',1,1000000),code=model(req.body.model_code).code;
