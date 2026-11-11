@@ -3,10 +3,11 @@ body.console-active{overflow:hidden}
 body.console-active>*:not(#console-view):not(.toast):not(dialog):not(script){display:none!important}
 #console-view{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;background:#f4f6f8}
 #console-view[hidden]{display:none}
-.cs-top{flex:none;height:60px;display:flex;align-items:center;gap:16px;padding:0 20px;border-bottom:1px solid #e0e2ec;background:linear-gradient(180deg,#f8f9fd,#f4f5fa);color:#10131f}
-.cs-brand img{display:block;width:120px;height:auto}
+.cs-top{flex:none;height:55px;display:flex;align-items:center;gap:19px;padding:0 18px 0 24px;border-bottom:1px solid #e0e2ec;background:linear-gradient(180deg,#f8f9fd,#f4f5fa);color:#10131f}
+/* Same geometry as the 工作台 top bar (.pc-topbar), so switching panels never moves the tabs. */
+.cs-brand img{display:block}
 .cs-divider{width:1px;height:24px;background:#b5b9c8}
-.cs-tabs{display:flex;gap:2px;padding:3px;border:1px solid #dfe2ed;border-radius:9px;background:#f6f7fb}
+.cs-tabs{display:flex;gap:2px;margin-left:14px;padding:3px;border:1px solid #dfe2ed;border-radius:9px;background:#f6f7fb}
 .cs-tabs a{padding:6px 14px;border-radius:6px;color:#4b5365;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap}
 .cs-tabs a[aria-selected=true]{background:#fff;color:#7a26d9;box-shadow:0 1px 2px rgba(20,24,40,.12)}
 #console-view.technical .cs-tabs a[aria-selected=true]{background:#1b3425;color:#bbff7a}

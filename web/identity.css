@@ -409,7 +409,7 @@ select option{font-size:14px}
 @media(max-width:900px){.key-workbench{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:480px){.key-agent-row{grid-template-columns:20px minmax(0,1fr) 52px}.key-agent-row small{grid-column:2/4}.key-agent-row code{grid-column:2}.key-agent-row .key-agent-copy,.key-agent-row>span:last-child:not(.key-agent-index){grid-column:3}}
 .pc-surface{display:flex;align-items:center;gap:2px;margin-left:14px;padding:3px;border:1px solid #dfe2ed;border-radius:9px;background:#f6f7fb}
-.pc-surface a{padding:5px 11px;border-radius:6px;color:#4b5365;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap}
+.pc-surface a{padding:6px 14px;border-radius:6px;color:#4b5365;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap}
 .pc-surface a.active{background:#fff;color:#7a26d9;box-shadow:0 1px 2px rgba(20,24,40,.12)}
 .pc-identity{padding:4px 10px;border-radius:999px;background:#efe4ff;color:#6d23c4;font-size:12px;font-weight:700;white-space:nowrap}
 .employee-credit-reminder{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;padding:10px 16px;border:1px solid #cfe6d8;border-radius:10px;background:#f4fbf7;color:#27413a;font-size:13px;text-decoration:none}
