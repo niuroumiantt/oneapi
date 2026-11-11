@@ -525,6 +525,41 @@ test('employee credit is one-time, company-only, reserved before calling and cha
       assert.equal(cell('basic').status,'pass');assert.equal(cell('out_32k').status,'fail');assert.match(cell('out_32k').note,/网关拒绝/);assert.equal(cell('thinking_on').status,'partial');
       const detail=await ops.call('/api/staff/lab/acceptance/profiles/synthetic:basic');assert.equal(detail.status,200);assert.ok(detail.data.history.length>=1);}
      await pool.query('UPDATE supplier_lab_credentials SET disabled_at=now() WHERE id=$1',[standby]);}
+
+ {// Agent 检测：在员工 Key 上开录制会话、按功能打标，再把录到的请求回放到指定 Key；网关拒绝的也记下来
+  const savedIdentity=identity;identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};const ops=jar();await staffLogin(ops);identity=savedIdentity;
+  const saved=pilotFetch;const reply=()=>new Response(JSON.stringify({choices:[{message:{content:'收到'}}],usage:{prompt_tokens:5,completion_tokens:1}}),{status:200,headers:{'content-type':'application/json'}});
+  pilotFetch=async()=>reply();
+  const wb=(body,key=created.data.secret)=>jar().call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+key,'user-agent':'WorkBuddy/5.9.3 WorkBuddy/5.9.3 CLI/2.165.0'},body:{...glmBody,...body}});
+  const settle=()=>new Promise(r=>setTimeout(r,700));
+  try{
+   const agent=await ops.call('/api/staff/lab/agents',{method:'POST',body:{name:'WorkBuddy',version:'5.9.0'}});assert.equal(agent.status,201,JSON.stringify(agent.data));const aid=agent.data.id;
+   assert.equal((await ops.call('/api/staff/lab/agents/keys?q=ag')).status,400,'query too short');
+   const found=(await ops.call('/api/staff/lab/agents/keys?q=agent')).data.keys;assert.ok(found.some(k=>k.id===created.data.key.id),'employee key found by label');
+   const session=await ops.call(`/api/staff/lab/agents/${aid}/sessions`,{method:'POST',body:{key_id:created.data.key.id}});assert.equal(session.status,201,JSON.stringify(session.data));const sid=session.data.id;
+   assert.equal((await ops.call(`/api/staff/lab/agents/sessions/${sid}/arm`,{method:'POST',body:{feature:'nope'}})).status,400);
+   assert.equal((await wb({tools:[{type:'function',function:{name:'read_file',parameters:{type:'object'}}}]})).status,200,'call before arming is not recorded');
+   assert.equal((await ops.call(`/api/staff/lab/agents/sessions/${sid}/arm`,{method:'POST',body:{feature:'tools'}})).status,200);
+   assert.equal((await wb({tools:[{type:'function',function:{name:'read_file',parameters:{type:'object'}}}]})).status,200);await settle();
+   assert.equal((await ops.call(`/api/staff/lab/agents/sessions/${sid}/arm`,{method:'POST',body:{feature:'out_32k'}})).status,200);
+   assert.equal((await wb({max_tokens:32768})).status,400,'gateway rejects 32K output');await settle();
+   assert.equal((await ops.call(`/api/staff/lab/agents/sessions/${sid}/arm`,{method:'POST',body:{feature:null}})).status,200);
+   assert.equal((await wb({})).status,200);await settle();
+   let v=(await ops.call('/api/staff/lab/agents?agent='+aid)).data;const a=v.agents.find(x=>x.id===aid);
+   assert.equal(a.recorded_features,2,'only armed calls are recorded');assert.equal(a.detected_version,'5.9.3','version read from the agent user agent');
+   const tools=v.recordings.find(r=>r.feature==='tools'),big=v.recordings.find(r=>r.feature==='out_32k');
+   assert.equal(tools.count,1);assert.equal(tools.tool_count,1);assert.equal(tools.missing_feature,false);assert.ok(tools.seen_features.includes('tools'));
+   assert.equal(big.rejected,true);assert.match(big.last_error,/max_tokens/);assert.equal(v.session.id,sid);
+   assert.equal((await ops.call(`/api/staff/lab/agents/sessions/${sid}/close`,{method:'POST',body:{}})).status,200);
+   assert.equal((await ops.call(`/api/staff/lab/agents/${aid}/replay`,{method:'POST',body:{targets:[{kind:'ours',model_id:'glm-5.3',credential_id:'00000000-0000-4000-8000-000000000000'}]}})).status,400,'unknown key refused');
+   assert.equal((await ops.call(`/api/staff/lab/agents/${aid}/replay`,{method:'POST',body:{targets:[{kind:'official',endpoint_id:'00000000-0000-4000-8000-000000000000'}]}})).status,400,'unknown official endpoint refused');
+   const started=await ops.call(`/api/staff/lab/agents/${aid}/replay`,{method:'POST',body:{targets:[{kind:'ours',model_id:'glm-5.3'},{kind:'ours',model_id:'deepseek-flash'}]}});assert.equal(started.status,202,JSON.stringify(started.data));assert.equal(started.data.run.total,4);
+   for(let i=0;i<100;i++){v=(await ops.call('/api/staff/lab/agents?agent='+aid)).data;if(v.run?.finished_at)break;await new Promise(r=>setTimeout(r,40));}
+   assert.ok(v.run.finished_at);assert.equal(v.replays.length,4);
+   const t=v.replays.find(r=>r.feature==='tools'&&r.target.startsWith('ours:glm-5.3:')),o=v.replays.find(r=>r.feature==='out_32k'&&r.target.startsWith('ours:glm-5.3:'));
+   assert.equal(t.status,'pass');assert.equal(o.status,'fail');assert.match(o.note,/网关拒绝/);assert.equal(v.targets.models.find(m=>m.id==='glm-5.3').keys[0].role,'primary');
+   assert.equal((await staffer.j.call('/api/staff/lab/agents')).status,401);
+  }finally{pilotFetch=saved;}}
     pilotFetch=saved;}
  assert.equal((await staffer.j.call('/api/employee-credit/keys/'+created.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call()).status,401);
  appCfg.employeeCredit.organizationId='';
