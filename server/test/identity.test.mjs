@@ -612,6 +612,28 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
    detail=(await admin.call('/api/staff/lab/compare/runs/'+started.data.run_id)).data;assert.equal(detail.summary.human.items,1);assert.equal(detail.summary.human.agree_with_judge,0);assert.ok(detail.items[0].reviews[0].mine);
    assert.equal((await admin.call('/api/staff/lab/compare')).data.runs[0].summary.verdict,'worse');
   }finally{pilotFetch=saved;}}
+
+ {// 上游接入：Key 属于供应商并覆盖它的全部型号；第一把是主用，后面的是备用；检测发一次 1 Token 请求
+  const saved=pilotFetch,checks=[];
+  pilotFetch=async(url,options)=>{const auth=options.headers.Authorization;checks.push({url:String(url),auth,body:JSON.parse(options.body||'{}')});return auth==='Bearer sk-up-bad'?new Response('{"error":{"message":"invalid key sk-up-bad"}}',{status:401}):new Response(JSON.stringify({choices:[{message:{content:'p'}}],usage:{prompt_tokens:1,completion_tokens:1}}),{status:200});};
+  try{
+   const sup=await admin.call('/api/staff/suppliers',{method:'POST',body:{display_name:'Upstream fixture',legal_name:'Upstream fixture legal',source_type:'authorized_reseller',region:'CN'}});assert.equal(sup.status,201);const sid=sup.data.id;
+   assert.equal((await admin.call(`/api/staff/lab/suppliers/${sid}/models`,{method:'POST',body:{model_id:'up-model-a'}})).status,404,'models need a key first');
+   const first=await admin.call(`/api/staff/lab/suppliers/${sid}/keys`,{method:'POST',body:{label:'主 Key',api_key:'sk-up-good',base_url:'https://kerapi.cn/v1'}});assert.equal(first.status,201,JSON.stringify(first.data));assert.equal(first.data.priority,1);assert.equal(first.data.models,0);
+   const m=await admin.call(`/api/staff/lab/suppliers/${sid}/models`,{method:'POST',body:{model_id:'up-model-a',input_yuan_per_m:'1',output_yuan_per_m:'4'}});assert.equal(m.status,201);assert.equal(m.data.keys,1);
+   assert.equal((await admin.call(`/api/staff/lab/suppliers/${sid}/models`,{method:'POST',body:{model_id:'up-model-a'}})).status,409);
+   const second=await admin.call(`/api/staff/lab/suppliers/${sid}/keys`,{method:'POST',body:{label:'备 Key',api_key:'sk-up-bad'}});assert.equal(second.status,201);assert.equal(second.data.priority,2,'second key is standby');assert.equal(second.data.models,1,'new key covers existing models');
+   assert.equal((await admin.call(`/api/staff/lab/suppliers/${sid}/keys`,{method:'POST',body:{label:'again',api_key:'sk-up-bad'}})).status,409);
+   assert.equal((await admin.call(`/api/staff/lab/suppliers/${sid}/models`,{method:'POST',body:{model_id:'up-model-b'}})).data.keys,2,'new model reaches every key');
+   const good=await admin.call(`/api/staff/lab/credentials/${first.data.id}/check`,{method:'POST',body:{}});assert.equal(good.data.ok,true);assert.equal(checks.at(-1).body.max_tokens,1);assert.ok(checks.at(-1).url.endsWith('/chat/completions'));
+   const bad=await admin.call(`/api/staff/lab/credentials/${second.data.id}/check`,{method:'POST',body:{}});assert.equal(bad.data.ok,false);assert.equal(bad.data.http_status,401);assert.ok(!bad.data.error.includes('sk-up-bad'),'key never echoed');
+   let view=(await admin.call('/api/staff/lab/upstream')).data.suppliers.find(s=>s.id===sid);
+   assert.deepEqual(view.models.map(x=>[x.model_id,x.key_count]),[['up-model-a',2],['up-model-b',2]]);assert.equal(view.primary_label,'主 Key');assert.equal(view.standby_count,1);
+   assert.equal(view.keys.find(k=>k.id===second.data.id).last_check_ok,false);assert.equal(view.keys.find(k=>k.id===first.data.id).model_count,2);
+   assert.equal((await admin.call(`/api/staff/lab/suppliers/${sid}/models/up-model-b/disable`,{method:'POST',body:{}})).status,200);
+   view=(await admin.call('/api/staff/lab/upstream')).data.suppliers.find(s=>s.id===sid);assert.deepEqual(view.models.map(x=>x.model_id),['up-model-a']);
+   assert.equal((await jar().call('/api/staff/lab/upstream')).status,401);
+  }finally{pilotFetch=saved;}}
 });
 test('staff refunds go back to the payer once, hold the balance first and reverse rejections',async()=>{
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
