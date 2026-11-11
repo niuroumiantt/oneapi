@@ -105,9 +105,11 @@ const SYNTHETIC = {
 };
 export function syntheticBody(feature) {
  const { image, context, ...params } = SYNTHETIC[feature];
- const user = image ? [{ type: 'text', text: '这张图是什么颜色？' }, { type: 'image_url', image_url: { url: PIXEL } }] : feature === 'json' ? '以 JSON 回复 {"ok":true}' : '请只回复：收到';
+  // Thinking probes ask something that needs a little reasoning; a trivial "reply 收到" lets models skip thinking at random.
+ const thinking = ['effort_low', 'effort_medium', 'effort_high', 'effort_max', 'thinking_on'].includes(feature);
+ const user = image ? [{ type: 'text', text: '这张图是什么颜色？' }, { type: 'image_url', image_url: { url: PIXEL } }] : feature === 'json' ? '以 JSON 回复 {"ok":true}' : thinking ? '篮子里有 7 个苹果，先拿走 3 个，又放进去 5 个，再拿走一半（向下取整）。现在有几个？只回答数字。' : '请只回复：收到';
  const messages = [...(context ? [{ role: 'system', content: FILLER.repeat(Math.ceil(context / FILLER.length)) }] : []), { role: 'user', content: user }];
- return { model: 'x', messages, max_tokens: 256, ...params };
+ return { model: 'x', messages, max_tokens: thinking ? 2048 : 256, ...params };
 }
 let seeded = false;
 async function seedSynthetic(pool) {
@@ -175,7 +177,9 @@ export function judge(features, httpStatus, raw, stream) {
  if (f.has('tool_choice') && !r.toolCalls) return { status: 'partial', note: '指定了工具，但模型没有调用', ...r };
  if (f.has('json')) { try { JSON.parse(r.content.trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { return { status: 'partial', note: '要求 JSON 输出，但回复不是合法 JSON', ...r }; } }
  const wantsThinking = ['effort_low', 'effort_medium', 'effort_high', 'effort_max', 'thinking_on'].some(k => f.has(k));
- if (wantsThinking && !r.reasoning) return { status: 'partial', note: '要求思考，但没有返回思考内容（可能被上游忽略）', ...r };
+ const reasoningTokens = r.usage?.completion_tokens_details?.reasoning_tokens || 0;
+ if (wantsThinking && !r.reasoning && !reasoningTokens) return { status: 'partial', note: '要求思考，但没有返回思考内容（可能被上游忽略）', ...r };
+ if (wantsThinking && !r.reasoning) return { status: 'pass', note: `用量里有 ${reasoningTokens} 个思考 Token（思考内容未返回）`, ...r };
  if (f.has('thinking_off') && r.reasoning) return { status: 'partial', note: '要求关闭思考，但仍返回了思考内容', ...r };
  return { status: 'pass', note: r.toolCalls ? `调用了 ${r.toolCalls} 个工具` : r.reasoning ? '有思考内容与回复' : '正常回复', ...r };
 }
