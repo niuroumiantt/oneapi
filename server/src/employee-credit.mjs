@@ -10,7 +10,7 @@ import { OFFICIAL_MODELS,findOfficialModel,priceMultiplier } from './official-mo
 // One 10-yuan grant per employee, never topped up automatically. Usage is charged at official list prices.
 export const GRANT_YUAN='10.000000000000';
 export const MAX_BODY='8mb';
-const MAX_KEYS=5,MAX_CONCURRENT=3,PER_MINUTE=60,DEFAULT_OUTPUT=4096,MAX_OUTPUT=8192,MAX_MESSAGES=500;
+const MAX_KEYS=5,MAX_CONCURRENT=3,PER_MINUTE=60,DEFAULT_OUTPUT=4096,MAX_OUTPUT=32768,MAX_MESSAGES=500;
 const UPSTREAM_TIMEOUT_MS=300000,STALE_PENDING='15 minutes',BILL_GRACE='24 hours';
 const KERAPI_ORIGIN='https://kerapi.cn',DEEPSEEK_BASE='https://api.deepseek.com';
 const SCALE=1000000000000n;
@@ -32,15 +32,15 @@ export function holdYuan(rate,{input,cached=0,output},multiplier=1){
 }
 
 /** Validates the caller's body and returns the upstream payload plus its billing bound. */
-// GLM only accepts reasoning_effort low, high or max; tools like WorkBuddy also send none, minimal and medium.
-// none means "no reasoning", so it turns reasoning off; the rest map to the nearest accepted level.
-const GLM_EFFORT={none:null,minimal:'low',low:'low',medium:'high',high:'high',xhigh:'max',max:'max'};
+// GLM 5.3 always thinks and only accepts reasoning_effort low, high or max (confirmed against 智谱's official API:
+// "该模型始终思考，不支持关闭思考；请使用 low、high 或 max"). Tools also send none, minimal, medium, or thinking.type=disabled;
+// those become the lowest level rather than a 400, so the agent keeps working.
+const GLM_EFFORT={none:'low',minimal:'low',low:'low',medium:'high',high:'high',xhigh:'max',max:'max'};
 export function glmEffort(payload){
+ if(payload.thinking?.type==='disabled'){delete payload.thinking;if(payload.reasoning_effort===undefined)payload.reasoning_effort='low';}
  if(payload.reasoning_effort===undefined)return payload;
  const mapped=GLM_EFFORT[String(payload.reasoning_effort).toLowerCase()];
- if(mapped===null){delete payload.reasoning_effort;payload.thinking={type:'disabled'};}
- else if(mapped)payload.reasoning_effort=mapped;
- else delete payload.reasoning_effort;
+ if(mapped)payload.reasoning_effort=mapped;else delete payload.reasoning_effort;
  return payload;
 }
 // Agent 检测 recording: notified of every employee call (and every gateway rejection) with the key that made it.
