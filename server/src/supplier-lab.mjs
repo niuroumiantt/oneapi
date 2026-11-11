@@ -1,6 +1,7 @@
 import {usageRoutes} from './usage-reconciliation.mjs';
 import { requireTechnical } from './workspaces.mjs';
 import { HttpError, audit, hash, id, text, transaction, vault } from './core.mjs';
+import { syncSupplierModels } from './upstream.mjs';
 
 export const CASES = Object.freeze([
   { id: 'arithmetic', name: '事实与计算', prompt: '请只输出 17 乘以 23 的整数结果。', expected: '严格等于 391', maxTokens: 32, grade: output => output.trim() === '391' },
@@ -154,6 +155,7 @@ export function supplierLabRoutes(app, pool, requireStaff) {
       await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',[baseUrl+':'+hash(key)]);
       if((await db.query('SELECT id FROM supplier_lab_credentials WHERE base_url=$1 AND credential_fingerprint=$2',[baseUrl,hash(key).slice(0,12)])).rowCount)throw new HttpError(409,'这枚 Key 已登记，请复用已有凭据；如已停用请使用上游新生成的 Key');
       const result=(await db.query('INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,supplier_id,label,base_url,credential_fingerprint,created_at,disabled_at',[labSupplier.id,label,baseUrl,box.seal({key}),hash(key).slice(0,12),req.staff.subject])).rows[0];
+      await syncSupplierModels(db,labSupplier.id);
       await audit(db,req.actor,'supplier_lab.credential_created',null,result.id,{supplier_id:supplierId,host:new URL(baseUrl).hostname}); return result;
     });
     res.status(201).json(row);
