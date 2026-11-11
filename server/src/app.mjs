@@ -40,7 +40,11 @@ export function createApp(pool,cfg,transport){
  app.use(express.static(new URL('../../web',import.meta.url).pathname,{index:'index.html',setHeaders(res){res.set('Cache-Control','no-store');}}));
  app.use((err,req,res,_next)=>{if(res.headersSent)return;const status=err instanceof HttpError?err.status:Number.isInteger(err.status)&&err.status>=400&&err.status<500?err.status:500;if(status===401&&req.method==='GET'&&['/api/staff/workspace/console','/api/staff/console'].includes(req.path))return res.redirect(302,'/api/staff/login?next=business');if(status===401&&req.method==='GET'&&req.path==='/api/staff/lab/console')return res.redirect(302,'/api/staff/login?next=lab');if(status===500)console.error(JSON.stringify({event:'request_failed',code:err.code||err.name||'ERROR',path:req.path.split('/').slice(0,4).join('/')}));const message=status===500?'服务暂时不可用，请稍后再试。':err.message;
  // OpenAI-compatible clients only show error.message from an object.
- if(req.path.startsWith('/v1/'))return res.status(status).json({error:{message,type:status===429?'rate_limit_error':status>=500?'server_error':'invalid_request_error',code:status}});
+ if(req.path.startsWith('/v1/')){
+  const codes={400:'invalid_request',401:'invalid_api_key',402:'insufficient_quota',403:'model_not_allowed',404:'not_found',413:'request_too_large',429:'rate_limit_exceeded',502:'upstream_error',503:'service_unavailable'};
+  const code=(err instanceof HttpError&&err.code)||codes[status]||'server_error';
+  return res.status(status).json({error:{message,type:status===429?'rate_limit_error':status>=500?'server_error':'invalid_request_error',code,status,request_id:req.requestId||null,doc_url:`${cfg.origin}/#docs/errors/${code}`}});
+ }
  res.status(status).json({error:message});});
  return {app,auth,mail};
 }
