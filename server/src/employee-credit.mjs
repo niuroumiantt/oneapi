@@ -1,3 +1,4 @@
+import { recordProfile } from './acceptance.mjs';
 import express from 'express';
 import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
@@ -99,21 +100,23 @@ async function deepseekKey(cfg){
 /** Official models that currently have a working upstream route. */
 export async function employeeRoutes(db,cfg,{includePaused=false}={}){
  const wanted=OFFICIAL_MODELS.filter(m=>m.upstream==='kerapi').map(m=>m.upstreamModel);
- const rows=(await db.query(`SELECT DISTINCT ON (e.model_id) e.model_id,e.base_url,e.credential_id,c.credential_ciphertext
+ const rows=(await db.query(`SELECT e.model_id,e.base_url,e.credential_id,c.credential_ciphertext,c.priority
   FROM supplier_lab_endpoints e JOIN supplier_lab_credentials c ON c.id=e.credential_id JOIN supplier_lab_suppliers s ON s.id=e.supplier_id
   WHERE e.model_id=ANY($1::text[]) AND e.kind='supplier' AND e.disabled_at IS NULL AND c.disabled_at IS NULL AND s.disabled_at IS NULL
    AND NOT EXISTS(SELECT 1 FROM suppliers p WHERE p.id=s.canonical_supplier_id AND p.status='blocked')
-  ORDER BY e.model_id,e.created_at DESC`,[wanted])).rows.filter(r=>{try{return new URL(r.base_url).origin===KERAPI_ORIGIN;}catch{return false;}});
- const byModel=new Map(rows.map(r=>[r.model_id,r])),hasDeepseek=Boolean(await deepseekKey(cfg));
+  ORDER BY e.model_id,c.priority,c.created_at DESC,e.created_at DESC`,[wanted])).rows.filter(r=>{try{return new URL(r.base_url).origin===KERAPI_ORIGIN;}catch{return false;}});
+ const byModel=new Map(),hasDeepseek=Boolean(await deepseekKey(cfg));
+ for(const r of rows){const list=byModel.get(r.model_id)||[];if(!list.some(x=>x.credential_id===r.credential_id))list.push(r);byModel.set(r.model_id,list);}
  const paused=includePaused?new Set():new Set((await db.query('SELECT model_id FROM channel_states WHERE paused')).rows.map(r=>r.model_id));
  return OFFICIAL_MODELS.filter(m=>!paused.has(m.id)).flatMap(model=>{
   if(model.upstream==='deepseek')return hasDeepseek?[{model,baseUrl:DEEPSEEK_BASE,credentialId:null}]:[];
-  const row=byModel.get(model.upstreamModel);
-  return row?[{model,baseUrl:row.base_url,credentialId:row.credential_id,ciphertext:row.credential_ciphertext}]:[];
+  const [row,...rest]=byModel.get(model.upstreamModel)||[];
+  const toRoute=r=>({model,baseUrl:r.base_url,credentialId:r.credential_id,ciphertext:r.credential_ciphertext});
+  return row?[{...toRoute(row),fallbacks:rest.map(toRoute)}]:[];
  });
 }
 
-async function upstreamSecret(route,cfg){
+export async function upstreamSecret(route,cfg){
  const secret=route.credentialId?vault(process.env.SUPPLIER_LAB_SECRET).open(route.ciphertext).key:await deepseekKey(cfg);
  if(!secret)throw Error('UPSTREAM_KEY_MISSING');
  return secret;
@@ -363,12 +366,14 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
  app.post('/v1/chat/completions',(req,res,next)=>isEmployee(req)?parser(req,res,next):next('route'),async(req,res)=>{
   const key=await authenticate(req);
   await limit(key.key_id,res);
-  const {model,payload,stream,input,output}=employeeRequest(req.body);
+  const origin=callClient(name=>req.get(name));
+  let shaped;try{shaped=employeeRequest(req.body);}catch(e){if(e instanceof HttpError&&e.status===400)recordProfile(pool,origin,req.body,e.message);throw e;}
+  const {model,payload,stream,input,output}=shaped,signature=recordProfile(pool,origin,req.body);
   if(key.model_ids&&!key.model_ids.includes(model.id))throw new HttpError(403,`这把 Key 只能调用：${key.model_ids.join('、')}`,'model_not_allowed');
   const route=(await employeeRoutes(pool,cfg)).find(r=>r.model.id===model.id);
   if(!route)throw new HttpError(503,'这个模型暂时不可用','model_unavailable');
   const multiplier=priceMultiplier(model,new Date(),cfg.employeeCredit.holidays),hold=holdYuan(model.rates,{input,output},multiplier);
-  const origin=callClient(name=>req.get(name)),summary=await summariesOn(pool,cfg)?callSummary(req.body.messages):null;
+  const summary=await summariesOn(pool,cfg)?callSummary(req.body.messages):null;
   const callId=await transaction(pool,async db=>{
    // The row lock serialises reservations so concurrent calls cannot overspend.
    await db.query('SELECT user_id FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[key.owner_id]);
@@ -377,20 +382,28 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
    if(active>=MAX_CONCURRENT){res.set('Retry-After','5');throw new HttpError(429,`同时最多 ${MAX_CONCURRENT} 个请求`,'concurrency_limit_exceeded');}
    if(units(money.available_yuan<0?0:money.available_yuan)<units(hold))throw new HttpError(402,'公司额度不足以覆盖这次调用的上限，可调小 max_tokens');
    if(key.limit_yuan!==null){const used=(await db.query(`SELECT ${USED_ON_KEY} AS used FROM employee_calls WHERE key_id=$1`,[key.key_id])).rows[0].used;if(units(used)+units(hold)>units(key.limit_yuan))throw new HttpError(402,`这把 Key 已接近消费上限 ¥${Number(key.limit_yuan)}（已用 ¥${Number(used).toFixed(4)}），可调小 max_tokens 或换一把 Key`,'key_limit_reached');}
-   return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,client,client_detail,summary) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10) RETURNING id",[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold,origin.client,origin.detail,summary])).rows[0].id;
+   return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,client,client_detail,summary,profile_signature) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10,$11) RETURNING id",[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold,origin.client,origin.detail,summary,signature])).rows[0].id;
   });
   const call={id:callId,ownerId:key.owner_id,rates:model.rates,multiplier};
   const started=performance.now(),abort=new AbortController();
   // 'finish' also fires 'close'; only a close before the response ended is a disconnect.
   res.on('close',()=>{if(!res.writableEnded)abort.abort();});
-  let response,upstreamKey;
+  let response,upstreamKey,used=route;
+  const candidates=[route,...(route.fallbacks||[])];
+  for(let i=0;i<candidates.length;i++){
+  const candidate=candidates[i],last=i===candidates.length-1;
   try{
-   upstreamKey=await upstreamSecret(route,cfg);
-   response=await upstreamFetch(`${route.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify(payload),redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)])});
+   upstreamKey=await upstreamSecret(candidate,cfg);
+   response=await upstreamFetch(`${candidate.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify(payload),redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)])});
   }catch(error){
+   if(!last&&error.name!=='TimeoutError'&&!abort.signal.aborted){console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:error.name}));continue;}
    await fail(callId,error.name==='TimeoutError'?'UPSTREAM_TIMEOUT':'UPSTREAM_FAILED',started);
    throw new HttpError(502,'上游调用失败；本次未扣额度');
   }
+  if(!last&&(response.status===401||response.status===403)){await response.body?.cancel().catch(()=>{});console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:'http_'+response.status}));continue;}
+  used=candidate;break;
+  }
+  if(used!==route)await pool.query('UPDATE employee_calls SET credential_id=$2 WHERE id=$1',[callId,used.credentialId]);
   const requestId=String(response.headers.get('x-request-id')||response.headers.get('x-oneapi-request-id')||'').slice(0,120)||null;
   if(!response.ok){
    const raw=(await response.text().catch(()=>'')).slice(0,4000);

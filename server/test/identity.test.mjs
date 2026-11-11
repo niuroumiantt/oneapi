@@ -493,6 +493,34 @@ test('employee credit is one-time, company-only, reserved before calling and cha
     const capped=await staffer.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'Capped',limit_yuan:'0.01'}});assert.equal(capped.status,201);const over=await as(capped.data.secret,'deepseek-flash',8192);assert.equal(over.status,402);assert.equal(over.data.error.code,'key_limit_reached');
     const listed=(await staffer.j.call('/api/employee-credit/status')).data.keys.find(k=>k.id===capped.data.key.id);assert.equal(Number(listed.limit_yuan),0.01);assert.ok(listed.used_yuan!==undefined);
     for(const k of [scoped,capped])await staffer.j.call('/api/employee-credit/keys/'+k.data.key.id+'/revoke',{method:'POST',body:{}});}
+    {const standby=(await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by,priority) VALUES($1,'standby','https://kerapi.cn/v1',$2,'fp-standby','credit-fixture',2) RETURNING id",[supplier,vault(process.env.SUPPLIER_LAB_SECRET).seal({key:'fixture-standby-secret'})])).rows[0].id;
+     await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES('standby flash','supplier','https://kerapi.cn/v1','deepseek-v4.1-flash','fp-standby','credit-fixture',$1,$2)",[supplier,standby]);
+     await pool.query('UPDATE supplier_lab_credentials SET priority=1 WHERE id=$1',[credential]);
+     const seen=[];pilotFetch=async(url,options)=>{seen.push(options.headers.Authorization);return options.headers.Authorization==='Bearer fixture-kerapi-secret'?new Response('{"error":{"message":"bad key"}}',{status:401}):new Response(JSON.stringify({choices:[{message:{content:'ok'}}],usage:{prompt_tokens:5,completion_tokens:1}}),{status:200,headers:{'content-type':'application/json'}});};
+     const r=await jar().call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+created.data.secret},body:{model:'deepseek-flash',max_tokens:16,messages:[{role:'user',content:'hi'}]}});assert.equal(r.status,200,JSON.stringify(r.data));
+     assert.deepEqual(seen,['Bearer fixture-kerapi-secret','Bearer fixture-standby-secret'],'a primary 401 falls over to the standby key');
+     assert.equal((await pool.query('SELECT credential_id FROM employee_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 1',[staffer.user.id])).rows[0].credential_id,standby,'the call is recorded against the key that answered');
+     const savedIdentity=identity;identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};const ops=jar();await staffLogin(ops);identity=savedIdentity;
+     const ov=await ops.call('/api/staff/lab/overview');assert.equal(ov.status,200,JSON.stringify(ov.data));assert.ok(ov.data.credentials.some(c=>c.id===credential&&c.failed_24h>=1));assert.ok(ov.data.models.some(m=>m.id==='deepseek-flash'&&m.routed&&m.fallbacks.length>=1));assert.ok(Array.isArray(ov.data.risks));
+     assert.equal((await ops.call('/api/staff/lab/credentials/'+standby+'/priority',{method:'POST',body:{role:'primary'}})).status,200);assert.equal((await pool.query('SELECT priority FROM supplier_lab_credentials WHERE id=$1',[credential])).rows[0].priority,2,'the old primary becomes standby');
+     assert.equal((await ops.call('/api/staff/lab/credentials/'+standby+'/priority',{method:'POST',body:{role:'boss'}})).status,400);assert.equal((await staffer.j.call('/api/staff/lab/overview')).status,401);
+     {const wb=(body)=>jar().call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+created.data.secret,'User-Agent':'WorkBuddy/1.2'},body:{model:'deepseek-flash',messages:[{role:'system',content:'secret project notes'},{role:'user',content:'private question'}],...body}});
+      assert.equal((await wb({max_tokens:16,tools:[{type:'function',function:{name:'read_file',parameters:{type:'object'}}}]})).status,200);
+      assert.equal((await wb({max_tokens:32768})).status,400,'over the output cap is rejected by the gateway');
+      await new Promise(r=>setTimeout(r,100));
+      const profiles=(await pool.query("SELECT * FROM acceptance_profiles WHERE client='WorkBuddy'")).rows;
+      assert.ok(profiles.some(p=>p.features.includes('tools')&&p.shape.tool_names.includes('read_file')),'tool formats are learned from real calls');
+      assert.ok(profiles.some(p=>p.features.includes('out_32k')&&p.rejected_count===1&&p.last_error.includes('max_tokens')),'gateway rejections are recorded against the format');
+      assert.ok(!JSON.stringify(profiles).includes('private question')&&!JSON.stringify(profiles).includes('secret project notes'),'no conversation text is stored');
+      assert.ok(profiles.map(p=>p.signature).includes((await pool.query('SELECT profile_signature FROM employee_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 1',[staffer.user.id])).rows[0].profile_signature));
+      const matrix=await ops.call('/api/staff/lab/acceptance');assert.equal(matrix.status,200,JSON.stringify(matrix.data));assert.equal(matrix.data.features.length,16);assert.ok(matrix.data.profiles.some(p=>p.synthetic)&&matrix.data.profiles.some(p=>p.client==='WorkBuddy'));
+      assert.equal((await staffer.j.call('/api/staff/lab/acceptance')).status,401);
+      const started=await ops.call('/api/staff/lab/acceptance/replay',{method:'POST',body:{model_id:'deepseek-flash'}});assert.equal(started.status,202,JSON.stringify(started.data));
+      let run;for(let i=0;i<50;i++){run=(await ops.call('/api/staff/lab/acceptance')).data;if(run.run.finished_at)break;await new Promise(r=>setTimeout(r,40));}
+      assert.ok(run.run.finished_at,'replay finishes');const cell=f=>run.profiles.find(p=>p.signature==='synthetic:'+f).results['deepseek-flash'];
+      assert.equal(cell('basic').status,'pass');assert.equal(cell('out_32k').status,'fail');assert.match(cell('out_32k').note,/网关拒绝/);assert.equal(cell('thinking_on').status,'partial');
+      const detail=await ops.call('/api/staff/lab/acceptance/profiles/synthetic:basic');assert.equal(detail.status,200);assert.ok(detail.data.history.length>=1);}
+     await pool.query('UPDATE supplier_lab_credentials SET disabled_at=now() WHERE id=$1',[standby]);}
     pilotFetch=saved;}
  assert.equal((await staffer.j.call('/api/employee-credit/keys/'+created.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call()).status,401);
  appCfg.employeeCredit.organizationId='';
@@ -535,6 +563,37 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
  assert.equal((await start({budget_yuan:0.01})).status,400,'over budget');assert.equal((await start({concurrency:11})).status,400);
  const realFetch=globalThis.fetch;let upstreamHits=0;globalThis.fetch=(url,options)=>{if(!String(url).startsWith('https://kerapi.cn'))return realFetch(url,options);upstreamHits++;return Promise.resolve(new Response(JSON.stringify({id:'s',model:'stress-model',choices:[{message:{role:'assistant',content:'391'},finish_reason:'stop'}],usage:{prompt_tokens:10,completion_tokens:2,total_tokens:12}}),{status:200,headers:{'content-type':'application/json','x-request-id':'s'}}));};
  try{const started=await start({});assert.equal(started.status,202,JSON.stringify(started.data));let runs;for(let i=0;i<50;i++){runs=(await admin.call('/api/staff/lab/stress')).data.runs;if(runs[0].finished_at)break;await new Promise(r=>setTimeout(r,50));}assert.ok(runs[0].finished_at);assert.equal(runs[0].done,4);assert.equal(upstreamHits,4);}finally{globalThis.fetch=realFetch;}
+
+ {// 对比评测：官方 Key 只做评测参照；规则、换位盲评、人工盲评
+  const saved=pilotFetch,chats=[];
+  pilotFetch=async(url,options)=>{const auth=options?.headers?.Authorization;
+   if(String(url).endsWith('/models'))return auth==='Bearer sk-bad'?new Response('{"error":{"message":"bad"}}',{status:401}):new Response(JSON.stringify({data:[{id:'deepseek-official'}]}),{status:200});
+   const body=JSON.parse(options.body);chats.push(body);
+   const content=body.model==='judge-model'?(body.messages[1].content.split('【回答 A】')[1].split('【回答 B】')[0].includes('549')?'{"a":9,"b":3,"winner":"A","reason":"A 正确"}':'{"a":3,"b":9,"winner":"B","reason":"B 正确"}'):body.model==='deepseek-official'?'549':'supplier answer';
+   return new Response(JSON.stringify({model:body.model,choices:[{message:{content},finish_reason:'stop'}],usage:{prompt_tokens:20,completion_tokens:3}}),{status:200});};
+  try{
+   assert.equal((await jar().call('/api/staff/lab/compare')).status,401);
+   assert.equal((await admin.call('/api/staff/lab/compare/reference',{method:'POST',body:{api_key:'sk-bad'}})).status,400,'rejected key is not stored');
+   const ref=await admin.call('/api/staff/lab/compare/reference',{method:'POST',body:{api_key:'sk-official-test'}});assert.equal(ref.status,201,JSON.stringify(ref.data));assert.deepEqual(ref.data.models,['deepseek-official']);
+   assert.equal((await admin.call('/api/staff/lab/compare/reference',{method:'POST',body:{api_key:'sk-official-test'}})).status,409);
+   const judgeEndpoint=(await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES('judge','supplier','https://kerapi.cn/v1','judge-model','fp','staff-owner',$1,$2) RETURNING id",[supplier,credential])).rows[0].id;
+   const view=(await admin.call('/api/staff/lab/compare')).data;const official=view.endpoints.find(e=>e.model_id==='deepseek-official');
+   assert.equal(official.kind,'reference');assert.equal(official.active_ciphertext,undefined);assert.equal(view.cases.length,12);
+   assert.equal((await pool.query("SELECT p.source_type FROM suppliers p JOIN supplier_lab_suppliers s ON s.canonical_supplier_id=p.id JOIN supplier_lab_endpoints e ON e.supplier_id=s.id WHERE e.id=$1",[official.id])).rows[0].source_type,'official');
+   const go=body=>admin.call('/api/staff/lab/compare/runs',{method:'POST',body:{supplier_endpoint_id:endpoint,reference_endpoint_id:official.id,judge_endpoint_id:judgeEndpoint,case_ids:['calc','logic'],...body}});
+   assert.equal((await go({reference_endpoint_id:judgeEndpoint,judge_endpoint_id:null})).status,400,'reference must be an official key');
+   assert.equal((await go({judge_endpoint_id:endpoint})).status,400,'judge must be a third endpoint');
+   const started=await go({});assert.equal(started.status,202,JSON.stringify(started.data));assert.equal(started.data.upstream_calls,8);
+   let detail;for(let i=0;i<100;i++){detail=(await admin.call('/api/staff/lab/compare/runs/'+started.data.run_id)).data;if(detail.run.status!=='running')break;await new Promise(r=>setTimeout(r,30));}
+   assert.equal(detail.run.status,'completed');assert.equal(detail.items.length,2);assert.equal(chats.length,8);
+   assert.ok(chats.filter(c=>c.model!=='judge-model').every(c=>c.temperature===0&&c.thinking?.type==='disabled'),'both sides get identical parameters');
+   assert.equal(detail.summary.reference.rule_pass,1);assert.equal(detail.summary.supplier.rule_pass,0);
+   assert.equal(detail.summary.judge.reference_wins,2,'both A/B orders agree');assert.equal(detail.summary.judge.position_flips,0);assert.equal(detail.summary.verdict,'worse');
+   const item=detail.items[0],pick=item.blind_flip?'B':'A';
+   const vote=await admin.call('/api/staff/lab/compare/items/'+item.id+'/review',{method:'POST',body:{choice:pick}});assert.equal(vote.status,200);assert.equal(vote.data.verdict,'supplier','blind A/B maps back to the right side');assert.equal(vote.data.judge,'reference');
+   detail=(await admin.call('/api/staff/lab/compare/runs/'+started.data.run_id)).data;assert.equal(detail.summary.human.items,1);assert.equal(detail.summary.human.agree_with_judge,0);assert.ok(detail.items[0].reviews[0].mine);
+   assert.equal((await admin.call('/api/staff/lab/compare')).data.runs[0].summary.verdict,'worse');
+  }finally{pilotFetch=saved;}}
 });
 test('sign out revokes persistent customer session',async()=>{assert.equal((await owner.j.call('/api/auth/sign-out',{method:'POST',body:{}})).status,200);assert.equal((await owner.j.call('/api/platform/me')).status,401);});
 test('two workspaces share credentials, actual acceptance and fail-closed catalog releases',async()=>{

@@ -40,7 +40,7 @@
 
 异步通知地址固定为 `APP_ORIGIN + /api/payments/alipay/notify`，所以 `APP_ORIGIN` 必须是公网可访问的 HTTPS 地址。这个路径不做同源检查，只靠签名校验。如果前面有反向代理，要确认 POST 能透传到这里。
 
-新的数据库迁移是 `031_payment_orders.sql`，按原有流程执行 `npm run migrate` 即可。
+新的数据库迁移是 `035_payment_orders.sql`，按原有流程执行 `npm run migrate` 即可。
 
 ## 上线前检查
 
