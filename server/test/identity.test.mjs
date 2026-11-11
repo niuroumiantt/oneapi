@@ -654,6 +654,31 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
    assert.equal((await admin.call(`/api/staff/lab/eval-keys/${again.data.credential_id}/disable`,{method:'POST',body:{}})).status,200);assert.equal((await admin.call('/api/staff/lab/eval-keys')).data.vendors.find(x=>x.id==='zhipu').key,null);
    assert.equal((await jar().call('/api/staff/lab/eval-keys')).status,401);
   }finally{pilotFetch=saved;}}
+
+ {// 功能对比：官方直连 vs 我们的网关；官方能我们不能才是差异，我们多出来的是蓝色，官方也不行的是灰色
+  const saved=pilotFetch;
+  pilotFetch=async(url,options)=>{const body=JSON.parse(options.body),official=String(url).startsWith('https://open.bigmodel.cn');
+   const reply=(content,extra={})=>new Response(JSON.stringify({choices:[{message:{content,...extra}}],usage:{prompt_tokens:10,completion_tokens:2}}),{status:200});
+   if(body.stream)return new Response('data: {"choices":[{"delta":{"content":"收到"}}]}\n\ndata: [DONE]\n\n',{status:200});
+   if(body.response_format)return official?reply('{"ok":true}'):reply('不是 JSON');// 官方能、我们不能 → gap
+   if(body.thinking?.type==='disabled')return official?new Response('{"error":{"message":"GLM does not support thinking off"}}',{status:400}):reply('收到');// 我们多出来 → extra
+   if(body.max_tokens>=32768)return new Response('{"error":{"message":"too many tokens"}}',{status:400});// 官方也不行 → neither
+   if(body.thinking||body.reasoning_effort)return reply('收到',{reasoning_content:'想了一下'});
+   return reply('收到');};
+  try{
+   const glm=await admin.call('/api/staff/lab/eval-keys',{method:'POST',body:{vendor:'zhipu',api_key:'sk-glm-three',model_ids:['GLM-5.3','GLM-5.3-Flash']}});assert.equal(glm.status,201);
+   let v=(await admin.call('/api/staff/lab/feature-compare')).data;assert.equal(v.features.length,16);
+   const ours=v.models.find(m=>m.id==='glm-5.3');assert.equal(ours.reference.model_id,'GLM-5.3','paired by id');assert.equal(v.models.find(m=>m.id==='deepseek-flash').reference.model_id,'deepseek-official','paired by family when ids differ');
+   assert.equal((await admin.call('/api/staff/lab/feature-compare/pairs',{method:'PUT',body:{our_model:'glm-5.3',reference_endpoint_id:ours.candidates.find(c=>c.model_id==='GLM-5.3-Flash').id}})).status,200);
+   assert.equal((await admin.call('/api/staff/lab/feature-compare')).data.models.find(m=>m.id==='glm-5.3').reference.model_id,'GLM-5.3-Flash','override saved');
+   assert.equal((await admin.call('/api/staff/lab/feature-compare/pairs',{method:'PUT',body:{our_model:'glm-5.3',reference_endpoint_id:null}})).status,200);assert.equal((await admin.call('/api/staff/lab/feature-compare/pairs',{method:'PUT',body:{our_model:'glm-5.3',reference_endpoint_id:v.models.find(m=>m.id==='deepseek-flash').reference.endpoint_id}})).status,400,'cross-family pairing refused');
+   const started=await admin.call('/api/staff/lab/feature-compare/runs',{method:'POST',body:{models:['glm-5.3'],skip_long:true}});assert.equal(started.status,202,JSON.stringify(started.data));assert.equal(started.data.probes,14);
+   for(let i=0;i<100;i++){v=(await admin.call('/api/staff/lab/feature-compare')).data;if(v.run.status!=='running')break;await new Promise(r=>setTimeout(r,30));}
+   assert.equal(v.run.status,'completed');assert.equal(v.run.done,14);const cells=v.cells['glm-5.3'];
+   assert.equal(cells.basic.outcome,'same');assert.equal(cells.json.outcome,'gap');assert.equal(cells.thinking_off.outcome,'extra');assert.equal(cells.out_32k.outcome,'neither');assert.equal(cells.ctx_128k,undefined,'long context skipped');
+   assert.equal(cells.json.official.status,'pass');assert.equal(cells.json.ours.status,'partial');assert.ok(!JSON.stringify(cells).includes('sk-glm-three'),'official key never stored');
+   assert.equal((await jar().call('/api/staff/lab/feature-compare')).status,401);
+  }finally{pilotFetch=saved;}}
 });
 test('staff refunds go back to the payer once, hold the balance first and reverse rejections',async()=>{
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);

@@ -103,7 +103,7 @@ const SYNTHETIC = {
  thinking_on: { thinking: { type: 'enabled' } }, thinking_off: { thinking: { type: 'disabled' } },
  out_8k: { max_tokens: 8192 }, out_32k: { max_tokens: 32768 }, ctx_32k: { context: 60000 }, ctx_128k: { context: 200000 }
 };
-function syntheticBody(feature) {
+export function syntheticBody(feature) {
  const { image, context, ...params } = SYNTHETIC[feature];
  const user = image ? [{ type: 'text', text: '这张图是什么颜色？' }, { type: 'image_url', image_url: { url: PIXEL } }] : feature === 'json' ? '以 JSON 回复 {"ok":true}' : '请只回复：收到';
  const messages = [...(context ? [{ role: 'system', content: FILLER.repeat(Math.ceil(context / FILLER.length)) }] : []), { role: 'user', content: user }];
