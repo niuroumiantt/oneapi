@@ -16,10 +16,14 @@ import { migrate } from '../src/migrate.mjs';
 import { config } from '../src/core.mjs';
 // Fake Alipay gateway: verifies our RSA2 request signature and signs responses with its own key.
 const appKeys=generateKeyPairSync('rsa',{modulusLength:2048}),alipayKeys=generateKeyPairSync('rsa',{modulusLength:2048}),alipayTrades=new Map(),alipayCalls=[];
+let alipayRefundMode='ok';
 const pem=k=>k.export({type:k.type==='private'?'pkcs8':'spki',format:'pem'}),alipaySign=content=>createSign('RSA-SHA256').update(content).sign(alipayKeys.privateKey,'base64');
 async function fakeAlipay(_url,init){const p=Object.fromEntries(new URLSearchParams(init.body));const ok=(await import('node:crypto')).createVerify('RSA-SHA256').update(signContent(p)).verify(appKeys.publicKey,p.sign,'base64');alipayCalls.push({method:p.method,ok});const biz=JSON.parse(p.biz_content),node=p.method.replaceAll('.','_')+'_response';let data;
  if(!ok)data={code:'40002',msg:'Invalid Arguments',sub_code:'isv.invalid-signature'};
  else if(p.method==='alipay.trade.precreate'){alipayTrades.set(biz.out_trade_no,{status:'WAIT_BUYER_PAY',amount:biz.total_amount,trade_no:'2026'+randomBytes(8).toString('hex'),notify:p.notify_url});data={code:'10000',msg:'Success',out_trade_no:biz.out_trade_no,qr_code:'https://qr.alipay.com/bax'+randomBytes(6).toString('hex')};}
+ else if(p.method==='alipay.trade.refund'){if(alipayRefundMode==='timeout')throw Error('simulated network timeout');const t=alipayTrades.get(biz.out_trade_no);
+  if(alipayRefundMode==='reject'||!t)data={code:'40004',msg:'Business Failed',sub_code:t?'ACQ.SELLER_BALANCE_NOT_ENOUGH':'ACQ.TRADE_NOT_EXIST'};
+  else{t.requests??=new Map();const fen=Math.round(Number(biz.refund_amount)*100),fresh=!t.requests.has(biz.out_request_no);if(fresh){t.requests.set(biz.out_request_no,fen);t.refundedFen=(t.refundedFen||0)+fen;}data={code:'10000',msg:'Success',out_trade_no:biz.out_trade_no,trade_no:t.trade_no,refund_fee:(t.refundedFen/100).toFixed(2),fund_change:fresh?'Y':'N'};}}
  else{const t=alipayTrades.get(biz.out_trade_no);data=t&&t.status!=='NOT_PAID_YET'?{code:'10000',msg:'Success',out_trade_no:biz.out_trade_no,trade_no:t.trade_no,trade_status:t.status,total_amount:t.amount}:{code:'40004',msg:'Business Failed',sub_code:'ACQ.TRADE_NOT_EXIST'};}
  const content=JSON.stringify(data);return new Response(`{"${node}":${content},"sign":"${alipaySign(content)}"}`,{headers:{'Content-Type':'application/json'}});}
 let pool,appServer,idpServer,service,origin,idpOrigin,appCfg,pilotDir,pilotFetch=fetch,identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true},revoked=false;
@@ -609,6 +613,40 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
    assert.equal((await admin.call('/api/staff/lab/compare')).data.runs[0].summary.verdict,'worse');
   }finally{pilotFetch=saved;}}
 });
+test('staff refunds go back to the payer once, hold the balance first and reverse rejections',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ const buyer=await user('refund-buyer');appCfg.alipay.allowedEmails.add(buyer.email);
+ const order=(await buyer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:3000,idempotency_key:'refund-order-key-0001'}})).data.order;
+ const out=(await pool.query('SELECT out_trade_no,account_id FROM payment_orders WHERE id=$1',[order.id])).rows[0],trade=alipayTrades.get(out.out_trade_no);trade.status='TRADE_SUCCESS';
+ assert.equal((await buyer.j.call('/api/billing/alipay-orders/'+order.id)).data.order.status,'paid');
+ const bal=async()=>(await buyer.j.call('/api/billing/personal')).data.cash_balance_fen,path=`/api/staff/payments/orders/${order.id}/refunds`;
+ const ask=(amount,key,reason='客户申请退款')=>admin.call(path,{method:'POST',body:{amount_fen:amount,reason,idempotency_key:key}});
+ assert.equal(await bal(),'3000');
+ assert.ok((await buyer.j.call(path,{method:'POST',body:{amount_fen:100,reason:'x',idempotency_key:'customer-try-000001'}})).status>=400,'customers cannot refund');
+ assert.ok((await admin.call('/api/staff/payments/orders')).data.orders.some(o=>o.id===order.id&&o.payer_email===buyer.email));
+ assert.equal((await ask(3001,'refund-key-over-00001')).status,409);
+ assert.equal((await ask(100,'refund-key-noreason01','')).status,400);
+ // Partial refund, then a replay of the same request changes nothing.
+ const first=await ask(1000,'refund-key-partial-001');assert.equal(first.status,201);assert.equal(first.data.status,'succeeded');
+ assert.equal(await bal(),'2000');assert.equal(trade.refundedFen,1000);
+ const replay=await ask(1000,'refund-key-partial-001');assert.equal(replay.status,200);assert.equal(replay.data.refund_id,first.data.refund_id);assert.equal(await bal(),'2000');assert.equal(trade.refundedFen,1000);
+ // Unclear result: balance stays held, a second refund waits, a retry with the same request number settles it.
+ alipayRefundMode='timeout';const pending=await ask(500,'refund-key-pending-001');assert.equal(pending.data.status,'pending');assert.equal(await bal(),'1500');
+ assert.equal((await ask(100,'refund-key-blocked-001')).status,409);
+ alipayRefundMode='ok';assert.equal((await admin.call(`/api/staff/payments/refunds/${pending.data.refund_id}/retry`,{method:'POST',body:{}})).data.status,'succeeded');
+ assert.equal(await bal(),'1500');assert.equal(trade.refundedFen,1500);
+ // A definitive rejection gives the held amount back.
+ alipayRefundMode='reject';const rejected=await ask(500,'refund-key-reject-0001');alipayRefundMode='ok';
+ assert.equal(rejected.data.status,'failed');assert.equal(await bal(),'1500');assert.equal(trade.refundedFen,1500);
+ const view=(await admin.call('/api/staff/payments/orders')).data.orders.find(o=>o.id===order.id);
+ assert.equal(view.refunded_fen,'1500');assert.deepEqual(view.refunds.map(r=>r.status),['succeeded','succeeded','failed']);
+ // Spent money cannot be refunded.
+ await pool.query('UPDATE billing_accounts SET cash_balance_fen=200 WHERE id=$1',[out.account_id]);
+ assert.match((await ask(1000,'refund-key-spent-00001')).data.error,/已使用的部分不能退款/);
+ const ledger=(await pool.query('SELECT kind,amount_fen::int FROM billing_ledger WHERE account_id=$1 ORDER BY id',[out.account_id])).rows.map(r=>r.kind+':'+r.amount_fen);
+ assert.deepEqual(ledger,['recharge:3000','refund:-1000','refund:-500','refund:-500','reversal:500']);
+ assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action LIKE 'billing.refund.%'")).rows[0].n>=6,true);
+});
 test('sign out revokes persistent customer session',async()=>{assert.equal((await owner.j.call('/api/auth/sign-out',{method:'POST',body:{}})).status,200);assert.equal((await owner.j.call('/api/platform/me')).status,401);});
 test('two workspaces share credentials, actual acceptance and fail-closed catalog releases',async()=>{
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;
@@ -734,6 +772,8 @@ test('alipay face-to-face recharge credits the exact amount once, only after a s
  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='billing.recharge.alipay_paid' AND subject_id=ANY($1)",[[orderId,second.id,orgOrder.data.order.id]])).rows[0].n,3);
 });
 test('alipay helpers cut the signed response node verbatim and parse money strictly',async()=>{
+ const {alipayClient}=await import('../src/alipay.mjs'),unsigned=alipayClient({appId:'x',privateKey:pem(appKeys.privateKey),publicKey:pem(alipayKeys.publicKey)},async()=>new Response('{"alipay_trade_query_response":{"code":"40003","msg":"Insufficient Conditions","sub_code":"isv.missing-signature-config"}}'));
+ await assert.rejects(unsigned.query('A1'),/ALIPAY_UNSIGNED_40003_isv.missing-signature-config/);
  const raw='{"alipay_trade_query_response":{"code":"10000","msg":"Success","x":"a}\\"b"},"sign":"abc"}';
  assert.equal(responseNode(raw,'alipay.trade.query').content,'{"code":"10000","msg":"Success","x":"a}\\"b"}');
  assert.equal(responseNode('{"error_response":{"code":"40002"},"sign":""}','alipay.trade.query').node,'error_response');

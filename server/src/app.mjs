@@ -1,7 +1,7 @@
 import {aliyunRoutes} from './aliyun-readonly.mjs';
 import {serverObservationRoutes} from './server-observation.mjs';
 import express from 'express';
-import { workspaceRoutes } from './workspaces.mjs';
+import { workspaceRoutes,requireBusiness } from './workspaces.mjs';
 import { fromNodeHeaders,toNodeHandler } from 'better-auth/node';
 import { HttpError,hash } from './core.mjs';
 import { customerAuth } from './auth.mjs';
@@ -15,7 +15,7 @@ import { validationRoutes } from './validations.mjs';
 import { productReviewRoutes } from './product-reviews.mjs';
 import { demoJourneyRoutes } from './demo-journey.mjs';
 import { billingRoutes } from './billing.mjs';
-import { paymentRoutes } from './payments.mjs';
+import { paymentRoutes,staffPaymentRoutes } from './payments.mjs';
 import { alipayClient } from './alipay.mjs';
 import { supplierLabRoutes } from './supplier-lab.mjs';
 import { pilotInferenceRoutes } from './pilot-inference.mjs';
@@ -39,7 +39,7 @@ export function createApp(pool,cfg,transport){
  app.use(express.json({limit:'16kb'}));
  const requireCustomer=async(req,res,next)=>{const session=await auth.api.getSession({headers:fromNodeHeaders(req.headers)});if(!session?.user)throw new HttpError(401,'请先登录');if(!session.user.emailVerified)throw new HttpError(403,'请先验证邮箱');if(session.user.disabled)throw new HttpError(403,'账户已停用');req.customer={id:session.user.id,name:session.user.name,email:session.user.email,emailVerified:true};req.actor={kind:'customer',id:session.user.id};next();};
  employeeCreditRoutes(app,pool,cfg,requireCustomer,cfg.pilotFetch||fetch);pilotInferenceRoutes(app,pool,cfg,requireCustomer,cfg.pilotFetch||fetch);organizationRoutes(app,pool,cfg,requireCustomer);demoJourneyRoutes(app,pool,requireCustomer);billingRoutes(app,pool,requireCustomer,cfg,paymentRoutes(app,pool,requireCustomer,cfg,alipay));const staff=staffRoutes(app,pool,cfg);workspaceRoutes(app,pool,staff.requireStaff,cfg);serverObservationRoutes(app,pool,staff.requireStaff,cfg);aliyunRoutes(app,pool,staff.requireStaff);supplierRoutes(app,pool,staff.requireStaff);validationRoutes(app,pool,staff.requireStaff);supplierLabRoutes(app,pool,staff.requireStaff);pricingRoutes(app,pool,staff.requireStaff);productReviewRoutes(app,pool,staff.requireStaff);promotionRoutes(app,pool,staff.requireStaff);
- customerBackofficeRoutes(app,pool,requireCustomer);staffBackofficeRoutes(app,pool,cfg,staff.requireStaff);acceptanceRoutes(app,pool,cfg,staff.requireStaff,cfg.pilotFetch||fetch);compareRoutes(app,pool,cfg,staff.requireStaff,cfg.pilotFetch||fetch);stressRoutes(app,pool,cfg,staff.requireStaff,cfg.pilotFetch||fetch);
+ customerBackofficeRoutes(app,pool,requireCustomer);staffPaymentRoutes(app,pool,staff.requireStaff,requireBusiness,alipay);staffBackofficeRoutes(app,pool,cfg,staff.requireStaff);acceptanceRoutes(app,pool,cfg,staff.requireStaff,cfg.pilotFetch||fetch);compareRoutes(app,pool,cfg,staff.requireStaff,cfg.pilotFetch||fetch);stressRoutes(app,pool,cfg,staff.requireStaff,cfg.pilotFetch||fetch);
  app.get('/api/status',async(req,res)=>{await pool.query('SELECT 1');res.json({app:'oneapi',status:'ok',source_sha:cfg.source,stage:'identity-live',customer_registration_enabled:mail.ready,staff_login_enabled:staff.configured,payments_enabled:Boolean(alipay),inference_enabled:false,pilot_inference_enabled:Boolean(cfg.pilot?.keyFile&&cfg.pilot?.emails?.size),business_ready:false});});
  app.use('/api',(_req,res)=>res.status(404).json({error:'接口不存在'}));
  app.use(express.static(new URL('../../web',import.meta.url).pathname,{index:'index.html',setHeaders(res){res.set('Cache-Control','no-store');}}));

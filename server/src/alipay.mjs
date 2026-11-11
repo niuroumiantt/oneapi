@@ -52,6 +52,9 @@ export function alipayClient(cfg,fetchImpl=fetch){
   if(!response.ok)throw Error('ALIPAY_HTTP_'+response.status);
   const raw=await response.text(),{node,content}=responseNode(raw,method),body=JSON.parse(raw),data=body[node];
   // Business responses are always signed; an unsigned or mismatched body is never trusted.
+  // Gateway-level rejections (e.g. no key configured for the app) come back unsigned: surface
+  // their code for the logs, but still only as an error, never as a usable result.
+  if(node!=='error_response'&&!body.sign&&data?.code&&data.code!=='10000')throw Error(`ALIPAY_UNSIGNED_${safeCode(data.code)}_${safeCode(data.sub_code)}`);
   if(node!=='error_response'&&!rsa2Verify(content,body.sign,alipayPublicKey))throw Error('ALIPAY_RESPONSE_SIGNATURE_INVALID');
   return data;
  }
@@ -59,11 +62,14 @@ export function alipayClient(cfg,fetchImpl=fetch){
   appId:cfg.appId,sellerId:cfg.sellerId||'',
   precreate:({outTradeNo,amountFen,subject,notifyUrl,timeoutMinutes})=>call('alipay.trade.precreate',{out_trade_no:outTradeNo,total_amount:fenToYuan(amountFen),subject,timeout_express:`${timeoutMinutes}m`,product_code:'FACE_TO_FACE_PAYMENT'},{notify_url:notifyUrl}),
   query:outTradeNo=>call('alipay.trade.query',{out_trade_no:outTradeNo}),
+  // Idempotent per out_request_no: resending the same request never refunds twice.
+  refund:({outTradeNo,outRequestNo,amountFen,reason})=>call('alipay.trade.refund',{out_trade_no:outTradeNo,out_request_no:outRequestNo,refund_amount:fenToYuan(amountFen),refund_reason:reason}),
   // Notify bodies are signed over every param except sign and sign_type.
   verifyNotify:params=>rsa2Verify(signContent(params,{skipSignType:true}),params.sign,alipayPublicKey)
  };
 }
 
+const safeCode=v=>String(v??'NONE').replace(/[^A-Za-z0-9.-]/g,'').slice(0,64)||'NONE';
 export const fenToYuan=fen=>{const v=BigInt(fen);return `${v/100n}.${String(v%100n).padStart(2,'0')}`;};
 // Strict "12.34" → 1234n; anything else is rejected rather than rounded.
 export function yuanToFen(value){
