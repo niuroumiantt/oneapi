@@ -648,3 +648,23 @@ td>.live-dot:first-child{margin-right:5px}
 .detail-summary{max-width:260px;white-space:normal;color:#4a5265;font-size:12px}
 .summary-notice{display:flex;gap:6px;margin-top:8px;padding:8px 10px;border:1px solid #f5d7a8;border-radius:7px;background:#fff9ef;color:#6b4e12;font-size:11px;line-height:1.5}
 .summary-notice .ui-icon{--icon-size:14px;flex:none}
+.mgr-overview .member-link,.trend-card .member-link{padding:0;border:0;border-radius:0;background:none;font-size:13px}
+.mgr-quota-title{overflow:hidden}
+.mgr-quota-title .member-link{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mgr-quota-row{grid-template-columns:minmax(0,1.6fr) minmax(70px,1fr) 46px 118px auto}
+.mgr-overview .trend-legend{padding:14px 14px 12px}
+.mgr-overview .team-bars{margin-top:12px}
+.mgr-models td{padding-top:8px;padding-bottom:8px}
+.mgr-models td small{display:block;margin-top:1px}
+.mgr-models .col-status b{font-size:12px}
+.mgr-quota{container-type:inline-size}
+@container (max-width:520px){
+ .mgr-quota-row{grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"name amount action" "meter meter pct";row-gap:6px}
+ .mgr-quota-name{grid-area:name}
+ .mgr-quota-amount{grid-area:amount}
+ .mgr-quota-row>.live-button{grid-area:action}
+ .mgr-quota-meter{grid-area:meter}
+ .mgr-quota-row>.usage-pct{grid-area:pct}
+}
+.team-bar small{white-space:nowrap}
+.mgr-overview .team-bar small{font-size:9px}
