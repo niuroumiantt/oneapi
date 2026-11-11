@@ -560,6 +560,42 @@ test('employee credit is one-time, company-only, reserved before calling and cha
    assert.equal(t.status,'pass');assert.equal(o.status,'fail');assert.match(o.note,/网关拒绝/);assert.equal(v.targets.models.find(m=>m.id==='glm-5.3').keys[0].role,'primary');
    assert.equal((await staffer.j.call('/api/staff/lab/agents')).status,401);
   }finally{pilotFetch=saved;}}
+
+ {// Agent 对比：评测 Key 走网关但不计员工额度，记完整对话；按任务打标；B 路手贴；盲评两次换位；人工盲投
+  const savedIdentity=identity;identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};const ops=jar();await staffLogin(ops);identity=savedIdentity;
+  const savedHosts=process.env.SUPPLIER_LAB_ALLOWED_HOSTS;process.env.SUPPLIER_LAB_ALLOWED_HOSTS='api.deepseek.com,kerapi.cn';
+  const saved=pilotFetch;const reply=c=>new Response(JSON.stringify({choices:[{message:{content:c}}],usage:{prompt_tokens:7,completion_tokens:3}}),{status:200,headers:{'content-type':'application/json'}});
+  pilotFetch=async(url,options)=>{const b=JSON.parse(options.body);
+   if(String(b.messages?.[0]?.content||'').includes('评审')){const aPart=b.messages[1].content.split('【回答 A】')[1].split('【回答 B】')[0];return reply(aPart.includes('SELECT user_id')?'{"a":8,"b":5,"winner":"A","reason":"A 正确"}':'{"a":5,"b":8,"winner":"B","reason":"B 正确"}');}
+   if(b.stream)return new Response('data: {"choices":[{"delta":{"content":"SELECT user_id, count(*) FROM orders GROUP BY 1"}}]}\n\ndata: {"choices":[],"usage":{"prompt_tokens":9,"completion_tokens":12}}\n\ndata: [DONE]\n\n',{status:200,headers:{'content-type':'text/event-stream'}});
+   return reply('先看表结构');};
+  try{
+   const agent=await ops.call('/api/staff/lab/agents',{method:'POST',body:{name:'WorkBuddy',version:'5.9.1'}});const aid=agent.data.id;
+   const judge=(await pool.query("SELECT e.id FROM supplier_lab_endpoints e JOIN supplier_lab_credentials c ON c.id=e.credential_id WHERE e.model_id='GLM-5.3' AND e.disabled_at IS NULL AND c.disabled_at IS NULL LIMIT 1")).rows[0].id;
+   assert.equal((await ops.call('/api/staff/lab/agent-compare/runs',{method:'POST',body:{agent_id:aid,path_b:{kind:'official',endpoint_id:judge}}})).status,400,'B must be an official reference model');
+   const created=await ops.call('/api/staff/lab/agent-compare/runs',{method:'POST',body:{agent_id:aid,path_b:{kind:'manual'},judge_endpoint_id:judge,task_ids:['sql','doc']}});assert.equal(created.status,201,JSON.stringify(created.data));
+   const rid=created.data.run.id,keyA=created.data.keys.a.secret;assert.match(keyA,/^sf_eval_/);assert.equal(created.data.keys.b,null);
+   const gw=(body,key=keyA)=>jar().call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+key},body:{model:'glm-5.3',messages:[{role:'user',content:'写 SQL'}],max_tokens:100,...body}});
+   const employeeCallsBefore=(await pool.query('SELECT count(*)::int AS n FROM employee_calls')).rows[0].n;
+   assert.equal((await gw({},'sf_eval_'+'x'.repeat(43))).status,401);
+   assert.equal((await gw({})).status,200,'test key works before arming');
+   assert.equal((await ops.call(`/api/staff/lab/agent-compare/runs/${rid}/arm`,{method:'POST',body:{path:'c',task_id:'sql'}})).status,400);
+   assert.equal((await ops.call(`/api/staff/lab/agent-compare/runs/${rid}/arm`,{method:'POST',body:{path:'a',task_id:'sql'}})).status,200);
+   assert.equal((await gw({})).status,200);const streamed=await gw({stream:true});assert.equal(streamed.status,200);await new Promise(r=>setTimeout(r,200));
+   assert.equal((await pool.query('SELECT count(*)::int AS n FROM employee_calls')).rows[0].n,employeeCallsBefore,'test keys bill no employee');
+   let v=(await ops.call('/api/staff/lab/agent-compare?run='+rid)).data;assert.equal(v.detail.calls.find(c=>c.path==='a'&&c.task_id==='sql').calls,2);assert.equal(v.detail.calls.find(c=>c.path==='a'&&c.task_id===null).calls,1);
+   assert.equal((await ops.call(`/api/staff/lab/agent-compare/runs/${rid}/tasks/doc/finish`,{method:'POST',body:{path:'a'}})).status,409,'no calls for that task yet');
+   const fin=await ops.call(`/api/staff/lab/agent-compare/runs/${rid}/tasks/sql/finish`,{method:'POST',body:{path:'a'}});assert.equal(fin.status,200,JSON.stringify(fin.data));
+   assert.equal(fin.data.side.turns,2);assert.match(fin.data.side.output,/^SELECT user_id/,'final answer is the last call with text');assert.equal(fin.data.side.output_tokens,15);
+   assert.equal((await ops.call(`/api/staff/lab/agent-compare/runs/${rid}/tasks/sql/manual`,{method:'POST',body:{output:'select * from orders'}})).status,200);
+   let item;for(let i=0;i<100;i++){v=(await ops.call('/api/staff/lab/agent-compare?run='+rid)).data;item=v.detail.items.find(x=>x.task_id==='sql');if(item?.judge)break;await new Promise(r=>setTimeout(r,30));}
+   assert.equal(item.judge.error,undefined,JSON.stringify(item.judge));assert.equal(item.judge.winner,'supplier','ours wins in both orders');assert.equal(item.judge.positions_agree,true);assert.equal(v.detail.summary.judge.a_wins,1);assert.equal(v.detail.summary.verdict,'match');assert.equal(v.detail.run.armed_path,null,'finishing disarms');
+   const pick=item.blind_flip?'B':'A';const vote=await ops.call('/api/staff/lab/agent-compare/items/'+item.id+'/review',{method:'POST',body:{choice:pick}});assert.equal(vote.data.verdict,'a');assert.equal(vote.data.judge,'a');
+   v=(await ops.call('/api/staff/lab/agent-compare?run='+rid)).data;assert.equal(v.detail.summary.human.agree_with_judge,1);
+   const rotated=await ops.call(`/api/staff/lab/agent-compare/runs/${rid}/keys/a/rotate`,{method:'POST',body:{}});assert.equal(rotated.status,201);assert.equal((await gw({})).status,401,'old key revoked');assert.equal((await gw({},rotated.data.secret)).status,200);
+   assert.equal((await ops.call(`/api/staff/lab/agent-compare/runs/${rid}/close`,{method:'POST',body:{}})).status,200);assert.equal((await gw({},rotated.data.secret)).status,401,'keys die with the run');
+   assert.equal((await staffer.j.call('/api/staff/lab/agent-compare')).status,401);
+  }finally{pilotFetch=saved;if(savedHosts===undefined)delete process.env.SUPPLIER_LAB_ALLOWED_HOSTS;else process.env.SUPPLIER_LAB_ALLOWED_HOSTS=savedHosts;}}
     pilotFetch=saved;}
  assert.equal((await staffer.j.call('/api/employee-credit/keys/'+created.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call()).status,401);
  appCfg.employeeCredit.organizationId='';

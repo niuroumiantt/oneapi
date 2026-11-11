@@ -82,7 +82,7 @@ export function parseVerdict(output) {
 }
 
 // Ask the judge twice with the answers swapped; a winner counts only if both orders agree.
-async function judgeItem(fetchImpl, box, judge, c, supplier, reference) {
+export async function judgeItem(fetchImpl, box, judge, c, supplier, reference) {
  const ask = async (a, b) => { const r = await chatOnce(fetchImpl, box, judge, [{ role: 'system', content: JUDGE_SYSTEM }, { role: 'user', content: judgePrompt(c, a, b) }], JUDGE_TOKENS, 'off'); return { call: r, verdict: r.ok ? parseVerdict(r.output) : null }; };
  const [first, second] = await Promise.all([ask(supplier.output, reference.output), ask(reference.output, supplier.output)]);
  if (!first.verdict || !second.verdict) return { error: first.call.error || second.call.error || '评审没有给出可解析的 JSON', model: judge.model_id };
