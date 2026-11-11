@@ -612,7 +612,7 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
  assert.equal((await u.j.call('/api/platform/me')).data.upgrade.status,'pending');
  assert.equal((await jar().call('/api/staff/workspace/business')).status,401);
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
- let biz=(await admin.call('/api/staff/workspace/business')).data;let request=biz.upgrades.find(x=>x.email===u.user.email);assert.equal(request.status,'pending');assert.equal(biz.models.length,6);
+ let biz=(await admin.call('/api/staff/workspace/business')).data;let request=biz.upgrades.find(x=>x.email===u.user.email);assert.equal(request.status,'pending');assert.ok(biz.models.length>=1&&biz.models.every(m=>m.routed),'only models some upstream serves are listed');
  assert.equal((await admin.call(`/api/staff/upgrades/${request.id}/reject`,{method:'POST',body:{}})).status,400,'needs reason');
  assert.equal((await admin.call(`/api/staff/upgrades/${request.id}/reject`,{method:'POST',body:{reason:'资料不全'}})).status,200);
  assert.equal((await u.j.call('/api/platform/me')).data.upgrade.reject_reason,'资料不全');
@@ -706,6 +706,36 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
    view=(await admin.call('/api/staff/lab/upstream')).data.suppliers.find(s=>s.id===sid);assert.deepEqual(view.models.map(x=>x.model_id),['up-model-a']);
    assert.equal((await jar().call('/api/staff/lab/upstream')).status,401);
   }finally{pilotFetch=saved;}}
+
+ {// 自动检查：按 Key 拉上游型号、每个型号 1 Token；目录里有的新型号自动上线，没有的要人工；下架、Key 失效、重复 Key 都开事件
+  const sid=(await pool.query("SELECT id FROM suppliers WHERE display_name='Upstream fixture'")).rows[0].id;
+  const lab=(await pool.query('SELECT id FROM supplier_lab_suppliers WHERE canonical_supplier_id=$1',[sid])).rows[0].id;
+  const good=(await pool.query("SELECT * FROM supplier_lab_credentials WHERE supplier_id=$1 AND label='主 Key'",[lab])).rows[0];
+  await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by,priority) VALUES($1,'同一把',$2,$3,$4,'staff-owner',2)",[lab,'https://kerapi.cn',good.credential_ciphertext,good.credential_fingerprint]);
+  const saved=pilotFetch,calls=[];
+  pilotFetch=async(url,options)=>{const auth=options?.headers?.Authorization;calls.push(String(url));
+   if(String(url).endsWith('/models'))return auth==='Bearer sk-up-good'?new Response(JSON.stringify({data:[{id:'up-model-a'},{id:'up-model-new'},{id:'GLM-5.3-Flash'}]}),{status:200}):auth==='Bearer sk-up-bad'?new Response('{"error":{"message":"bad key"}}',{status:401}):new Response('{"data":[]}',{status:200});
+   return auth==='Bearer sk-up-bad'?new Response('{"error":{"message":"invalid key sk-up-bad"}}',{status:401}):new Response(JSON.stringify({choices:[{message:{content:'p'}}],usage:{prompt_tokens:1,completion_tokens:1}}),{status:200});};
+  try{
+   const run=await admin.call('/api/staff/lab/key-watch/run',{method:'POST',body:{}});assert.equal(run.status,200,JSON.stringify(run.data));
+   const sum=run.data.suppliers.find(x=>x.supplier_id===sid);assert.equal(sum.keys,3);assert.equal(sum.distinct_keys,2,'the duplicate is checked once');assert.equal(sum.upstream,3);
+   let w=(await admin.call('/api/staff/lab/key-watch')).data;const mine=w.events.filter(e=>e.supplier_id===sid),kinds=mine.map(e=>e.kind+':'+e.subject);
+   assert.ok(kinds.includes('auto_launched:GLM-5.3-Flash'),'catalog model the upstream now offers goes live');assert.ok(kinds.includes('needs_manual_launch:up-model-new'),'unknown model needs a manual launch');
+   assert.ok(mine.some(e=>e.kind==='duplicate_key'&&e.detail.same_as==='主 Key'));assert.ok(mine.some(e=>e.kind==='key_check_failed'&&e.detail.key==='备 Key'));assert.ok(mine.some(e=>e.kind==='key_list_failed'&&e.detail.key==='备 Key'));
+   assert.ok(!JSON.stringify(w).includes('sk-up-bad'),'key never echoed');
+   assert.equal((await pool.query("SELECT count(DISTINCT credential_id)::int AS n FROM supplier_lab_endpoints WHERE supplier_id=$1 AND model_id='GLM-5.3-Flash' AND disabled_at IS NULL",[lab])).rows[0].n,3,'auto-launched model reaches every key');
+   const good2=(await pool.query("SELECT last_check_ok,last_check_model FROM supplier_lab_credentials WHERE supplier_id=$1 AND credential_fingerprint=$2",[lab,good.credential_fingerprint])).rows;assert.equal(good2.length,2);assert.ok(good2.every(r=>r.last_check_ok===true),'result written to both rows of the same secret');
+   // upstream drops a model: critical event; the earlier one resolves when the run no longer sees it
+   pilotFetch=async(url,options)=>{const auth=options?.headers?.Authorization;if(String(url).endsWith('/models'))return auth==='Bearer sk-up-good'?new Response(JSON.stringify({data:[{id:'GLM-5.3-Flash'}]}),{status:200}):new Response('{"data":[]}',{status:auth==='Bearer sk-up-bad'?401:200});return new Response(JSON.stringify({choices:[{message:{content:'p'}}]}),{status:auth==='Bearer sk-up-bad'?401:200});};
+   assert.equal((await admin.call('/api/staff/lab/key-watch/run',{method:'POST',body:{}})).status,200);
+   w=(await admin.call('/api/staff/lab/key-watch')).data;const after=w.events.filter(e=>e.supplier_id===sid).map(e=>e.kind+':'+e.subject);
+   assert.ok(after.includes('upstream_removed:up-model-a'),'model the upstream dropped is critical');assert.ok(!after.includes('needs_manual_launch:up-model-new'),'resolved when no longer seen');
+   const ov=(await admin.call('/api/staff/lab/overview')).data;assert.ok(ov.risks.some(r=>r.area==='watch'&&r.title.includes('上游不再提供 up-model-a')));
+   const card=ov.suppliers.find(x=>x.id===sid);assert.equal(card.duplicate_keys,1);assert.equal(card.distinct_keys,2);
+   assert.ok(ov.costs&&typeof ov.costs.tests.yuan==='number');assert.ok(ov.models.every(m=>m.routed||m.paused)&&!ov.models.some(m=>ov.catalog_without_upstream.some(c=>c.id===m.id)),'catalog models without an upstream are not counted');
+   const up=(await admin.call('/api/staff/lab/upstream')).data.suppliers.find(x=>x.id===sid);assert.equal(up.standby_count,1,'备 Key counts, the twin does not');assert.equal(up.duplicate_count,1);
+   while(await service.mail.drain());const alert=sent.filter(m=>String(m.subject).startsWith('semifly 上游告警'));assert.ok(alert.length>=1,'admins are mailed');assert.ok(alert.some(m=>m.text.includes('需要人工上线')&&m.text.includes('up-model-new')));assert.ok(alert.some(m=>m.subject.includes('含严重')));
+  }finally{pilotFetch=saved;await pool.query('UPDATE supplier_lab_credentials SET disabled_at=now() WHERE supplier_id=$1 AND disabled_at IS NULL',[lab]);}}
 
  {// 评测 Key：每家官方厂商一把，只登记为参照型号；官方主机无需运维配置；换 Key 时旧的停用
   const saved=pilotFetch,seen=[];

@@ -53,7 +53,7 @@ export function upstreamRoutes(app, pool, cfg, requireStaff, fetchImpl = fetch) 
     return { ...m, offered_as: offers.map(o => ({ id: o.id, name: o.name, routed: routed.some(r => r.model.id === o.id), paused: pausedIds.has(o.id) })), live_keys: live.length, ...stats(used) };
    });
    const primary = live.find(k => k.priority === 1) || null;
-   return { ...s, keys: keyRows, models: modelRows, live_keys: live.length, primary_label: primary?.label || null, standby_count: live.filter(k => k.priority === 2).length, base_url: live[0]?.base_url || mine[0]?.base_url || null, ...stats(keyModel.rows.filter(x => ids.has(x.credential_id))) };
+   return { ...s, keys: keyRows, models: modelRows, live_keys: live.length, primary_label: primary?.label || null, standby_count: keyRows.filter(k => !k.disabled_at && k.priority === 2 && !k.duplicate_of).length, duplicate_count: keyRows.filter(k => !k.disabled_at && k.duplicate_of).length, base_url: live[0]?.base_url || mine[0]?.base_url || null, ...stats(keyModel.rows.filter(x => ids.has(x.credential_id))) };
   });
   res.json({ ready: Boolean(box), suppliers: out, allowed_hosts: (process.env.SUPPLIER_LAB_ALLOWED_HOSTS || 'api.deepseek.com').split(',').map(x => x.trim()).filter(Boolean) });
  });
@@ -142,7 +142,9 @@ export function upstreamRoutes(app, pool, cfg, requireStaff, fetchImpl = fetch) 
    } catch (e) { error = e?.name === 'TimeoutError' ? '30 秒无响应' : '连接失败：' + String(e?.cause?.code || e?.message || e).replaceAll(secretKey, '***').slice(0, 160); }
    return { model, ok, status, ms: Math.round(performance.now() - started), error };
   };
-  const results = await Promise.all(models.map(one));
+  const results = [], queue = [...models];
+  await Promise.all(Array.from({ length: Math.min(3, queue.length) }, async () => { for (let m = queue.shift(); m; m = queue.shift()) results.push(await one(m)); }));
+  results.sort((a, b) => models.indexOf(a.model) - models.indexOf(b.model));
   const ok = results.every(r => r.ok), failed = results.find(r => !r.ok), ms = Math.max(...results.map(r => r.ms));
   const status = failed ? failed.status : 200, error = failed ? `${failed.model}：${failed.error}` : null, summary = `${results.filter(r => r.ok).length}/${results.length}`;
   await pool.query('UPDATE supplier_lab_credentials SET last_check_at=now(),last_check_ok=$2,last_check_status=$3,last_check_ms=$4,last_check_error=$5,last_check_model=$6,last_check_models=$7 WHERE id=$1', [credentialId, ok, status, ms, error, summary, JSON.stringify(results)]);

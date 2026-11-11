@@ -44,6 +44,30 @@ export function staffBackofficeRoutes(app,pool,cfg,requireStaff){
  app.get('/api/staff/lab/overview',requireStaff,async(req,res)=>{
   requireTechnical(req);
   const month="date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai'",amount="CASE WHEN evidence->>'amount' ~ '^[0-9]+(\\.[0-9]+)?$' THEN (evidence->>'amount')::numeric ELSE 0 END";
+  // KerAPI usage logs: the same request can be stored under two credentials when two rows hold the same secret, so cost is
+  // always counted once per request_id. Each request is then attributed: our employees, external customers, or tests & system.
+  const split=pool.query(`WITH m AS (SELECT ${month} AS t),
+   u AS (SELECT DISTINCT ON (r.request_id) r.request_id,s.canonical_supplier_id AS supplier_id,${amount.replaceAll('evidence','r.evidence')} AS amt FROM supplier_usage_records r JOIN supplier_lab_credentials c ON c.id=r.credential_id JOIN supplier_lab_suppliers s ON s.id=c.supplier_id,m WHERE r.occurred_at>=m.t ORDER BY r.request_id,r.updated_at DESC),
+   e AS (SELECT c.upstream_request_id AS rid,c.charged_yuan,c.actual_yuan FROM employee_calls c,m WHERE c.created_at>=m.t AND c.settled_at IS NOT NULL),
+   p AS (SELECT c.upstream_request_id AS rid,c.estimated_upstream_yuan AS est FROM pilot_calls c,m WHERE c.created_at>=m.t AND c.status='succeeded')
+   SELECT (SELECT json_build_object('requests',count(*),'yuan',coalesce(sum(amt),0)) FROM u) AS kerapi,
+    (SELECT json_build_object('calls',count(*),'charged',coalesce(sum(e.charged_yuan),0),'cost',coalesce(sum(coalesce(u.amt,e.actual_yuan,0)),0),'not_in_log',count(*) FILTER(WHERE u.request_id IS NULL)) FROM e LEFT JOIN u ON u.request_id=e.rid) AS employees,
+    (SELECT json_build_object('calls',count(*),'cost',coalesce(sum(coalesce(u.amt,p.est,0)),0)) FROM p LEFT JOIN u ON u.request_id=p.rid) AS customers,
+    (SELECT coalesce(-sum(amount_fen),0)/100.0 FROM billing_ledger,m WHERE kind='usage' AND created_at>=m.t) AS customer_revenue,
+    (SELECT json_build_object('requests',count(*),'yuan',coalesce(sum(amt),0)) FROM u WHERE request_id NOT IN (SELECT rid FROM e WHERE rid IS NOT NULL) AND request_id NOT IN (SELECT rid FROM p WHERE rid IS NOT NULL)) AS tests,
+    (SELECT json_object_agg(supplier_id,json_build_object('requests',n,'yuan',y)) FROM (SELECT supplier_id,count(*) AS n,coalesce(sum(amt),0) AS y FROM u WHERE supplier_id IS NOT NULL GROUP BY 1) x) AS by_supplier`);
+  // What the test & system requests were, counted from our own records this month.
+  const testSources=pool.query(`WITH m AS (SELECT ${month} AS t) SELECT
+    (SELECT count(*) FROM supplier_lab_transactions,m WHERE created_at>=m.t)::int AS lab_tests,
+    (SELECT count(*) FROM load_samples,m WHERE started_at>=m.t)::int AS load_tests,
+    (SELECT count(*) FROM acceptance_results,m WHERE created_at>=m.t)::int AS matrix_replays,
+    (SELECT count(*) FROM compare_items,m WHERE created_at>=m.t)::int AS model_compare,
+    (SELECT count(*) FROM feature_compare_items,m WHERE created_at>=m.t)::int AS feature_compare,
+    (SELECT count(*) FROM agent_replays,m WHERE created_at>=m.t AND target LIKE 'ours:%')::int AS agent_replays,
+    (SELECT count(*) FROM agent_compare_calls,m WHERE created_at>=m.t AND path='a')::int AS agent_compare,
+    (SELECT count(*) FROM audit_events,m WHERE created_at>=m.t AND action IN ('upstream.key_checked','supplier_lab.models_discovered'))::int AS key_checks,
+    (SELECT count(*) FROM upstream_watch_runs,m WHERE started_at>=m.t)::int AS watch_runs`);
+  const watch=pool.query("SELECT kind,subject,level,detail,first_seen,last_seen FROM upstream_watch_events WHERE status='open' ORDER BY first_seen DESC");
   const [routes,creds,byKey,hourly,byModel,usage,paused,unpriced,revenue,byKeyModel]=await Promise.all([
    employeeRoutes(pool,cfg,{includePaused:true}),
    pool.query(`SELECT c.id,c.label,c.base_url,c.credential_fingerprint,c.priority,c.priority_changed_at,c.created_at,c.disabled_at,c.replaces_credential_id,c.rotation_completed_at,s.canonical_supplier_id AS supplier_id,coalesce(p.display_name,s.name) AS supplier_name,count(DISTINCT e.id) FILTER(WHERE e.disabled_at IS NULL)::int AS model_count,coalesce(array_agg(DISTINCT e.model_id) FILTER(WHERE e.disabled_at IS NULL),'{}') AS models FROM supplier_lab_credentials c JOIN supplier_lab_suppliers s ON s.id=c.supplier_id LEFT JOIN suppliers p ON p.id=s.canonical_supplier_id LEFT JOIN supplier_lab_endpoints e ON e.credential_id=c.id WHERE s.kind='supplier' GROUP BY c.id,s.id,p.id ORDER BY c.priority,c.created_at DESC`),
@@ -57,28 +81,40 @@ export function staffBackofficeRoutes(app,pool,cfg,requireStaff){
    // Per key × model, so the supplier page can show which key actually served each model.
    pool.query(`SELECT credential_id,model_id,count(*)::int AS calls,count(*) FILTER(WHERE status='failed')::int AS failed,round(avg(latency_ms) FILTER(WHERE status<>'failed'))::int AS avg_latency,max(created_at) AS last_at FROM employee_calls WHERE created_at>now()-interval '24 hours' AND credential_id IS NOT NULL GROUP BY 1,2`)
   ]);
+  const [costSplit,sources,watchEvents]=(await Promise.all([split,testSources,watch])).map(r=>r.rows);
   const keyStats=new Map(byKey.rows.map(r=>[r.credential_id,r])),keyUsage=new Map(usage.rows.map(r=>[r.credential_id,r])),pausedIds=new Set(paused.rows.map(r=>r.model_id));
   const credentials=creds.rows.map(c=>({...c,...(keyStats.get(c.id)||{calls_24h:0,failed_24h:0}),month_calls:keyUsage.get(c.id)?.calls||0,month_cost:keyUsage.get(c.id)?.yuan||'0'}));
+  for(const c of credentials)c.duplicate_of=c.disabled_at?null:credentials.find(o=>o.id!==c.id&&!o.disabled_at&&o.supplier_id===c.supplier_id&&o.credential_fingerprint===c.credential_fingerprint&&(o.priority<c.priority||(o.priority===c.priority&&new Date(o.created_at)<new Date(c.created_at))))?.label||null;
   const routeOf=new Map(routes.map(r=>[r.model.id,r])),label=id=>credentials.find(c=>c.id===id)?.label||'—';
-  const models=OFFICIAL_MODELS.map(m=>{const r=routeOf.get(m.id),s=byModel.rows.find(x=>x.model_id===m.id)||{};return {id:m.id,name:m.name,upstream:m.upstream,upstream_model:m.upstreamModel,paused:pausedIds.has(m.id),pause_reason:paused.rows.find(x=>x.model_id===m.id)?.reason||'',routed:Boolean(r),primary:r?label(r.credentialId):null,fallbacks:(r?.fallbacks||[]).map(f=>label(f.credentialId)),calls_24h:s.calls||0,failed_24h:s.failed||0,avg_latency:s.avg_latency??null,p95_latency:s.p95_latency??null,last_at:s.last_at||null,last_ok_at:s.last_ok_at||null,last_fail_at:s.last_fail_at||null,last_error:s.last_error||null,
+  const models=OFFICIAL_MODELS.filter(m=>routeOf.has(m.id)).map(m=>{const r=routeOf.get(m.id),s=byModel.rows.find(x=>x.model_id===m.id)||{};return {id:m.id,name:m.name,upstream:m.upstream,upstream_model:m.upstreamModel,paused:pausedIds.has(m.id),pause_reason:paused.rows.find(x=>x.model_id===m.id)?.reason||'',routed:Boolean(r),primary:r?label(r.credentialId):null,fallbacks:(r?.fallbacks||[]).map(f=>label(f.credentialId)),calls_24h:s.calls||0,failed_24h:s.failed||0,avg_latency:s.avg_latency??null,p95_latency:s.p95_latency??null,last_at:s.last_at||null,last_ok_at:s.last_ok_at||null,last_fail_at:s.last_fail_at||null,last_error:s.last_error||null,
    supplier_id:r?.credentialId?credentials.find(c=>c.id===r.credentialId)?.supplier_id||null:null,
    route_keys:r?.credentialId?[r,...(r.fallbacks||[])].map((k,i)=>{const u=byKeyModel.rows.find(x=>x.credential_id===k.credentialId&&x.model_id===m.id)||{};return {credential_id:k.credentialId,label:label(k.credentialId),role:i?'fallback':'primary',calls_24h:u.calls||0,failed_24h:u.failed||0,avg_latency:u.avg_latency??null,last_at:u.last_at||null};}):[]};});
-  const suppliers=[...new Map(credentials.map(c=>[c.supplier_id,{id:c.supplier_id,name:c.supplier_name}])).values()].map(s=>{const keys=credentials.filter(c=>c.supplier_id===s.id),live=keys.filter(k=>!k.disabled_at);return {...s,keys:keys.length,live_keys:live.length,standby:live.filter(k=>k.model_count>0).length>1,calls_24h:live.reduce((n,k)=>n+k.calls_24h,0),failed_24h:live.reduce((n,k)=>n+k.failed_24h,0),month_cost:live.reduce((n,k)=>n+Number(k.month_cost),0).toFixed(4),month_calls:live.reduce((n,k)=>n+k.month_calls,0)};});
+  const cost=costSplit[0],bySupplier=cost.by_supplier||{};
+  const suppliers=[...new Map(credentials.map(c=>[c.supplier_id,{id:c.supplier_id,name:c.supplier_name}])).values()].map(s=>{const keys=credentials.filter(c=>c.supplier_id===s.id),live=keys.filter(k=>!k.disabled_at),real=live.filter(k=>!k.duplicate_of&&k.model_count>0);
+   return {...s,keys:keys.length,live_keys:live.length,distinct_keys:new Set(live.map(k=>k.credential_fingerprint)).size,duplicate_keys:live.filter(k=>k.duplicate_of).length,standby:real.length>1,models:new Set(live.flatMap(k=>k.models)).size,calls_24h:live.reduce((n,k)=>n+k.calls_24h,0),failed_24h:live.reduce((n,k)=>n+k.failed_24h,0),month_cost:Number(bySupplier[s.id]?.yuan||0).toFixed(4),month_calls:bySupplier[s.id]?.requests||0};});
+  const catalogWithoutUpstream=OFFICIAL_MODELS.filter(m=>!routeOf.has(m.id)).map(m=>({id:m.id,name:m.name,upstream:m.upstream}));
   const risks=[],when=v=>v?new Date(v).toISOString():null;
   for(const c of credentials.filter(c=>!c.disabled_at&&c.failed_24h)){const down=!c.last_ok_at||new Date(c.last_fail_at)>new Date(c.last_ok_at);risks.push({level:down?'critical':'warning',area:'key',title:`${c.supplier_name} · ${c.label} ${down?'当前不可用':'24 小时内出现失败'}`,detail:`24 小时失败 ${c.failed_24h} 次，最近错误 ${c.last_error||'—'}${down?'，之后没有成功调用':'，之后已恢复'}`,at:when(c.last_fail_at),section:'credentials'});}
-  for(const s of suppliers.filter(s=>s.live_keys&&!s.standby))risks.push({level:'warning',area:'key',title:`${s.name} 没有备用 Key`,detail:'主 Key 失效时员工调用会中断。建议再登记一把 Key 并设为备用。',section:'credentials'});
-  for(const m of models.filter(m=>!m.routed&&!m.paused))risks.push({level:'warning',area:'model',title:`${m.name} 未接通上游`,detail:'员工调用会返回“模型暂时不可用”。可登记上游型号，或在路由中暂停。',section:'routing'});
+  for(const c of credentials.filter(c=>c.duplicate_of))risks.push({level:'warning',area:'key',title:`${c.supplier_name} · ${c.label} 和 ${c.duplicate_of} 是同一把 Key`,detail:'指纹相同，只是接口地址写法不同；主用失效时它也一样失效，当不了备用。请在供应商后台新建一把 Key 登记进来，再停用这一把。',section:'credentials'});
+  for(const s of suppliers.filter(s=>s.live_keys&&!s.standby))risks.push({level:'warning',area:'key',title:`${s.name} 没有备用 Key`,detail:s.duplicate_keys?`登记了 ${s.live_keys} 把，但只有 ${s.distinct_keys} 把是不同的 Key。主 Key 失效时员工调用会中断。`:'主 Key 失效时员工调用会中断。建议再登记一把 Key 并设为备用。',section:'credentials'});
+  const watchLevel={critical:'critical',warning:'warning',info:'info'},watchTitle=e=>({auto_launched:`上游新增 ${e.subject}，已自动上线`,needs_manual_launch:`上游新增 ${e.subject}，需要人工上线（目录里没有定价）`,upstream_removed:`上游不再提供 ${e.subject}`,key_missing_model:`Key「${e.detail?.key}」看不到 ${e.subject}`,key_check_failed:`Key「${e.detail?.key}」检测失败：${e.subject}`,key_list_failed:`Key「${e.detail?.key}」拿不到型号列表`})[e.kind];
+  for(const e of watchEvents.filter(e=>watchTitle(e)))risks.push({level:watchLevel[e.level],area:'watch',title:'自动检查 · '+watchTitle(e),detail:(e.detail?.error?e.detail.error+' · ':'')+`首次发现 ${new Date(e.first_seen).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}`,at:when(e.last_seen),section:e.kind==='needs_manual_launch'||e.kind==='auto_launched'?'suppliers':'credentials'});
+  if(catalogWithoutUpstream.length)risks.push({level:'info',area:'model',title:`目录里还有 ${catalogWithoutUpstream.map(m=>m.name).join('、')}，但没有上游`,detail:'员工看不到这些模型，也不计入可用模型数。要上线需要能提供它的上游 Key。',section:'suppliers'});
   for(const m of models.filter(m=>m.calls_24h>=10&&m.failed_24h/m.calls_24h>0.05))risks.push({level:'warning',area:'model',title:`${m.name} 24 小时失败率 ${(m.failed_24h/m.calls_24h*100).toFixed(1)}%`,detail:`${m.failed_24h} / ${m.calls_24h} 次失败`,section:'monitor'});
   if(unpriced.rows[0].n)risks.push({level:'info',area:'billing',title:`${unpriced.rows[0].n} 笔测试缺少费率`,detail:'无法核算这些测试的成本。',section:'models'});
   for(const m of models.filter(m=>m.paused))risks.push({level:'info',area:'model',title:`${m.name} 已暂停`,detail:m.pause_reason,section:'routing'});
   const totalCalls=models.reduce((n,m)=>n+m.calls_24h,0),totalFailed=models.reduce((n,m)=>n+m.failed_24h,0);
-  res.json({generated_at:new Date().toISOString(),suppliers,credentials,models,hourly:hourly.rows,totals:{models:models.length,routed:models.filter(m=>m.routed&&!m.paused).length,calls_24h:totalCalls,failed_24h:totalFailed,success_rate:totalCalls?(totalCalls-totalFailed)/totalCalls:null,month_revenue:revenue.rows[0].yuan,month_calls:revenue.rows[0].calls,month_cost:suppliers.reduce((n,s)=>n+Number(s.month_cost),0).toFixed(4)},risks});
+  const n=v=>Number(v||0),emp=cost.employees,cus=cost.customers,tst=cost.tests;
+  const costs={kerapi:{requests:cost.kerapi.requests,yuan:n(cost.kerapi.yuan)},employees:{calls:emp.calls,charged:n(emp.charged),cost:n(emp.cost),not_in_log:emp.not_in_log},customers:{calls:cus.calls,cost:n(cus.cost),revenue:n(cost.customer_revenue)},tests:{requests:tst.requests,yuan:n(tst.yuan),sources:sources[0]}};
+  costs.total=costs.employees.cost+costs.customers.cost+costs.tests.yuan;
+  res.json({generated_at:new Date().toISOString(),suppliers,credentials,models,catalog_without_upstream:catalogWithoutUpstream,costs,hourly:hourly.rows,totals:{models:models.length,routed:models.filter(m=>m.routed&&!m.paused).length,calls_24h:totalCalls,failed_24h:totalFailed,success_rate:totalCalls?(totalCalls-totalFailed)/totalCalls:null,month_revenue:revenue.rows[0].yuan,month_calls:revenue.rows[0].calls,month_cost:costs.total.toFixed(4)},risks});
  });
  const channelList=async()=>{
   const [live,states,usage]=await Promise.all([employeeRoutes(pool,cfg,{includePaused:true}),pool.query('SELECT model_id,paused,reason,updated_at FROM channel_states'),
    pool.query(`SELECT model_id,count(*)::int AS calls,count(*) FILTER(WHERE status='failed')::int AS failed,coalesce(sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)),0)::bigint AS tokens,coalesce(sum(charged_yuan),0) AS yuan,percentile_cont(0.95) WITHIN GROUP(ORDER BY latency_ms) AS p95_ms,max(created_at) AS last_call_at FROM employee_calls WHERE created_at>=now()-interval '30 days' GROUP BY 1`)]);
   const routed=new Set(live.map(r=>r.model.id)),state=new Map(states.rows.map(r=>[r.model_id,r])),used=new Map(usage.rows.map(r=>[r.model_id,r]));
-  return OFFICIAL_MODELS.map(m=>({id:m.id,name:m.name,upstream:m.upstream,upstream_model:m.upstreamModel,routed:routed.has(m.id),paused:Boolean(state.get(m.id)?.paused),reason:state.get(m.id)?.reason||'',input_yuan:m.rates.input,output_yuan:m.rates.output,...(used.get(m.id)||{calls:0,failed:0,tokens:0,yuan:0,p95_ms:null,last_call_at:null})}));
+  // Only models some upstream can serve; a catalog entry without one is not offered anywhere.
+  return OFFICIAL_MODELS.filter(m=>routed.has(m.id)).map(m=>({id:m.id,name:m.name,upstream:m.upstream,upstream_model:m.upstreamModel,routed:routed.has(m.id),paused:Boolean(state.get(m.id)?.paused),reason:state.get(m.id)?.reason||'',input_yuan:m.rates.input,output_yuan:m.rates.output,...(used.get(m.id)||{calls:0,failed:0,tokens:0,yuan:0,p95_ms:null,last_call_at:null})}));
  };
  app.get('/api/staff/workspace/business',requireStaff,async(req,res)=>{
   requireBusiness(req);

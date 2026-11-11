@@ -268,7 +268,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
  async function probeModels(){
   const [routes,paused]=await Promise.all([employeeRoutes(pool,cfg,{includePaused:true}),pool.query('SELECT model_id FROM channel_states WHERE paused')]);
   const live=new Map(routes.map(r=>[r.model.id,r])),stopped=new Set(paused.rows.map(r=>r.model_id));
-  return Promise.all(OFFICIAL_MODELS.map(async model=>{
+  return Promise.all(OFFICIAL_MODELS.filter(model=>live.has(model.id)).map(async model=>{
    const route=live.get(model.id),checked_at=new Date().toISOString(),base={model_id:model.id,name:model.name};
    if(!route)return {...base,status:'unavailable',latency_ms:null,checked_at};
    if(stopped.has(model.id))return {...base,status:'paused',latency_ms:null,checked_at};
