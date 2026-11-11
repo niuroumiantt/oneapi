@@ -494,6 +494,22 @@ test('employee credit is one-time, company-only, reserved before calling and cha
      const ov=await ops.call('/api/staff/lab/overview');assert.equal(ov.status,200,JSON.stringify(ov.data));assert.ok(ov.data.credentials.some(c=>c.id===credential&&c.failed_24h>=1));assert.ok(ov.data.models.some(m=>m.id==='deepseek-flash'&&m.routed&&m.fallbacks.length>=1));assert.ok(Array.isArray(ov.data.risks));
      assert.equal((await ops.call('/api/staff/lab/credentials/'+standby+'/priority',{method:'POST',body:{role:'primary'}})).status,200);assert.equal((await pool.query('SELECT priority FROM supplier_lab_credentials WHERE id=$1',[credential])).rows[0].priority,2,'the old primary becomes standby');
      assert.equal((await ops.call('/api/staff/lab/credentials/'+standby+'/priority',{method:'POST',body:{role:'boss'}})).status,400);assert.equal((await staffer.j.call('/api/staff/lab/overview')).status,401);
+     {const wb=(body)=>jar().call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+created.data.secret,'User-Agent':'WorkBuddy/1.2'},body:{model:'deepseek-flash',messages:[{role:'system',content:'secret project notes'},{role:'user',content:'private question'}],...body}});
+      assert.equal((await wb({max_tokens:16,tools:[{type:'function',function:{name:'read_file',parameters:{type:'object'}}}]})).status,200);
+      assert.equal((await wb({max_tokens:32768})).status,400,'over the output cap is rejected by the gateway');
+      await new Promise(r=>setTimeout(r,100));
+      const profiles=(await pool.query("SELECT * FROM acceptance_profiles WHERE client='WorkBuddy'")).rows;
+      assert.ok(profiles.some(p=>p.features.includes('tools')&&p.shape.tool_names.includes('read_file')),'tool formats are learned from real calls');
+      assert.ok(profiles.some(p=>p.features.includes('out_32k')&&p.rejected_count===1&&p.last_error.includes('max_tokens')),'gateway rejections are recorded against the format');
+      assert.ok(!JSON.stringify(profiles).includes('private question')&&!JSON.stringify(profiles).includes('secret project notes'),'no conversation text is stored');
+      assert.ok(profiles.map(p=>p.signature).includes((await pool.query('SELECT profile_signature FROM employee_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 1',[staffer.user.id])).rows[0].profile_signature));
+      const matrix=await ops.call('/api/staff/lab/acceptance');assert.equal(matrix.status,200,JSON.stringify(matrix.data));assert.equal(matrix.data.features.length,16);assert.ok(matrix.data.profiles.some(p=>p.synthetic)&&matrix.data.profiles.some(p=>p.client==='WorkBuddy'));
+      assert.equal((await staffer.j.call('/api/staff/lab/acceptance')).status,401);
+      const started=await ops.call('/api/staff/lab/acceptance/replay',{method:'POST',body:{model_id:'deepseek-flash'}});assert.equal(started.status,202,JSON.stringify(started.data));
+      let run;for(let i=0;i<50;i++){run=(await ops.call('/api/staff/lab/acceptance')).data;if(run.run.finished_at)break;await new Promise(r=>setTimeout(r,40));}
+      assert.ok(run.run.finished_at,'replay finishes');const cell=f=>run.profiles.find(p=>p.signature==='synthetic:'+f).results['deepseek-flash'];
+      assert.equal(cell('basic').status,'pass');assert.equal(cell('out_32k').status,'fail');assert.match(cell('out_32k').note,/网关拒绝/);assert.equal(cell('thinking_on').status,'partial');
+      const detail=await ops.call('/api/staff/lab/acceptance/profiles/synthetic:basic');assert.equal(detail.status,200);assert.ok(detail.data.history.length>=1);}
      await pool.query('UPDATE supplier_lab_credentials SET disabled_at=now() WHERE id=$1',[standby]);}
     pilotFetch=saved;}
  assert.equal((await staffer.j.call('/api/employee-credit/keys/'+created.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call()).status,401);
