@@ -1,5 +1,5 @@
 import { createHash, randomBytes, createCipheriv, createDecipheriv, hkdfSync } from 'node:crypto';
-export class HttpError extends Error { constructor(status,message){super(message);this.status=status;} }
+export class HttpError extends Error { constructor(status,message,code){super(message);this.status=status;if(code)this.code=code;} }
 // Back-office access is two switches: business (any assigned role) and technical.
 export const hasBusiness=staff=>staff?.status==='active'&&staff.role!=='pending';
 export const hash=v=>createHash('sha256').update(v).digest('hex');

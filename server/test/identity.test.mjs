@@ -385,8 +385,8 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  const status=async()=>(await staffer.j.call('/api/employee-credit/status')).data;
  assert.deepEqual((await jar().call('/v1/models',{headers:{Authorization:'Bearer '+created.data.secret}})).data.data.map(m=>m.id),['deepseek-flash','deepseek-v4-pro','glm-5.3']);
  const first=await call({model:'GLM-5.3'});assert.equal(first.status,200,JSON.stringify(first.data));
- {const big=await call({model:'not-offered',messages:[{role:'user',content:'x'.repeat(700*1024)}]});assert.equal(big.status,403,'a 700 KB agent request passes the body limit and reaches model checks');assert.equal(typeof big.data.error.message,'string','v1 errors use the OpenAI shape');
-  const huge=await call({messages:[{role:'user',content:'x'.repeat(9*1024*1024)}]});assert.equal(huge.status,413);assert.match(huge.data.error.message,/8MB/);}
+ {const big=await call({model:'not-offered',messages:[{role:'user',content:'x'.repeat(700*1024)}]});assert.equal(big.status,403,'a 700 KB agent request passes the body limit and reaches model checks');assert.equal(typeof big.data.error.message,'string','v1 errors use the OpenAI shape');assert.equal(big.data.error.code,'model_not_allowed');assert.match(big.data.error.request_id,/^req_/);assert.equal(big.headers.get('x-semifly-request-id'),big.data.error.request_id);assert.match(big.data.error.doc_url,/#docs\/errors\/model_not_allowed$/);
+  const huge=await call({messages:[{role:'user',content:'x'.repeat(9*1024*1024)}]});assert.equal(huge.status,413);assert.match(huge.data.error.message,/8MB/);assert.equal(huge.data.error.code,'request_too_large');}
  assert.equal(upstreamCalls[0].url,'https://kerapi.cn/v1/chat/completions');assert.equal(upstreamCalls[0].options.headers.Authorization,'Bearer fixture-kerapi-secret');assert.equal(JSON.parse(upstreamCalls[0].options.body).model,'GLM-5.3');
  let s=await status();assert.equal(Number(s.spent_yuan),0.00108,'official price charged at completion');assert.equal(s.calls_30d,1);assert.equal(s.failed_30d,0);assert.equal(Number(s.month_yuan),0.00108);assert.equal(s.daily[0].model_id,'glm-5.3');assert.equal(Number(s.held_yuan),0);assert.equal(s.recent_calls[0].model_id,'glm-5.3');assert.equal(s.recent_calls[0].settlement_source,'official_price');
  const before=Number(s.spent_yuan);
@@ -423,11 +423,12 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  const team=await boss.j.call('/api/employee-credit/team');assert.equal(team.status,200,JSON.stringify(team.data));assert.equal(team.data.totals.members,2);
  {const key=team.data.keys.find(k=>k.calls>0);assert.ok(key,'team keys carry per-key usage');assert.ok(Number(key.tokens)>0);assert.ok(Number(key.yuan)>0);
   const own=(await staffer.j.call('/api/employee-credit/status')).data.keys.find(k=>k.id===key.id);if(own)assert.equal(own.calls,key.calls);
-  assert.equal((await outsider.j.call('/api/employee-credit/model-health')).status,403);
+  assert.equal((await outsider.j.call('/api/employee-credit/model-health')).status,403);assert.equal((await outsider.j.call('/api/employee-credit/model-health/refresh',{method:'POST',body:{}})).status,403);
   const probes=[];const saved=pilotFetch;pilotFetch=async(url,options)=>{probes.push(JSON.parse(options.body));return new Response('{}',{status:200});};
   const health=await staffer.j.call('/api/employee-credit/model-health');assert.equal(health.status,200);assert.ok(health.data.models.some(m=>m.status==='ok'&&Number.isInteger(m.latency_ms)));
   assert.ok(probes.length>0&&probes.every(p=>p.max_tokens===1));const count=probes.length;
-  assert.equal((await boss.j.call('/api/employee-credit/model-health')).status,200);assert.equal(probes.length,count,'probes are cached');pilotFetch=saved;}assert.equal(team.data.members.find(m=>m.user_id===boss.user.id).granted_yuan,GRANT_YUAN,'unclaimed members still counted');
+  assert.equal((await boss.j.call('/api/employee-credit/model-health')).status,200);assert.equal(probes.length,count,'probes are cached');
+  {const again=await boss.j.call('/api/employee-credit/model-health/refresh',{method:'POST',body:{}});assert.equal(again.status,200);assert.equal(again.data.throttled,true,'manual refresh waits a minute');assert.ok(again.data.retry_after_seconds>0);assert.equal(probes.length,count);}pilotFetch=saved;}assert.equal(team.data.members.find(m=>m.user_id===boss.user.id).granted_yuan,GRANT_YUAN,'unclaimed members still counted');
  assert.ok(team.data.recent_calls.length>0);assert.equal(JSON.stringify(team.data).includes(created.data.secret),false);assert.equal(team.data.recent_calls[0].messages,undefined);
  assert.equal((await staffer.j.call(`/api/employee-credit/team/members/${boss.user.id}/grant`,{method:'POST',body:{yuan:'5'}})).status,403);
  for(const yuan of ['0','1001','abc'])assert.equal((await boss.j.call(`/api/employee-credit/team/members/${staffer.user.id}/grant`,{method:'POST',body:{yuan}})).status,400);

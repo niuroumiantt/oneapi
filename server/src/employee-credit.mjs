@@ -136,7 +136,7 @@ async function balance(db,userId){
   FROM employee_credit_accounts a LEFT JOIN LATERAL (SELECT sum(hold_yuan) AS held FROM employee_calls WHERE owner_id=a.user_id AND ${OPEN}) h ON true WHERE a.user_id=$1`,[userId])).rows[0];
 }
 
-const HEALTH_TTL_MS=10*60*1000,HEALTH_TIMEOUT_MS=20000;
+const HEALTH_TTL_MS=10*60*1000,HEALTH_TIMEOUT_MS=20000,HEALTH_MIN_GAP_MS=60*1000;
 
 export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=fetch){
  const member=async req=>{
@@ -266,6 +266,12 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
   if(Date.now()-health.at>HEALTH_TTL_MS){health.running??=probeModels().then(models=>{health.models=models;health.at=Date.now();}).finally(()=>{health.running=null;});await health.running;}
   res.json({checked_at:new Date(health.at).toISOString(),refresh_seconds:HEALTH_TTL_MS/1000,models:health.models});
  });
+ app.post('/api/employee-credit/model-health/refresh',requireCustomer,async(req,res)=>{
+  if(!await member(req))throw new HttpError(403,'当前账号不是公司员工，未开放公司额度');
+  const throttled=Date.now()-health.at<HEALTH_MIN_GAP_MS;
+  if(!throttled){health.running??=probeModels().then(models=>{health.models=models;health.at=Date.now();}).finally(()=>{health.running=null;});await health.running;}
+  res.json({throttled,retry_after_seconds:throttled?Math.ceil((HEALTH_MIN_GAP_MS-(Date.now()-health.at))/1000):0,checked_at:new Date(health.at).toISOString(),refresh_seconds:HEALTH_TTL_MS/1000,models:health.models});
+ });
  app.get('/api/employee-credit/status',requireCustomer,async(req,res)=>{
   const organization=await member(req);
   if(!organization)return res.json({enabled:false});
@@ -310,6 +316,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
 /** Must be mounted before the app-wide 16 KB JSON parser; agent requests carry whole conversations and tool schemas. */
 export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
  const isEmployee=req=>keyPattern.test(req.get('authorization')||'');
+ app.use('/v1',(req,res,next)=>{req.requestId='req_'+token().slice(0,24);res.set('X-Semifly-Request-Id',req.requestId);next();});
  const json=express.json({limit:MAX_BODY});
  const parser=(req,res,next)=>json(req,res,err=>next(err?.type==='entity.too.large'?new HttpError(413,`请求内容超过 ${MAX_BODY.toUpperCase()}，请在智能体中新开对话或压缩上下文后重试`):err));
  async function authenticate(req){
@@ -324,7 +331,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
  async function limit(keyId,res){
   // Per key, not per IP: a whole office usually shares one egress address.
   const count=(await pool.query("INSERT INTO request_limits(key,count,expires_at) VALUES($1,1,now()+interval '1 minute') ON CONFLICT(key) DO UPDATE SET count=CASE WHEN request_limits.expires_at<now() THEN 1 ELSE request_limits.count+1 END,expires_at=CASE WHEN request_limits.expires_at<now() THEN now()+interval '1 minute' ELSE request_limits.expires_at END RETURNING count",[hash('employee-v1|'+keyId)])).rows[0].count;
-  if(count>PER_MINUTE){res.set('Retry-After','60');throw new HttpError(429,'请求过于频繁');}
+  if(count>PER_MINUTE){res.set('Retry-After','60');throw new HttpError(429,`请求过于频繁：每把 Key 每分钟最多 ${PER_MINUTE} 次`,'rate_limit_exceeded');}
  }
  const fail=(callId,code,started)=>pool.query("UPDATE employee_calls SET status='failed',error_code=$2,latency_ms=$3,finished_at=now() WHERE id=$1 AND status='pending'",[callId,code,Math.round(performance.now()-started)]);
  /** Charges the official price as soon as usage is known; without usage the hold stays until a bill arrives. */
@@ -349,7 +356,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   await limit(key.key_id,res);
   const {model,payload,stream,input,output}=employeeRequest(req.body);
   const route=(await employeeRoutes(pool,cfg)).find(r=>r.model.id===model.id);
-  if(!route)throw new HttpError(503,'这个模型暂时不可用');
+  if(!route)throw new HttpError(503,'这个模型暂时不可用','model_unavailable');
   const multiplier=priceMultiplier(model,new Date(),cfg.employeeCredit.holidays),hold=holdYuan(model.rates,{input,output},multiplier);
   const origin=callClient(name=>req.get(name)),summary=await summariesOn(pool,cfg)?callSummary(req.body.messages):null;
   const callId=await transaction(pool,async db=>{
@@ -357,7 +364,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
    await db.query('SELECT user_id FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[key.owner_id]);
    const money=await balance(db,key.owner_id);
    const active=(await db.query(`SELECT count(*)::int AS count FROM employee_calls WHERE owner_id=$1 AND status='pending' AND created_at>now()-interval '${STALE_PENDING}'`,[key.owner_id])).rows[0].count;
-   if(active>=MAX_CONCURRENT){res.set('Retry-After','5');throw new HttpError(429,`同时最多 ${MAX_CONCURRENT} 个请求`);}
+   if(active>=MAX_CONCURRENT){res.set('Retry-After','5');throw new HttpError(429,`同时最多 ${MAX_CONCURRENT} 个请求`,'concurrency_limit_exceeded');}
    if(units(money.available_yuan<0?0:money.available_yuan)<units(hold))throw new HttpError(402,'公司额度不足以覆盖这次调用的上限，可调小 max_tokens');
    return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,client,client_detail,summary) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10) RETURNING id",[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold,origin.client,origin.detail,summary])).rows[0].id;
   });
@@ -384,7 +391,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   if(!stream){
    let result;
    try{result=await response.json();}
-   catch{await answered(call,requestId,null,started);throw new HttpError(502,'上游响应格式异常');}
+   catch{await answered(call,requestId,null,started);throw new HttpError(502,'上游响应格式异常','upstream_bad_response');}
    await answered(call,requestId,usageFrom(result.usage),started);
    return res.json(result);
   }

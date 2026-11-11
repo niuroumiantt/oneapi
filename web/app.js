@@ -50,6 +50,8 @@ function updatePricingExample(){
 }
 function switchView(view){
  if(!view||view==='login')view='universe';
+ if(window.DocsUI?.handles(view)){window.LandingUI?.hide();window.DocsUI.render(view);return;}
+ window.DocsUI?.hide();
  if(window.LandingUI?.handles(view)){window.LandingUI.render(view);return;}
  if(view==='catalog')view='market';
  if(window.IdentityUI?.handles(view)){window.IdentityUI.route(view);return;}

@@ -733,3 +733,11 @@ td>.live-dot:first-child{margin-right:5px}
 .an-rank small{color:#7d8699}
 @media (max-width:1100px){.an-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.an-grid{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:640px){.an-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.health-bar{display:inline-flex;align-items:center;gap:8px;margin-left:auto;margin-right:10px;color:#7d8699;font-size:11px;font-weight:500}
+.health-refresh{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border:1px solid #d0d4df;border-radius:6px;background:#fff;color:#2c3040;font:inherit;font-size:11px;font-weight:600;cursor:pointer}
+.health-refresh:hover{border-color:#7c2fd6;color:#6a25bd}
+.health-refresh:disabled{opacity:.5;cursor:wait}
+.health-refresh .ui-icon{--icon-size:12px}
+.mgr-models .health-bar{margin-right:0}
+.pc-docs-link{padding:6px 10px;border:1px solid #d9dce7;border-radius:8px;background:#fff9;color:#2c3040;font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap}
+.pc-docs-link:hover{border-color:#7c2fd6;color:#6a25bd}
