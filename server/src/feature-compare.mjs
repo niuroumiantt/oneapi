@@ -10,6 +10,37 @@ import { validateLabBaseUrl } from './supplier-lab.mjs';
 
 const TIMEOUT_MS = 120000, CONCURRENCY = 3, LONG = ['ctx_32k', 'ctx_128k'];
 const RANK = { pass: 2, partial: 1, fail: 0 };
+const GROUP = { basic: '基础', stream: '基础', image: '输入与格式', json: '输入与格式', tools: '工具调用', tool_choice: '工具调用', effort_low: '思考', effort_medium: '思考', effort_high: '思考', effort_max: '思考', thinking_on: '思考', thinking_off: '思考', out_8k: '输出长度', out_32k: '输出长度', ctx_32k: '长上下文', ctx_128k: '长上下文' };
+const HINT = { basic: '一句话问答能不能正常回', stream: 'stream=true 能不能逐字返回并正常结束', image: '消息里带一张图片', json: 'response_format=json_object 能不能回合法 JSON', tools: '给工具定义，模型会不会发起工具调用', tool_choice: '指定必须调用某个工具，模型会不会照做', effort_low: '思考强度 low', effort_medium: '思考强度 medium', effort_high: '思考强度 high', effort_max: '思考强度 max', thinking_on: '打开思考，是否返回思考内容', thinking_off: '关闭思考，是否不再返回思考内容', out_8k: 'max_tokens=8192 是否被接受', out_32k: 'max_tokens=32768 是否被接受', ctx_32k: '约 3 万字上下文能否处理', ctx_128k: '约 12 万字上下文能否处理' };
+const timeTool = { type: 'function', function: { name: 'get_time', description: '返回当前时间', parameters: { type: 'object', properties: {}, required: [] } } };
+const weatherTool = { type: 'function', function: { name: 'get_weather', description: '查询城市天气', parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] } } };
+const PREFIX = Array.from({ length: 120 }, (_, i) => `第${i + 1}条：网关把员工请求转发给上游，按官方价结算，失败不扣费。`).join('\n');
+const cachedOf = u => u ? (u.prompt_cache_hit_tokens ?? u.prompt_tokens_details?.cached_tokens ?? null) : null;
+// Tests agents rely on that the shared 16 probes do not cover. check(reply) → [status, note].
+const EXTRA = [
+ { id: 'system_prompt', name: '系统提示词', group: '对话', hint: '系统提示词要求只回 ACK，看是否遵守', body: () => ({ messages: [{ role: 'system', content: '无论用户说什么，你只回复 ACK 三个字母，不要别的。' }, { role: 'user', content: '你好，今天天气怎么样？' }], max_tokens: 256 }), check: r => /^\s*ACK\s*[.。!！]?\s*$/i.test(r.content) ? ['pass', '只回了 ACK'] : r.content ? ['partial', '回答了，但没有严格遵守系统提示词'] : ['partial', '没有正文回答'] },
+ { id: 'multi_turn', name: '多轮对话记忆', group: '对话', hint: '前一轮说过的内容，后一轮能不能答出来', body: () => ({ messages: [{ role: 'user', content: '记住：我的工号是 7342。' }, { role: 'assistant', content: '好的，记住了。' }, { role: 'user', content: '我的工号是多少？只回数字。' }], max_tokens: 256 }), check: r => r.content.includes('7342') ? ['pass', '记住了上文'] : ['partial', '没答出上文里的工号'] },
+ { id: 'tool_result', name: '工具结果回传', group: '工具调用', hint: 'Agent 把工具执行结果发回去，模型能不能接着用结果作答', body: () => ({ tools: [timeTool], messages: [{ role: 'user', content: '现在几点？' }, { role: 'assistant', content: '', tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'get_time', arguments: '{}' } }] }, { role: 'tool', tool_call_id: 'call_1', content: '2026-11-11 15:30' }], max_tokens: 512 }), check: r => /15[:：点]\s*30|三点半|15点半/.test(r.content) ? ['pass', '用上了工具返回的时间'] : r.toolCalls ? ['partial', '又发起了一次工具调用，没有直接用结果作答'] : ['partial', '回答里没有用到工具结果'] },
+ { id: 'parallel_tools', name: '一次调用多个工具', group: '工具调用', hint: '需要两个工具时，能不能一次发出两个调用', body: () => ({ tools: [timeTool, weatherTool], messages: [{ role: 'user', content: '请同时调用两个工具：查现在的时间，并查北京的天气。' }], max_tokens: 512 }), check: r => r.toolCalls >= 2 ? ['pass', `一次发出 ${r.toolCalls} 个工具调用`] : r.toolCalls === 1 ? ['partial', '只发出 1 个工具调用'] : ['partial', '没有调用工具'] },
+ { id: 'json_schema', name: 'JSON Schema 约束', group: '输入与格式', hint: 'response_format=json_schema，严格按给定结构输出', body: () => ({ response_format: { type: 'json_schema', json_schema: { name: 'reply', strict: true, schema: { type: 'object', properties: { ok: { type: 'boolean' }, n: { type: 'integer' } }, required: ['ok', 'n'], additionalProperties: false } } }, messages: [{ role: 'user', content: '返回 ok 为 true，n 为 3。' }], max_tokens: 256 }), check: r => { try { const j = JSON.parse(r.content.trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); return j.ok === true && j.n === 3 ? ['pass', '结构和取值都对'] : ['partial', '是 JSON，但字段或取值不对']; } catch { return ['partial', '不是合法 JSON']; } } },
+ { id: 'stop_seq', name: '停止词', group: '输入与格式', hint: 'stop 参数遇到指定字符就停', body: () => ({ stop: ['3'], messages: [{ role: 'user', content: '从 1 数到 5，用逗号分隔，只输出数字。' }], max_tokens: 256 }), check: r => r.content.includes('2') && !r.content.includes('3') ? ['pass', '在 3 之前停下了'] : r.content.includes('3') ? ['partial', '没有在停止词处停下'] : ['partial', '回答不完整'] },
+ { id: 'finish_length', name: '输出截断标记', group: '输出长度', hint: '超过 max_tokens 时 finish_reason 要是 length，Agent 靠它判断要不要续写', body: () => ({ max_tokens: 16, messages: [{ role: 'user', content: '写一段 300 字的自我介绍。' }] }), check: r => r.finish === 'length' ? ['pass', 'finish_reason=length'] : ['partial', `finish_reason=${r.finish || '未返回'}`] },
+ { id: 'stream_usage', name: '流式返回用量', group: '计费', hint: '流式结束时带 usage，计费靠它', body: () => ({ stream: true, stream_options: { include_usage: true }, messages: [{ role: 'user', content: '请只回复：收到' }], max_tokens: 256 }), check: r => r.usage?.completion_tokens != null ? ['pass', `用量 ${r.usage.prompt_tokens}+${r.usage.completion_tokens}`] : ['partial', '流结束时没有返回用量'] },
+ { id: 'cache_hit', name: '缓存命中', group: '计费', hint: '同样的长前缀发两次，第二次是否报告缓存命中（命中部分更便宜）', repeat: 2, calls: 2, body: () => ({ messages: [{ role: 'system', content: PREFIX }, { role: 'user', content: '请只回复：收到' }], max_tokens: 64 }), check: r => cachedOf(r.usage) > 0 ? ['pass', `第二次命中缓存 ${cachedOf(r.usage)} Token`] : r.usage ? ['partial', '没有报告缓存命中'] : ['partial', '没有返回用量'] }
+];
+const EXTRA_BY_ID = new Map(EXTRA.map(x => [x.id, x]));
+export const TESTS = [...FEATURES.map(([id, name]) => ({ id, name, group: GROUP[id] || '其他', hint: HINT[id] || '', long: LONG.includes(id), calls: 1 })), ...EXTRA.map(x => ({ id: x.id, name: x.name, group: x.group, hint: x.hint, long: false, calls: x.calls || 1 }))];
+const TEST_IDS = new Set(TESTS.map(t => t.id));
+// Reads a non-streaming JSON reply or an SSE stream into the same shape.
+function parseReply(http, raw, stream) {
+ if (http < 200 || http >= 300) { let m = raw.slice(0, 300); try { const j = JSON.parse(raw); m = j.error?.message || j.message || m; } catch {} return { error: `HTTP ${http}：${m}` }; }
+ const out = { content: '', reasoning: '', toolCalls: 0, toolNames: [], finish: null, usage: null };
+ if (!stream) { try { const j = JSON.parse(raw), c = j.choices?.[0] || {}, m = c.message || {}; out.content = m.content || ''; out.reasoning = m.reasoning_content || ''; out.toolCalls = (m.tool_calls || []).length; out.toolNames = (m.tool_calls || []).map(t => t.function?.name); out.finish = c.finish_reason || null; out.usage = j.usage || null; } catch { return { error: '返回内容不是 JSON' }; } return out; }
+ const tools = new Map();
+ for (const line of raw.split('\n')) { if (!line.startsWith('data:')) continue; const d = line.slice(5).trim(); if (d === '[DONE]') continue; try { const j = JSON.parse(d), c = j.choices?.[0]; if (j.usage) out.usage = j.usage; if (!c) continue; out.content += c.delta?.content || ''; out.reasoning += c.delta?.reasoning_content || ''; for (const t of c.delta?.tool_calls || []) { const k = t.index ?? tools.size; if (!tools.has(k)) tools.set(k, t.function?.name); } if (c.finish_reason) out.finish = c.finish_reason; } catch {} }
+ out.toolCalls = tools.size; out.toolNames = [...tools.values()];
+ return out;
+}
 const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const familyOfHost = host => /deepseek/.test(host) ? 'deepseek' : /bigmodel|z\.ai/.test(host) ? 'glm' : 'other';
 
@@ -48,38 +79,40 @@ export function featureCompareRoutes(app, pool, cfg, requireStaff, upstreamFetch
   });
  }
 
- async function probeOurs(route, feature) {
-  const started = performance.now(); const body = { ...syntheticBody(feature), model: route.model.id };
+ // One request down one path. Ours goes through the same validation and translation employees get; official goes straight to the vendor.
+ async function send(side, target, body) {
+  const started = performance.now();
   try {
-   const { payload, stream } = employeeRequest(body);
-   const key = await upstreamSecret(route, cfg);
-   const response = await upstreamFetch(`${route.baseUrl}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
-   const raw = await response.text();
-   return sideRecord(judge(featuresOf(body), response.status, raw, stream), response.status, started, raw);
+   if (side === 'ours') {
+    const { payload, stream } = employeeRequest({ ...body, model: target.model.id });
+    const key = await upstreamSecret(target, cfg);
+    const response = await upstreamFetch(`${target.baseUrl}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
+    return { http: response.status, raw: await response.text(), stream, started };
+   }
+   const req = { ...body, model: target.model_id }, stream = req.stream === true; if (stream) req.stream_options = { include_usage: true };
+   validateLabBaseUrl(target.base_url); const key = box.open(target.credential_ciphertext).key;
+   const response = await upstreamFetch(`${target.base_url}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(req), redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
+   return { http: response.status, raw: (await response.text()).replaceAll(key, '***'), stream, started };
   } catch (e) {
-   const note = e instanceof HttpError ? `网关拒绝（${e.status}）：${e.message}` : e.name === 'TimeoutError' ? `超过 ${TIMEOUT_MS / 1000} 秒无响应` : '连接上游失败：' + String(e.message || e).slice(0, 200);
-   return { status: 'fail', note, http_status: e instanceof HttpError ? e.status : null, latency_ms: Math.round(performance.now() - started), excerpt: '', usage: null };
+   const note = e instanceof HttpError ? `网关拒绝（${e.status}）：${e.message}` : e.name === 'TimeoutError' ? `超过 ${TIMEOUT_MS / 1000} 秒无响应` : (side === 'ours' ? '连接上游失败：' : '连接官方失败：') + String(e.message || e).slice(0, 200);
+   return { error: { status: 'fail', note, http_status: e instanceof HttpError ? e.status : null, latency_ms: Math.round(performance.now() - started), excerpt: '', usage: null } };
   }
  }
- async function probeOfficial(ref, feature) {
-  const started = performance.now(); const body = { ...syntheticBody(feature), model: ref.model_id }, stream = body.stream === true;
-  if (stream) body.stream_options = { include_usage: true };
-  try {
-   validateLabBaseUrl(ref.base_url);
-   const key = box.open(ref.credential_ciphertext).key;
-   const response = await upstreamFetch(`${ref.base_url}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
-   const raw = (await response.text()).replaceAll(key, '***');
-   return sideRecord(judge(featuresOf(body), response.status, raw, stream), response.status, started, raw);
-  } catch (e) {
-   return { status: 'fail', note: e.name === 'TimeoutError' ? `超过 ${TIMEOUT_MS / 1000} 秒无响应` : '连接官方失败：' + String(e.message || e).slice(0, 200), http_status: null, latency_ms: Math.round(performance.now() - started), excerpt: '', usage: null };
-  }
+ async function probe(side, target, testId) {
+  const extra = EXTRA_BY_ID.get(testId);
+  if (!extra) { const body = syntheticBody(testId), r = await send(side, target, body); if (r.error) return r.error; return sideRecord(judge(featuresOf(body), r.http, r.raw, r.stream), r.http, r.started, r.raw); }
+  let r;
+  for (let i = 0; i < (extra.repeat || 1); i++) { r = await send(side, target, extra.body()); if (r.error) return r.error; }
+  const reply = parseReply(r.http, r.raw, r.stream);
+  const [status, note] = reply.error ? ['fail', reply.error] : extra.check(reply);
+  return { status, note, http_status: r.http, latency_ms: Math.round(performance.now() - r.started), excerpt: [reply.reasoning ? '【思考】' + reply.reasoning.slice(0, 160) : '', reply.content ? reply.content.slice(0, 240) : '', reply.toolCalls ? `【工具调用 ${reply.toolCalls} 个：${reply.toolNames.join('、')}】` : '', reply.finish ? `finish_reason=${reply.finish}` : ''].filter(Boolean).join('\n') || r.raw.slice(0, 240), usage: reply.usage ? { prompt_tokens: reply.usage.prompt_tokens ?? null, completion_tokens: reply.usage.completion_tokens ?? null, cached_tokens: cachedOf(reply.usage) } : null };
  }
 
  async function execute(run, work) {
   const queue = [...work];
   const worker = async () => {
    for (let t = queue.shift(); t; t = queue.shift()) {
-    const [official, ours] = await Promise.all([probeOfficial(t.reference, t.feature), probeOurs(t.route, t.feature)]);
+    const [official, ours] = await Promise.all([probe('official', t.reference, t.feature), probe('ours', t.route, t.feature)]);
     await pool.query('INSERT INTO feature_compare_items(run_id,our_model,reference_endpoint_id,reference_model,feature,ours,official,outcome) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(run_id,our_model,feature) DO NOTHING',
      [run.id, t.route.model.id, t.reference.id, t.reference.model_id, t.feature, ours, official, compareOutcome(official, ours)]).catch(() => {});
     run.done++;
@@ -97,10 +130,10 @@ export function featureCompareRoutes(app, pool, cfg, requireStaff, upstreamFetch
   const cells = {}; for (const r of latest.rows) (cells[r.our_model] ||= {})[r.feature] = r;
   const paired = list.filter(p => p.reference).length;
   res.json({
-   ready: Boolean(box), features: FEATURES.map(([fid, name]) => ({ id: fid, name, long: LONG.includes(fid) })),
+   ready: Boolean(box), features: TESTS,
    models: list.map(p => ({ ...p.model, reference: p.reference ? { endpoint_id: p.reference.id, model_id: p.reference.model_id, vendor: p.reference.vendor } : null, candidates: p.candidates })),
    cells, run: active ? { ...active } : last.rows[0] || null,
-   estimate: { pairs: paired, calls: paired * FEATURES.length * 2, long_calls: paired * LONG.length * 2 }
+   estimate: { pairs: paired, calls: paired * TESTS.reduce((n, t) => n + (t.calls || 1), 0) * 2, long_calls: paired * LONG.length * 2 }
   });
  });
 
@@ -120,9 +153,12 @@ export function featureCompareRoutes(app, pool, cfg, requireStaff, upstreamFetch
   if (!box) throw new HttpError(503, '验收加密服务未配置');
   if (active) throw new HttpError(409, '上一轮功能对比还在进行，请稍候');
   const wanted = Array.isArray(req.body?.models) ? req.body.models.map(String) : null, skipLong = req.body?.skip_long === true;
+  const picked = Array.isArray(req.body?.tests) && req.body.tests.length ? req.body.tests.map(String) : null;
+  if (picked && picked.some(t => !TEST_IDS.has(t))) throw new HttpError(400, '没有这个测试项');
   const list = (await pairs()).filter(p => p.reference && (!wanted || wanted.includes(p.model.id)));
   if (!list.length) throw new HttpError(400, '没有可对比的型号：先在“评测 Key”登记官方 Key，并确认型号已接通');
-  const features = FEATURES.map(([f]) => f).filter(f => !skipLong || !LONG.includes(f));
+  const features = (picked || TESTS.map(t => t.id)).filter(f => !skipLong || !LONG.includes(f));
+  if (!features.length) throw new HttpError(400, '至少选一项测试');
   const work = list.flatMap(p => features.map(feature => ({ route: p.route, reference: p.reference, feature })));
   const run = { id: randomUUID(), status: 'running', models: list.map(p => p.model.id), skip_long: skipLong, total: work.length, done: 0, created_by: req.staff.subject, created_at: new Date().toISOString(), finished_at: null };
   await pool.query('INSERT INTO feature_compare_runs(id,status,models,skip_long,total,done,created_by) VALUES($1,$2,$3,$4,$5,0,$6)', [run.id, 'running', run.models, skipLong, work.length, req.staff.subject]);

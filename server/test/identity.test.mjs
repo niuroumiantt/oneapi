@@ -559,6 +559,13 @@ test('employee credit is one-time, company-only, reserved before calling and cha
    const t=v.replays.find(r=>r.feature==='tools'&&r.target.startsWith('ours:glm-5.3:')),o=v.replays.find(r=>r.feature==='out_32k'&&r.target.startsWith('ours:glm-5.3:'));
    assert.equal(t.status,'pass');assert.equal(o.status,'fail');assert.match(o.note,/网关拒绝/);assert.equal(v.targets.models.find(m=>m.id==='glm-5.3').keys[0].role,'primary');
    assert.equal((await staffer.j.call('/api/staff/lab/agents')).status,401);
+   // formats learned from real WorkBuddy 5.9.3 traffic: offered for one-click add, imported as recordings
+   v=(await ops.call('/api/staff/lab/agents')).data;const seen=v.seen.find(x=>x.name==='WorkBuddy'&&x.version==='5.9.3');assert.ok(seen&&seen.formats>=1,'WorkBuddy 5.9.3 seen in real calls');
+   const wb593=(await ops.call('/api/staff/lab/agents',{method:'POST',body:{name:'WorkBuddy',version:'5.9.3'}})).data;
+   const im=await ops.call(`/api/staff/lab/agents/${wb593.id}/import-learned`,{method:'POST',body:{}});assert.equal(im.status,200);assert.ok(im.data.added>=1&&im.data.formats>=1);
+   const again=await ops.call(`/api/staff/lab/agents/${wb593.id}/import-learned`,{method:'POST',body:{}});assert.equal(again.data.added,0,'import is idempotent');
+   v=(await ops.call('/api/staff/lab/agents?agent='+wb593.id)).data;assert.ok(v.recordings.length>=1&&v.recordings.every(r=>r.source==='learned'));assert.ok(v.recordings.some(r=>r.feature==='tools'));assert.equal(v.agents.find(x=>x.id===wb593.id).learned_new,0);
+   assert.ok(!v.seen.some(x=>x.name==='WorkBuddy'&&x.version==='5.9.3'),'no longer offered once registered');
   }finally{pilotFetch=saved;}}
 
  {// Agent 对比：评测 Key 走网关但不计员工额度，记完整对话；按任务打标；B 路手贴；盲评两次换位；人工盲投
@@ -768,16 +775,20 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
    return reply('收到');};
   try{
    const glm=await admin.call('/api/staff/lab/eval-keys',{method:'POST',body:{vendor:'zhipu',api_key:'sk-glm-three',model_ids:['GLM-5.3','GLM-5.3-Flash']}});assert.equal(glm.status,201);
-   let v=(await admin.call('/api/staff/lab/feature-compare')).data;assert.equal(v.features.length,16);
+   let v=(await admin.call('/api/staff/lab/feature-compare')).data;assert.equal(v.features.length,25,'16 shared probes + 9 agent tests');assert.ok(v.features.every(f=>f.group&&f.hint));
    const ours=v.models.find(m=>m.id==='glm-5.3');assert.equal(ours.reference.model_id,'GLM-5.3','paired by id');assert.equal(v.models.find(m=>m.id==='deepseek-flash').reference.model_id,'deepseek-official','paired by family when ids differ');
    assert.equal((await admin.call('/api/staff/lab/feature-compare/pairs',{method:'PUT',body:{our_model:'glm-5.3',reference_endpoint_id:ours.candidates.find(c=>c.model_id==='GLM-5.3-Flash').id}})).status,200);
    assert.equal((await admin.call('/api/staff/lab/feature-compare')).data.models.find(m=>m.id==='glm-5.3').reference.model_id,'GLM-5.3-Flash','override saved');
    assert.equal((await admin.call('/api/staff/lab/feature-compare/pairs',{method:'PUT',body:{our_model:'glm-5.3',reference_endpoint_id:null}})).status,200);assert.equal((await admin.call('/api/staff/lab/feature-compare/pairs',{method:'PUT',body:{our_model:'glm-5.3',reference_endpoint_id:v.models.find(m=>m.id==='deepseek-flash').reference.endpoint_id}})).status,400,'cross-family pairing refused');
-   const started=await admin.call('/api/staff/lab/feature-compare/runs',{method:'POST',body:{models:['glm-5.3'],skip_long:true}});assert.equal(started.status,202,JSON.stringify(started.data));assert.equal(started.data.probes,14);
+   const started=await admin.call('/api/staff/lab/feature-compare/runs',{method:'POST',body:{models:['glm-5.3'],skip_long:true}});assert.equal(started.status,202,JSON.stringify(started.data));assert.equal(started.data.probes,23,'everything except the two long-context tests');
    for(let i=0;i<100;i++){v=(await admin.call('/api/staff/lab/feature-compare')).data;if(v.run.status!=='running')break;await new Promise(r=>setTimeout(r,30));}
-   assert.equal(v.run.status,'completed');assert.equal(v.run.done,14);const cells=v.cells['glm-5.3'];
+   assert.equal(v.run.status,'completed');assert.equal(v.run.done,23);const cells=v.cells['glm-5.3'];
    assert.equal(cells.basic.outcome,'same');assert.equal(cells.json.outcome,'gap');assert.equal(cells.thinking_off.outcome,'extra');assert.equal(cells.out_32k.outcome,'neither');assert.equal(cells.ctx_128k,undefined,'long context skipped');
    assert.equal(cells.json.official.status,'pass');assert.equal(cells.json.ours.status,'partial');assert.ok(!JSON.stringify(cells).includes('sk-glm-three'),'official key never stored');
+   assert.equal(cells.multi_turn.outcome,'neither','both sides answer 收到, neither recalls the number');assert.ok(cells.tool_result&&cells.parallel_tools&&cells.cache_hit,'agent tests ran');
+   assert.equal((await admin.call('/api/staff/lab/feature-compare/runs',{method:'POST',body:{models:['glm-5.3'],tests:['nope']}})).status,400,'unknown test refused');
+   const only=await admin.call('/api/staff/lab/feature-compare/runs',{method:'POST',body:{models:['glm-5.3'],tests:['system_prompt','stream_usage']}});assert.equal(only.status,202);assert.equal(only.data.probes,2,'only the chosen tests run');
+   for(let i=0;i<100;i++){v=(await admin.call('/api/staff/lab/feature-compare')).data;if(v.run.status!=='running')break;await new Promise(r=>setTimeout(r,30));}assert.equal(v.run.done,2);
    assert.equal((await jar().call('/api/staff/lab/feature-compare')).status,401);
   }finally{pilotFetch=saved;}}
 });
