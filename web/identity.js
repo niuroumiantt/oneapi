@@ -204,11 +204,16 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   const c=employeeCredit,keys=c.keys||[],calls=c.recent_calls||[],callPage=pagedRows('employee-calls',calls);
   const state={pending:'进行中',awaiting_bill:'结算中',settled:'已结算',failed:'失败 · 未扣'};
   const rows=callPage.items.map(x=>`<tr><td>${new Date(x.created_at).toLocaleString('zh-CN')}</td><td>${esc(x.client||'未记录')}</td><td>${esc(x.model_id)}<small>${esc(x.key_label)}</small></td><td>${x.input_tokens??'—'} / ${x.cached_input_tokens??'—'} / ${x.output_tokens??'—'}</td><td>${x.status==='settled'?employeeYuan(x.charged_yuan):x.status==='failed'?'¥0':'预留 '+employeeYuan(x.hold_yuan)}</td><td>${esc(state[x.status]||x.status)}</td></tr>`).join('');
-  const views=[['setup','为 Agent 生成 Key'],['direct','多模型生成 Key'],['keys',`我的 Key · ${keys.filter(k=>!k.revoked_at).length}`],['calls',`调用历史 · ${calls.length}`]],view=pageView('employee-keys',views);
+  // Generating a key is one framed step with two ways to do it; owning keys and their history is "my usage".
+  // Managers have that under 用量 → 我的用量; other employees keep it here, under the box.
+  const manager=Boolean(lastOrg?.permissions?.manager&&lastOrg?.organization?.id),genViews=[['setup','① 为指定 Agent 生成 Key'],['direct','② 为多个模型生成 Key']],genView=pageView('employee-gen',genViews);
+  const views=[['keys',`我的 Key · ${keys.filter(k=>!k.revoked_at).length}`],['calls',`调用历史 · ${calls.length}`]],view=pageView('employee-keys',views);
   const setup=`<div class="key-workbench"><div class="key-workbench-main"><form id="live-employee-create" class="key-create-form"><label>选择模型<select data-employee-key-model${c.model_ids.length?'':' disabled'}>${c.model_ids.length?(c.models||[]).map(m=>`<option value="${esc(m.id)}"${m.id===employeeKeyModelId(c)?' selected':''}>${esc(m.name)}</option>`).join(''):'<option>暂无可用模型</option>'}</select><small>一把 Key 可调用全部模型，这里决定右侧的模型。</small></label><label>用途名称<input name="label" required maxlength="50" placeholder="例如：我的 Agent"></label><button class="personal-key-button personal-key-button-active" type="submit">${ico('command')} 生成 API Key</button><div role="status"></div></form><p class="live-small">最多保留 ${c.key_limit} 枚有效 Key。离开公司企业空间后 Key 自动失效。</p>${c.summaries_enabled?`<p class="summary-notice">${ico('circle-alert')} 本公司已开启调用摘要：每次调用会保存你最后一条提问的前 ${c.summary_chars||60} 个字，密钥、邮箱、手机号、证件号等会自动隐去，保存 30 天，仅企业管理者可见。不会保存完整对话。</p>`:''}</div>${employeeKeyPanel(c)}</div>`;
   const list=keyTable(keys,{action:'employee-revoke'});
   const table=`<div class="personal-table-wrap"><table><thead><tr><th>时间</th><th>来源</th><th>模型 / Key</th><th>输入 / 缓存 / 输出</th><th>金额</th><th>状态</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="personal-model-empty">尚无调用记录。</td></tr>'}</tbody></table></div>${callPage.pager}`;
-  return tabbedPage('employee-keys',views,view==='keys'?list:view==='calls'?table:view==='direct'?directKeyPanel(c):setup);
+  const box=`<section class="keygen-box"><header><h3>一键生成 Key</h3><p>两种方式，按用途选一种：<b>①</b> 给某个 Agent（WorkBuddy、Cursor 等）生成，右侧照着配置；<b>②</b> 给脚本或程序生成一把只能调用所选模型的 Key，可设消费上限。</p></header>${tabbedPage('employee-gen',genViews,genView==='direct'?directKeyPanel(c):setup)}</section>`;
+  const mine=manager?`<p class="keygen-mine">${ico('chart-no-axes-combined')} 我的 ${keys.filter(k=>!k.revoked_at).length} 把 Key 和最近 ${calls.length} 次调用，在 <button type="button" class="link" data-live="go-my-usage">用量 → 我的用量</button> 查看和停用。</p>`:tabbedPage('employee-keys',views,view==='calls'?table:list);
+  return box+mine;
  }
  function warmOrg(orgId){
   setTimeout(()=>{
@@ -496,7 +501,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   const keys=team.keys.length?keyTable(team.keys,{owner:true,action:'team-key-revoke'}):'';
   // 我的用量: the signed-in manager's own calls, tokens, keys and spending (their own company-credit account).
   const mine=employeeCredit?.enabled?employeeCredit:null;
-  const views=[['trend','消费趋势'],...(mine?[['mine','我的用量']]:[]),['members','员工用量'],...(models?[['models','模型用量']]:[]),...(keys?[['keys','员工 Key']]:[]),...(recent?[['recent','调用历史']]:[])],view=pageView('team-usage',views);
+  const views=[['trend','消费趋势'],['members','员工用量'],...(mine?[['mine','我的用量']]:[]),...(models?[['models','模型用量']]:[]),...(keys?[['keys','员工 Key']]:[]),...(recent?[['recent','调用历史']]:[])],view=pageView('team-usage',views);
   const mineView=mine?(()=>{const ks=mine.keys||[],live=ks.filter(k=>!k.revoked_at),tokens=ks.reduce((n,k)=>n+Number(k.tokens||0),0),granted=Number(mine.granted_yuan||0),spent=Number(mine.spent_yuan||0),pct=granted>0?Math.min(100,spent/granted*100):0;
    const byModel=Object.values((mine.daily||[]).reduce((m,d)=>{(m[d.model_id]||={model_id:d.model_id,calls:0,yuan:0});m[d.model_id].calls+=d.calls;m[d.model_id].yuan+=Number(d.yuan);return m;},{})).sort((a,b)=>b.yuan-a.yuan);
    const stat=(label,value,sub)=>`<div class="mine-stat"><small>${label}</small><b>${value}</b><span>${sub}</span></div>`;
@@ -834,6 +839,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
    else if(action==='team-key-revoke'){if(confirm('停用后这枚 Key 将不能再调用，确定停用吗？')){await api('/api/employee-credit/team/keys/'+encodeURIComponent(b.dataset.id)+'/revoke',{});const open=document.querySelector('#config-dialog');if(open?.open)open.close();await refreshOrganizationBilling(lastOrg.organization.id,generation);showToast('Key 已停用。');}}
    else if(action==='employee-revoke'){if(confirm('停用后这枚 Key 将不能再调用，确定停用吗？')){await api('/api/employee-credit/keys/'+encodeURIComponent(b.dataset.id)+'/revoke',{});if(employeeIssuedKey?.id===b.dataset.id)employeeIssuedKey=null;employeeCredit=await api('/api/employee-credit/status');updatePersonalDashboard();showToast('Key 已停用。');}}
    else if(action==='pilot-copy'){await navigator.clipboard.writeText(document.querySelector('#pilot-secret')?.textContent||'');showToast('Key 已复制。');}
+   else if(action==='go-my-usage'){pageViews['team-usage']='mine';location.hash='organization/'+lastOrg.organization.id+'/usage';}
    else if(action==='key-guide-copy'){await navigator.clipboard.writeText(b.dataset.copy);showToast(b.dataset.toast||'Key、地址、模型和示例已复制。');}
    else if(action==='pilot-revoke'){if(confirm('停用后这枚 Key 将不能再调用，确定停用吗？')){await api('/api/pilot/keys/'+encodeURIComponent(b.dataset.id)+'/revoke',{});personalPilot=await api('/api/pilot/status');updatePersonalDashboard();showToast('测试 Key 已停用。');}}
    else if(action==='auth-mode'){authMode=b.dataset.mode;current.startsWith('join/')?joinPage():authForm();}
