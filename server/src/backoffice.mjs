@@ -48,6 +48,46 @@ async function runStress(pool,box,endpoint,caseDef,runId,concurrency,requests){
 }
 
 export function staffBackofficeRoutes(app,pool,cfg,requireStaff){
+ app.post('/api/staff/lab/credentials/:credential/priority',requireStaff,async(req,res)=>{
+  requireTechnical(req);const order={primary:1,standby:2,auto:100}[req.body?.role];if(!order)throw new HttpError(400,'请选择主用、备用或自动');
+  const row=await transaction(pool,async db=>{
+   const target=(await db.query('UPDATE supplier_lab_credentials SET priority=$2 WHERE id=$1 AND disabled_at IS NULL RETURNING id,supplier_id,label,priority',[id(req.params.credential),order])).rows[0];
+   if(!target)throw new HttpError(404,'有效 Key 不存在');
+   // One primary per supplier: the previous primary becomes the standby.
+   if(order===1)await db.query('UPDATE supplier_lab_credentials SET priority=2 WHERE supplier_id=$1 AND id<>$2 AND priority=1',[target.supplier_id,target.id]);
+   await audit(db,req.actor,'lab.credential_priority',null,target.id,{role:req.body.role,label:target.label});return target;
+  });
+  res.json(row);
+ });
+ app.get('/api/staff/lab/overview',requireStaff,async(req,res)=>{
+  requireTechnical(req);
+  const month="date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai'",amount="CASE WHEN evidence->>'amount' ~ '^[0-9]+(\\.[0-9]+)?$' THEN (evidence->>'amount')::numeric ELSE 0 END";
+  const [routes,creds,byKey,hourly,byModel,usage,paused,unpriced,revenue]=await Promise.all([
+   employeeRoutes(pool,cfg,{includePaused:true}),
+   pool.query(`SELECT c.id,c.label,c.base_url,c.credential_fingerprint,c.priority,c.created_at,c.disabled_at,c.replaces_credential_id,c.rotation_completed_at,s.canonical_supplier_id AS supplier_id,coalesce(p.display_name,s.name) AS supplier_name,count(DISTINCT e.id) FILTER(WHERE e.disabled_at IS NULL)::int AS model_count,coalesce(array_agg(DISTINCT e.model_id) FILTER(WHERE e.disabled_at IS NULL),'{}') AS models FROM supplier_lab_credentials c JOIN supplier_lab_suppliers s ON s.id=c.supplier_id LEFT JOIN suppliers p ON p.id=s.canonical_supplier_id LEFT JOIN supplier_lab_endpoints e ON e.credential_id=c.id WHERE s.kind='supplier' GROUP BY c.id,s.id,p.id ORDER BY c.priority,c.created_at DESC`),
+   pool.query(`SELECT credential_id,count(*)::int AS calls_24h,count(*) FILTER(WHERE status='failed')::int AS failed_24h,max(created_at) FILTER(WHERE status<>'failed') AS last_ok_at,max(created_at) FILTER(WHERE status='failed') AS last_fail_at,(array_agg(error_code ORDER BY created_at DESC) FILTER(WHERE status='failed'))[1] AS last_error FROM employee_calls WHERE created_at>now()-interval '24 hours' GROUP BY 1`),
+   pool.query(`SELECT to_char(date_trunc('hour',created_at AT TIME ZONE 'Asia/Shanghai'),'YYYY-MM-DD HH24:00') AS hour,count(*)::int AS calls,count(*) FILTER(WHERE status='failed')::int AS failed FROM employee_calls WHERE created_at>now()-interval '24 hours' GROUP BY 1 ORDER BY 1`),
+   pool.query(`SELECT model_id,count(*)::int AS calls,count(*) FILTER(WHERE status='failed')::int AS failed,round(avg(latency_ms) FILTER(WHERE status<>'failed'))::int AS avg_latency,max(created_at) AS last_at FROM employee_calls WHERE created_at>now()-interval '24 hours' GROUP BY 1`),
+   pool.query(`SELECT credential_id,count(*)::int AS calls,coalesce(sum(${amount}),0) AS yuan FROM supplier_usage_records WHERE occurred_at>=${month} GROUP BY 1`),
+   pool.query('SELECT model_id,reason,updated_at FROM channel_states WHERE paused'),
+   pool.query("SELECT count(*)::int AS n FROM supplier_lab_transactions WHERE estimated_cost_yuan IS NULL AND created_at>now()-interval '30 days'"),
+   pool.query(`SELECT coalesce(sum(charged_yuan),0) AS yuan,count(*)::int AS calls FROM employee_calls WHERE settled_at>=${month}`)
+  ]);
+  const keyStats=new Map(byKey.rows.map(r=>[r.credential_id,r])),keyUsage=new Map(usage.rows.map(r=>[r.credential_id,r])),pausedIds=new Set(paused.rows.map(r=>r.model_id));
+  const credentials=creds.rows.map(c=>({...c,...(keyStats.get(c.id)||{calls_24h:0,failed_24h:0}),month_calls:keyUsage.get(c.id)?.calls||0,month_cost:keyUsage.get(c.id)?.yuan||'0'}));
+  const routeOf=new Map(routes.map(r=>[r.model.id,r])),label=id=>credentials.find(c=>c.id===id)?.label||'—';
+  const models=OFFICIAL_MODELS.map(m=>{const r=routeOf.get(m.id),s=byModel.rows.find(x=>x.model_id===m.id)||{};return {id:m.id,name:m.name,upstream:m.upstream,upstream_model:m.upstreamModel,paused:pausedIds.has(m.id),pause_reason:paused.rows.find(x=>x.model_id===m.id)?.reason||'',routed:Boolean(r),primary:r?label(r.credentialId):null,fallbacks:(r?.fallbacks||[]).map(f=>label(f.credentialId)),calls_24h:s.calls||0,failed_24h:s.failed||0,avg_latency:s.avg_latency??null,last_at:s.last_at||null};});
+  const suppliers=[...new Map(credentials.map(c=>[c.supplier_id,{id:c.supplier_id,name:c.supplier_name}])).values()].map(s=>{const keys=credentials.filter(c=>c.supplier_id===s.id),live=keys.filter(k=>!k.disabled_at);return {...s,keys:keys.length,live_keys:live.length,standby:live.filter(k=>k.model_count>0).length>1,calls_24h:live.reduce((n,k)=>n+k.calls_24h,0),failed_24h:live.reduce((n,k)=>n+k.failed_24h,0),month_cost:live.reduce((n,k)=>n+Number(k.month_cost),0).toFixed(4),month_calls:live.reduce((n,k)=>n+k.month_calls,0)};});
+  const risks=[],when=v=>v?new Date(v).toISOString():null;
+  for(const c of credentials.filter(c=>!c.disabled_at&&c.failed_24h)){const down=!c.last_ok_at||new Date(c.last_fail_at)>new Date(c.last_ok_at);risks.push({level:down?'critical':'warning',area:'key',title:`${c.supplier_name} · ${c.label} ${down?'当前不可用':'24 小时内出现失败'}`,detail:`24 小时失败 ${c.failed_24h} 次，最近错误 ${c.last_error||'—'}${down?'，之后没有成功调用':'，之后已恢复'}`,at:when(c.last_fail_at),section:'credentials'});}
+  for(const s of suppliers.filter(s=>s.live_keys&&!s.standby))risks.push({level:'warning',area:'key',title:`${s.name} 没有备用 Key`,detail:'主 Key 失效时员工调用会中断。建议再登记一把 Key 并设为备用。',section:'credentials'});
+  for(const m of models.filter(m=>!m.routed&&!m.paused))risks.push({level:'warning',area:'model',title:`${m.name} 未接通上游`,detail:'员工调用会返回“模型暂时不可用”。可登记上游型号，或在路由中暂停。',section:'routing'});
+  for(const m of models.filter(m=>m.calls_24h>=10&&m.failed_24h/m.calls_24h>0.05))risks.push({level:'warning',area:'model',title:`${m.name} 24 小时失败率 ${(m.failed_24h/m.calls_24h*100).toFixed(1)}%`,detail:`${m.failed_24h} / ${m.calls_24h} 次失败`,section:'monitor'});
+  if(unpriced.rows[0].n)risks.push({level:'info',area:'billing',title:`${unpriced.rows[0].n} 笔测试缺少费率`,detail:'无法核算这些测试的成本。',section:'models'});
+  for(const m of models.filter(m=>m.paused))risks.push({level:'info',area:'model',title:`${m.name} 已暂停`,detail:m.pause_reason,section:'routing'});
+  const totalCalls=models.reduce((n,m)=>n+m.calls_24h,0),totalFailed=models.reduce((n,m)=>n+m.failed_24h,0);
+  res.json({generated_at:new Date().toISOString(),suppliers,credentials,models,hourly:hourly.rows,totals:{models:models.length,routed:models.filter(m=>m.routed&&!m.paused).length,calls_24h:totalCalls,failed_24h:totalFailed,success_rate:totalCalls?(totalCalls-totalFailed)/totalCalls:null,month_revenue:revenue.rows[0].yuan,month_calls:revenue.rows[0].calls,month_cost:suppliers.reduce((n,s)=>n+Number(s.month_cost),0).toFixed(4)},risks});
+ });
  const channelList=async()=>{
   const [live,states,usage]=await Promise.all([employeeRoutes(pool,cfg,{includePaused:true}),pool.query('SELECT model_id,paused,reason,updated_at FROM channel_states'),
    pool.query(`SELECT model_id,count(*)::int AS calls,count(*) FILTER(WHERE status='failed')::int AS failed,coalesce(sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)),0)::bigint AS tokens,coalesce(sum(charged_yuan),0) AS yuan,percentile_cont(0.95) WITHIN GROUP(ORDER BY latency_ms) AS p95_ms,max(created_at) AS last_call_at FROM employee_calls WHERE created_at>=now()-interval '30 days' GROUP BY 1`)]);

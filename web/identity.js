@@ -35,7 +35,7 @@
  }
  function header(){
   const kind=contextKind();
-  const nav=kind==='staff'?(staff?`<a href="#staff-account">员工工作台</a>${(staff.role==='platform_admin'||staff.technical_access)?'<a href="/api/staff/console#technical/monitor">技术运维</a>':''}`:''):'<a href="#universe">首页</a><a href="#market">模型广场</a><a href="#workspace">工作台</a>';
+  const nav=kind==='staff'?(staff?`<a href="#staff-account">员工工作台</a>${(staff.role==='platform_admin'||staff.technical_access)?'<a href="#console/technical/overview">技术运维</a>':''}`:''):'<a href="#universe">首页</a><a href="#market">模型广场</a><a href="#workspace">工作台</a>';
   return `<header class="live-header"><a class="welcome-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"><span>It’s Your <em class="brand-ai">A</em>P<em class="brand-ai">I</em>.</span></a>${contextIndicator()}<nav aria-label="账户导航">${nav}${kind==='staff'&&!staff?'':accountMenu(staff||me?.user,staff?'staff':'customer')}</nav></header>`;
  }
  let publicTicket=0;
@@ -425,7 +425,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
  const orgSection=section=>({budget:'usage'}[section]||(orgSections.includes(section)?section:'overview'));
  function surfaceSwitch(){
   const b=me?.backoffice;if(!b?.business&&!b?.technical)return '';
-  return `<nav class="pc-surface" aria-label="切换面板"><a class="active" href="#workspace">工作台</a>${b.business?'<a href="/api/staff/console#business">商务后台</a>':''}${b.technical?'<a href="/api/staff/console#technical">技术后台</a>':''}</nav>`;
+  return `<nav class="pc-surface" aria-label="切换面板"><a class="active" href="#workspace">工作台</a>${b.business?'<a href="#console/business">商务后台</a>':''}${b.technical?'<a href="#console/technical">技术后台</a>':''}</nav>`;
  }
  const orgFreshMs=30000;
  async function fetchOrgCredit(orgId,manager){
@@ -574,7 +574,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   }else if(['operations','support'].includes(staff.role)){customers=await api('/api/staff/customers');if(ticket!==generation)return;}
   else customers=[];
   if(customers.length||staff.role!=='pending')data+=`<section class="live-panel"><div class="live-panel-title"><div><h2>客户账户</h2><p>最近 100 个真实注册账户；不会展示密码、会话凭据或客户 Key。</p></div></div><div class="live-table-wrap"><table><thead><tr><th>客户</th><th>邮箱验证</th><th>账户状态</th><th>操作</th></tr></thead><tbody>${customers.length?customers.map((u,i)=>`<tr><td><b>${esc(u.name)}</b><small>${esc(u.email)}</small></td><td>${u.emailVerified?'已验证':'未验证'}</td><td>${u.disabled?'已停用':'正常'}</td><td>${staff.role==='platform_admin'?btn(u.disabled?'恢复账户':'停用账户','customer-status',`data-index="${i}"`,'quiet'):'只读'}</td></tr>`).join(''):'<tr><td colspan="4" class="live-empty">暂无客户账户</td></tr>'}</tbody></table></div></section>`;
-  const labEntry=`<section class="live-panel"><div class="live-module-grid"><a href="/api/staff/console#business/overview">${ico('briefcase-business')}<h3>业务运营后台</h3><p>供应采购、验收结果、商品与售价、客户与资金。</p><b>进入业务运营 →</b></a>${staff.role==='platform_admin'||staff.technical_access?`<a href="/api/staff/console#technical/monitor">${ico('terminal')}<h3>技术运维后台</h3><p>Key 统一录入、型号探测、真实测试、计量核对与目录发布。</p><b>进入技术运维 →</b></a>`:''}</div></section>`;
+  const labEntry=`<section class="live-panel"><div class="live-module-grid"><a href="#console/business/overview">${ico('briefcase-business')}<h3>业务运营后台</h3><p>供应采购、验收结果、商品与售价、客户与资金。</p><b>进入业务运营 →</b></a>${staff.role==='platform_admin'||staff.technical_access?`<a href="#console/technical/overview">${ico('terminal')}<h3>技术运维后台</h3><p>Key 统一录入、型号探测、真实测试、计量核对与目录发布。</p><b>进入技术运维 →</b></a>`:''}</div></section>`;
   mount(hero('PLATFORM WORKSPACE',`你好，${esc(staff.name)}。`,'同一公司身份，按岗位进入业务运营或技术运维。')+labEntry+data);
 
  }
