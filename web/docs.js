@@ -7,7 +7,7 @@
  const note = (text, kind = 'info') => `<div class="doc-note ${kind}">${text}</div>`;
  const table = (heads, rows) => `<div class="doc-table"><table><thead><tr>${heads.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
  const link = (page, text) => `<a href="#docs/${page}">${text}</a>`;
- const MODELS = [['deepseek-flash', 'DeepSeek Flash', '对话、写作、代码'], ['deepseek-flash-0910', 'DeepSeek Flash 0910', '对话、写作、代码'], ['deepseek-v4-pro', 'DeepSeek V4 Pro', '复杂分析、深度推理'], ['glm-5.3', 'GLM-5.3', '文本任务、复杂推理'], ['glm-5.3-flash', 'GLM-5.3-Flash', '轻量任务'], ['glm-5.3-flashx', 'GLM-5.3-FlashX', '轻量任务、代码']];
+ const MODELS = [['deepseek-flash', 'DeepSeek Flash', '对话、写作、代码'], ['deepseek-flash-0910', 'DeepSeek Flash 0910', '对话、写作、代码'], ['glm-5.3', 'GLM-5.3', '文本任务、复杂推理'], ['glm-5.3-flash', 'GLM-5.3-Flash', '轻量任务'], ['glm-5.3-flashx', 'GLM-5.3-FlashX', '轻量任务、代码']];
  const curl = () => `curl ${BASE()}/chat/completions \\
   -H "Authorization: Bearer $SEMIFLY_API_KEY" \\
   -H "Content-Type: application/json" \\

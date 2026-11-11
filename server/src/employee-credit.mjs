@@ -16,6 +16,9 @@ const SCALE=1000000000000n;
 const keyPattern=/^Bearer (sf_emp_[A-Za-z0-9_-]{43})$/;
 const decimalPattern=/^\d{1,12}(\.\d{1,12})?$/;
 const OPEN="status IN ('pending','awaiting_bill')";
+// Settled amount, plus the hold for calls still open: what a key has used against its cap.
+const USED_ON_KEY=`coalesce(sum(coalesce(charged_yuan,CASE WHEN ${OPEN} THEN hold_yuan END)),0)`;
+const moneyPattern=/^\d{1,6}(\.\d{1,2})?$/;
 
 const units=v=>{const [whole,fraction='']=String(v).split('.');return BigInt(whole)*SCALE+BigInt(fraction.padEnd(12,'0').slice(0,12));};
 const format=v=>`${v/SCALE}.${String(v%SCALE).padStart(12,'0')}`;
@@ -164,7 +167,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
    pool.query(`SELECT c.model_id,count(*)::int AS calls,count(*) FILTER(WHERE c.status='failed')::int AS failed,coalesce(sum(c.input_tokens),0)::bigint AS input_tokens,coalesce(sum(c.output_tokens),0)::bigint AS output_tokens,coalesce(sum(c.charged_yuan),0) AS yuan,count(*) FILTER(WHERE c.created_at>now()-interval '24 hours')::int AS calls_24h,coalesce(sum(coalesce(c.input_tokens,0)+coalesce(c.output_tokens,0)) FILTER(WHERE c.created_at>now()-interval '24 hours'),0)::bigint AS tokens_24h,coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM employee_calls x JOIN employee_credit_accounts xa ON xa.user_id=x.owner_id AND xa.organization_id=$1 WHERE x.model_id=c.model_id AND x.created_at>now()-interval '24 hours' GROUP BY date_trunc('minute',x.created_at)) q),0)::int AS peak_rpm FROM ${companyCalls} WHERE c.created_at>=now()-interval '30 days' GROUP BY 1 ORDER BY 6 DESC`,[org]),
    pool.query(`SELECT to_char(c.created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD') AS day,c.model_id,count(*)::int AS calls,coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.created_at>=now()-interval '14 days' GROUP BY 1,2 ORDER BY 1,2`,[org]),
    pool.query(`SELECT c.id,c.owner_id,c.created_at,c.model_id,c.status,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.charged_yuan,c.hold_yuan,c.latency_ms,c.client,c.summary,u.name,k.label AS key_label FROM ${companyCalls} JOIN "user" u ON u.id=c.owner_id JOIN employee_api_keys k ON k.id=c.key_id ORDER BY c.created_at DESC LIMIT 50`,[org]),
-   pool.query(`SELECT k.id,k.owner_id,k.label,k.key_hint,k.created_at,k.revoked_at,u.name,coalesce(s.calls,0)::int AS calls,coalesce(s.tokens,0)::bigint AS tokens,coalesce(s.yuan,0) AS yuan,s.last_call_at,coalesce(s.active,0)::int AS active_calls,s.last_client,coalesce(s.calls_24h,0)::int AS calls_24h,coalesce(s.tokens_24h,0)::bigint AS tokens_24h,coalesce(p.peak,0)::int AS peak_rpm
+   pool.query(`SELECT k.id,k.owner_id,k.label,k.key_hint,k.created_at,k.revoked_at,k.model_ids,k.limit_yuan,(SELECT ${USED_ON_KEY} FROM employee_calls WHERE key_id=k.id) AS used_yuan,u.name,coalesce(s.calls,0)::int AS calls,coalesce(s.tokens,0)::bigint AS tokens,coalesce(s.yuan,0) AS yuan,s.last_call_at,coalesce(s.active,0)::int AS active_calls,s.last_client,coalesce(s.calls_24h,0)::int AS calls_24h,coalesce(s.tokens_24h,0)::bigint AS tokens_24h,coalesce(p.peak,0)::int AS peak_rpm
     FROM employee_api_keys k JOIN employee_credit_accounts a ON a.user_id=k.owner_id AND a.organization_id=$1 JOIN "user" u ON u.id=k.owner_id
     LEFT JOIN (SELECT c.key_id,count(*) AS calls,sum(coalesce(c.input_tokens,0)+coalesce(c.output_tokens,0)) AS tokens,sum(coalesce(c.charged_yuan,0)) AS yuan,max(c.created_at) AS last_call_at,count(*) FILTER(WHERE c.status='pending' AND c.created_at>now()-interval '10 minutes') AS active,(array_agg(c.client ORDER BY c.created_at DESC))[1] AS last_client,count(*) FILTER(WHERE c.created_at>now()-interval '24 hours') AS calls_24h,coalesce(sum(coalesce(c.input_tokens,0)+coalesce(c.output_tokens,0)) FILTER(WHERE c.created_at>now()-interval '24 hours'),0) AS tokens_24h FROM ${companyCalls} GROUP BY c.key_id) s ON s.key_id=k.id
     LEFT JOIN (SELECT key_id,max(n) AS peak FROM (SELECT c.key_id,count(*) AS n FROM ${companyCalls} WHERE c.created_at>now()-interval '24 hours' GROUP BY c.key_id,date_trunc('minute',c.created_at)) x GROUP BY key_id) p ON p.key_id=k.id
@@ -278,7 +281,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
   await ensureAccount(pool,cfg,req);
   const [money,keys,calls,available,daily,period]=await Promise.all([
    balance(pool,req.customer.id),
-   pool.query(`SELECT k.id,k.label,k.key_hint,k.created_at,k.revoked_at,coalesce(u.calls,0)::int AS calls,coalesce(u.tokens,0)::bigint AS tokens,coalesce(u.yuan,0) AS yuan,u.last_call_at
+   pool.query(`SELECT k.id,k.label,k.key_hint,k.created_at,k.revoked_at,k.model_ids,k.limit_yuan,(SELECT ${USED_ON_KEY} FROM employee_calls WHERE key_id=k.id) AS used_yuan,coalesce(u.calls,0)::int AS calls,coalesce(u.tokens,0)::bigint AS tokens,coalesce(u.yuan,0) AS yuan,u.last_call_at
     ,coalesce(u.active,0)::int AS active_calls,u.last_client,coalesce(u.calls_24h,0)::int AS calls_24h,coalesce(u.tokens_24h,0)::bigint AS tokens_24h,coalesce(p.peak,0)::int AS peak_rpm
     FROM employee_api_keys k LEFT JOIN (SELECT key_id,count(*) AS calls,sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)) AS tokens,sum(coalesce(charged_yuan,0)) AS yuan,max(created_at) AS last_call_at,count(*) FILTER(WHERE status='pending' AND created_at>now()-interval '10 minutes') AS active,(array_agg(client ORDER BY created_at DESC))[1] AS last_client,count(*) FILTER(WHERE created_at>now()-interval '24 hours') AS calls_24h,coalesce(sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)) FILTER(WHERE created_at>now()-interval '24 hours'),0) AS tokens_24h FROM employee_calls WHERE owner_id=$1 GROUP BY key_id) u ON u.key_id=k.id
     LEFT JOIN (SELECT key_id,max(n) AS peak FROM (SELECT key_id,count(*) AS n FROM employee_calls WHERE owner_id=$1 AND created_at>now()-interval '24 hours' GROUP BY key_id,date_trunc('minute',created_at)) x GROUP BY key_id) p ON p.key_id=k.id
@@ -292,13 +295,19 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
  });
  app.post('/api/employee-credit/keys',requireCustomer,async(req,res)=>{
   await requireMember(req);
-  const label=text(req.body?.label,'Key 名称',50),secret='sf_emp_'+token();
+  const label=text(req.body?.label,'Key 名称',50),secret='sf_emp_'+token(),b=req.body||{};
+  let models=null,limit=null;
+  if(b.models!==undefined&&b.models!==null){
+   if(!Array.isArray(b.models)||!b.models.length||b.models.length>OFFICIAL_MODELS.length||b.models.some(m=>!OFFICIAL_MODELS.some(x=>x.id===m)))throw new HttpError(400,'请至少勾选一个可用模型');
+   models=[...new Set(b.models)];
+  }
+  if(b.limit_yuan!==undefined&&b.limit_yuan!==null&&b.limit_yuan!==''){const raw=String(b.limit_yuan);if(!moneyPattern.test(raw)||Number(raw)<=0)throw new HttpError(400,'消费上限需为大于 0 的金额，最多两位小数');limit=raw;}
   const key=await transaction(pool,async db=>{
    await db.query('SELECT user_id FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[req.customer.id]);
    const count=(await db.query('SELECT count(*)::int AS count FROM employee_api_keys WHERE owner_id=$1 AND revoked_at IS NULL',[req.customer.id])).rows[0].count;
    if(count>=MAX_KEYS)throw new HttpError(409,`最多保留 ${MAX_KEYS} 枚有效 Key，请先停用旧 Key`);
-   const created=(await db.query('INSERT INTO employee_api_keys(owner_id,label,secret_hash,key_hint) VALUES($1,$2,$3,$4) RETURNING id,label,key_hint,created_at',[req.customer.id,label,hash(secret),secret.slice(-6)])).rows[0];
-   await audit(db,req.actor,'employee_credit.key_created',cfg.employeeCredit.organizationId,created.id);return created;
+   const created=(await db.query('INSERT INTO employee_api_keys(owner_id,label,secret_hash,key_hint,model_ids,limit_yuan) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,label,key_hint,created_at,model_ids,limit_yuan',[req.customer.id,label,hash(secret),secret.slice(-6),models,limit])).rows[0];
+   await audit(db,req.actor,'employee_credit.key_created',cfg.employeeCredit.organizationId,created.id,{models,limit_yuan:limit});return created;
   });
   res.status(201).json({key,secret,show_once:true});
  });
@@ -322,7 +331,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
  async function authenticate(req){
   if(!enabled(cfg))throw new HttpError(503,'公司额度尚未开放');
   const secret=keyPattern.exec(req.get('authorization'))[1];
-  const key=(await pool.query(`SELECT k.id AS key_id,k.owner_id FROM employee_api_keys k JOIN "user" u ON u.id=k.owner_id
+  const key=(await pool.query(`SELECT k.id AS key_id,k.owner_id,k.model_ids,k.limit_yuan FROM employee_api_keys k JOIN "user" u ON u.id=k.owner_id
    JOIN memberships m ON m.user_id=k.owner_id AND m.organization_id=$2 AND m.status='active'
    WHERE k.secret_hash=$1 AND k.revoked_at IS NULL AND u."emailVerified" AND NOT coalesce(u.disabled,false)`,[hash(secret),cfg.employeeCredit.organizationId])).rows[0];
   if(!key)throw new HttpError(401,'平台 Key 无效或已停用');
@@ -348,13 +357,14 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   });
  }
  app.get('/v1/models',(req,res,next)=>isEmployee(req)?next():next('route'),async(req,res)=>{
-  await authenticate(req);
-  res.json({object:'list',data:(await employeeRoutes(pool,cfg)).map(r=>({id:r.model.id,object:'model',owned_by:'semifly'}))});
+  const key=await authenticate(req);
+  res.json({object:'list',data:(await employeeRoutes(pool,cfg)).filter(r=>!key.model_ids||key.model_ids.includes(r.model.id)).map(r=>({id:r.model.id,object:'model',owned_by:'semifly'}))});
  });
  app.post('/v1/chat/completions',(req,res,next)=>isEmployee(req)?parser(req,res,next):next('route'),async(req,res)=>{
   const key=await authenticate(req);
   await limit(key.key_id,res);
   const {model,payload,stream,input,output}=employeeRequest(req.body);
+  if(key.model_ids&&!key.model_ids.includes(model.id))throw new HttpError(403,`这把 Key 只能调用：${key.model_ids.join('、')}`,'model_not_allowed');
   const route=(await employeeRoutes(pool,cfg)).find(r=>r.model.id===model.id);
   if(!route)throw new HttpError(503,'这个模型暂时不可用','model_unavailable');
   const multiplier=priceMultiplier(model,new Date(),cfg.employeeCredit.holidays),hold=holdYuan(model.rates,{input,output},multiplier);
@@ -366,6 +376,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
    const active=(await db.query(`SELECT count(*)::int AS count FROM employee_calls WHERE owner_id=$1 AND status='pending' AND created_at>now()-interval '${STALE_PENDING}'`,[key.owner_id])).rows[0].count;
    if(active>=MAX_CONCURRENT){res.set('Retry-After','5');throw new HttpError(429,`同时最多 ${MAX_CONCURRENT} 个请求`,'concurrency_limit_exceeded');}
    if(units(money.available_yuan<0?0:money.available_yuan)<units(hold))throw new HttpError(402,'公司额度不足以覆盖这次调用的上限，可调小 max_tokens');
+   if(key.limit_yuan!==null){const used=(await db.query(`SELECT ${USED_ON_KEY} AS used FROM employee_calls WHERE key_id=$1`,[key.key_id])).rows[0].used;if(units(used)+units(hold)>units(key.limit_yuan))throw new HttpError(402,`这把 Key 已接近消费上限 ¥${Number(key.limit_yuan)}（已用 ¥${Number(used).toFixed(4)}），可调小 max_tokens 或换一把 Key`,'key_limit_reached');}
    return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,client,client_detail,summary) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10) RETURNING id",[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold,origin.client,origin.detail,summary])).rows[0].id;
   });
   const call={id:callId,ownerId:key.owner_id,rates:model.rates,multiplier};
