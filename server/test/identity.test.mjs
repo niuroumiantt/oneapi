@@ -475,6 +475,14 @@ test('employee credit is one-time, company-only, reserved before calling and cha
     assert.ok((await staffer.j.call('/api/employee-credit/status')).data.keys.some(k=>k.calls_24h>=2));}
     assert.equal((await boss.j.call('/api/employee-credit/team/summaries',{method:'PUT',body:{enabled:false}})).status,200);
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM employee_calls WHERE summary IS NOT NULL')).rows[0].n,0,'turning off deletes summaries');
+   {const scoped=await staffer.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'CLI',models:['deepseek-flash']}});assert.equal(scoped.status,201,JSON.stringify(scoped.data));assert.deepEqual(scoped.data.key.model_ids,['deepseek-flash']);
+    const as=(secret,model,max=16)=>jar().call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+secret},body:{model,max_tokens:max,messages:[{role:'user',content:'hi'}]}});
+    assert.equal((await as(scoped.data.secret,'deepseek-flash')).status,200);const other=await as(scoped.data.secret,'glm-5.3');assert.equal(other.status,403);assert.equal(other.data.error.code,'model_not_allowed');
+    assert.deepEqual((await jar().call('/v1/models',{headers:{Authorization:'Bearer '+scoped.data.secret}})).data.data.map(m=>m.id),['deepseek-flash'],'scoped keys list only their models');
+    assert.equal((await staffer.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'Bad',models:['nope']}})).status,400);assert.equal((await staffer.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'Bad',limit_yuan:'-1'}})).status,400);
+    const capped=await staffer.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'Capped',limit_yuan:'0.01'}});assert.equal(capped.status,201);const over=await as(capped.data.secret,'deepseek-flash',8192);assert.equal(over.status,402);assert.equal(over.data.error.code,'key_limit_reached');
+    const listed=(await staffer.j.call('/api/employee-credit/status')).data.keys.find(k=>k.id===capped.data.key.id);assert.equal(Number(listed.limit_yuan),0.01);assert.ok(listed.used_yuan!==undefined);
+    for(const k of [scoped,capped])await staffer.j.call('/api/employee-credit/keys/'+k.data.key.id+'/revoke',{method:'POST',body:{}});}
     pilotFetch=saved;}
  assert.equal((await staffer.j.call('/api/employee-credit/keys/'+created.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call()).status,401);
  appCfg.employeeCredit.organizationId='';
