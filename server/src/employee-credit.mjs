@@ -44,6 +44,41 @@ export function employeeRequest(body){
  return {model,payload,stream,input,output};
 }
 
+// Header patterns for tools that name themselves; generic SDKs only reveal the language.
+const CLIENTS=[[/workbuddy|codebuddy/i,'WorkBuddy'],[/qoder/i,'Qoder'],[/trae/i,'Trae'],[/cursor/i,'Cursor'],[/roo-?code|roocode|roo-cline/i,'Roo Code'],[/kilo-?code/i,'Kilo Code'],[/cline/i,'Cline'],[/opencode/i,'OpenCode'],[/continue/i,'Continue'],[/cherry/i,'Cherry Studio'],[/chatbox/i,'Chatbox'],[/langchain/i,'LangChain'],[/llama_?index/i,'LlamaIndex'],[/dify/i,'Dify'],[/n8n/i,'n8n'],[/postman/i,'Postman'],[/^curl\//i,'curl'],[/openai\/python|openai-python/i,'Python（OpenAI SDK）'],[/openai\/js|openai-node/i,'Node（OpenAI SDK）'],[/python-requests|python-httpx|aiohttp|python\//i,'Python 脚本'],[/node-fetch|undici|axios|^node\b/i,'Node 脚本'],[/go-http-client/i,'Go 程序'],[/okhttp|java\//i,'Java 程序'],[/mozilla|chrome|safari/i,'浏览器']];
+/** Names the calling tool from X-Semifly-Client, X-Title, Referer or User-Agent. */
+export function callClient(get){
+ const clip=(value,n)=>String(value||'').replace(/[\u0000-\u001f\u007f]/g,' ').trim().slice(0,n);
+ // Header values are ASCII, so Chinese names arrive percent-encoded.
+ const decode=value=>{try{return decodeURIComponent(String(value||''));}catch{return String(value||'');}};
+ const declared=clip(decode(get('x-semifly-client')),40),title=clip(get('x-title'),60),ref=clip(get('http-referer')||get('referer'),120),ua=clip(get('user-agent'),200);
+ const detail=[title&&'X-Title: '+title,ref&&'Referer: '+ref,ua&&'UA: '+ua].filter(Boolean).join(' · ').slice(0,300)||null;
+ if(declared)return {client:declared,detail};
+ const hit=[title,ref,ua].map(v=>CLIENTS.find(([pattern])=>pattern.test(v))).find(Boolean);
+ return {client:hit?hit[1]:ua?'未识别':'未提供',detail};
+}
+const REDACT=[[/\b(?:sk|sf_emp|sf_test|pk|rk|ak|ghp|gho|glpat|xox[abp])[-_][A-Za-z0-9_-]{8,}/gi,'[密钥]'],[/(password|passwd|pwd|token|secret|密码|口令)\s*[:=：]\s*\S+/gi,'$1: [已隐去]'],[/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g,'[邮箱]'],[/(?<!\d)\d{17}[\dXx](?!\d)/g,'[证件号]'],[/(?<!\d)1[3-9]\d{9}(?!\d)/g,'[手机号]'],[/(?<!\d)\d{12,19}(?!\d)/g,'[长数字]'],[/[A-Za-z0-9+/_-]{32,}={0,2}/g,'[长串]']];
+export const SUMMARY_CHARS=60;
+/** First characters of the latest typed question, with tags, secrets and contact details removed. Never the full text. */
+export function callSummary(messages){
+ if(!Array.isArray(messages))return null;
+ for(let i=messages.length-1;i>=0;i--){
+  const m=messages[i];if(m?.role!=='user')continue;
+  const raw=typeof m.content==='string'?m.content:Array.isArray(m.content)?m.content.filter(p=>p?.type==='text'&&typeof p.text==='string').map(p=>p.text).join(' '):'';
+  let text=raw.slice(0,20000).replace(/<([A-Za-z_][\w-]*)[^>]*>[\s\S]*?<\/\1>/g,' ').replace(/\s+/g,' ').trim();
+  if(!text)continue;
+  for(const [pattern,replacement] of REDACT)text=text.replace(pattern,replacement);
+  const chars=Array.from(text);return chars.slice(0,SUMMARY_CHARS).join('')+(chars.length>SUMMARY_CHARS?'…':'');
+ }
+ return null;
+}
+const summaryFlag={at:0,on:false};
+async function summariesOn(db,cfg){
+ if(Date.now()-summaryFlag.at<30000)return summaryFlag.on;
+ const on=Boolean((await db.query('SELECT record_call_summaries FROM organizations WHERE id=$1',[cfg.employeeCredit.organizationId])).rows[0]?.record_call_summaries);
+ summaryFlag.at=Date.now();summaryFlag.on=on;return on;
+}
+
 export function usageFrom(usage){
  const input=tokens(usage?.prompt_tokens),output=tokens(usage?.completion_tokens);
  if(input===null||output===null)return null;
@@ -128,15 +163,38 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
     WHERE m.organization_id=$1 ORDER BY coalesce(a.spent_yuan,0) DESC,m.created_at`,[org,GRANT_YUAN]),
    pool.query(`SELECT c.model_id,count(*)::int AS calls,count(*) FILTER(WHERE c.status='failed')::int AS failed,coalesce(sum(c.input_tokens),0)::bigint AS input_tokens,coalesce(sum(c.output_tokens),0)::bigint AS output_tokens,coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.created_at>=now()-interval '30 days' GROUP BY 1 ORDER BY 6 DESC`,[org]),
    pool.query(`SELECT to_char(c.created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD') AS day,c.model_id,count(*)::int AS calls,coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.created_at>=now()-interval '14 days' GROUP BY 1,2 ORDER BY 1,2`,[org]),
-   pool.query(`SELECT c.id,c.owner_id,c.created_at,c.model_id,c.status,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.charged_yuan,c.hold_yuan,c.latency_ms,u.name,k.label AS key_label FROM ${companyCalls} JOIN "user" u ON u.id=c.owner_id JOIN employee_api_keys k ON k.id=c.key_id ORDER BY c.created_at DESC LIMIT 50`,[org]),
-   pool.query(`SELECT k.id,k.owner_id,k.label,k.key_hint,k.created_at,k.revoked_at,u.name,coalesce(s.calls,0)::int AS calls,coalesce(s.tokens,0)::bigint AS tokens,coalesce(s.yuan,0) AS yuan,s.last_call_at
+   pool.query(`SELECT c.id,c.owner_id,c.created_at,c.model_id,c.status,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.charged_yuan,c.hold_yuan,c.latency_ms,c.client,c.summary,u.name,k.label AS key_label FROM ${companyCalls} JOIN "user" u ON u.id=c.owner_id JOIN employee_api_keys k ON k.id=c.key_id ORDER BY c.created_at DESC LIMIT 50`,[org]),
+   pool.query(`SELECT k.id,k.owner_id,k.label,k.key_hint,k.created_at,k.revoked_at,u.name,coalesce(s.calls,0)::int AS calls,coalesce(s.tokens,0)::bigint AS tokens,coalesce(s.yuan,0) AS yuan,s.last_call_at,coalesce(s.active,0)::int AS active_calls,s.last_client
     FROM employee_api_keys k JOIN employee_credit_accounts a ON a.user_id=k.owner_id AND a.organization_id=$1 JOIN "user" u ON u.id=k.owner_id
-    LEFT JOIN (SELECT c.key_id,count(*) AS calls,sum(coalesce(c.input_tokens,0)+coalesce(c.output_tokens,0)) AS tokens,sum(coalesce(c.charged_yuan,0)) AS yuan,max(c.created_at) AS last_call_at FROM ${companyCalls} GROUP BY c.key_id) s ON s.key_id=k.id
+    LEFT JOIN (SELECT c.key_id,count(*) AS calls,sum(coalesce(c.input_tokens,0)+coalesce(c.output_tokens,0)) AS tokens,sum(coalesce(c.charged_yuan,0)) AS yuan,max(c.created_at) AS last_call_at,count(*) FILTER(WHERE c.status='pending' AND c.created_at>now()-interval '10 minutes') AS active,(array_agg(c.client ORDER BY c.created_at DESC))[1] AS last_client FROM ${companyCalls} GROUP BY c.key_id) s ON s.key_id=k.id
     ORDER BY k.revoked_at IS NULL DESC,k.created_at DESC LIMIT 100`,[org]),
    pool.query(`SELECT coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.settled_at>=(date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai')`,[org])
   ]);
   const active=members.rows.filter(m=>m.status==='active'),sum=f=>active.reduce((t,m)=>t+units(m[f]),0n),granted=sum('granted_yuan'),spent=sum('spent_yuan'),held=sum('held_yuan');
-  res.json({totals:{granted_yuan:format(granted),spent_yuan:format(spent),held_yuan:format(held),available_yuan:format(granted-spent-held>0n?granted-spent-held:0n),month_yuan:month.rows[0].yuan,calls_30d:active.reduce((t,m)=>t+m.calls_30d,0),active_members:active.filter(m=>m.calls_30d>0).length,members:active.length},members:members.rows,models:models.rows,daily:daily.rows,recent_calls:recent.rows,keys:keys.rows});
+  const summariesEnabled=Boolean((await pool.query('SELECT record_call_summaries FROM organizations WHERE id=$1',[org])).rows[0]?.record_call_summaries);
+  res.json({summaries_enabled:summariesEnabled,totals:{granted_yuan:format(granted),spent_yuan:format(spent),held_yuan:format(held),available_yuan:format(granted-spent-held>0n?granted-spent-held:0n),month_yuan:month.rows[0].yuan,calls_30d:active.reduce((t,m)=>t+m.calls_30d,0),active_members:active.filter(m=>m.calls_30d>0).length,members:active.length},members:members.rows,models:models.rows,daily:daily.rows,recent_calls:recent.rows,keys:keys.rows});
+ });
+ app.get('/api/employee-credit/team/members/:user',requireCustomer,async(req,res)=>{
+  const org=await requireManager(req),userId=text(req.params.user,'员工',64);
+  if(!(await pool.query('SELECT 1 FROM memberships WHERE organization_id=$1 AND user_id=$2',[org,userId])).rowCount)throw new HttpError(404,'员工不存在');
+  const [calls,models,clients,flag]=await Promise.all([
+   pool.query(`SELECT c.id,c.key_id,c.created_at,c.model_id,c.status,c.input_tokens,c.output_tokens,c.charged_yuan,c.hold_yuan,c.latency_ms,c.client,c.client_detail,c.summary,k.label AS key_label FROM employee_calls c JOIN employee_api_keys k ON k.id=c.key_id WHERE c.owner_id=$1 ORDER BY c.created_at DESC LIMIT 30`,[userId]),
+   pool.query(`SELECT model_id,count(*)::int AS calls,coalesce(sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)),0)::bigint AS tokens,coalesce(sum(charged_yuan),0) AS yuan,max(created_at) AS last_call_at,count(*) FILTER(WHERE status='pending' AND created_at>now()-interval '10 minutes')::int AS active_calls FROM employee_calls WHERE owner_id=$1 AND created_at>=now()-interval '30 days' GROUP BY 1 ORDER BY max(created_at) DESC`,[userId]),
+   pool.query(`SELECT coalesce(client,'未记录') AS client,count(*)::int AS calls,max(created_at) AS last_call_at,array_agg(DISTINCT model_id) AS models FROM employee_calls WHERE owner_id=$1 AND created_at>=now()-interval '30 days' GROUP BY 1 ORDER BY max(created_at) DESC`,[userId]),
+   pool.query('SELECT record_call_summaries FROM organizations WHERE id=$1',[org])
+  ]);
+  res.json({summaries_enabled:Boolean(flag.rows[0]?.record_call_summaries),calls:calls.rows,models:models.rows,clients:clients.rows});
+ });
+ app.put('/api/employee-credit/team/summaries',requireCustomer,async(req,res)=>{
+  const org=await requireManager(req);if(typeof req.body?.enabled!=='boolean')throw new HttpError(400,'请选择开启或关闭');
+  const enabled=req.body.enabled;
+  await transaction(pool,async db=>{
+   await db.query('UPDATE organizations SET record_call_summaries=$2 WHERE id=$1',[org,enabled]);
+   // Turning it off removes what was kept.
+   const cleared=enabled?0:(await db.query('UPDATE employee_calls c SET summary=NULL FROM employee_credit_accounts a WHERE a.user_id=c.owner_id AND a.organization_id=$1 AND c.summary IS NOT NULL',[org])).rowCount;
+   await audit(db,req.actor,enabled?'employee_credit.summaries_enabled':'employee_credit.summaries_disabled',org,org,{cleared});
+  });
+  summaryFlag.at=0;res.json({enabled});
  });
  app.post('/api/employee-credit/team/keys/:key/revoke',requireCustomer,async(req,res)=>{
   const org=await requireManager(req),keyId=id(req.params.key);
@@ -202,14 +260,15 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
   const [money,keys,calls,available,daily,period]=await Promise.all([
    balance(pool,req.customer.id),
    pool.query(`SELECT k.id,k.label,k.key_hint,k.created_at,k.revoked_at,coalesce(u.calls,0)::int AS calls,coalesce(u.tokens,0)::bigint AS tokens,coalesce(u.yuan,0) AS yuan,u.last_call_at
-    FROM employee_api_keys k LEFT JOIN (SELECT key_id,count(*) AS calls,sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)) AS tokens,sum(coalesce(charged_yuan,0)) AS yuan,max(created_at) AS last_call_at FROM employee_calls WHERE owner_id=$1 GROUP BY key_id) u ON u.key_id=k.id
+    ,coalesce(u.active,0)::int AS active_calls,u.last_client
+    FROM employee_api_keys k LEFT JOIN (SELECT key_id,count(*) AS calls,sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)) AS tokens,sum(coalesce(charged_yuan,0)) AS yuan,max(created_at) AS last_call_at,count(*) FILTER(WHERE status='pending' AND created_at>now()-interval '10 minutes') AS active,(array_agg(client ORDER BY created_at DESC))[1] AS last_client FROM employee_calls WHERE owner_id=$1 GROUP BY key_id) u ON u.key_id=k.id
     WHERE k.owner_id=$1 ORDER BY k.created_at DESC LIMIT 20`,[req.customer.id]),
-   pool.query('SELECT c.id,k.label AS key_label,c.model_id,c.status,c.hold_yuan,c.charged_yuan,c.settlement_source,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.latency_ms,c.error_code,c.created_at FROM employee_calls c JOIN employee_api_keys k ON k.id=c.key_id WHERE c.owner_id=$1 ORDER BY c.created_at DESC LIMIT 30',[req.customer.id]),
+   pool.query('SELECT c.id,k.label AS key_label,c.model_id,c.status,c.hold_yuan,c.charged_yuan,c.settlement_source,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.latency_ms,c.error_code,c.client,c.created_at FROM employee_calls c JOIN employee_api_keys k ON k.id=c.key_id WHERE c.owner_id=$1 ORDER BY c.created_at DESC LIMIT 30',[req.customer.id]),
    employeeRoutes(pool,cfg),
    pool.query("SELECT to_char(created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD') AS day,model_id,count(*)::int AS calls,coalesce(sum(charged_yuan),0) AS yuan FROM employee_calls WHERE owner_id=$1 AND created_at>=now()-interval '14 days' GROUP BY 1,2 ORDER BY 1,2",[req.customer.id]),
    pool.query("SELECT count(*)::int AS calls_30d,count(*) FILTER(WHERE status='failed')::int AS failed_30d,coalesce(sum(charged_yuan) FILTER(WHERE settled_at>=(date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai')),0) AS month_yuan FROM employee_calls WHERE owner_id=$1 AND created_at>=now()-interval '30 days'",[req.customer.id])
   ]);
-  res.json({enabled:true,organization_id:organization.id,organization_name:organization.name,...money,base_url:cfg.origin+'/v1',model_ids:available.map(r=>r.model.id),models:available.map(r=>publicModel(r.model)),daily:daily.rows,...period.rows[0],key_limit:MAX_KEYS,max_output_tokens:MAX_OUTPUT,keys:keys.rows,recent_calls:calls.rows});
+  res.json({enabled:true,summaries_enabled:await summariesOn(pool,cfg),summary_chars:SUMMARY_CHARS,organization_id:organization.id,organization_name:organization.name,...money,base_url:cfg.origin+'/v1',model_ids:available.map(r=>r.model.id),models:available.map(r=>publicModel(r.model)),daily:daily.rows,...period.rows[0],key_limit:MAX_KEYS,max_output_tokens:MAX_OUTPUT,keys:keys.rows,recent_calls:calls.rows});
  });
  app.post('/api/employee-credit/keys',requireCustomer,async(req,res)=>{
   await requireMember(req);
@@ -278,6 +337,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   const route=(await employeeRoutes(pool,cfg)).find(r=>r.model.id===model.id);
   if(!route)throw new HttpError(503,'这个模型暂时不可用');
   const multiplier=priceMultiplier(model,new Date(),cfg.employeeCredit.holidays),hold=holdYuan(model.rates,{input,output},multiplier);
+  const origin=callClient(name=>req.get(name)),summary=await summariesOn(pool,cfg)?callSummary(req.body.messages):null;
   const callId=await transaction(pool,async db=>{
    // The row lock serialises reservations so concurrent calls cannot overspend.
    await db.query('SELECT user_id FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[key.owner_id]);
@@ -285,7 +345,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
    const active=(await db.query(`SELECT count(*)::int AS count FROM employee_calls WHERE owner_id=$1 AND status='pending' AND created_at>now()-interval '${STALE_PENDING}'`,[key.owner_id])).rows[0].count;
    if(active>=MAX_CONCURRENT){res.set('Retry-After','5');throw new HttpError(429,`同时最多 ${MAX_CONCURRENT} 个请求`);}
    if(units(money.available_yuan<0?0:money.available_yuan)<units(hold))throw new HttpError(402,'公司额度不足以覆盖这次调用的上限，可调小 max_tokens');
-   return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan) VALUES($1,$2,$3,$4,$5,$6,'pending',$7) RETURNING id",[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold])).rows[0].id;
+   return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,client,client_detail,summary) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10) RETURNING id",[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold,origin.client,origin.detail,summary])).rows[0].id;
   });
   const call={id:callId,ownerId:key.owner_id,rates:model.rates,multiplier};
   const started=performance.now(),abort=new AbortController();
@@ -338,6 +398,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
 
 /** Settles calls whose response carried no usage, from KerAPI's log or the hold. Safe to repeat. */
 export async function settleEmployeeCalls(pool){
+ await pool.query("UPDATE employee_calls SET summary=NULL WHERE summary IS NOT NULL AND created_at<now()-interval '30 days'");
  await pool.query(`UPDATE employee_calls SET status='awaiting_bill',finished_at=now(),error_code='STALE_PENDING' WHERE status='pending' AND created_at<now()-interval '${STALE_PENDING}'`);
  const billed=(await pool.query(`SELECT c.id,c.owner_id,r.evidence->>'amount' AS amount FROM employee_calls c JOIN supplier_usage_records r ON r.credential_id=c.credential_id AND r.request_id=c.upstream_request_id
   WHERE c.status='awaiting_bill' AND r.evidence->>'currency'='CNY' ORDER BY c.created_at LIMIT 1000`)).rows.filter(r=>decimalPattern.test(r.amount||''));
