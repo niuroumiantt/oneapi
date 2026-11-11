@@ -1,15 +1,6 @@
 (()=>{'use strict';
-const panes=document.querySelector('#panes'),message=document.querySelector('#message'),frames={},positions={business:'overview',technical:'supplier'};let access=null,current=null,supplier=new URLSearchParams(location.search).get('supplier')||'';
-const known={business:['overview','upstream','products','customers','tickets','suppliers','finance'],technical:['supplier','suppliers','credentials','models','tests','transactions','compare','stress','monitor','routing','handoff','releases','billing','upstream','servers']};
-function route(workspace,section){if(!access?.[workspace])return;section=known[workspace].includes(section)?section:positions[workspace];positions[workspace]=section;current=workspace;document.body.classList.toggle('technical',workspace==='technical');
- for(const button of document.querySelectorAll('[data-workspace]'))button.setAttribute('aria-selected',String(button.dataset.workspace===workspace));
- if(!frames[workspace]){const frame=document.createElement('iframe');frame.title=workspace==='technical'?'技术运维工作台':'业务运营工作台';frame.id='workspace-'+workspace;frame.src='/api/staff/'+(workspace==='technical'?'lab':'workspace')+'/view'+(supplier?'?supplier='+encodeURIComponent(supplier):'')+'#'+section;frames[workspace]=frame;panes.append(frame)}
- for(const [name,frame] of Object.entries(frames)){frame.hidden=name!==workspace;if(name===workspace)frame.contentWindow.postMessage({type:'workspace-navigate',section},location.origin)}
- history.replaceState(null,'','/api/staff/console'+(supplier?'?supplier='+encodeURIComponent(supplier):'')+'#'+workspace+'/'+section);message.hidden=true;
-}
-function fromHash(){const raw=location.hash.slice(1).split('/');const workspace=['business','technical'].includes(raw[0])?raw[0]:location.pathname.includes('/lab/')?'technical':'business';route(workspace,raw.length>1?raw[1]:raw[0])}
-document.addEventListener('click',e=>{const b=e.target.closest('[data-workspace]');if(b)route(b.dataset.workspace)});
-addEventListener('hashchange',fromHash);
-addEventListener('message',e=>{if(e.origin!==location.origin)return;const workspace=Object.keys(frames).find(k=>frames[k].contentWindow===e.source);if(!workspace)return;const m=e.data;if(m?.type==='supplier-selected'&&workspace==='technical'&&typeof m.id==='string'&&/^[a-f0-9-]{36}$/.test(m.id)){supplier=m.id;history.replaceState(null,'','/api/staff/console?supplier='+encodeURIComponent(supplier)+'#technical/supplier')}if(m?.type==='workspace-switch')route(m.workspace,m.section);if(m?.type==='workspace-position'&&known[workspace].includes(m.section)){positions[workspace]=m.section;if(workspace===current)history.replaceState(null,'','/api/staff/console'+(supplier?'?supplier='+encodeURIComponent(supplier):'')+'#'+workspace+'/'+m.section)}if(m?.type==='lab-progress'&&workspace==='technical')document.querySelector('#live').textContent=String(m.text).slice(0,100)});
-fetch('/api/staff/workspace/access',{credentials:'same-origin'}).then(async r=>{if(!r.ok)throw Error('登录已过期，请重新登录');return r.json()}).then(a=>{access=a;document.querySelector('[data-workspace=technical]').hidden=!a.technical;document.querySelector('#live').textContent='同一工作台 · 切换保留位置';fromHash()}).catch(e=>{message.textContent=e.message;const a=document.createElement('a');a.href='/api/staff/login?next=business';a.textContent=' 重新登录';message.append(a)});
+// The staff console now lives in the main site at /#console/<business|technical>/<section>. Old links land here and are forwarded.
+const raw=location.hash.slice(1).split('/').filter(Boolean),fallback=location.pathname.includes('/lab/')?'technical':'business';
+const workspace=['business','technical'].includes(raw[0])?raw.shift():fallback,section=raw[0]||'',supplier=new URLSearchParams(location.search).get('supplier');
+location.replace('/#console/'+workspace+(section?'/'+section:'')+(supplier&&/^[a-f0-9-]{36}$/.test(supplier)?'?supplier='+supplier:''));
 })();

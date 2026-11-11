@@ -99,17 +99,19 @@ async function deepseekKey(cfg){
 /** Official models that currently have a working upstream route. */
 export async function employeeRoutes(db,cfg,{includePaused=false}={}){
  const wanted=OFFICIAL_MODELS.filter(m=>m.upstream==='kerapi').map(m=>m.upstreamModel);
- const rows=(await db.query(`SELECT DISTINCT ON (e.model_id) e.model_id,e.base_url,e.credential_id,c.credential_ciphertext
+ const rows=(await db.query(`SELECT e.model_id,e.base_url,e.credential_id,c.credential_ciphertext,c.priority
   FROM supplier_lab_endpoints e JOIN supplier_lab_credentials c ON c.id=e.credential_id JOIN supplier_lab_suppliers s ON s.id=e.supplier_id
   WHERE e.model_id=ANY($1::text[]) AND e.kind='supplier' AND e.disabled_at IS NULL AND c.disabled_at IS NULL AND s.disabled_at IS NULL
    AND NOT EXISTS(SELECT 1 FROM suppliers p WHERE p.id=s.canonical_supplier_id AND p.status='blocked')
-  ORDER BY e.model_id,e.created_at DESC`,[wanted])).rows.filter(r=>{try{return new URL(r.base_url).origin===KERAPI_ORIGIN;}catch{return false;}});
- const byModel=new Map(rows.map(r=>[r.model_id,r])),hasDeepseek=Boolean(await deepseekKey(cfg));
+  ORDER BY e.model_id,c.priority,c.created_at DESC,e.created_at DESC`,[wanted])).rows.filter(r=>{try{return new URL(r.base_url).origin===KERAPI_ORIGIN;}catch{return false;}});
+ const byModel=new Map(),hasDeepseek=Boolean(await deepseekKey(cfg));
+ for(const r of rows){const list=byModel.get(r.model_id)||[];if(!list.some(x=>x.credential_id===r.credential_id))list.push(r);byModel.set(r.model_id,list);}
  const paused=includePaused?new Set():new Set((await db.query('SELECT model_id FROM channel_states WHERE paused')).rows.map(r=>r.model_id));
  return OFFICIAL_MODELS.filter(m=>!paused.has(m.id)).flatMap(model=>{
   if(model.upstream==='deepseek')return hasDeepseek?[{model,baseUrl:DEEPSEEK_BASE,credentialId:null}]:[];
-  const row=byModel.get(model.upstreamModel);
-  return row?[{model,baseUrl:row.base_url,credentialId:row.credential_id,ciphertext:row.credential_ciphertext}]:[];
+  const [row,...rest]=byModel.get(model.upstreamModel)||[];
+  const toRoute=r=>({model,baseUrl:r.base_url,credentialId:r.credential_id,ciphertext:r.credential_ciphertext});
+  return row?[{...toRoute(row),fallbacks:rest.map(toRoute)}]:[];
  });
 }
 
@@ -383,14 +385,22 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   const started=performance.now(),abort=new AbortController();
   // 'finish' also fires 'close'; only a close before the response ended is a disconnect.
   res.on('close',()=>{if(!res.writableEnded)abort.abort();});
-  let response,upstreamKey;
+  let response,upstreamKey,used=route;
+  const candidates=[route,...(route.fallbacks||[])];
+  for(let i=0;i<candidates.length;i++){
+  const candidate=candidates[i],last=i===candidates.length-1;
   try{
-   upstreamKey=await upstreamSecret(route,cfg);
-   response=await upstreamFetch(`${route.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify(payload),redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)])});
+   upstreamKey=await upstreamSecret(candidate,cfg);
+   response=await upstreamFetch(`${candidate.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify(payload),redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)])});
   }catch(error){
+   if(!last&&error.name!=='TimeoutError'&&!abort.signal.aborted){console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:error.name}));continue;}
    await fail(callId,error.name==='TimeoutError'?'UPSTREAM_TIMEOUT':'UPSTREAM_FAILED',started);
    throw new HttpError(502,'上游调用失败；本次未扣额度');
   }
+  if(!last&&(response.status===401||response.status===403)){await response.body?.cancel().catch(()=>{});console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:'http_'+response.status}));continue;}
+  used=candidate;break;
+  }
+  if(used!==route)await pool.query('UPDATE employee_calls SET credential_id=$2 WHERE id=$1',[callId,used.credentialId]);
   const requestId=String(response.headers.get('x-request-id')||response.headers.get('x-oneapi-request-id')||'').slice(0,120)||null;
   if(!response.ok){
    const raw=(await response.text().catch(()=>'')).slice(0,4000);
