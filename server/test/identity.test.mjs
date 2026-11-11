@@ -468,6 +468,10 @@ test('employee credit is one-time, company-only, reserved before calling and cha
     const detail=await boss.j.call('/api/employee-credit/team/members/'+staffer.user.id);assert.equal(detail.status,200);assert.equal(detail.data.calls[0].summary,row.summary);assert.ok(detail.data.clients.some(c=>c.client==='Roo Code'));assert.ok(detail.data.models.some(m=>m.model_id==='deepseek-flash'));
     assert.equal((await staffer.j.call('/api/employee-credit/team/members/'+boss.user.id)).status,403,'members cannot read colleagues');
     assert.ok((await boss.j.call('/api/employee-credit/team')).data.keys.some(k=>k.last_client==='周报助手'));
+   {const team=(await boss.j.call('/api/employee-credit/team')).data,key=team.keys.find(k=>k.last_client==='周报助手');assert.ok(key.calls_24h>=2&&key.peak_rpm>=1&&Number(key.tokens_24h)>0,'keys carry 24h load');assert.ok(team.models.some(m=>m.calls_24h>0&&m.peak_rpm>=1),'models carry 24h load');
+    const a=await boss.j.call('/api/employee-credit/team/analytics?range=24h');assert.equal(a.status,200);assert.equal(a.data.minutes,1440);assert.ok(a.data.buckets.length>0&&a.data.models.length>0&&a.data.peak.peak_rpm>=1);
+    assert.equal((await boss.j.call('/api/employee-credit/team/analytics?range=evil')).data.range,'24h','unknown ranges fall back');assert.equal((await staffer.j.call('/api/employee-credit/team/analytics')).status,403);
+    assert.ok((await staffer.j.call('/api/employee-credit/status')).data.keys.some(k=>k.calls_24h>=2));}
     assert.equal((await boss.j.call('/api/employee-credit/team/summaries',{method:'PUT',body:{enabled:false}})).status,200);
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM employee_calls WHERE summary IS NOT NULL')).rows[0].n,0,'turning off deletes summaries');
     pilotFetch=saved;}
