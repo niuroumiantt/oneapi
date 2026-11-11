@@ -786,7 +786,11 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
    assert.equal(v.run.status,'completed');assert.equal(v.run.done,23);const cells=v.cells['glm-5.3'];
    assert.equal(cells.basic.outcome,'same');assert.equal(cells.json.outcome,'gap');assert.equal(cells.thinking_off.outcome,'extra');assert.equal(cells.out_32k.outcome,'neither');assert.equal(cells.ctx_128k,undefined,'long context skipped');
    assert.equal(cells.json.official.status,'pass');assert.equal(cells.json.ours.status,'partial');assert.ok(!JSON.stringify(cells).includes('sk-glm-three'),'official key never stored');
-   assert.equal(cells.multi_turn.outcome,'neither','both sides answer 收到, neither recalls the number');assert.ok(cells.tool_result&&cells.parallel_tools&&cells.cache_hit,'agent tests ran');
+   assert.equal(cells.multi_turn.outcome,'neither','both sides answer 收到, neither recalls the number');
+   assert.equal((await jar().call('/api/public/realtesting')).status,404,'nothing published yet');
+   const pub=await admin.call('/api/staff/lab/feature-compare/publish',{method:'POST',body:{}});assert.equal(pub.status,201,JSON.stringify(pub.data));assert.equal(pub.data.tests,23);
+   const pubView=await jar().call('/api/public/realtesting');assert.equal(pubView.status,200,'public, no login');assert.equal(pubView.data.models[0].name,'GLM-5.3');assert.equal(pubView.data.models[0].cells.json.outcome,'gap');
+   assert.ok(pubView.data.findings.length>=3);assert.ok(pubView.data.run.requests>0);assert.ok(!JSON.stringify(pubView.data).match(/excerpt|request_id|sk-/),'only verdicts and short notes are public');assert.ok(cells.tool_result&&cells.parallel_tools&&cells.cache_hit,'agent tests ran');
    assert.equal((await admin.call('/api/staff/lab/feature-compare/runs',{method:'POST',body:{models:['glm-5.3'],tests:['nope']}})).status,400,'unknown test refused');
    const only=await admin.call('/api/staff/lab/feature-compare/runs',{method:'POST',body:{models:['glm-5.3'],tests:['system_prompt','stream_usage']}});assert.equal(only.status,202);assert.equal(only.data.probes,2,'only the chosen tests run');
    for(let i=0;i<100;i++){v=(await admin.call('/api/staff/lab/feature-compare')).data;if(v.run.status!=='running')break;await new Promise(r=>setTimeout(r,30));}assert.equal(v.run.done,2);
@@ -969,4 +973,9 @@ test('GLM reasoning effort is translated to values GLM accepts',()=>{
  assert.equal(send('glm-5.3','low').reasoning_effort,'low');assert.equal(send('glm-5.3','weird').reasoning_effort,undefined);
  assert.equal(send('glm-5.3',undefined).thinking,undefined,'untouched when not sent');
  assert.equal(send('deepseek-flash','none').reasoning_effort,'none','other families pass through');
+ const schema={type:'object',properties:{ok:{type:'boolean'}},required:['ok']};
+ p=send('glm-5.3',undefined,{response_format:{type:'json_schema',json_schema:{name:'r',strict:true,schema}},messages:[{role:'system',content:'你是助手'},{role:'user',content:'hi'}]});
+ assert.deepEqual(p.response_format,{type:'json_object'},'GLM gets json_object');assert.equal(p.messages.length,2);assert.match(p.messages[0].content,/^你是助手\n\n只输出一个 JSON 对象/);assert.ok(p.messages[0].content.includes(JSON.stringify(schema)),'schema carried in the instructions');
+ p=send('glm-5.3-flash',undefined,{response_format:{type:'json_schema',json_schema:{name:'r',schema}}});assert.equal(p.messages[0].role,'system','system message added when there is none');assert.equal(p.messages.length,2);
+ assert.equal(send('deepseek-flash',undefined,{response_format:{type:'json_schema',json_schema:{name:'r',schema}}}).response_format.type,'json_schema','DeepSeek keeps json_schema');
 });

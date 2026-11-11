@@ -37,6 +37,17 @@ export function holdYuan(rate,{input,cached=0,output},multiplier=1){
 // "该模型始终思考，不支持关闭思考；请使用 low、high 或 max"). Tools also send none, minimal, medium, or thinking.type=disabled;
 // those become the lowest level rather than a 400, so the agent keeps working.
 const GLM_EFFORT={none:'low',minimal:'low',low:'low',medium:'high',high:'high',xhigh:'max',max:'max'};
+// KerAPI's GLM models reject or mishandle response_format json_schema, while json_object works on all of them.
+// Ask for json_object and put the schema into the instructions, so the caller still gets JSON in the requested shape.
+export function glmJsonSchema(payload){
+ const rf=payload.response_format;if(rf?.type!=='json_schema')return payload;
+ const schema=rf.json_schema?.schema??rf.json_schema??{};
+ payload.response_format={type:'json_object'};
+ const rule=`只输出一个 JSON 对象，不要输出任何其他内容。它必须严格符合下面的 JSON Schema：\n${JSON.stringify(schema)}`;
+ const messages=[...payload.messages],first=messages[0];
+ if(first?.role==='system'&&typeof first.content==='string')messages[0]={...first,content:first.content+'\n\n'+rule};else messages.unshift({role:'system',content:rule});
+ payload.messages=messages;return payload;
+}
 export function glmEffort(payload){
  if(payload.thinking?.type==='disabled'){delete payload.thinking;if(payload.reasoning_effort===undefined)payload.reasoning_effort='low';}
  if(payload.reasoning_effort===undefined)return payload;
@@ -58,7 +69,7 @@ export function employeeRequest(body){
  const {max_completion_tokens:_ignored,...rest}=body,stream=body.stream===true;
  const payload={...rest,model:model.upstreamModel,max_tokens:output,stream};
  if(stream)payload.stream_options={...(body.stream_options||{}),include_usage:true};
- if(model.family==='glm')glmEffort(payload);
+ if(model.family==='glm'){glmEffort(payload);glmJsonSchema(payload);}
  // One token never encodes fewer than one UTF-8 byte of the serialized prompt.
  const input=Buffer.byteLength(JSON.stringify({messages:body.messages,tools:body.tools,functions:body.functions}));
  return {model,payload,stream,input,output};

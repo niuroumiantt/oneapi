@@ -29,7 +29,7 @@ def main():
         html = html.replace(f'"{name}"', f'"{target}"')
         assets[target] = content
     assets['index.html'] = html.encode()
-    for name in ('pinapi-mark.svg', 'pinapi-wordmark.svg', 'semifly-email-logo.png', 'universe-speed-knob.png', 'favicon.svg', 'semifly-wordmark.svg', 'semifly-lockup.svg', 'THIRD-PARTY-LICENSES.txt', 'semifly-realtesting.pdf'):
+    for name in ('pinapi-mark.svg', 'pinapi-wordmark.svg', 'semifly-email-logo.png', 'universe-speed-knob.png', 'favicon.svg', 'semifly-wordmark.svg', 'semifly-lockup.svg', 'THIRD-PARTY-LICENSES.txt'):
         assets[name] = git('show', f'HEAD:web/{name}')
     release = {
         'app': 'oneapi', 'source_sha': sha, 'stage': 'identity-live',
