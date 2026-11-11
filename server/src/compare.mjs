@@ -230,7 +230,7 @@ export function compareRoutes(app, pool, cfg, requireStaff, fetchImpl = fetch) {
    await db.query(`INSERT INTO supplier_lab_suppliers(id,name,legal_name,kind,created_by,canonical_supplier_id) VALUES($1,$2,$3,'reference',$4,$1) ON CONFLICT(canonical_supplier_id) DO NOTHING`, [supplier.id, supplier.display_name, supplier.legal_name, req.staff.subject]);
    const lab = (await db.query('SELECT id FROM supplier_lab_suppliers WHERE canonical_supplier_id=$1', [supplier.id])).rows[0];
    const fingerprint = hash(key).slice(0, 12);
-   if ((await db.query('SELECT 1 FROM supplier_lab_credentials WHERE base_url=$1 AND credential_fingerprint=$2', [baseUrl, fingerprint])).rowCount) throw new HttpError(409, '这把 Key 已经登记过');
+   if ((await db.query('SELECT 1 FROM supplier_lab_credentials WHERE credential_fingerprint=$1', [fingerprint])).rowCount) throw new HttpError(409, '这把 Key 已经登记过');
    const label = '评测专用 ' + new Date().toISOString().slice(0, 10) + ' · ' + fingerprint.slice(0, 4);
    const credential = (await db.query('INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,label', [lab.id, label, baseUrl, box.seal({ key }), fingerprint, req.staff.subject])).rows[0];
    for (const model of models) await db.query(`INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_ciphertext,credential_fingerprint,created_by,supplier_id,credential_id) VALUES($1,'reference',$2,$7,NULL,$3,$4,$5,$6)`, [model.slice(0, 100), baseUrl, fingerprint, req.staff.subject, lab.id, credential.id, model]);

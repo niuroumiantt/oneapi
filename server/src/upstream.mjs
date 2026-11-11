@@ -26,7 +26,7 @@ export function upstreamRoutes(app, pool, cfg, requireStaff, fetchImpl = fetch) 
   const [suppliers, keys, models, keyModel, routes, paused] = await Promise.all([
    pool.query(`SELECT p.id,p.display_name AS name,p.legal_name,p.source_type,p.status,p.region,s.id AS lab_id FROM suppliers p LEFT JOIN supplier_lab_suppliers s ON s.canonical_supplier_id=p.id
     WHERE p.source_type<>'official' ORDER BY p.status='blocked',p.created_at`),
-   pool.query(`SELECT c.id,c.label,c.base_url,c.credential_fingerprint,c.priority,c.priority_changed_at,c.created_at,c.disabled_at,c.last_check_at,c.last_check_ok,c.last_check_status,c.last_check_ms,c.last_check_error,c.last_check_model,s.canonical_supplier_id AS supplier_id,
+   pool.query(`SELECT c.id,c.label,c.base_url,c.credential_fingerprint,c.priority,c.priority_changed_at,c.created_at,c.disabled_at,c.last_check_at,c.last_check_ok,c.last_check_status,c.last_check_ms,c.last_check_error,c.last_check_model,c.last_check_models,s.canonical_supplier_id AS supplier_id,coalesce(array_agg(e.model_id ORDER BY e.model_id) FILTER(WHERE e.disabled_at IS NULL),'{}') AS models,
     count(e.id) FILTER(WHERE e.disabled_at IS NULL)::int AS model_count
     FROM supplier_lab_credentials c JOIN supplier_lab_suppliers s ON s.id=c.supplier_id LEFT JOIN supplier_lab_endpoints e ON e.credential_id=c.id
     WHERE s.kind='supplier' GROUP BY c.id,s.id ORDER BY c.disabled_at IS NOT NULL,c.priority,c.created_at DESC`),
@@ -45,7 +45,7 @@ export function upstreamRoutes(app, pool, cfg, requireStaff, fetchImpl = fetch) 
   const out = suppliers.rows.map(s => {
    const mine = keys.rows.filter(k => k.supplier_id === s.id), live = mine.filter(k => !k.disabled_at), ids = new Set(live.map(k => k.id));
    const stats = (rows) => { const r = rows.reduce((a, x) => ({ calls: a.calls + x.calls, failed: a.failed + x.failed, lat: a.lat + (x.avg_latency || 0) * (x.calls - x.failed), ok: a.ok + x.calls - x.failed, last_ok_at: [a.last_ok_at, x.last_ok_at].filter(Boolean).sort().at(-1) || null, last_fail_at: [a.last_fail_at, x.last_fail_at].filter(Boolean).sort().at(-1) || null, last_error: x.last_fail_at && (!a.last_fail_at || x.last_fail_at > a.last_fail_at) ? x.last_error : a.last_error }), { calls: 0, failed: 0, lat: 0, ok: 0, last_ok_at: null, last_fail_at: null, last_error: null }); return { calls_24h: r.calls, failed_24h: r.failed, avg_latency: r.ok ? Math.round(r.lat / r.ok) : null, last_ok_at: r.last_ok_at, last_fail_at: r.last_fail_at, last_error: r.last_error }; };
-   const keyRows = mine.map(k => ({ ...k, ...stats(keyModel.rows.filter(x => x.credential_id === k.id)) }));
+   const keyRows = mine.map(k => ({ ...k, duplicate_of: k.disabled_at ? null : keys.rows.find(o => o.id !== k.id && !o.disabled_at && o.credential_fingerprint === k.credential_fingerprint && (o.priority < k.priority || (o.priority === k.priority && o.created_at < k.created_at)))?.label || null, ...stats(keyModel.rows.filter(x => x.credential_id === k.id)) }));
    const modelRows = models.rows.filter(m => m.supplier_id === s.id).map(m => {
     const offers = OFFICIAL_MODELS.filter(o => o.upstreamModel === m.model_id);
     const routed = routes.filter(r => r.model.upstreamModel === m.model_id && [r.credentialId, ...(r.fallbacks || []).map(f => f.credentialId)].some(c => ids.has(c)));
@@ -108,7 +108,8 @@ export function upstreamRoutes(app, pool, cfg, requireStaff, fetchImpl = fetch) 
    const baseUrl = validateLabBaseUrl(b.base_url || existing[0]?.base_url || '');
    const fingerprint = hash(key).slice(0, 12);
    await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [baseUrl + ':' + fingerprint]);
-   if ((await db.query('SELECT 1 FROM supplier_lab_credentials WHERE base_url=$1 AND credential_fingerprint=$2', [baseUrl, fingerprint])).rowCount) throw new HttpError(409, '这把 Key 已经登记过');
+   const same = (await db.query('SELECT label FROM supplier_lab_credentials WHERE credential_fingerprint=$1 ORDER BY created_at LIMIT 1', [fingerprint])).rows[0];
+   if (same) throw new HttpError(409, `这把 Key 已经登记过（「${same.label}」），同一把 Key 当不了备用；请在供应商后台新建一把`);
    if ((await db.query('SELECT 1 FROM supplier_lab_credentials WHERE supplier_id=$1 AND label=$2', [lab.id, label])).rowCount) throw new HttpError(409, '这个名称已经用过，请换一个');
    const priority = existing.some(k => k.priority === 1) ? 2 : 1;
    const created = (await db.query('INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by,priority,priority_changed_at) VALUES($1,$2,$3,$4,$5,$6,$7,now()) RETURNING id,label,priority', [lab.id, label, baseUrl, box.seal({ key }), fingerprint, req.staff.subject, priority])).rows[0];
@@ -129,18 +130,23 @@ export function upstreamRoutes(app, pool, cfg, requireStaff, fetchImpl = fetch) 
   if (!key) throw new HttpError(404, 'Key 不存在或已停用');
   const models = (await pool.query('SELECT model_id FROM supplier_lab_endpoints WHERE credential_id=$1 AND disabled_at IS NULL ORDER BY model_id', [credentialId])).rows.map(r => r.model_id);
   if (!models.length) throw new HttpError(409, '这家供应商还没有型号，先在“供应商”里添加型号');
-  const preferred = OFFICIAL_MODELS.map(m => m.upstreamModel), model = models.sort((a, b) => (preferred.includes(a) ? 0 : 1) - (preferred.includes(b) ? 0 : 1) || a.localeCompare(b))[0];
   validateLabBaseUrl(key.base_url);
-  const started = performance.now(); let status = null, ok = false, error = null;
-  try {
-   const secretKey = box.open(key.credential_ciphertext).key;
-   const r = await fetchImpl(`${key.base_url}/chat/completions`, { method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1, stream: false }), signal: AbortSignal.timeout(30000) });
-   status = r.status; const raw = (await r.text()).slice(0, 2000);
-   ok = r.ok; if (!ok) { let msg = raw; try { msg = JSON.parse(raw)?.error?.message || raw; } catch {} error = String(msg).replaceAll(secretKey, '***').slice(0, 200); }
-  } catch (e) { error = e?.name === 'TimeoutError' ? '30 秒无响应' : '连接失败：' + String(e?.message || e).slice(0, 160); }
-  const ms = Math.round(performance.now() - started);
-  await pool.query('UPDATE supplier_lab_credentials SET last_check_at=now(),last_check_ok=$2,last_check_status=$3,last_check_ms=$4,last_check_error=$5,last_check_model=$6 WHERE id=$1', [credentialId, ok, status, ms, error, model]);
-  await audit(pool, req.actor, 'upstream.key_checked', null, credentialId, { ok, status, model });
-  res.json({ ok, http_status: status, latency_ms: ms, error, model });
+  const secretKey = box.open(key.credential_ciphertext).key;
+  // One tiny request per model, all at once, so the card can show which models this key really reaches.
+  const one = async model => {
+   const started = performance.now(); let status = null, ok = false, error = null;
+   try {
+    const r = await fetchImpl(`${key.base_url}/chat/completions`, { method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1, stream: false }), signal: AbortSignal.timeout(30000) });
+    status = r.status; const raw = (await r.text()).slice(0, 2000);
+    ok = r.ok; if (!ok) { let msg = raw; try { msg = JSON.parse(raw)?.error?.message || raw; } catch {} error = String(msg).replaceAll(secretKey, '***').slice(0, 200); }
+   } catch (e) { error = e?.name === 'TimeoutError' ? '30 秒无响应' : '连接失败：' + String(e?.cause?.code || e?.message || e).replaceAll(secretKey, '***').slice(0, 160); }
+   return { model, ok, status, ms: Math.round(performance.now() - started), error };
+  };
+  const results = await Promise.all(models.map(one));
+  const ok = results.every(r => r.ok), failed = results.find(r => !r.ok), ms = Math.max(...results.map(r => r.ms));
+  const status = failed ? failed.status : 200, error = failed ? `${failed.model}：${failed.error}` : null, summary = `${results.filter(r => r.ok).length}/${results.length}`;
+  await pool.query('UPDATE supplier_lab_credentials SET last_check_at=now(),last_check_ok=$2,last_check_status=$3,last_check_ms=$4,last_check_error=$5,last_check_model=$6,last_check_models=$7 WHERE id=$1', [credentialId, ok, status, ms, error, summary, JSON.stringify(results)]);
+  await audit(pool, req.actor, 'upstream.key_checked', null, credentialId, { ok, passed: summary, failed: results.filter(r => !r.ok).map(r => r.model) });
+  res.json({ ok, passed: summary, latency_ms: ms, error, models: results });
  });
 }

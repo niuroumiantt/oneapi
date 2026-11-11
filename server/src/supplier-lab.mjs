@@ -153,7 +153,7 @@ export function supplierLabRoutes(app, pool, requireStaff) {
         VALUES($1,$2,$3,$4,$5,$1) ON CONFLICT(canonical_supplier_id) DO NOTHING`,[supplierId,supplier.display_name,supplier.legal_name,supplier.source_type==='official'?'reference':'supplier',req.staff.subject]);
       const labSupplier=(await db.query('SELECT id FROM supplier_lab_suppliers WHERE canonical_supplier_id=$1',[supplierId])).rows[0];
       await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',[baseUrl+':'+hash(key)]);
-      if((await db.query('SELECT id FROM supplier_lab_credentials WHERE base_url=$1 AND credential_fingerprint=$2',[baseUrl,hash(key).slice(0,12)])).rowCount)throw new HttpError(409,'这枚 Key 已登记，请复用已有凭据；如已停用请使用上游新生成的 Key');
+      if((await db.query('SELECT id FROM supplier_lab_credentials WHERE credential_fingerprint=$1',[hash(key).slice(0,12)])).rowCount)throw new HttpError(409,'这枚 Key 已登记，请复用已有凭据；如已停用请使用上游新生成的 Key');
       const result=(await db.query('INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,supplier_id,label,base_url,credential_fingerprint,created_at,disabled_at',[labSupplier.id,label,baseUrl,box.seal({key}),hash(key).slice(0,12),req.staff.subject])).rows[0];
       await syncSupplierModels(db,labSupplier.id);
       await audit(db,req.actor,'supplier_lab.credential_created',null,result.id,{supplier_id:supplierId,host:new URL(baseUrl).hostname}); return result;
@@ -174,7 +174,7 @@ export function supplierLabRoutes(app, pool, requireStaff) {
       const endpoints=(await db.query('SELECT * FROM supplier_lab_endpoints WHERE credential_id=$1 AND id=ANY($2::uuid[]) AND disabled_at IS NULL ORDER BY created_at FOR SHARE',[oldId,endpointIds])).rows;
       if(endpoints.length!==endpointIds.length)throw new HttpError(400,'所选型号不属于此 Key 或已停用');
       await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',[old.base_url+':'+hash(key)]);
-      if((await db.query('SELECT 1 FROM supplier_lab_credentials WHERE base_url=$1 AND credential_fingerprint=$2',[old.base_url,hash(key).slice(0,12)])).rowCount)throw new HttpError(409,'这枚 Key 已登记，请使用上游新生成的 Key');
+      if((await db.query('SELECT 1 FROM supplier_lab_credentials WHERE credential_fingerprint=$1',[hash(key).slice(0,12)])).rowCount)throw new HttpError(409,'这枚 Key 已登记，请使用上游新生成的 Key');
       if((await db.query('SELECT 1 FROM supplier_lab_credentials WHERE supplier_id=$1 AND label=$2',[old.supplier_id,label])).rowCount)throw new HttpError(409,'别名已使用，请为新版本起一个不同名称');
       const replacement=(await db.query(`INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by,replaces_credential_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,label,credential_fingerprint,replaces_credential_id`,[old.supplier_id,label,old.base_url,box.seal({key}),hash(key).slice(0,12),req.staff.subject,oldId])).rows[0];
       const newEndpoints=[];
