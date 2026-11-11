@@ -48,7 +48,7 @@ console.log(reply.choices[0].message.content, reply.usage);`;
 
  // Error codes the API returns today. Anchors are linked from error.doc_url.
  const ERRORS = [
-  ['400', 'invalid_request', '请求格式不对：不是 JSON 对象；messages 为空或超过 500 条；n 不等于 1；max_tokens 不在 1–8192；同时传了 max_tokens 和 max_completion_tokens。', '否', '不要重试。按 message 里的提示修改参数。'],
+  ['400', 'invalid_request', '请求格式不对：不是 JSON 对象；messages 为空或超过 500 条；n 不等于 1；max_tokens 不在 1–32768；同时传了 max_tokens 和 max_completion_tokens。', '否', '不要重试。按 message 里的提示修改参数。'],
   ['401', 'invalid_api_key', 'Key 写错、已停用，或者 Key 的主人已离开企业、账号被停用。', '否', '检查 Authorization 是否为 “Bearer ” 加完整 Key；到“密钥”页确认 Key 仍可用，必要时停用后重新生成。'],
   ['402', 'insufficient_quota', '公司额度不足以覆盖这次调用的预扣上限（输入长度 + max_tokens）。', '否', '调小 max_tokens 或缩短上下文；额度确实不够时，请企业管理者追加额度。'],
   ['403', 'model_not_allowed', '模型名不在开放列表里。', '否', '用 GET /v1/models 查看可用模型，确认 model 字段拼写。'],
@@ -105,7 +105,7 @@ ${note('调用失败（4xx、上游失败）不扣费。逐笔扣费明细在“
 <p>员工加入企业后自动获得公司额度，管理者可以在“员工”页调整。额度用完时接口返回 ${link('errors/insufficient_quota', '402 insufficient_quota')}。</p>` },
 
   { id: 'limits', group: '基础概念', title: '速率与用量限制', body: () => `
-${table(['限制', '数值', '超出时'], [['每把 Key 每分钟请求数', '60 次', `${link('errors/rate_limit_exceeded', '429 rate_limit_exceeded')}，Retry-After: 60`], ['每人同时进行的请求', '3 个', `${link('errors/concurrency_limit_exceeded', '429 concurrency_limit_exceeded')}，Retry-After: 5`], ['单次请求大小', '8MB', `${link('errors/request_too_large', '413 request_too_large')}`], ['单次输出 max_tokens', '1 – 8192，默认 4096', '400 invalid_request'], ['messages 条数', '最多 500 条', '400 invalid_request'], ['每人有效 Key', '5 把', '生成时提示']])}
+${table(['限制', '数值', '超出时'], [['每把 Key 每分钟请求数', '60 次', `${link('errors/rate_limit_exceeded', '429 rate_limit_exceeded')}，Retry-After: 60`], ['每人同时进行的请求', '3 个', `${link('errors/concurrency_limit_exceeded', '429 concurrency_limit_exceeded')}，Retry-After: 5`], ['单次请求大小', '8MB', `${link('errors/request_too_large', '413 request_too_large')}`], ['单次输出 max_tokens', '1 – 32768，默认 4096', '400 invalid_request'], ['messages 条数', '最多 500 条', '400 invalid_request'], ['每人有效 Key', '5 把', '生成时提示']])}
 <h2 id="rpm">RPM 与 TPM</h2>
 <p><b>RPM</b> 是每分钟请求数，<b>TPM</b> 是每分钟 Token 数。工作台显示的是最近 24 小时的平均值：24 小时总量除以 1440 分钟。平均值很平滑，所以我们同时显示<b>峰值 RPM</b>，也就是最忙的那一分钟有多少次请求。峰值接近 60 时就会被限流。</p>
 <h2 id="retry">重试建议</h2>
@@ -122,7 +122,7 @@ ${note('开启提问摘要的企业，员工在“密钥”页会看到黄色提
 <p class="doc-lead"><span class="doc-method">POST</span> <code>${esc(BASE())}/chat/completions</code></p>
 <p>与 OpenAI Chat Completions 兼容。下面列出常用参数；其他 OpenAI 标准参数（如 temperature、top_p、stop、response_format）会原样转发给模型。</p>
 <h2 id="request">请求参数</h2>
-${table(['参数', '类型', '必填', '说明'], [['model', 'string', '是', `模型 ID，见 ${link('models', '可用模型')}`], ['messages', 'array', '是', '1 – 500 条消息，每条包含 role（system / user / assistant / tool）和 content'], ['max_tokens', 'integer', '否', '最多生成多少 Token，1 – 8192，默认 4096。也可写作 max_completion_tokens，二选一'], ['stream', 'boolean', '否', 'true 时以 SSE 流式返回，最后一个数据块带 usage'], ['tools / tool_choice', 'array / object', '否', '工具调用（function calling），格式同 OpenAI'], ['temperature', 'number', '否', '采样温度，0 – 2'], ['n', 'integer', '否', '只支持 1']])}
+${table(['参数', '类型', '必填', '说明'], [['model', 'string', '是', `模型 ID，见 ${link('models', '可用模型')}`], ['messages', 'array', '是', '1 – 500 条消息，每条包含 role（system / user / assistant / tool）和 content'], ['max_tokens', 'integer', '否', '最多生成多少 Token，1 – 32768，默认 4096。也可写作 max_completion_tokens，二选一'], ['stream', 'boolean', '否', 'true 时以 SSE 流式返回，最后一个数据块带 usage'], ['tools / tool_choice', 'array / object', '否', '工具调用（function calling），格式同 OpenAI'], ['temperature', 'number', '否', '采样温度，0 – 2'], ['n', 'integer', '否', '只支持 1']])}
 <h2 id="response">响应字段</h2>
 ${table(['字段', '说明'], [['id', '本次补全的编号'], ['model', '实际处理的模型'], ['choices[].message', '模型回答；工具调用时含 tool_calls'], ['choices[].finish_reason', 'stop（正常结束）、length（达到 max_tokens）、tool_calls'], ['usage.prompt_tokens', '输入 Token'], ['usage.prompt_tokens_details.cached_tokens', '其中命中缓存的部分'], ['usage.completion_tokens', '输出 Token']])}
 <h2 id="stream">流式输出</h2>
@@ -150,11 +150,11 @@ ${note('所有 4xx 错误都不扣费。提交工单时请附上 request_id，�
   { id: 'tools', group: '接入指南', title: '接入常用工具', body: () => `
 <p class="doc-lead">在任何支持“OpenAI 兼容 / 自定义接口”的工具里，填这三项即可：接口地址 <code>${esc(BASE())}</code>、API Key、模型 ID。地址已经包含 /v1，不要再追加。</p>
 ${table(['工具', '在哪里填', '注意'], [
- ['WorkBuddy', '头像 → 系统设置 → 模型 → 添加模型，供应商选“自定义 / Custom”', '让 Agent 操作文件时打开“工具调用”；最大输出不超过 8192'],
+ ['WorkBuddy', '头像 → 系统设置 → 模型 → 添加模型，供应商选“自定义 / Custom”', '让 Agent 操作文件时打开“工具调用”；最大输出不超过 32768'],
  ['Qoder', '设置 → 模型 → 添加模型，选 OpenAI Compatible / Chat Completions API', 'Model ID 添加后不能修改'],
  ['Trae', '设置 → 模型 → 添加模型 → 自定义模型，API 格式选 OpenAI Chat Completions', '关闭“完整 URL”开关'],
  ['Cursor', 'Settings → Models → API Keys，打开 OpenAI API Key 和 Override OpenAI Base URL', '需付费方案；开启后其他 OpenAI 模型的请求也会发到这里'],
- ['Cline / Roo Code', 'VS Code 插件设置，API Provider 选 OpenAI Compatible', 'Max Output Tokens 设为不超过 8192'],
+ ['Cline / Roo Code', 'VS Code 插件设置，API Provider 选 OpenAI Compatible', 'Max Output Tokens 设为不超过 32768'],
  ['OpenCode', '写入 ~/.config/opencode/opencode.json 的 provider 配置', '不要把配置文件提交到代码仓库'],
  ['直接调用 API', `curl、Python、Node 示例见 ${link('quickstart', '快速开始')}`, '建议加 X-Semifly-Client 请求头'],
  ['自建 Agent', '选 OpenAI 兼容接口，填三项', '工具调用用 tools 参数；在请求头自报 X-Semifly-Client']])}

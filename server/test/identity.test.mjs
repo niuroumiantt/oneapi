@@ -385,7 +385,7 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  appCfg.employeeCredit.organizationId=company.id;
  assert.equal((await outsider.j.call('/api/employee-credit/status')).data.enabled,false);
  assert.equal((await outsider.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'No'}})).status,403);
- for(let i=0;i<2;i++){const s=(await staffer.j.call('/api/employee-credit/status')).data;assert.equal(s.enabled,true);assert.equal(s.max_output_tokens,8192);assert.ok(s.base_url.endsWith('/v1'));assert.equal(Number(s.available_yuan),10);assert.deepEqual(s.model_ids,['deepseek-flash','deepseek-v4-pro','glm-5.3']);assert.equal(s.models[2].input_yuan,'8');}
+ for(let i=0;i<2;i++){const s=(await staffer.j.call('/api/employee-credit/status')).data;assert.equal(s.enabled,true);assert.equal(s.max_output_tokens,32768);assert.ok(s.base_url.endsWith('/v1'));assert.equal(Number(s.available_yuan),10);assert.deepEqual(s.model_ids,['deepseek-flash','deepseek-v4-pro','glm-5.3']);assert.equal(s.models[2].input_yuan,'8');}
  assert.equal(GRANT_YUAN,'10.000000000000');
  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='employee_credit.granted' AND subject_id=$1",[staffer.user.id])).rows[0].n,1);
  const created=await staffer.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'Agent'}});assert.equal(created.status,201);assert.match(created.data.secret,/^sf_emp_/);
@@ -510,7 +510,7 @@ test('employee credit is one-time, company-only, reserved before calling and cha
      assert.equal((await ops.call('/api/staff/lab/credentials/'+standby+'/priority',{method:'POST',body:{role:'boss'}})).status,400);assert.equal((await staffer.j.call('/api/staff/lab/overview')).status,401);
      {const wb=(body)=>jar().call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+created.data.secret,'User-Agent':'WorkBuddy/1.2'},body:{model:'deepseek-flash',messages:[{role:'system',content:'secret project notes'},{role:'user',content:'private question'}],...body}});
       assert.equal((await wb({max_tokens:16,tools:[{type:'function',function:{name:'read_file',parameters:{type:'object'}}}]})).status,200);
-      assert.equal((await wb({max_tokens:32768})).status,400,'over the output cap is rejected by the gateway');
+      assert.equal((await wb({max_tokens:65536})).status,400,'over the output cap is rejected by the gateway');
       await new Promise(r=>setTimeout(r,100));
       const profiles=(await pool.query("SELECT * FROM acceptance_profiles WHERE client='WorkBuddy'")).rows;
       assert.ok(profiles.some(p=>p.features.includes('tools')&&p.shape.tool_names.includes('read_file')),'tool formats are learned from real calls');
@@ -522,7 +522,7 @@ test('employee credit is one-time, company-only, reserved before calling and cha
       const started=await ops.call('/api/staff/lab/acceptance/replay',{method:'POST',body:{model_id:'deepseek-flash'}});assert.equal(started.status,202,JSON.stringify(started.data));
       let run;for(let i=0;i<50;i++){run=(await ops.call('/api/staff/lab/acceptance')).data;if(run.run.finished_at)break;await new Promise(r=>setTimeout(r,40));}
       assert.ok(run.run.finished_at,'replay finishes');const cell=f=>run.profiles.find(p=>p.signature==='synthetic:'+f).results['deepseek-flash'];
-      assert.equal(cell('basic').status,'pass');assert.equal(cell('out_32k').status,'fail');assert.match(cell('out_32k').note,/网关拒绝/);assert.equal(cell('thinking_on').status,'partial');
+      assert.equal(cell('basic').status,'pass');assert.equal(cell('out_32k').status,'pass','32K output now passes through');assert.equal(cell('thinking_on').status,'partial');
       const detail=await ops.call('/api/staff/lab/acceptance/profiles/synthetic:basic');assert.equal(detail.status,200);assert.ok(detail.data.history.length>=1);}
      await pool.query('UPDATE supplier_lab_credentials SET disabled_at=now() WHERE id=$1',[standby]);}
 
@@ -542,7 +542,7 @@ test('employee credit is one-time, company-only, reserved before calling and cha
    assert.equal((await ops.call(`/api/staff/lab/agents/sessions/${sid}/arm`,{method:'POST',body:{feature:'tools'}})).status,200);
    assert.equal((await wb({tools:[{type:'function',function:{name:'read_file',parameters:{type:'object'}}}]})).status,200);await settle();
    assert.equal((await ops.call(`/api/staff/lab/agents/sessions/${sid}/arm`,{method:'POST',body:{feature:'out_32k'}})).status,200);
-   assert.equal((await wb({max_tokens:32768})).status,400,'gateway rejects 32K output');await settle();
+   assert.equal((await wb({max_tokens:65536})).status,400,'gateway rejects 64K output');await settle();
    assert.equal((await ops.call(`/api/staff/lab/agents/sessions/${sid}/arm`,{method:'POST',body:{feature:null}})).status,200);
    assert.equal((await wb({})).status,200);await settle();
    let v=(await ops.call('/api/staff/lab/agents?agent='+aid)).data;const a=v.agents.find(x=>x.id===aid);
@@ -921,7 +921,8 @@ test('alipay helpers cut the signed response node verbatim and parse money stric
 });
 test('GLM reasoning effort is translated to values GLM accepts',()=>{
  const send=(model,effort,extra={})=>employeeRequest({model,messages:[{role:'user',content:'hi'}],reasoning_effort:effort,...extra}).payload;
- let p=send('glm-5.3','none',{thinking:{type:'enabled',clear_thinking:false}});assert.equal(p.reasoning_effort,undefined);assert.deepEqual(p.thinking,{type:'disabled'},'none turns reasoning off');
+ let p=send('glm-5.3','none',{thinking:{type:'enabled',clear_thinking:false}});assert.equal(p.reasoning_effort,'low','none becomes the lowest level, GLM cannot stop thinking');assert.deepEqual(p.thinking,{type:'enabled',clear_thinking:false});
+ p=send('glm-5.3',undefined,{thinking:{type:'disabled'}});assert.equal(p.thinking,undefined,'thinking off is dropped for GLM');assert.equal(p.reasoning_effort,'low');
  assert.equal(send('glm-5.3','medium').reasoning_effort,'high');assert.equal(send('glm-5.3-flash','minimal').reasoning_effort,'low');assert.equal(send('glm-5.3','xhigh').reasoning_effort,'max');
  assert.equal(send('glm-5.3','low').reasoning_effort,'low');assert.equal(send('glm-5.3','weird').reasoning_effort,undefined);
  assert.equal(send('glm-5.3',undefined).thinking,undefined,'untouched when not sent');
