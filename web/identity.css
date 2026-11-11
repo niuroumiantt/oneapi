@@ -587,3 +587,4 @@ select option{font-size:14px}
 .dept-row small{color:#7d8699;font-size:11px}
 .invite-dept{display:grid;gap:6px;margin:12px 0;font-size:13px}
 .invite-dept select{padding:8px 10px;border:1px solid #d0d4df;border-radius:7px;font:inherit}
+.pc-config-fields .pc-tool-title{margin:10px 0 2px;color:#202636;font-size:13px;font-weight:700;line-height:1.4}
