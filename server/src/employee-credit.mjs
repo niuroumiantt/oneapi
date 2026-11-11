@@ -32,6 +32,17 @@ export function holdYuan(rate,{input,cached=0,output},multiplier=1){
 }
 
 /** Validates the caller's body and returns the upstream payload plus its billing bound. */
+// GLM only accepts reasoning_effort low, high or max; tools like WorkBuddy also send none, minimal and medium.
+// none means "no reasoning", so it turns reasoning off; the rest map to the nearest accepted level.
+const GLM_EFFORT={none:null,minimal:'low',low:'low',medium:'high',high:'high',xhigh:'max',max:'max'};
+export function glmEffort(payload){
+ if(payload.reasoning_effort===undefined)return payload;
+ const mapped=GLM_EFFORT[String(payload.reasoning_effort).toLowerCase()];
+ if(mapped===null){delete payload.reasoning_effort;payload.thinking={type:'disabled'};}
+ else if(mapped)payload.reasoning_effort=mapped;
+ else delete payload.reasoning_effort;
+ return payload;
+}
 export function employeeRequest(body){
  if(!body||typeof body!=='object'||Array.isArray(body))throw new HttpError(400,'请求必须是 JSON 对象');
  const model=findOfficialModel(body.model);if(!model)throw new HttpError(403,'这个模型未开放给公司额度');
@@ -43,6 +54,7 @@ export function employeeRequest(body){
  const {max_completion_tokens:_ignored,...rest}=body,stream=body.stream===true;
  const payload={...rest,model:model.upstreamModel,max_tokens:output,stream};
  if(stream)payload.stream_options={...(body.stream_options||{}),include_usage:true};
+ if(model.family==='glm')glmEffort(payload);
  // One token never encodes fewer than one UTF-8 byte of the serialized prompt.
  const input=Buffer.byteLength(JSON.stringify({messages:body.messages,tools:body.tools,functions:body.functions}));
  return {model,payload,stream,input,output};
@@ -345,7 +357,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   const count=(await pool.query("INSERT INTO request_limits(key,count,expires_at) VALUES($1,1,now()+interval '1 minute') ON CONFLICT(key) DO UPDATE SET count=CASE WHEN request_limits.expires_at<now() THEN 1 ELSE request_limits.count+1 END,expires_at=CASE WHEN request_limits.expires_at<now() THEN now()+interval '1 minute' ELSE request_limits.expires_at END RETURNING count",[hash('employee-v1|'+keyId)])).rows[0].count;
   if(count>PER_MINUTE){res.set('Retry-After','60');throw new HttpError(429,`请求过于频繁：每把 Key 每分钟最多 ${PER_MINUTE} 次`,'rate_limit_exceeded');}
  }
- const fail=(callId,code,started)=>pool.query("UPDATE employee_calls SET status='failed',error_code=$2,latency_ms=$3,finished_at=now() WHERE id=$1 AND status='pending'",[callId,code,Math.round(performance.now()-started)]);
+ const fail=(callId,code,started,detail=null)=>pool.query("UPDATE employee_calls SET status='failed',error_code=$2,latency_ms=$3,error_detail=$4,finished_at=now() WHERE id=$1 AND status='pending'",[callId,code,Math.round(performance.now()-started),detail?String(detail).slice(0,300):null]);
  /** Charges the official price as soon as usage is known; without usage the hold stays until a bill arrives. */
  async function answered(call,requestId,usage,started){
   const latency=Math.round(performance.now()-started);
@@ -397,7 +409,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
    response=await upstreamFetch(`${candidate.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify(payload),redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)])});
   }catch(error){
    if(!last&&error.name!=='TimeoutError'&&!abort.signal.aborted){console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:error.name}));continue;}
-   await fail(callId,error.name==='TimeoutError'?'UPSTREAM_TIMEOUT':'UPSTREAM_FAILED',started);
+   await fail(callId,error.name==='TimeoutError'?'UPSTREAM_TIMEOUT':'UPSTREAM_FAILED',started,String(error.cause?.code||error.cause?.message||error.message||error.name).replaceAll(upstreamKey||'\u0000','[REDACTED]'));
    throw new HttpError(502,'上游调用失败；本次未扣额度');
   }
   if(!last&&(response.status===401||response.status===403)){await response.body?.cancel().catch(()=>{});console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:'http_'+response.status}));continue;}
@@ -407,8 +419,8 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   const requestId=String(response.headers.get('x-request-id')||response.headers.get('x-oneapi-request-id')||'').slice(0,120)||null;
   if(!response.ok){
    const raw=(await response.text().catch(()=>'')).slice(0,4000);
-   await fail(callId,'UPSTREAM_HTTP_'+response.status,started);
    let message='';try{const m=JSON.parse(raw)?.error?.message;if(typeof m==='string')message=m.replaceAll(upstreamKey,'[REDACTED]').slice(0,500);}catch{}
+   await fail(callId,'UPSTREAM_HTTP_'+response.status,started,message||raw.replaceAll(upstreamKey,'[REDACTED]').slice(0,300)||null);
    throw new HttpError(response.status>=400&&response.status<500?response.status:502,`上游返回 HTTP ${response.status}${message?'：'+message:''}；本次未扣额度`);
   }
   res.set('X-Semifly-Call-Id',callId);

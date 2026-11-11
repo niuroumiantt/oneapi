@@ -35,7 +35,7 @@ export function upstreamRoutes(app, pool, cfg, requireStaff, fetchImpl = fetch) 
     FROM supplier_lab_endpoints e JOIN supplier_lab_suppliers s ON s.id=e.supplier_id JOIN supplier_lab_credentials c ON c.id=e.credential_id
     WHERE e.disabled_at IS NULL AND c.disabled_at IS NULL AND s.kind='supplier' ORDER BY s.canonical_supplier_id,e.model_id,e.created_at`),
    pool.query(`SELECT credential_id,model_id,count(*)::int AS calls,count(*) FILTER(WHERE status='failed')::int AS failed,round(avg(latency_ms) FILTER(WHERE status<>'failed'))::int AS avg_latency,
-    max(created_at) FILTER(WHERE status<>'failed') AS last_ok_at,max(created_at) FILTER(WHERE status='failed') AS last_fail_at,(array_agg(error_code ORDER BY created_at DESC) FILTER(WHERE status='failed'))[1] AS last_error
+    max(created_at) FILTER(WHERE status<>'failed') AS last_ok_at,max(created_at) FILTER(WHERE status='failed') AS last_fail_at,(array_agg(error_code||coalesce('：'||error_detail,'') ORDER BY created_at DESC) FILTER(WHERE status='failed'))[1] AS last_error
     FROM employee_calls WHERE created_at>now()-interval '24 hours' AND credential_id IS NOT NULL GROUP BY 1,2`),
    employeeRoutes(pool, cfg, { includePaused: true }),
    pool.query('SELECT model_id FROM channel_states WHERE paused')

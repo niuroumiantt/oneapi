@@ -417,7 +417,7 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  await pool.query('INSERT INTO supplier_usage_records(credential_id,request_id,model_id,occurred_at,evidence,sync_id) VALUES($1,$2,$3,now(),$4,$5)',[credential,'req-dropped','GLM-5.3',{amount:'0.000126000000',currency:'CNY'},sync]);
  const spentBefore=Number(s.spent_yuan);await settleEmployeeCalls(pool);await settleEmployeeCalls(pool);s=await status();assert.equal(Number((Number(s.spent_yuan)-spentBefore).toFixed(9)),0.000126,'charged once');assert.equal(Number(s.held_yuan),0);
  pilotFetch=async()=>new Response(JSON.stringify({error:{message:'bad fixture-kerapi-secret'}}),{status:500});
- const spent=s.spent_yuan,broken=await call();assert.equal(broken.status,502);assert.equal(JSON.stringify(broken.data).includes('fixture-kerapi-secret'),false);s=await status();assert.equal(s.spent_yuan,spent);assert.equal(Number(s.held_yuan),0,'failed call releases its hold');
+ const spent=s.spent_yuan,broken=await call();assert.equal(broken.status,502);assert.equal(JSON.stringify(broken.data).includes('fixture-kerapi-secret'),false);{const d=(await pool.query("SELECT error_detail FROM employee_calls WHERE status='failed' ORDER BY created_at DESC LIMIT 1")).rows[0].error_detail;assert.equal(d,'bad [REDACTED]','supplier message kept, key redacted');}s=await status();assert.equal(s.spent_yuan,spent);assert.equal(Number(s.held_yuan),0,'failed call releases its hold');
  // Only one of two concurrent calls fits, and the upstream is never asked for the other.
  usage={prompt_tokens:1,completion_tokens:1};pilotFetch=async()=>{await new Promise(r=>setTimeout(r,120));return reply();};
  const room=holdYuan({input:'8',cached:'2',output:'28'},{input:Buffer.byteLength(JSON.stringify({messages:glmBody.messages})),output:100},1);
@@ -802,4 +802,12 @@ test('alipay helpers cut the signed response node verbatim and parse money stric
  const {yuanToFen,fenToYuan,beijingTimestamp}=await import('../src/alipay.mjs');
  assert.equal(yuanToFen('10.00'),1000n);assert.equal(yuanToFen('10.5'),1050n);assert.equal(yuanToFen('10.001'),null);assert.equal(yuanToFen('-1'),null);assert.equal(fenToYuan(2550),'25.50');
  assert.equal(beijingTimestamp(new Date('2026-11-10T20:30:00Z')),'2026-11-11 04:30:00');
+});
+test('GLM reasoning effort is translated to values GLM accepts',()=>{
+ const send=(model,effort,extra={})=>employeeRequest({model,messages:[{role:'user',content:'hi'}],reasoning_effort:effort,...extra}).payload;
+ let p=send('glm-5.3','none',{thinking:{type:'enabled',clear_thinking:false}});assert.equal(p.reasoning_effort,undefined);assert.deepEqual(p.thinking,{type:'disabled'},'none turns reasoning off');
+ assert.equal(send('glm-5.3','medium').reasoning_effort,'high');assert.equal(send('glm-5.3-flash','minimal').reasoning_effort,'low');assert.equal(send('glm-5.3','xhigh').reasoning_effort,'max');
+ assert.equal(send('glm-5.3','low').reasoning_effort,'low');assert.equal(send('glm-5.3','weird').reasoning_effort,undefined);
+ assert.equal(send('glm-5.3',undefined).thinking,undefined,'untouched when not sent');
+ assert.equal(send('deepseek-flash','none').reasoning_effort,'none','other families pass through');
 });
