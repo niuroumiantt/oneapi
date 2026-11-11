@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import pg from 'pg';
 import { createServer } from 'node:http';
 import { randomBytes,createHash } from 'node:crypto';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateKeyPair,exportJWK,SignJWT } from 'jose';
@@ -56,6 +56,29 @@ test('verified registration creates durable personal identity and isolated organ
  assert.equal((await owner.j.call('/api/platform/me')).data.organizations[0].role,'owner');assert.equal((await other.j.call(`/api/platform/organizations/${orgA.id}`)).status,403);assert.equal((await owner.j.call('/api/staff/members')).status,401);
  {const before=(await owner.j.call('/api/platform/me')).data;assert.equal(before.personal_assets,false);const key=(await pool.query("INSERT INTO pilot_api_keys(owner_id,label,secret_hash,key_hint,model_id) VALUES($1,'personal-assets-check','personal-assets-check-hash','hint','deepseek-flash') RETURNING id",[before.user.id])).rows[0].id;assert.equal((await owner.j.call('/api/platform/me')).data.personal_assets,true);await pool.query('DELETE FROM pilot_api_keys WHERE id=$1',[key]);}
  const fresh=jar();for(const [k,v]of owner.j.cookies)fresh.cookies.set(k,v);assert.equal((await fresh.call(`/api/platform/organizations/${orgA.id}`)).data.organization.name,'Company A');
+});
+test('managers keep one department list that members and join requests must use',async()=>{
+ const boss=await user('deptboss'),joiner=await user('deptjoiner'),org=await organization(boss,'Department Co');
+ await pool.query("UPDATE memberships SET department='Legacy Team' WHERE organization_id=$1",[org.id]);
+ await pool.query(await readFile(new URL('../migrations/028_organization_departments.sql',import.meta.url),'utf8'));
+ const base=`/api/platform/organizations/${org.id}`,list=async()=>(await boss.j.call(base)).data.departments;
+ assert.deepEqual((await list()).map(d=>d.name),['Legacy Team'],'free text already in use is kept');
+ const sales=await boss.j.call(base+'/departments',{method:'POST',body:{name:' Sales '}});assert.equal(sales.status,201,JSON.stringify(sales.data));assert.equal(sales.data.name,'Sales');
+ assert.equal((await boss.j.call(base+'/departments',{method:'POST',body:{name:'sales'}})).status,409,'names are unique ignoring case');
+ const link=await joinLink(boss,org);
+ assert.deepEqual((await joiner.j.call('/api/platform/join-links/preview?token='+encodeURIComponent(link.token))).data.departments,['Legacy Team','Sales']);
+ assert.equal((await joiner.j.call('/api/platform/join-requests',{method:'POST',body:{token:link.token,department:'Marketing'}})).status,400,'unlisted department is refused');
+ await applyAndApprove(boss,org,joiner,link,'sales');
+ const joined=()=>boss.j.call(base).then(r=>r.data.members.find(m=>m.user_id===joiner.user.id));
+ assert.equal((await joined()).department,'Sales','stored with the listed spelling');
+ assert.equal((await joiner.j.call(base+'/departments',{method:'POST',body:{name:'Ops'}})).status,403,'members cannot edit the list');
+ assert.equal((await boss.j.call(`${base}/members/${(await joined()).id}`,{method:'PATCH',body:{department:'Nowhere'}})).status,400);
+ const renamed=await boss.j.call(`${base}/departments/${sales.data.id}`,{method:'PATCH',body:{name:'Sales East'}});assert.equal(renamed.status,200);assert.equal((await joined()).department,'Sales East');
+ const legacy=(await list()).find(d=>d.name==='Legacy Team');
+ const merged=await boss.j.call(`${base}/departments/${legacy.id}`,{method:'PATCH',body:{name:'sales east'}});assert.equal(merged.data.merged,true);
+ assert.deepEqual((await list()).map(d=>[d.name,d.members]),[['Sales East',2]],'merging moves every member');
+ assert.equal((await boss.j.call(`${base}/departments/${merged.data.id}`,{method:'DELETE'})).status,200);
+ assert.equal((await joined()).department,'','deleting returns members to 未分组');assert.equal((await list()).length,0);
 });
 test('real billing reads are isolated and cannot credit funds without a merchant',async()=>{
  assert.equal((await jar().call('/api/billing/personal')).status,401);
