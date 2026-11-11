@@ -417,7 +417,7 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  await pool.query('INSERT INTO supplier_usage_records(credential_id,request_id,model_id,occurred_at,evidence,sync_id) VALUES($1,$2,$3,now(),$4,$5)',[credential,'req-dropped','GLM-5.3',{amount:'0.000126000000',currency:'CNY'},sync]);
  const spentBefore=Number(s.spent_yuan);await settleEmployeeCalls(pool);await settleEmployeeCalls(pool);s=await status();assert.equal(Number((Number(s.spent_yuan)-spentBefore).toFixed(9)),0.000126,'charged once');assert.equal(Number(s.held_yuan),0);
  pilotFetch=async()=>new Response(JSON.stringify({error:{message:'bad fixture-kerapi-secret'}}),{status:500});
- const spent=s.spent_yuan,broken=await call();assert.equal(broken.status,502);assert.equal(JSON.stringify(broken.data).includes('fixture-kerapi-secret'),false);s=await status();assert.equal(s.spent_yuan,spent);assert.equal(Number(s.held_yuan),0,'failed call releases its hold');
+ const spent=s.spent_yuan,broken=await call();assert.equal(broken.status,502);assert.equal(JSON.stringify(broken.data).includes('fixture-kerapi-secret'),false);{const d=(await pool.query("SELECT error_detail FROM employee_calls WHERE status='failed' ORDER BY created_at DESC LIMIT 1")).rows[0].error_detail;assert.equal(d,'bad [REDACTED]','supplier message kept, key redacted');}s=await status();assert.equal(s.spent_yuan,spent);assert.equal(Number(s.held_yuan),0,'failed call releases its hold');
  // Only one of two concurrent calls fits, and the upstream is never asked for the other.
  usage={prompt_tokens:1,completion_tokens:1};pilotFetch=async()=>{await new Promise(r=>setTimeout(r,120));return reply();};
  const room=holdYuan({input:'8',cached:'2',output:'28'},{input:Buffer.byteLength(JSON.stringify({messages:glmBody.messages})),output:100},1);
@@ -624,15 +624,35 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
    assert.equal((await admin.call(`/api/staff/lab/suppliers/${sid}/models`,{method:'POST',body:{model_id:'up-model-a'}})).status,409);
    const second=await admin.call(`/api/staff/lab/suppliers/${sid}/keys`,{method:'POST',body:{label:'备 Key',api_key:'sk-up-bad'}});assert.equal(second.status,201);assert.equal(second.data.priority,2,'second key is standby');assert.equal(second.data.models,1,'new key covers existing models');
    assert.equal((await admin.call(`/api/staff/lab/suppliers/${sid}/keys`,{method:'POST',body:{label:'again',api_key:'sk-up-bad'}})).status,409);
+   const dup=await admin.call(`/api/staff/lab/suppliers/${sid}/keys`,{method:'POST',body:{label:'same secret other address',api_key:'sk-up-good',base_url:'https://kerapi.cn'}});assert.equal(dup.status,409,'same secret under another address is still the same key');assert.match(dup.data.error,/主 Key/);
    assert.equal((await admin.call(`/api/staff/lab/suppliers/${sid}/models`,{method:'POST',body:{model_id:'up-model-b'}})).data.keys,2,'new model reaches every key');
-   const good=await admin.call(`/api/staff/lab/credentials/${first.data.id}/check`,{method:'POST',body:{}});assert.equal(good.data.ok,true);assert.equal(checks.at(-1).body.max_tokens,1);assert.ok(checks.at(-1).url.endsWith('/chat/completions'));
-   const bad=await admin.call(`/api/staff/lab/credentials/${second.data.id}/check`,{method:'POST',body:{}});assert.equal(bad.data.ok,false);assert.equal(bad.data.http_status,401);assert.ok(!bad.data.error.includes('sk-up-bad'),'key never echoed');
+   const before=checks.length,good=await admin.call(`/api/staff/lab/credentials/${first.data.id}/check`,{method:'POST',body:{}});assert.equal(good.data.ok,true);assert.equal(good.data.passed,'2/2');assert.deepEqual(checks.slice(before).map(c=>c.body.model).sort(),['up-model-a','up-model-b'],'every model checked');assert.ok(checks.slice(before).every(c=>c.body.max_tokens===1&&c.url.endsWith('/chat/completions')));
+   const bad=await admin.call(`/api/staff/lab/credentials/${second.data.id}/check`,{method:'POST',body:{}});assert.equal(bad.data.ok,false);assert.equal(bad.data.passed,'0/2');assert.equal(bad.data.models[0].status,401);assert.ok(!JSON.stringify(bad.data).includes('sk-up-bad'),'key never echoed');
    let view=(await admin.call('/api/staff/lab/upstream')).data.suppliers.find(s=>s.id===sid);
    assert.deepEqual(view.models.map(x=>[x.model_id,x.key_count]),[['up-model-a',2],['up-model-b',2]]);assert.equal(view.primary_label,'主 Key');assert.equal(view.standby_count,1);
-   assert.equal(view.keys.find(k=>k.id===second.data.id).last_check_ok,false);assert.equal(view.keys.find(k=>k.id===first.data.id).model_count,2);
+   assert.equal(view.keys.find(k=>k.id===second.data.id).last_check_ok,false);assert.deepEqual(view.keys.find(k=>k.id===first.data.id).models,['up-model-a','up-model-b']);assert.equal(view.keys.find(k=>k.id===first.data.id).last_check_models.length,2);assert.equal(view.keys.find(k=>k.id===second.data.id).duplicate_of,null);assert.equal(view.keys.find(k=>k.id===first.data.id).model_count,2);
    assert.equal((await admin.call(`/api/staff/lab/suppliers/${sid}/models/up-model-b/disable`,{method:'POST',body:{}})).status,200);
    view=(await admin.call('/api/staff/lab/upstream')).data.suppliers.find(s=>s.id===sid);assert.deepEqual(view.models.map(x=>x.model_id),['up-model-a']);
    assert.equal((await jar().call('/api/staff/lab/upstream')).status,401);
+  }finally{pilotFetch=saved;}}
+
+ {// 评测 Key：每家官方厂商一把，只登记为参照型号；官方主机无需运维配置；换 Key 时旧的停用
+  const saved=pilotFetch,seen=[];
+  pilotFetch=async(url,options)=>{seen.push(String(url));const auth=options.headers.Authorization;
+   if(String(url).endsWith('/models'))return auth==='Bearer sk-glm-bad'?new Response('{"error":{"message":"bad"}}',{status:401}):new Response('{"error":"no list"}',{status:404});
+   return new Response(JSON.stringify({choices:[{message:{content:'p'}}],usage:{prompt_tokens:1,completion_tokens:1}}),{status:200});};
+  try{
+   let v=(await admin.call('/api/staff/lab/eval-keys')).data;assert.deepEqual(v.vendors.map(x=>x.id),['deepseek','zhipu','zai']);assert.equal(v.vendors.find(x=>x.id==='deepseek').key?.models?.[0],'deepseek-official','the key stored on the compare page shows up here');assert.ok(['zhipu','zai'].every(id=>v.vendors.find(x=>x.id===id).key===null));
+   assert.equal((await admin.call('/api/staff/lab/eval-keys',{method:'POST',body:{vendor:'nope',api_key:'x'}})).status,400);
+   assert.equal((await admin.call('/api/staff/lab/eval-keys',{method:'POST',body:{vendor:'zhipu',api_key:'sk-glm-bad'}})).status,400,'rejected key is not stored');
+   const glm=await admin.call('/api/staff/lab/eval-keys',{method:'POST',body:{vendor:'zhipu',api_key:'sk-glm-one'}});assert.equal(glm.status,201,JSON.stringify(glm.data));
+   assert.ok(glm.data.models.includes('GLM-5.3'),'falls back to suggested models when the vendor lists none');assert.ok(seen.at(-1).startsWith('https://open.bigmodel.cn/api/paas/v4/'),'official host allowed without ops config');
+   const chk=await admin.call(`/api/staff/lab/credentials/${glm.data.credential_id}/check`,{method:'POST',body:{}});assert.equal(chk.status,200);assert.equal(chk.data.ok,true,'check works on reference keys');
+   const again=await admin.call('/api/staff/lab/eval-keys',{method:'POST',body:{vendor:'zhipu',api_key:'sk-glm-two',model_ids:['GLM-5.3']}});assert.equal(again.status,201);assert.deepEqual(again.data.replaced,[glm.data.label]);
+   v=(await admin.call('/api/staff/lab/eval-keys')).data;const z=v.vendors.find(x=>x.id==='zhipu');assert.equal(z.key.id,again.data.credential_id);assert.equal(z.retired,1);assert.deepEqual(z.key.models,['GLM-5.3']);
+   assert.equal((await pool.query("SELECT count(*)::int AS n FROM supplier_lab_endpoints e JOIN supplier_lab_credentials c ON c.id=e.credential_id WHERE e.kind='reference' AND c.disabled_at IS NULL AND e.base_url LIKE 'https://open.bigmodel.cn%'")).rows[0].n,1);
+   assert.equal((await admin.call(`/api/staff/lab/eval-keys/${again.data.credential_id}/disable`,{method:'POST',body:{}})).status,200);assert.equal((await admin.call('/api/staff/lab/eval-keys')).data.vendors.find(x=>x.id==='zhipu').key,null);
+   assert.equal((await jar().call('/api/staff/lab/eval-keys')).status,401);
   }finally{pilotFetch=saved;}}
 });
 test('staff refunds go back to the payer once, hold the balance first and reverse rejections',async()=>{
@@ -802,4 +822,12 @@ test('alipay helpers cut the signed response node verbatim and parse money stric
  const {yuanToFen,fenToYuan,beijingTimestamp}=await import('../src/alipay.mjs');
  assert.equal(yuanToFen('10.00'),1000n);assert.equal(yuanToFen('10.5'),1050n);assert.equal(yuanToFen('10.001'),null);assert.equal(yuanToFen('-1'),null);assert.equal(fenToYuan(2550),'25.50');
  assert.equal(beijingTimestamp(new Date('2026-11-10T20:30:00Z')),'2026-11-11 04:30:00');
+});
+test('GLM reasoning effort is translated to values GLM accepts',()=>{
+ const send=(model,effort,extra={})=>employeeRequest({model,messages:[{role:'user',content:'hi'}],reasoning_effort:effort,...extra}).payload;
+ let p=send('glm-5.3','none',{thinking:{type:'enabled',clear_thinking:false}});assert.equal(p.reasoning_effort,undefined);assert.deepEqual(p.thinking,{type:'disabled'},'none turns reasoning off');
+ assert.equal(send('glm-5.3','medium').reasoning_effort,'high');assert.equal(send('glm-5.3-flash','minimal').reasoning_effort,'low');assert.equal(send('glm-5.3','xhigh').reasoning_effort,'max');
+ assert.equal(send('glm-5.3','low').reasoning_effort,'low');assert.equal(send('glm-5.3','weird').reasoning_effort,undefined);
+ assert.equal(send('glm-5.3',undefined).thinking,undefined,'untouched when not sent');
+ assert.equal(send('deepseek-flash','none').reasoning_effort,'none','other families pass through');
 });

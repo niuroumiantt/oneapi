@@ -3,7 +3,7 @@
  'use strict';
  const known = {
   business: ['overview', 'upstream', 'products', 'customers', 'tickets', 'suppliers', 'finance'],
-  technical: ['overview', 'keys', 'matrix', 'supplier', 'suppliers', 'credentials', 'models', 'tests', 'transactions', 'compare', 'stress', 'monitor', 'routing', 'handoff', 'releases', 'billing', 'upstream', 'servers']
+  technical: ['overview', 'keys', 'evalkeys', 'matrix', 'supplier', 'suppliers', 'credentials', 'models', 'tests', 'transactions', 'compare', 'stress', 'monitor', 'routing', 'handoff', 'releases', 'billing', 'upstream', 'servers']
  };
  const titles = { business: '商务后台', technical: '技术后台' };
  const positions = { business: 'overview', technical: 'overview' }, frames = {};
