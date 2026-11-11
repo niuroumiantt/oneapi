@@ -2,7 +2,8 @@ import test,{before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
 import { createServer } from 'node:http';
-import { randomBytes,createHash } from 'node:crypto';
+import { randomBytes,createHash,generateKeyPairSync,createSign } from 'node:crypto';
+import { signContent,responseNode } from '../src/alipay.mjs';
 import { mkdtemp, writeFile, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +14,14 @@ import { vault,hasBusiness } from '../src/core.mjs';
 import { findOfficialModel,officialPeak } from '../src/official-models.mjs';
 import { migrate } from '../src/migrate.mjs';
 import { config } from '../src/core.mjs';
+// Fake Alipay gateway: verifies our RSA2 request signature and signs responses with its own key.
+const appKeys=generateKeyPairSync('rsa',{modulusLength:2048}),alipayKeys=generateKeyPairSync('rsa',{modulusLength:2048}),alipayTrades=new Map(),alipayCalls=[];
+const pem=k=>k.export({type:k.type==='private'?'pkcs8':'spki',format:'pem'}),alipaySign=content=>createSign('RSA-SHA256').update(content).sign(alipayKeys.privateKey,'base64');
+async function fakeAlipay(_url,init){const p=Object.fromEntries(new URLSearchParams(init.body));const ok=(await import('node:crypto')).createVerify('RSA-SHA256').update(signContent(p)).verify(appKeys.publicKey,p.sign,'base64');alipayCalls.push({method:p.method,ok});const biz=JSON.parse(p.biz_content),node=p.method.replaceAll('.','_')+'_response';let data;
+ if(!ok)data={code:'40002',msg:'Invalid Arguments',sub_code:'isv.invalid-signature'};
+ else if(p.method==='alipay.trade.precreate'){alipayTrades.set(biz.out_trade_no,{status:'WAIT_BUYER_PAY',amount:biz.total_amount,trade_no:'2026'+randomBytes(8).toString('hex'),notify:p.notify_url});data={code:'10000',msg:'Success',out_trade_no:biz.out_trade_no,qr_code:'https://qr.alipay.com/bax'+randomBytes(6).toString('hex')};}
+ else{const t=alipayTrades.get(biz.out_trade_no);data=t&&t.status!=='NOT_PAID_YET'?{code:'10000',msg:'Success',out_trade_no:biz.out_trade_no,trade_no:t.trade_no,trade_status:t.status,total_amount:t.amount}:{code:'40004',msg:'Business Failed',sub_code:'ACQ.TRADE_NOT_EXIST'};}
+ const content=JSON.stringify(data);return new Response(`{"${node}":${content},"sign":"${alipaySign(content)}"}`,{headers:{'Content-Type':'application/json'}});}
 let pool,appServer,idpServer,service,origin,idpOrigin,appCfg,pilotDir,pilotFetch=fetch,identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true},revoked=false;
 const sent=[],codes=new Map(),access=new Map();let serial=1;
 const password='Local-only!Testing-1842';
@@ -39,6 +48,7 @@ before(async()=>{
  // Reserve a server port before constructing the fixed-origin authentication configuration.
  appServer=createServer();await new Promise(r=>appServer.listen(0,'127.0.0.1',r));origin='http://127.0.0.1:'+appServer.address().port;
  const cfg=config({APP_ORIGIN:origin,DATABASE_URL:databaseURL,BETTER_AUTH_SECRET:'test-only-strong-secret-932847239847293847',STAFF_OIDC_ISSUER:idpOrigin,STAFF_OIDC_CLIENT_ID:'oneapi-test-staff',STAFF_OIDC_CLIENT_SECRET:'test-client-secret',STAFF_BOOTSTRAP_SUB:'staff-owner',BANK_TRANSFER_VERIFIED:'true',BANK_TRANSFER_ACCOUNT_NAME:'Company Test',BANK_TRANSFER_BANK_NAME:'Test Bank Branch',BANK_TRANSFER_ACCOUNT_NUMBER:'0000000000000000'});
+ cfg.alipay={...cfg.alipay,enabled:true,appId:'2021000000000001',sellerId:'2088000000000001',privateKey:pem(appKeys.privateKey),publicKey:pem(alipayKeys.publicKey),allowedEmails:new Set(['nobody@example.test'])};cfg.alipayFetch=fakeAlipay;
  appCfg=cfg;cfg.pilotFetch=(...args)=>pilotFetch(...args);
  service=createApp(pool,cfg,{sendMail:async m=>{sent.push(m);return {};},verify:async()=>true});await migrate(pool,service.auth);await pool.query('TRUNCATE "user",staff_members,staff_oidc_states,mail_outbox,request_limits,"rateLimit" CASCADE');appServer.on('request',service.app);
 });
@@ -598,4 +608,63 @@ test('two workspaces share credentials, actual acceptance and fail-closed catalo
  assert.equal((await admin.call('/api/staff/members/technical-fixture/technical-access',{method:'PUT',body:{enabled:false}})).status,200);
  assert.equal((await tech.call('/api/staff/lab/config')).status,403);
  assert.equal((await jar().call('/api/staff/workspace/console')).location,'/api/staff/login?next=business');
+});
+test('alipay face-to-face recharge credits the exact amount once, only after a signed confirmation',async()=>{
+ const payer=await user('payer'),outsider=await user('outsider'),org=await organization(payer,'Payer Co');
+ const balance=async()=>(await payer.j.call('/api/billing/personal')).data;
+ const notify=async(params,signer=alipaySign)=>{const p={notify_time:'2026-11-11 10:00:00',notify_type:'trade_status_sync',notify_id:randomBytes(8).toString('hex'),app_id:appCfg.alipay.appId,seller_id:appCfg.alipay.sellerId,charset:'utf-8',version:'1.0',sign_type:'RSA2',...params};p.sign=signer(signContent(p,{skipSignType:true}));const r=await fetch(origin+'/api/payments/alipay/notify',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','x-real-ip':'198.51.100.7'},body:new URLSearchParams(p).toString()});return {status:r.status,text:await r.text()};};
+ const tradeOf=async orderId=>{const o=(await pool.query('SELECT out_trade_no FROM payment_orders WHERE id=$1',[orderId])).rows[0];return {out:o.out_trade_no,trade:alipayTrades.get(o.out_trade_no)};};
+ // Allowlist gates the channel before merchant go-live.
+ assert.deepEqual((await balance()).recharge.channels,[]);
+ assert.equal((await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:1000,idempotency_key:'k'.repeat(20)}})).status,403);
+ appCfg.alipay.allowedEmails.add(payer.email);
+ assert.deepEqual((await balance()).recharge.channels,['alipay_f2f']);assert.equal((await balance()).payments_enabled,true);
+ assert.equal((await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:499,idempotency_key:'a'.repeat(20)}})).status,400);
+ assert.equal((await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:10.5,idempotency_key:'a'.repeat(20)}})).status,400);
+ const created=await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:1000,idempotency_key:'first-order-key-0001'}});
+ assert.equal(created.status,201,JSON.stringify(created.data));assert.equal(created.data.order.status,'pending');assert.match(created.data.order.qr_svg,/^<svg/);
+ assert.ok(alipayCalls.every(c=>c.ok),'every gateway request is RSA2-signed with the app key');
+ const again=await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:1000,idempotency_key:'first-order-key-0001'}});
+ assert.equal(again.status,200);assert.equal(again.data.order.id,created.data.order.id);
+ assert.equal((await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:2000,idempotency_key:'first-order-key-0001'}})).status,409);
+ const orderId=created.data.order.id,{out,trade}=await tradeOf(orderId);
+ assert.equal(trade.amount,'10.00');assert.equal(trade.notify,origin+'/api/payments/alipay/notify');
+ assert.equal((await outsider.j.call('/api/billing/alipay-orders/'+orderId)).status,404);
+ assert.equal((await payer.j.call('/api/billing/alipay-orders/'+orderId)).data.order.status,'pending');
+ // Forged signature, wrong merchant and wrong amount never move money.
+ const forger=generateKeyPairSync('rsa',{modulusLength:2048}).privateKey;
+ assert.equal((await notify({out_trade_no:out,trade_no:trade.trade_no,trade_status:'TRADE_SUCCESS',total_amount:'10.00'},c=>createSign('RSA-SHA256').update(c).sign(forger,'base64'))).text,'failure');
+ assert.equal((await notify({out_trade_no:out,trade_no:trade.trade_no,trade_status:'TRADE_SUCCESS',total_amount:'10.00',seller_id:'2088999999999999'})).text,'failure');
+ assert.equal((await notify({out_trade_no:out,trade_no:trade.trade_no,trade_status:'TRADE_SUCCESS',total_amount:'1000.00'})).text,'failure');
+ assert.equal((await balance()).cash_balance_fen,'0');
+ // Genuine notify credits once; replays and TRADE_FINISHED are idempotent.
+ assert.deepEqual(await notify({out_trade_no:out,trade_no:trade.trade_no,trade_status:'TRADE_SUCCESS',total_amount:'10.00'}),{status:200,text:'success'});
+ assert.equal((await notify({out_trade_no:out,trade_no:trade.trade_no,trade_status:'TRADE_SUCCESS',total_amount:'10.00'})).text,'success');
+ assert.equal((await notify({out_trade_no:out,trade_no:trade.trade_no,trade_status:'TRADE_FINISHED',total_amount:'10.00'})).text,'success');
+ let view=await balance();assert.equal(view.cash_balance_fen,'1000');assert.equal(view.total_recharged_fen,'1000');assert.equal(view.entries.length,1);assert.equal(view.entries[0].kind,'recharge');
+ const paid=(await payer.j.call('/api/billing/alipay-orders/'+orderId)).data.order;assert.equal(paid.status,'paid');assert.equal(paid.qr_svg,null);
+ // A lost notify is recovered by the polling query.
+ const second=(await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:2550,idempotency_key:'second-order-key-002'}})).data.order,t2=await tradeOf(second.id);
+ t2.trade.status='TRADE_SUCCESS';
+ assert.equal((await payer.j.call('/api/billing/alipay-orders/'+second.id)).data.order.status,'paid');
+ assert.equal((await payer.j.call('/api/billing/alipay-orders/'+second.id)).data.order.status,'paid');
+ view=await balance();assert.equal(view.cash_balance_fen,'3550');assert.equal(view.entries.length,2);
+ // Closed trades close the order without money.
+ const third=(await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:800,idempotency_key:'third-order-key-0003'}})).data.order,t3=await tradeOf(third.id);
+ assert.equal((await notify({out_trade_no:t3.out,trade_no:t3.trade.trade_no,trade_status:'TRADE_CLOSED',total_amount:'8.00'})).text,'success');
+ assert.equal((await payer.j.call('/api/billing/alipay-orders/'+third.id)).data.order.status,'closed');assert.equal((await balance()).cash_balance_fen,'3550');
+ // Enterprise recharge is for managers only and lands in the enterprise account.
+ assert.equal((await outsider.j.call(`/api/billing/organizations/${org.id}/alipay-orders`,{method:'POST',body:{amount_fen:1000,idempotency_key:'org-order-key-00001'}})).status,403);
+ const orgOrder=await payer.j.call(`/api/billing/organizations/${org.id}/alipay-orders`,{method:'POST',body:{amount_fen:1000,idempotency_key:'org-order-key-00001'}});assert.equal(orgOrder.status,201);
+ const t4=await tradeOf(orgOrder.data.order.id);assert.equal((await notify({out_trade_no:t4.out,trade_no:t4.trade.trade_no,trade_status:'TRADE_SUCCESS',total_amount:'10.00'})).text,'success');
+ assert.equal((await payer.j.call(`/api/billing/organizations/${org.id}`)).data.cash_balance_fen,'1000');assert.equal((await balance()).cash_balance_fen,'3550');
+ assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='billing.recharge.alipay_paid' AND subject_id=ANY($1)",[[orderId,second.id,orgOrder.data.order.id]])).rows[0].n,3);
+});
+test('alipay helpers cut the signed response node verbatim and parse money strictly',async()=>{
+ const raw='{"alipay_trade_query_response":{"code":"10000","msg":"Success","x":"a}\\"b"},"sign":"abc"}';
+ assert.equal(responseNode(raw,'alipay.trade.query').content,'{"code":"10000","msg":"Success","x":"a}\\"b"}');
+ assert.equal(responseNode('{"error_response":{"code":"40002"},"sign":""}','alipay.trade.query').node,'error_response');
+ const {yuanToFen,fenToYuan,beijingTimestamp}=await import('../src/alipay.mjs');
+ assert.equal(yuanToFen('10.00'),1000n);assert.equal(yuanToFen('10.5'),1050n);assert.equal(yuanToFen('10.001'),null);assert.equal(yuanToFen('-1'),null);assert.equal(fenToYuan(2550),'25.50');
+ assert.equal(beijingTimestamp(new Date('2026-11-10T20:30:00Z')),'2026-11-11 04:30:00');
 });
