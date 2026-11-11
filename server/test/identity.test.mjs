@@ -722,7 +722,7 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
   const saved=pilotFetch,calls=[];
   pilotFetch=async(url,options)=>{const auth=options?.headers?.Authorization;calls.push(String(url));
    if(String(url).endsWith('/models'))return auth==='Bearer sk-up-good'?new Response(JSON.stringify({data:[{id:'up-model-a'},{id:'up-model-new'},{id:'GLM-5.3-Flash'}]}),{status:200}):auth==='Bearer sk-up-bad'?new Response('{"error":{"message":"bad key"}}',{status:401}):new Response('{"data":[]}',{status:200});
-   return auth==='Bearer sk-up-bad'?new Response('{"error":{"message":"invalid key sk-up-bad"}}',{status:401}):new Response(JSON.stringify({choices:[{message:{content:'p'}}],usage:{prompt_tokens:1,completion_tokens:1}}),{status:200});};
+   const asked=JSON.parse(options.body||'{}');return auth==='Bearer sk-up-bad'?new Response('{"error":{"message":"invalid key sk-up-bad"}}',{status:401}):new Response(JSON.stringify({choices:[{message:{content:'p'}}],usage:{prompt_tokens:1,completion_tokens:asked.model==='up-model-a'?5:1}}),{status:200});};
   try{
    const run=await admin.call('/api/staff/lab/key-watch/run',{method:'POST',body:{}});assert.equal(run.status,200,JSON.stringify(run.data));
    const sum=run.data.suppliers.find(x=>x.supplier_id===sid);assert.equal(sum.keys,3);assert.equal(sum.distinct_keys,2,'the duplicate is checked once');assert.equal(sum.upstream,3);
@@ -730,6 +730,7 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
    assert.ok(kinds.includes('auto_launched:GLM-5.3-Flash'),'catalog model the upstream now offers goes live');assert.ok(kinds.includes('needs_manual_launch:up-model-new'),'unknown model needs a manual launch');
    assert.ok(mine.some(e=>e.kind==='duplicate_key'&&e.detail.same_as==='主 Key'));assert.ok(mine.some(e=>e.kind==='key_check_failed'&&e.detail.key==='备 Key'));assert.ok(mine.some(e=>e.kind==='key_list_failed'&&e.detail.key==='备 Key'));
    assert.ok(!JSON.stringify(w).includes('sk-up-bad'),'key never echoed');
+   assert.ok(mine.some(e=>e.kind==='ignores_max_tokens'&&e.subject==='up-model-a'&&e.detail.got===5),'a 1-token check answered with 5 tokens is flagged');assert.equal((await pool.query("SELECT count(*)::int AS n FROM upstream_model_flags WHERE model_id='up-model-a' AND flag='ignores_max_tokens' AND cleared_at IS NULL")).rows[0].n,1);
    assert.equal((await pool.query("SELECT count(DISTINCT credential_id)::int AS n FROM supplier_lab_endpoints WHERE supplier_id=$1 AND model_id='GLM-5.3-Flash' AND disabled_at IS NULL",[lab])).rows[0].n,3,'auto-launched model reaches every key');
    const good2=(await pool.query("SELECT last_check_ok,last_check_model FROM supplier_lab_credentials WHERE supplier_id=$1 AND credential_fingerprint=$2",[lab,good.credential_fingerprint])).rows;assert.equal(good2.length,2);assert.ok(good2.every(r=>r.last_check_ok===true),'result written to both rows of the same secret');
    // upstream drops a model: critical event; the earlier one resolves when the run no longer sees it

@@ -9,6 +9,7 @@ import { requireTechnical } from './workspaces.mjs';
 import { FEATURES, replayBody, featuresOf, judge } from './acceptance.mjs';
 import { employeeRequest, employeeRoutes, upstreamSecret, setCaptureHook } from './employee-credit.mjs';
 import { validateLabBaseUrl } from './supplier-lab.mjs';
+import { routeFetch } from './output-guard.mjs';
 
 export const KNOWN_AGENTS = [
  { name: 'WorkBuddy' }, { name: 'Cursor' }, { name: 'Trae' }, { name: 'Qoder' }, { name: 'Cherry Studio', repo: 'CherryHQ/cherry-studio' },
@@ -72,7 +73,7 @@ export function agentRoutes(app, pool, cfg, requireStaff, upstreamFetch = fetch)
    } else {
     const shaped = employeeRequest(replayBody(profile, target.route.model.id)); stream = shaped.stream;
     const key = await upstreamSecret(target.route, cfg);
-    response = await upstreamFetch(`${target.route.baseUrl}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(shaped.payload), redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
+    response = await routeFetch(pool, upstreamFetch, target.route.model.upstreamModel, `${target.route.baseUrl}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(shaped.payload), redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
     raw = await response.text();
    }
    httpStatus = response.status;

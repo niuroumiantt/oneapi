@@ -11,6 +11,7 @@ import { requireTechnical } from './workspaces.mjs';
 import { employeeRequest, employeeRoutes, upstreamSecret } from './employee-credit.mjs';
 import { validateLabBaseUrl } from './supplier-lab.mjs';
 import { judgeItem } from './compare.mjs';
+import { routeFetch } from './output-guard.mjs';
 
 export const AGENT_TASKS = Object.freeze([
  { id: 'bugfix', name: '修一个边界 bug', prompt: '下面这个函数本应返回数组中最大的 k 个数（降序），但有个边界错误。请找出并修正，只给出修正后的完整函数和一句话说明。\n\nfunction topK(nums, k) {\n  const sorted = [...nums].sort((a, b) => b - a);\n  const out = [];\n  for (let i = 0; i <= k; i++) out.push(sorted[i]);\n  return out;\n}', rubric: '指出 i <= k 多取一个（应为 i < k）并给出正确函数；k 超过数组长度时不出现 undefined 可加分。' },
@@ -76,7 +77,7 @@ export function agentCompareGateway(app, pool, cfg, upstreamFetch = fetch) {
   const record = async (fields) => pool.query('INSERT INTO agent_compare_calls(run_id,path,task_id,key_id,model_id,upstream_model,request,content,reasoning_chars,tool_calls,usage,latency_ms,http_status,error) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',
    [key.run_id, key.path, taskId, key.id, String(body.model || '').slice(0, 120), upstreamModel, storedRequest(body), fields.content?.slice(0, MAX_STORED) || '', fields.reasoning_chars || 0, fields.tool_calls || 0, fields.usage || null, Math.round(performance.now() - started), fields.http_status ?? null, fields.error?.slice(0, 300) || null]).catch(() => {});
   let response;
-  try { response = await upstreamFetch(`${url}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + upstreamKey, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), redirect: 'error', signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) }); }
+  try { response = await (key.kind === 'ours' ? (u, i) => routeFetch(pool, upstreamFetch, upstreamModel, u, i) : upstreamFetch)(`${url}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + upstreamKey, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), redirect: 'error', signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) }); }
   catch (e) { await record({ error: '连接上游失败：' + String(e.message || e) }); throw new HttpError(502, '上游调用失败'); }
   if (!response.ok) {
    const raw = (await response.text().catch(() => '')).replaceAll(upstreamKey, '[REDACTED]').slice(0, 4000); let message = raw; try { message = JSON.parse(raw)?.error?.message || raw; } catch {}

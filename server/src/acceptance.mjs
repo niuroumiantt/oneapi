@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { HttpError, audit } from './core.mjs';
 import { requireTechnical } from './workspaces.mjs';
 import { employeeRequest, employeeRoutes, upstreamSecret } from './employee-credit.mjs';
+import { routeFetch } from './output-guard.mjs';
 
 export const FEATURES = [
  ['basic', '基础对话'], ['stream', '流式输出'], ['tools', '工具调用'], ['tool_choice', '指定工具'], ['image', '图片输入'], ['json', 'JSON 输出'],
@@ -193,7 +194,7 @@ export function acceptanceRoutes(app, pool, cfg, requireStaff, upstreamFetch = f
   try {
    const { payload, stream } = employeeRequest(replayBody(profile, route.model.id));
    const secret = await upstreamSecret(route, cfg);
-   const response = await upstreamFetch(`${route.baseUrl}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + secret, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
+   const response = await routeFetch(pool, upstreamFetch, route.model.upstreamModel, `${route.baseUrl}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + secret, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
    httpStatus = response.status;
    const raw = await response.text();
    const verdict = judge(profile.features, response.status, raw, stream);

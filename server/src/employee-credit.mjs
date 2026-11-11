@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { HttpError,hash,id,text,token,transaction,audit,vault } from './core.mjs';
 import { isManager } from './organizations.mjs';
 import { OFFICIAL_MODELS,findOfficialModel,priceMultiplier } from './official-models.mjs';
+import { routeFetch } from './output-guard.mjs';
 
 // One 10-yuan grant per employee, never topped up automatically. Usage is charged at official list prices.
 export const GRANT_YUAN='10.000000000000';
@@ -410,7 +411,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   const candidate=candidates[i],last=i===candidates.length-1;
   try{
    upstreamKey=await upstreamSecret(candidate,cfg);
-   response=await upstreamFetch(`${candidate.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify(payload),redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)])});
+   response=await routeFetch(pool,upstreamFetch,candidate.model.upstreamModel,`${candidate.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify(payload),redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)])});
   }catch(error){
    if(!last&&error.name!=='TimeoutError'&&!abort.signal.aborted){console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:error.name}));continue;}
    await fail(callId,error.name==='TimeoutError'?'UPSTREAM_TIMEOUT':'UPSTREAM_FAILED',started,String(error.cause?.code||error.cause?.message||error.message||error.name).replaceAll(upstreamKey||'\u0000','[REDACTED]'));
@@ -432,7 +433,8 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
    let result;
    try{result=await response.json();}
    catch{await answered(call,requestId,null,started);throw new HttpError(502,'上游响应格式异常','upstream_bad_response');}
-   await answered(call,requestId,usageFrom(result.usage),started);
+   // A reply the output guard cut short has no reliable usage; billing waits for the supplier's own log.
+   await answered(call,requestId,response.headers.get('x-semifly-guard-cut')?null:usageFrom(result.usage),started);
    return res.json(result);
   }
   res.status(200).set({'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache','X-Accel-Buffering':'no'});res.flushHeaders();

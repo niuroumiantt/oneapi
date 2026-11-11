@@ -7,6 +7,7 @@ import { requireTechnical } from './workspaces.mjs';
 import { FEATURES, syntheticBody, featuresOf, judge } from './acceptance.mjs';
 import { employeeRequest, employeeRoutes, upstreamSecret } from './employee-credit.mjs';
 import { validateLabBaseUrl } from './supplier-lab.mjs';
+import { routeFetch } from './output-guard.mjs';
 
 const TIMEOUT_MS = 120000, CONCURRENCY = 3, LONG = ['ctx_32k', 'ctx_128k'];
 const RANK = { pass: 2, partial: 1, fail: 0 };
@@ -86,7 +87,7 @@ export function featureCompareRoutes(app, pool, cfg, requireStaff, upstreamFetch
    if (side === 'ours') {
     const { payload, stream } = employeeRequest({ ...body, model: target.model.id });
     const key = await upstreamSecret(target, cfg);
-    const response = await upstreamFetch(`${target.baseUrl}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
+    const response = await routeFetch(pool, upstreamFetch, target.model.upstreamModel, `${target.baseUrl}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
     return { http: response.status, raw: await response.text(), stream, started };
    }
    const req = { ...body, model: target.model_id }, stream = req.stream === true; if (stream) req.stream_options = { include_usage: true };
