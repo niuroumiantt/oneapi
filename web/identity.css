@@ -668,3 +668,13 @@ td>.live-dot:first-child{margin-right:5px}
 }
 .team-bar small{white-space:nowrap}
 .mgr-overview .team-bar small{font-size:9px}
+#config-dialog.wide-dialog{width:min(1000px,94vw);box-sizing:border-box;overflow-x:hidden}
+.member-detail{grid-template-columns:minmax(0,1fr)}
+.member-detail>*,.member-detail .detail-block{min-width:0}
+.member-detail .personal-table-wrap{max-width:100%;overflow-x:auto}
+.member-detail .personal-table-wrap table{min-width:640px}
+.member-detail .detail-meter .usage-pct{flex:none}
+.member-detail .detail-head{padding-right:28px}
+.member-detail .detail-refresh{flex-basis:100%;margin-left:0}
+.member-detail .detail-actions{flex-wrap:wrap}
+.member-detail .detail-now{overflow-wrap:anywhere}
