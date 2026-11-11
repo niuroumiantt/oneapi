@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateKeyPair,exportJWK,SignJWT } from 'jose';
 import { createApp } from '../src/app.mjs';
-import { GRANT_YUAN,holdYuan,employeeRequest,usageFrom,settleEmployeeCalls } from '../src/employee-credit.mjs';
+import { GRANT_YUAN,holdYuan,employeeRequest,usageFrom,settleEmployeeCalls,callClient,callSummary } from '../src/employee-credit.mjs';
 import { vault,hasBusiness } from '../src/core.mjs';
 import { findOfficialModel,officialPeak } from '../src/official-models.mjs';
 import { migrate } from '../src/migrate.mjs';
@@ -355,6 +355,11 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  assert.equal(findOfficialModel('deepseek-v4.1-flash').id,'deepseek-flash');assert.equal(findOfficialModel('GLM-5.3').id,'glm-5.3');assert.equal(findOfficialModel('nope'),undefined);
  assert.throws(()=>employeeRequest({model:'x',messages:[{}]}),/未开放/);assert.equal(employeeRequest({model:'glm-5.3',messages:[{role:'user',content:'a'}]}).payload.model,'GLM-5.3');
  assert.deepEqual(usageFrom({prompt_tokens:10,completion_tokens:2,prompt_tokens_details:{cached_tokens:4}}),{input:10,output:2,cached:4});
+ {const h=o=>name=>o[name];assert.equal(callClient(h({'user-agent':'RooCode/3.1.0'})).client,'Roo Code');assert.equal(callClient(h({'user-agent':'OpenAI/Python 1.40.0'})).client,'Python（OpenAI SDK）');assert.equal(callClient(h({'user-agent':'curl/8.4.0'})).client,'curl');
+  assert.equal(callClient(h({'x-semifly-client':'客服机器人','user-agent':'curl/8'})).client,'客服机器人');assert.equal(callClient(h({'user-agent':'Mozilla/5.0 WorkBuddy/1.2 Electron'})).client,'WorkBuddy');assert.equal(callClient(h({})).client,'未提供');assert.equal(callClient(h({'user-agent':'zzz'})).client,'未识别');
+  const s=callSummary([{role:'system',content:'sys'},{role:'user',content:'old question'},{role:'assistant',content:'a'},{role:'user',content:[{type:'text',text:'<environment_details>private path</environment_details> 用 sk-abcdefghijklmnopqrstu 和 sf_emp_'+'x'.repeat(43)+' 调接口，联系 13812345678 或 me@corp.cn，password: hunter2，身份证 11010119900307123X，然后写周报'}]}]);
+  for(const leak of ['abcdefghij','xxxxxxxx','13812345678','me@corp.cn','hunter2','private path','11010119900307123X'])assert.equal(s.includes(leak),false,leak);
+  assert.ok(s.startsWith('用 [密钥] 和 [密钥] 调接口'),s);assert.ok(Array.from(callSummary([{role:'user',content:'字'.repeat(500)}])).length<=61);assert.equal(callSummary([{role:'user',content:'<x>only tags</x>'}]),null);}
  const boss=await user('company-boss'),staffer=await user('company-staff'),outsider=await user('company-outsider');
  const company=await organization(boss,'Company'),link=await joinLink(boss,company);await applyAndApprove(boss,company,staffer,link);
  await organization(outsider,'Self Serve Inc');
@@ -452,6 +457,20 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  assert.equal((await call()).status,401);assert.equal((await status()).enabled,false);
  assert.equal((await boss.j.call(`/api/platform/organizations/${company.id}/members/${membership.id}`,{method:'PATCH',body:{status:'active'}})).status,200);
  s=await status();assert.equal(Number(s.granted_yuan),grantedBefore+2.5,'re-activation grants nothing new');
+ {const saved=pilotFetch;pilotFetch=async()=>new Response(JSON.stringify({choices:[{message:{content:'ok'}}],usage:{prompt_tokens:5,completion_tokens:1}}),{status:200,headers:{'content-type':'application/json'}});
+    const ask=(headers,content)=>jar().call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+created.data.secret,...headers},body:{model:'deepseek-flash',max_tokens:16,messages:[{role:'system',content:'sys'},{role:'user',content}]}});
+    const last=async()=>(await pool.query('SELECT client,summary FROM employee_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 1',[staffer.user.id])).rows[0];
+    let r=await ask({'User-Agent':'RooCode/3.1'},'请帮我写周报');assert.equal(r.status,200,JSON.stringify(r.data));assert.deepEqual(await last(),{client:'Roo Code',summary:null},'summaries stay off by default');
+    assert.equal((await staffer.j.call('/api/employee-credit/team/summaries',{method:'PUT',body:{enabled:true}})).status,403,'only managers switch summaries');
+    assert.equal((await boss.j.call('/api/employee-credit/team/summaries',{method:'PUT',body:{enabled:true}})).status,200);assert.equal((await staffer.j.call('/api/employee-credit/status')).data.summaries_enabled,true,'employees are told');
+    r=await ask({'User-Agent':'OpenAI/Python 1.40','X-Semifly-Client':encodeURIComponent('周报助手')},'用 sk-abcdefghijklmnopqrstu 写周报，电话 13812345678');assert.equal(r.status,200);
+    const row=await last();assert.equal(row.client,'周报助手');assert.equal(row.summary,'用 [密钥] 写周报，电话 [手机号]');
+    const detail=await boss.j.call('/api/employee-credit/team/members/'+staffer.user.id);assert.equal(detail.status,200);assert.equal(detail.data.calls[0].summary,row.summary);assert.ok(detail.data.clients.some(c=>c.client==='Roo Code'));assert.ok(detail.data.models.some(m=>m.model_id==='deepseek-flash'));
+    assert.equal((await staffer.j.call('/api/employee-credit/team/members/'+boss.user.id)).status,403,'members cannot read colleagues');
+    assert.ok((await boss.j.call('/api/employee-credit/team')).data.keys.some(k=>k.last_client==='周报助手'));
+    assert.equal((await boss.j.call('/api/employee-credit/team/summaries',{method:'PUT',body:{enabled:false}})).status,200);
+    assert.equal((await pool.query('SELECT count(*)::int AS n FROM employee_calls WHERE summary IS NOT NULL')).rows[0].n,0,'turning off deletes summaries');
+    pilotFetch=saved;}
  assert.equal((await staffer.j.call('/api/employee-credit/keys/'+created.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call()).status,401);
  appCfg.employeeCredit.organizationId='';
 });
