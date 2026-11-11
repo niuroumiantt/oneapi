@@ -78,6 +78,7 @@
   mount(`<div class="live-auth-layout"><section class="live-auth-story"><span class="live-eyebrow">YOUR IDEAS. YOUR SPACE.</span><h1>让灵感，<br>有个落脚的地方。</h1><p>选一个喜欢的模型，<br>把“如果可以”变成“已经做到”。</p><img src="pinapi-mark.svg" alt="" aria-hidden="true"><small>semifly.ai, It's your API.</small></section><section class="live-auth-card"><span class="live-eyebrow">${recovery?'FIND YOUR WAY BACK':registration?'NICE TO MEET YOU':'WELCOME BACK'}</span><h2>${recovery?'找回你的密码':registration?'创建账号':'登录工作台'}</h2><p>${recovery?'我们会向你的注册邮箱发送重设链接。':'一个账号使用个人和企业空间；企业管理功能按权限显示。'}</p>${!recovery?`<div class="live-tabs">${btn('登录','auth-mode','data-mode="login"',!registration?'selected':'')}${btn('注册','auth-mode','data-mode="register"',registration?'selected':'')}</div>`:''}<form class="live-form" id="live-auth-form">${registration?'<label>怎么称呼你<input name="name" autocomplete="name" required maxlength="80" placeholder="你的名字"></label>':''}<label>邮箱<input name="email" type="email" autocomplete="email" required maxlength="254" placeholder="you@example.com"></label>${!recovery?`<label>密码<input name="password" type="password" autocomplete="${registration?'new-password':'current-password'}" required ${registration?'minlength="12"':''} maxlength="128" placeholder="${registration?'至少 12 个字符':'输入你的密码'}"></label>`:''}<div id="live-form-message" role="status"></div><button class="live-button primary" type="submit">${recovery?'发送重设链接':registration?'注册并验证邮箱':'登录工作台'}${ico('arrow-right')}</button></form><div class="live-auth-help">${btn(recovery?'返回登录':'忘记密码？','auth-mode',`data-mode="${recovery?'login':'recover'}"`,'quiet')}${!registration&&!recovery?btn('重发验证邮件','resend','','quiet'):''}</div><p class="live-small live-auth-status">模型调用、充值与活动权益将分阶段开放。</p></section></div>`);
  }
  const creditActive=()=>Boolean(panelOrg&&employeeCredit?.enabled&&panelOrg.organization.id===employeeCredit.organization_id);
+ let alipayPay=null,alipayTimer=null,alipayFen=10000;
  let directPicked=new Set(),directIssued=null,panelOrg=null,teamUsage=null,personalBilling=null,personalPilot=null,employeeCredit=null,employeeIssuedKey=null,employeeKeyModel=null,agentToolId='workbuddy',personalTab='overview',personalFamily='all',personalUse='all',personalSearch='',personalSelected='deepseek-flash',personalPricePeriod='offpeak';
  let personalPaneShare=62,personalPaneDrag=null;try{const saved=Number(localStorage.getItem('semifly.personal-pane-share'));if(saved>=39&&saved<=72)personalPaneShare=saved;}catch{}
  const personalMoney=value=>{if(value===null||value===undefined)return '—';const cents=BigInt(value),absolute=cents<0n?-cents:cents;return `${cents<0n?'-':''}¥${absolute/100n}.${String(absolute%100n).padStart(2,'0')}`;};
@@ -669,6 +670,32 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   mount(`<div class="supply-shell"><aside class="supply-side"><b>${ico('building-2')} 平台运营台</b><a href="#staff-account">${ico('layout-dashboard')} 员工工作台</a><a href="#ops/supply">${ico('server')} 供应商与验证</a><a class="active" href="#ops/promotions">${ico('gift')} 促销活动</a><small>内部工作空间 · ${esc(staffRoles[staff.role])}</small></aside><div class="supply-content"><div class="supply-heading"><div><span class="org-kicker">PROMOTION DESIGN</span><h1>促销活动草稿</h1><p>基于一版内部价格草稿设计折扣、推广佣金和优惠预算。活动仍不能兑换。</p></div>${write&&available.length?btn('设计活动','promotion-add','','primary'):''}</div><div class="supply-kpis"><article><small>内部草稿</small><strong>${promotionData.campaigns.length}</strong><span>尚未发布活动码</span></article><article><small>可兑换活动</small><strong>0</strong><span>兑换服务尚未开放</span></article><article><small>推广佣金</small><strong>0</strong><span>真实消费计佣尚未开放</span></article><article><small>当前收款</small><strong>关闭</strong><span>商户与资金账本待验收</span></article></div><section class="supply-panel"><div class="supply-panel-head"><div><h2>活动清单</h2><p>百分比是未来业务规则草稿，未关联公开售价或客户权益。</p></div></div><div class="supply-list">${promotionData.campaigns.length?promotionData.campaigns.map(c=>`<article><div><b>${esc(c.name)}</b><small>${esc(c.model_product_name)} · 绑定价格 ${c.price_proposal_id?'草稿 '+c.price_proposal_id.slice(0,8):'未绑定'} · 客户价 ${c.customer_price_percent}% · 推广佣金 ${c.commission_percent}% · 优惠预算 ¥${Number(c.total_discount_budget_fen)/100} · ${new Date(c.starts_at).toLocaleDateString('zh-CN')}—${new Date(c.ends_at).toLocaleDateString('zh-CN')}</small></div><span class="supply-state">未发布</span></article>`).join(''):'<div class="supply-empty">暂无活动草稿。先建立模型商品与价格草稿，再设计活动；当前没有可兑换优惠。</div>'}</div></section><p class="supply-disclaimer">草稿不能兑换，不生成促销码，也不产生佣金或资金流水。活动发布仍须核对已审批售价、供给、商户、账本和推广规则。</p></div></div>`);
   host.querySelector('.supply-side a.active')?.insertAdjacentHTML('beforebegin',`<a href="#ops/products">${ico('layers')} 模型商品设计</a><a href="#ops/payments">${ico('receipt-text')} 付费准备</a>`);
  }
+ const yuanText=fen=>{const v=BigInt(fen||0);return `¥${v/100n}.${String(v%100n).padStart(2,'0')}`;};
+ // 支付宝当面付：选金额 → 服务端下单并给出二维码 → 轮询订单，付款核验后才刷新余额。
+ function alipayPanel(scopeKey){
+  const o=alipayPay?.scope===scopeKey?alipayPay.order:null;
+  if(o?.status==='pending'&&o.qr_svg&&!o.expired)return `<div class="alipay-pay" id="alipay-pay"><div class="alipay-qr" aria-label="支付宝付款码">${o.qr_svg}</div><div class="alipay-pay-info"><span class="billing-chip">待付款</span><strong>${yuanText(o.amount_fen)}</strong><p>请用手机支付宝扫码付款。付款码 ${new Date(o.expires_at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})} 前有效。</p><p class="billing-pay-status" role="status" data-alipay-status>正在等待付款，支付后这里会自动更新，请勿重复付款。</p>${btn('我已付款，刷新状态','alipay-refresh','','')} ${btn('换个金额','alipay-reset','','')}</div></div>`;
+  const done=o?.status==='paid'?`<p class="alipay-result ok" role="status">已收到 ${yuanText(o.amount_fen)}，余额已更新。</p>`:o?`<p class="alipay-result" role="status">上一张付款码已失效，未产生扣款。可以重新生成。</p>`:'';
+  const presets=[5000,10000,50000,100000];
+  return `${done}<div class="alipay-form"><div class="alipay-presets">${presets.map(f=>`<button type="button" class="alipay-preset ${alipayFen===f?'active':''}" data-live="alipay-amount" data-fen="${f}">${yuanText(f)}</button>`).join('')}</div><label class="alipay-custom">其他金额（元）<input id="alipay-yuan" inputmode="decimal" autocomplete="off" placeholder="5.00 – 50000.00" value="${presets.includes(alipayFen)?'':(alipayFen/100).toFixed(2)}"></label>${btn(`${ico('scan-eye')} 生成支付宝付款码`,'alipay-create','','primary')}</div><p class="live-small alipay-hint">最低 ¥5.00，单笔最高 ¥50,000.00。付款成功并经支付宝签名核验后才增加余额。</p><div id="live-form-message"></div>`;
+ }
+ function alipayWatch(){
+  clearInterval(alipayTimer);alipayTimer=null;
+  if(alipayPay?.order?.status!=='pending')return;
+  let ticks=0;
+  alipayTimer=setInterval(async()=>{
+   if(!host?.querySelector('#alipay-pay')||++ticks>400){clearInterval(alipayTimer);alipayTimer=null;return;}
+   try{await alipayPoll(false);}catch{}
+  },3000);
+ }
+ async function alipayPoll(manual){
+  if(!alipayPay)return;
+  const r=await fetch('/api/billing/alipay-orders/'+encodeURIComponent(alipayPay.order.id),{credentials:'same-origin',cache:'no-store'});if(!r.ok){if(manual)throw Error('暂时无法查询订单，请稍后再试。');return;}
+  const o=(await r.json()).order;alipayPay.order=o;
+  if(o.status==='paid'){clearInterval(alipayTimer);alipayTimer=null;lastOrgBilling=null;orgLoadedAt=0;panelDataAt=0;showToast(`充值成功，已到账 ${yuanText(o.amount_fen)}。`);await route(current);return;}
+  if(o.status!=='pending'||o.expired){clearInterval(alipayTimer);alipayTimer=null;if(panelRedraw)panelRedraw();return;}
+  if(manual){const st=host?.querySelector('[data-alipay-status]');if(st)st.textContent='还未收到付款结果。支付完成后通常几秒内到账。';}
+ }
  async function billingPage(ticket,earlyBilling){
   const money=value=>{const cents=BigInt(value||0),negative=cents<0n,absolute=negative?-cents:cents;return `${negative?'-':''}¥${absolute/100n}.${String(absolute%100n).padStart(2,'0')}`;};
   const orgId=current.startsWith('billing/organization/')?current.slice('billing/organization/'.length):null;
@@ -683,9 +710,11 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
    const cell=(cls,icon,label,value)=>`<div class="${cls}">${ico(icon)}<span>${label}</span><strong>${value}</strong></div>`;
    const stats=`<div class="personal-console-stats">${cell('pc-stat-balance','server','现金余额',money(data.cash_balance_fen))}${cell('pc-stat-spent','receipt-text','累计已用',money(data.total_spent_fen))}${cell('pc-stat-calls','chart-no-axes-combined','累计充值',money(data.total_recharged_fen))}${cell('pc-stat-budget','building-2','资金账户',org?esc(name):'个人账户')}<span></span></div>`;
    const transfer=`<div class="billing-pay-head"><div><h2 class="panel-title">对公转账</h2><p class="live-small">到账并核对后才计入企业余额。</p></div><span class="billing-chip">${bank?.enabled?'收款资料已核对':'收款资料待核对'}</span></div>${bank?.enabled?`<div class="billing-bank-fields"><div><span>收款户名</span><strong>${esc(bank.account_name)}</strong></div><div><span>开户银行及支行</span><strong>${esc(bank.bank_name)}</strong></div><div><span>银行账号</span><strong class="billing-bank-number">${esc(bank.account_number)}</strong></div></div><p class="billing-transfer-note">请用企业账户付款，并在转账备注填写「${esc(name)}」及登录邮箱。保留银行电子回单；财务核对到账、付款户名和金额后入账。转账提交不等于充值成功。</p>`:'<p class="billing-transfer-pending">收款账户尚未核实。请暂勿转账；账户信息确认后会在这里显示。</p>'}`;
-   const recharge=`<div class="billing-pay-head"><div><h2 class="panel-title">充值到${org?esc(name):'个人'}账户</h2><p class="live-small">最低 ¥5.00 起；在线支付开放后，付款成功并经核验才增加余额。</p></div><span class="billing-chip">${data.payments_enabled?'选择支付方式':'在线支付待开通'}</span></div><div class="billing-methods"><div class="billing-method"><span class="billing-method-icon">${ico('scan-eye')}</span><div><b>微信支付</b><small>选择金额 → 微信扫码 → 支付后自动入账</small></div><span>${data.payments_enabled?'选择微信':'接入中'}</span></div><div class="billing-method"><span class="billing-method-icon">${ico('scan-eye')}</span><div><b>支付宝</b><small>选择金额 → 支付宝扫码 → 支付后自动入账</small></div><span>${data.payments_enabled?'选择支付宝':'接入中'}</span></div></div><p class="billing-pay-status" role="status">${data.payments_enabled?'请按当前支付渠道完成充值。':'目前没有可支付订单或收款码。商户服务开通并完成支付核验后，这里会显示每笔订单对应的付款码。'}</p>`;
+   const alipayOn=data.recharge?.channels?.includes('alipay_f2f'),scopeKey=org?'org:'+org.id:'personal';
+   const recharge=alipayOn?`<div class="billing-pay-head"><div><h2 class="panel-title">支付宝充值到${org?esc(name):'个人'}账户</h2><p class="live-small">选择金额后生成付款码，用手机支付宝扫码付款。</p></div><span class="billing-chip">支付宝当面付</span></div>${alipayPanel(scopeKey)}<p class="billing-pay-status alipay-wechat">微信支付接入中。</p>`:`<div class="billing-pay-head"><div><h2 class="panel-title">充值到${org?esc(name):'个人'}账户</h2><p class="live-small">最低 ¥5.00 起；在线支付开放后，付款成功并经核验才增加余额。</p></div><span class="billing-chip">${data.payments_enabled?'选择支付方式':'在线支付待开通'}</span></div><div class="billing-methods"><div class="billing-method"><span class="billing-method-icon">${ico('scan-eye')}</span><div><b>微信支付</b><small>选择金额 → 微信扫码 → 支付后自动入账</small></div><span>${data.payments_enabled?'选择微信':'接入中'}</span></div><div class="billing-method"><span class="billing-method-icon">${ico('scan-eye')}</span><div><b>支付宝</b><small>选择金额 → 支付宝扫码 → 支付后自动入账</small></div><span>${data.payments_enabled?'选择支付宝':'接入中'}</span></div></div><p class="billing-pay-status" role="status">${data.payments_enabled?'请按当前支付渠道完成充值。':'目前没有可支付订单或收款码。商户服务开通并完成支付核验后，这里会显示每笔订单对应的付款码。'}</p>`;
    const history=data.entries.length?`<div class="personal-table-wrap"><table><thead><tr><th>时间</th><th>事项</th><th>金额</th><th>结余</th></tr></thead><tbody>${data.entries.map(entry=>`<tr><td>${new Date(entry.created_at).toLocaleString('zh-CN')}</td><td>${{recharge:'充值',usage:'模型使用',refund:'退款',reversal:'冲正'}[entry.kind]||'资金变动'}</td><td>${BigInt(entry.amount_fen)>0n?'+':''}${money(entry.amount_fen)}</td><td>${money(entry.balance_after_fen)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="personal-model-empty">还没有真实资金记录。完成首次充值后，每笔付款和使用会列在这里。</p>';
    mount(panelPage(org,'billing',stats+panelBody(tabbedPage('billing',views,view==='history'?history:view==='transfer'?transfer:recharge))));
+   if(alipayOn&&view==='recharge'&&alipayPay?.scope===scopeKey&&!alipayTimer)alipayWatch();
   };
   panelRedraw=draw;draw();
  }
@@ -767,6 +796,20 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
    if(action==='personal-tab'){personalTab=b.dataset.tab;if(host?.querySelector('.personal-console')&&!panelRedraw&&current!=='upgrade')updatePersonalDashboard();else location.hash='personal';}
    else if(action==='page-turn'){pageViews[b.dataset.group+':page']=Number(b.dataset.page);if(panelRedraw)panelRedraw();else if(panelOrg&&lastOrg)organizationV2(lastOrg);else updatePersonalDashboard();}
    else if(action==='page-view'){pageViews[b.dataset.group]=b.dataset.pageView;const panel=host?.querySelector('[data-key-agent-panel]');if(b.dataset.group==='agent-guide'&&panel&&employeeCredit)panel.outerHTML=employeeKeyPanel(employeeCredit);else if(panelRedraw)panelRedraw();else if(panelOrg&&lastOrg)organizationV2(lastOrg);else updatePersonalDashboard();}
+   else if(action==='alipay-amount'){alipayFen=Number(b.dataset.fen);if(panelRedraw)panelRedraw();}
+   else if(action==='alipay-create'){
+    const typed=host.querySelector('#alipay-yuan')?.value.trim();
+    if(typed){const m=/^(\d{1,5})(?:\.(\d{1,2}))?$/.exec(typed);if(!m)throw Error('请输入正确金额，最多两位小数。');alipayFen=Number(m[1])*100+Number((m[2]||'').padEnd(2,'0'));}
+    if(alipayFen<500||alipayFen>5000000)throw Error('充值金额须在 ¥5.00 至 ¥50,000.00 之间。');
+    const orgId=current.startsWith('billing/organization/')?current.slice('billing/organization/'.length):null,scope=orgId?'org:'+orgId:'personal';
+    // 同一次点击重试复用幂等键，避免网络抖动生成两张付款码。
+    const key=alipayPay?.pendingKey&&alipayPay.pendingFen===alipayFen&&alipayPay.scope===scope?alipayPay.pendingKey:(crypto.randomUUID?.()||String(Date.now())+Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g,'');
+    alipayPay={scope,pendingKey:key,pendingFen:alipayFen,order:alipayPay?.scope===scope?alipayPay.order:null};
+    const r=await api(orgId?`/api/billing/organizations/${encodeURIComponent(orgId)}/alipay-orders`:'/api/billing/personal/alipay-orders',{amount_fen:alipayFen,idempotency_key:key});
+    alipayPay={scope,order:r.order};if(panelRedraw)panelRedraw();alipayWatch();
+   }
+   else if(action==='alipay-refresh'){await alipayPoll(true);}
+   else if(action==='alipay-reset'){clearInterval(alipayTimer);alipayTimer=null;alipayPay=null;if(panelRedraw)panelRedraw();}
    else if(action==='personal-family'){personalFamily=b.dataset.family;updatePersonalDashboard();}
    else if(action==='personal-model'){personalSelected=b.dataset.id;updatePersonalDashboard();}
    else if(action==='pilot-open-keys'){personalTab='keys';updatePersonalDashboard();}
