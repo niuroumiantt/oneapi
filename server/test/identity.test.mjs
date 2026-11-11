@@ -377,6 +377,8 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  const status=async()=>(await staffer.j.call('/api/employee-credit/status')).data;
  assert.deepEqual((await jar().call('/v1/models',{headers:{Authorization:'Bearer '+created.data.secret}})).data.data.map(m=>m.id),['deepseek-flash','deepseek-v4-pro','glm-5.3']);
  const first=await call({model:'GLM-5.3'});assert.equal(first.status,200,JSON.stringify(first.data));
+ {const big=await call({model:'not-offered',messages:[{role:'user',content:'x'.repeat(700*1024)}]});assert.equal(big.status,403,'a 700 KB agent request passes the body limit and reaches model checks');assert.equal(typeof big.data.error.message,'string','v1 errors use the OpenAI shape');
+  const huge=await call({messages:[{role:'user',content:'x'.repeat(9*1024*1024)}]});assert.equal(huge.status,413);assert.match(huge.data.error.message,/8MB/);}
  assert.equal(upstreamCalls[0].url,'https://kerapi.cn/v1/chat/completions');assert.equal(upstreamCalls[0].options.headers.Authorization,'Bearer fixture-kerapi-secret');assert.equal(JSON.parse(upstreamCalls[0].options.body).model,'GLM-5.3');
  let s=await status();assert.equal(Number(s.spent_yuan),0.00108,'official price charged at completion');assert.equal(s.calls_30d,1);assert.equal(s.failed_30d,0);assert.equal(Number(s.month_yuan),0.00108);assert.equal(s.daily[0].model_id,'glm-5.3');assert.equal(Number(s.held_yuan),0);assert.equal(s.recent_calls[0].model_id,'glm-5.3');assert.equal(s.recent_calls[0].settlement_source,'official_price');
  const before=Number(s.spent_yuan);
