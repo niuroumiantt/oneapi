@@ -22,7 +22,7 @@ def main():
     sha = git('rev-parse', 'HEAD').decode().strip()
     html = git('show', 'HEAD:web/index.html').decode()
     assets = {}
-    for name in ('styles.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'operations.js', 'identity.js', 'identity.css', 'home.css', 'landings.css', 'landings.js', 'operations.css', 'brand.css', 'icons.js', 'app.js', 'welcome.js', 'table-sort.js', 'docs.js', 'docs.css', 'console.js', 'console.css'):
+    for name in ('styles.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'operations.js', 'identity.js', 'identity.css', 'home.css', 'landings.css', 'landings.js', 'operations.css', 'brand.css', 'icons.js', 'app.js', 'welcome.js', 'table-sort.js', 'docs.js', 'docs.css', 'console.js', 'console.css', 'realtesting.js', 'realtesting.css'):
         content = git('show', f'HEAD:web/{name}')
         stem, extension = name.rsplit('.', 1)
         target = f'{stem}.{hashlib.sha256(content).hexdigest()[:12]}.{extension}'
