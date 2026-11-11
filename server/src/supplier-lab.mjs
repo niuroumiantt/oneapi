@@ -31,6 +31,8 @@ export function validateLabBaseUrl(raw) {
   const hosts = new Set((process.env.SUPPLIER_LAB_ALLOWED_HOSTS || 'api.deepseek.com').split(',').map(x => x.trim().toLowerCase()).filter(Boolean));
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.port || !hosts.has(url.hostname.toLowerCase())) throw new HttpError(400, 'API 地址必须是已授权的 HTTPS 主机；由运维配置允许的主机名单');
   if (!/^\/(?:[a-zA-Z0-9._~/-]*)$/.test(url.pathname) || url.pathname.includes('..')) throw new HttpError(400, 'API 路径不正确');
+  // Upstream consoles (new-api/one-api "channel" strings) give the bare origin; the OpenAI-compatible API lives under /v1.
+  if (url.pathname === '/') url.pathname = '/v1';
   return url.toString().replace(/\/$/, '');
 }
 async function readLimited(response) {
