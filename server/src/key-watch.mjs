@@ -10,10 +10,12 @@ import { requireTechnical } from './workspaces.mjs';
 import { validateLabBaseUrl } from './supplier-lab.mjs';
 import { syncSupplierModels } from './upstream.mjs';
 import { OFFICIAL_MODELS } from './official-models.mjs';
+import { IGNORES_MAX_TOKENS, forgetGuardCache } from './output-guard.mjs';
 
 export const WATCH_INTERVAL_MS = 30 * 60 * 1000;
-const LEVEL = { auto_launched: 'info', needs_manual_launch: 'warning', upstream_removed: 'critical', key_missing_model: 'critical', key_check_failed: 'critical', key_list_failed: 'warning', duplicate_key: 'warning', catalog_not_upstream: 'info' };
+const LEVEL = { ignores_max_tokens: 'warning', auto_launched: 'info', needs_manual_launch: 'warning', upstream_removed: 'critical', key_missing_model: 'critical', key_check_failed: 'critical', key_list_failed: 'warning', duplicate_key: 'warning', catalog_not_upstream: 'info' };
 const TITLE = {
+ ignores_max_tokens: e => `上游 ${e.subject} 不遵守 max_tokens（要 1 个给了 ${e.detail.got} 个），网关已代为截断`,
  auto_launched: e => `上游新增 ${e.subject}，目录里有定价，已自动上线`,
  needs_manual_launch: e => `上游新增 ${e.subject}，目录里没有定价，需要人工上线`,
  upstream_removed: e => `上游不再提供 ${e.subject}，员工调用会失败`,
@@ -57,11 +59,18 @@ export async function runKeyWatch(pool, { box, fetchImpl = fetch, mail = null, t
     try {
      const r = await fetchImpl(`${k.base_url}/chat/completions`, { method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1, stream: false }), signal: AbortSignal.timeout(30000) });
      const j = await readJson(r); const ok = r.ok;
-     return { model, ok, status: r.status, ms: Math.round(performance.now() - t0), error: ok ? null : String(j?.error?.message || `HTTP ${r.status}`).replaceAll(secret, '***').slice(0, 200) };
+     const out = j?.usage?.completion_tokens;
+     return { model, ok, status: r.status, ms: Math.round(performance.now() - t0), output_tokens: Number.isFinite(out) ? out : null, error: ok ? null : String(j?.error?.message || `HTTP ${r.status}`).replaceAll(secret, '***').slice(0, 200) };
     } catch (e) { return { model, ok: false, status: null, ms: Math.round(performance.now() - t0), error: e?.name === 'TimeoutError' ? '30 秒无响应' : '连接失败' }; }
    };
    await Promise.all(Array.from({ length: Math.min(3, pending.length) }, async () => { for (let m = pending.shift(); m; m = pending.shift()) results.push(await checkOne(m)); }));
    for (const r of results.filter(r => !r.ok)) add(s.supplier_id, 'key_check_failed', r.model, { key: k.label, credential_id: k.id, error: r.error, status: r.status });
+   // max_tokens=1 answered with more than 1 output token: the upstream ignores the limit, so the gateway's output guard takes over.
+   for (const r of results.filter(r => r.ok && r.output_tokens != null)) {
+    if (r.output_tokens > 1) { await pool.query(`INSERT INTO upstream_model_flags(model_id,flag,detail) VALUES($1,$2,$3) ON CONFLICT(model_id,flag) DO UPDATE SET last_seen=now(),detail=EXCLUDED.detail,cleared_at=NULL,since=CASE WHEN upstream_model_flags.cleared_at IS NULL THEN upstream_model_flags.since ELSE now() END`, [r.model, IGNORES_MAX_TOKENS, { asked: 1, got: r.output_tokens, key: k.label }]); add(s.supplier_id, 'ignores_max_tokens', r.model, { key: k.label, got: r.output_tokens }); }
+    else await pool.query('UPDATE upstream_model_flags SET cleared_at=now() WHERE model_id=$1 AND flag=$2 AND cleared_at IS NULL', [r.model, IGNORES_MAX_TOKENS]);
+   }
+   forgetGuardCache();
    if (results.length) {
     const ok = results.every(r => r.ok), failed = results.find(r => !r.ok);
     await pool.query('UPDATE supplier_lab_credentials SET last_check_at=now(),last_check_ok=$2,last_check_status=$3,last_check_ms=$4,last_check_error=$5,last_check_model=$6,last_check_models=$7 WHERE id=ANY($1::uuid[])',
