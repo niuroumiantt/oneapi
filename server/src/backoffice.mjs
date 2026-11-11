@@ -51,10 +51,10 @@ export function staffBackofficeRoutes(app,pool,cfg,requireStaff){
  app.post('/api/staff/lab/credentials/:credential/priority',requireStaff,async(req,res)=>{
   requireTechnical(req);const order={primary:1,standby:2,auto:100}[req.body?.role];if(!order)throw new HttpError(400,'请选择主用、备用或自动');
   const row=await transaction(pool,async db=>{
-   const target=(await db.query('UPDATE supplier_lab_credentials SET priority=$2 WHERE id=$1 AND disabled_at IS NULL RETURNING id,supplier_id,label,priority',[id(req.params.credential),order])).rows[0];
+   const target=(await db.query('UPDATE supplier_lab_credentials SET priority=$2,priority_changed_at=now() WHERE id=$1 AND disabled_at IS NULL RETURNING id,supplier_id,label,priority',[id(req.params.credential),order])).rows[0];
    if(!target)throw new HttpError(404,'有效 Key 不存在');
    // One primary per supplier: the previous primary becomes the standby.
-   if(order===1)await db.query('UPDATE supplier_lab_credentials SET priority=2 WHERE supplier_id=$1 AND id<>$2 AND priority=1',[target.supplier_id,target.id]);
+   if(order===1)await db.query('UPDATE supplier_lab_credentials SET priority=2,priority_changed_at=now() WHERE supplier_id=$1 AND id<>$2 AND priority=1',[target.supplier_id,target.id]);
    await audit(db,req.actor,'lab.credential_priority',null,target.id,{role:req.body.role,label:target.label});return target;
   });
   res.json(row);
@@ -64,7 +64,7 @@ export function staffBackofficeRoutes(app,pool,cfg,requireStaff){
   const month="date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai'",amount="CASE WHEN evidence->>'amount' ~ '^[0-9]+(\\.[0-9]+)?$' THEN (evidence->>'amount')::numeric ELSE 0 END";
   const [routes,creds,byKey,hourly,byModel,usage,paused,unpriced,revenue]=await Promise.all([
    employeeRoutes(pool,cfg,{includePaused:true}),
-   pool.query(`SELECT c.id,c.label,c.base_url,c.credential_fingerprint,c.priority,c.created_at,c.disabled_at,c.replaces_credential_id,c.rotation_completed_at,s.canonical_supplier_id AS supplier_id,coalesce(p.display_name,s.name) AS supplier_name,count(DISTINCT e.id) FILTER(WHERE e.disabled_at IS NULL)::int AS model_count,coalesce(array_agg(DISTINCT e.model_id) FILTER(WHERE e.disabled_at IS NULL),'{}') AS models FROM supplier_lab_credentials c JOIN supplier_lab_suppliers s ON s.id=c.supplier_id LEFT JOIN suppliers p ON p.id=s.canonical_supplier_id LEFT JOIN supplier_lab_endpoints e ON e.credential_id=c.id WHERE s.kind='supplier' GROUP BY c.id,s.id,p.id ORDER BY c.priority,c.created_at DESC`),
+   pool.query(`SELECT c.id,c.label,c.base_url,c.credential_fingerprint,c.priority,c.priority_changed_at,c.created_at,c.disabled_at,c.replaces_credential_id,c.rotation_completed_at,s.canonical_supplier_id AS supplier_id,coalesce(p.display_name,s.name) AS supplier_name,count(DISTINCT e.id) FILTER(WHERE e.disabled_at IS NULL)::int AS model_count,coalesce(array_agg(DISTINCT e.model_id) FILTER(WHERE e.disabled_at IS NULL),'{}') AS models FROM supplier_lab_credentials c JOIN supplier_lab_suppliers s ON s.id=c.supplier_id LEFT JOIN suppliers p ON p.id=s.canonical_supplier_id LEFT JOIN supplier_lab_endpoints e ON e.credential_id=c.id WHERE s.kind='supplier' GROUP BY c.id,s.id,p.id ORDER BY c.priority,c.created_at DESC`),
    pool.query(`SELECT credential_id,count(*)::int AS calls_24h,count(*) FILTER(WHERE status='failed')::int AS failed_24h,max(created_at) FILTER(WHERE status<>'failed') AS last_ok_at,max(created_at) FILTER(WHERE status='failed') AS last_fail_at,(array_agg(error_code ORDER BY created_at DESC) FILTER(WHERE status='failed'))[1] AS last_error FROM employee_calls WHERE created_at>now()-interval '24 hours' GROUP BY 1`),
    pool.query(`SELECT to_char(date_trunc('hour',created_at AT TIME ZONE 'Asia/Shanghai'),'YYYY-MM-DD HH24:00') AS hour,count(*)::int AS calls,count(*) FILTER(WHERE status='failed')::int AS failed FROM employee_calls WHERE created_at>now()-interval '24 hours' GROUP BY 1 ORDER BY 1`),
    pool.query(`SELECT model_id,count(*)::int AS calls,count(*) FILTER(WHERE status='failed')::int AS failed,round(avg(latency_ms) FILTER(WHERE status<>'failed'))::int AS avg_latency,max(created_at) AS last_at FROM employee_calls WHERE created_at>now()-interval '24 hours' GROUP BY 1`),

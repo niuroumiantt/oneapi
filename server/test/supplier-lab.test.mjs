@@ -16,6 +16,9 @@ test('supplier key can only be sent to explicitly allowed HTTPS hosts', () => {
   process.env.SUPPLIER_LAB_ALLOWED_HOSTS = 'api.deepseek.com,supplier.example.test';
   try {
     assert.equal(validateLabBaseUrl('https://supplier.example.test/v1/'), 'https://supplier.example.test/v1');
+    assert.equal(validateLabBaseUrl('https://supplier.example.test'), 'https://supplier.example.test/v1');
+    assert.equal(validateLabBaseUrl('https://supplier.example.test/'), 'https://supplier.example.test/v1');
+    assert.equal(validateLabBaseUrl('https://supplier.example.test/api/v3'), 'https://supplier.example.test/api/v3');
     for (const url of ['http://supplier.example.test', 'https://supplier.example.test.evil.test', 'https://supplier.example.test:8443', 'https://user:pass@supplier.example.test', 'https://supplier.example.test/v1?key=secret']) {
       assert.throws(() => validateLabBaseUrl(url));
     }
