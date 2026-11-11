@@ -8,6 +8,7 @@ import { OFFICIAL_MODELS,findOfficialModel,priceMultiplier } from './official-mo
 
 // One 10-yuan grant per employee, never topped up automatically. Usage is charged at official list prices.
 export const GRANT_YUAN='10.000000000000';
+export const MAX_BODY='8mb';
 const MAX_KEYS=5,MAX_CONCURRENT=3,PER_MINUTE=60,DEFAULT_OUTPUT=4096,MAX_OUTPUT=8192,MAX_MESSAGES=500;
 const UPSTREAM_TIMEOUT_MS=300000,STALE_PENDING='15 minutes',BILL_GRACE='24 hours';
 const KERAPI_ORIGIN='https://kerapi.cn',DEEPSEEK_BASE='https://api.deepseek.com';
@@ -233,10 +234,11 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
  });
 }
 
-/** Must be mounted before the app-wide 16 KB JSON parser; employee prompts are far larger. */
+/** Must be mounted before the app-wide 16 KB JSON parser; agent requests carry whole conversations and tool schemas. */
 export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
  const isEmployee=req=>keyPattern.test(req.get('authorization')||'');
- const parser=express.json({limit:'512kb'});
+ const json=express.json({limit:MAX_BODY});
+ const parser=(req,res,next)=>json(req,res,err=>next(err?.type==='entity.too.large'?new HttpError(413,`请求内容超过 ${MAX_BODY.toUpperCase()}，请在智能体中新开对话或压缩上下文后重试`):err));
  async function authenticate(req){
   if(!enabled(cfg))throw new HttpError(503,'公司额度尚未开放');
   const secret=keyPattern.exec(req.get('authorization'))[1];
