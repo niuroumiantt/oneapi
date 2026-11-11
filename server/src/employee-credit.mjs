@@ -43,6 +43,9 @@ export function glmEffort(payload){
  else delete payload.reasoning_effort;
  return payload;
 }
+// Agent 检测 recording: notified of every employee call (and every gateway rejection) with the key that made it.
+let captureHook=null;
+export function setCaptureHook(fn){captureHook=fn;}
 export function employeeRequest(body){
  if(!body||typeof body!=='object'||Array.isArray(body))throw new HttpError(400,'请求必须是 JSON 对象');
  const model=findOfficialModel(body.model);if(!model)throw new HttpError(403,'这个模型未开放给公司额度');
@@ -379,8 +382,9 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   const key=await authenticate(req);
   await limit(key.key_id,res);
   const origin=callClient(name=>req.get(name));
-  let shaped;try{shaped=employeeRequest(req.body);}catch(e){if(e instanceof HttpError&&e.status===400)recordProfile(pool,origin,req.body,e.message);throw e;}
+  let shaped;try{shaped=employeeRequest(req.body);}catch(e){if(e instanceof HttpError&&e.status===400){const rejected=recordProfile(pool,origin,req.body,e.message);captureHook?.(key.key_id,rejected,origin,e.message);}throw e;}
   const {model,payload,stream,input,output}=shaped,signature=recordProfile(pool,origin,req.body);
+  captureHook?.(key.key_id,signature,origin,null);
   if(key.model_ids&&!key.model_ids.includes(model.id))throw new HttpError(403,`这把 Key 只能调用：${key.model_ids.join('、')}`,'model_not_allowed');
   const route=(await employeeRoutes(pool,cfg)).find(r=>r.model.id===model.id);
   if(!route)throw new HttpError(503,'这个模型暂时不可用','model_unavailable');
