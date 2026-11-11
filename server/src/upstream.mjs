@@ -126,7 +126,7 @@ export function upstreamRoutes(app, pool, cfg, requireStaff, fetchImpl = fetch) 
   requireTechnical(req);
   if (!box) throw new HttpError(503, '验收加密服务未配置');
   const credentialId = id(req.params.id);
-  const key = (await pool.query("SELECT c.* FROM supplier_lab_credentials c JOIN supplier_lab_suppliers s ON s.id=c.supplier_id WHERE c.id=$1 AND c.disabled_at IS NULL AND s.kind='supplier'", [credentialId])).rows[0];
+  const key = (await pool.query("SELECT c.* FROM supplier_lab_credentials c JOIN supplier_lab_suppliers s ON s.id=c.supplier_id WHERE c.id=$1 AND c.disabled_at IS NULL", [credentialId])).rows[0];
   if (!key) throw new HttpError(404, 'Key 不存在或已停用');
   const models = (await pool.query('SELECT model_id FROM supplier_lab_endpoints WHERE credential_id=$1 AND disabled_at IS NULL ORDER BY model_id', [credentialId])).rows.map(r => r.model_id);
   if (!models.length) throw new HttpError(409, '这家供应商还没有型号，先在“供应商”里添加型号');

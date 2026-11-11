@@ -2,6 +2,7 @@ import {usageRoutes} from './usage-reconciliation.mjs';
 import { requireTechnical } from './workspaces.mjs';
 import { HttpError, audit, hash, id, text, transaction, vault } from './core.mjs';
 import { syncSupplierModels } from './upstream.mjs';
+import { OFFICIAL_HOSTS } from './eval-keys.mjs';
 
 export const CASES = Object.freeze([
   { id: 'arithmetic', name: '事实与计算', prompt: '请只输出 17 乘以 23 的整数结果。', expected: '严格等于 391', maxTokens: 32, grade: output => output.trim() === '391' },
@@ -29,7 +30,7 @@ export function calculateProbeCostYuan(endpoint, input, cached, output) {
 }
 export function validateLabBaseUrl(raw) {
   let url; try { url = new URL(raw); } catch { throw new HttpError(400, 'API 地址不正确'); }
-  const hosts = new Set((process.env.SUPPLIER_LAB_ALLOWED_HOSTS || 'api.deepseek.com').split(',').map(x => x.trim().toLowerCase()).filter(Boolean));
+  const hosts = new Set([...OFFICIAL_HOSTS, ...(process.env.SUPPLIER_LAB_ALLOWED_HOSTS || 'api.deepseek.com').split(',').map(x => x.trim().toLowerCase()).filter(Boolean)]);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.port || !hosts.has(url.hostname.toLowerCase())) throw new HttpError(400, 'API 地址必须是已授权的 HTTPS 主机；由运维配置允许的主机名单');
   if (!/^\/(?:[a-zA-Z0-9._~/-]*)$/.test(url.pathname) || url.pathname.includes('..')) throw new HttpError(400, 'API 路径不正确');
   // Upstream consoles (new-api/one-api "channel" strings) give the bare origin; the OpenAI-compatible API lives under /v1.

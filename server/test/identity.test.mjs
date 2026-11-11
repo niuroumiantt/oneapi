@@ -635,6 +635,25 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
    view=(await admin.call('/api/staff/lab/upstream')).data.suppliers.find(s=>s.id===sid);assert.deepEqual(view.models.map(x=>x.model_id),['up-model-a']);
    assert.equal((await jar().call('/api/staff/lab/upstream')).status,401);
   }finally{pilotFetch=saved;}}
+
+ {// 评测 Key：每家官方厂商一把，只登记为参照型号；官方主机无需运维配置；换 Key 时旧的停用
+  const saved=pilotFetch,seen=[];
+  pilotFetch=async(url,options)=>{seen.push(String(url));const auth=options.headers.Authorization;
+   if(String(url).endsWith('/models'))return auth==='Bearer sk-glm-bad'?new Response('{"error":{"message":"bad"}}',{status:401}):new Response('{"error":"no list"}',{status:404});
+   return new Response(JSON.stringify({choices:[{message:{content:'p'}}],usage:{prompt_tokens:1,completion_tokens:1}}),{status:200});};
+  try{
+   let v=(await admin.call('/api/staff/lab/eval-keys')).data;assert.deepEqual(v.vendors.map(x=>x.id),['deepseek','zhipu','zai']);assert.equal(v.vendors.find(x=>x.id==='deepseek').key?.models?.[0],'deepseek-official','the key stored on the compare page shows up here');assert.ok(['zhipu','zai'].every(id=>v.vendors.find(x=>x.id===id).key===null));
+   assert.equal((await admin.call('/api/staff/lab/eval-keys',{method:'POST',body:{vendor:'nope',api_key:'x'}})).status,400);
+   assert.equal((await admin.call('/api/staff/lab/eval-keys',{method:'POST',body:{vendor:'zhipu',api_key:'sk-glm-bad'}})).status,400,'rejected key is not stored');
+   const glm=await admin.call('/api/staff/lab/eval-keys',{method:'POST',body:{vendor:'zhipu',api_key:'sk-glm-one'}});assert.equal(glm.status,201,JSON.stringify(glm.data));
+   assert.ok(glm.data.models.includes('GLM-5.3'),'falls back to suggested models when the vendor lists none');assert.ok(seen.at(-1).startsWith('https://open.bigmodel.cn/api/paas/v4/'),'official host allowed without ops config');
+   const chk=await admin.call(`/api/staff/lab/credentials/${glm.data.credential_id}/check`,{method:'POST',body:{}});assert.equal(chk.status,200);assert.equal(chk.data.ok,true,'check works on reference keys');
+   const again=await admin.call('/api/staff/lab/eval-keys',{method:'POST',body:{vendor:'zhipu',api_key:'sk-glm-two',model_ids:['GLM-5.3']}});assert.equal(again.status,201);assert.deepEqual(again.data.replaced,[glm.data.label]);
+   v=(await admin.call('/api/staff/lab/eval-keys')).data;const z=v.vendors.find(x=>x.id==='zhipu');assert.equal(z.key.id,again.data.credential_id);assert.equal(z.retired,1);assert.deepEqual(z.key.models,['GLM-5.3']);
+   assert.equal((await pool.query("SELECT count(*)::int AS n FROM supplier_lab_endpoints e JOIN supplier_lab_credentials c ON c.id=e.credential_id WHERE e.kind='reference' AND c.disabled_at IS NULL AND e.base_url LIKE 'https://open.bigmodel.cn%'")).rows[0].n,1);
+   assert.equal((await admin.call(`/api/staff/lab/eval-keys/${again.data.credential_id}/disable`,{method:'POST',body:{}})).status,200);assert.equal((await admin.call('/api/staff/lab/eval-keys')).data.vendors.find(x=>x.id==='zhipu').key,null);
+   assert.equal((await jar().call('/api/staff/lab/eval-keys')).status,401);
+  }finally{pilotFetch=saved;}}
 });
 test('staff refunds go back to the payer once, hold the balance first and reverse rejections',async()=>{
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);

@@ -3,7 +3,8 @@
 // and staff spot checks that see the two answers without knowing which side wrote which.
 // The official key lives as a 'reference' endpoint: employee routing only uses 'supplier' endpoints on KerAPI, so it is never routed.
 import { randomInt } from 'node:crypto';
-import { HttpError, audit, hash, id, text, transaction, vault } from './core.mjs';
+import { HttpError, audit, id, text, transaction, vault } from './core.mjs';
+import { storeReferenceKey } from './eval-keys.mjs';
 import { requireTechnical } from './workspaces.mjs';
 import { validateLabBaseUrl, calculateProbeCostYuan } from './supplier-lab.mjs';
 
@@ -207,36 +208,14 @@ export function compareRoutes(app, pool, cfg, requireStaff, fetchImpl = fetch) {
   res.json({ verdict, judge: item.judge?.winner || null });
  });
 
- // Store an official key for evaluation only: an official supplier record, a reference credential, and its discovered models.
+ // Kept for older clients; the 评测 Key page is the home of official keys now.
  app.post('/api/staff/lab/compare/reference', requireStaff, async (req, res) => {
   requireTechnical(req);
   if (!box) throw new HttpError(503, '验收加密服务未配置');
-  const b = req.body || {}, vendor = text(b.vendor_name || 'DeepSeek 官方', '官方名称', 60), baseUrl = validateLabBaseUrl(b.base_url || 'https://api.deepseek.com'), key = text(b.api_key, 'API Key', 1000);
+  const b = req.body || {}, vendorName = text(b.vendor_name || 'DeepSeek 官方', '官方名称', 60), baseUrl = validateLabBaseUrl(b.base_url || 'https://api.deepseek.com'), key = text(b.api_key, 'API Key', 1000);
   if (/\s/.test(key)) throw new HttpError(400, 'API Key 不可包含空白字符');
-  const wanted = Array.isArray(b.model_ids) ? b.model_ids.map(x => text(x, '型号 ID', 120)).slice(0, 20) : [];
-  let models = wanted, discoveryError = null;
-  try {
-   const response = await fetchImpl(`${baseUrl}/models`, { headers: { Authorization: `Bearer ${key}` }, redirect: 'error', signal: AbortSignal.timeout(20000) });
-   const raw = await readBody(response, 262144);
-   if (response.status === 401 || response.status === 403) throw new HttpError(400, `官方拒绝了这把 Key（HTTP ${response.status}），请检查后重试`);
-   if (!response.ok) discoveryError = `列出型号失败：HTTP ${response.status}`;
-   else { const list = (JSON.parse(raw).data || []).map(m => m?.id).filter(x => typeof x === 'string' && x.length <= 120).slice(0, 20); models = [...new Set([...list, ...wanted])]; }
-  } catch (e) { if (e instanceof HttpError) throw e; discoveryError = '列出型号失败：' + String(e?.message || e).slice(0, 120); }
-  if (!models.length) throw new HttpError(400, (discoveryError || '官方没有返回型号') + '。请手动填写型号 ID');
-  const result = await transaction(pool, async db => {
-   await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['compare-reference:' + vendor]);
-   let supplier = (await db.query("SELECT id,display_name,legal_name FROM suppliers WHERE source_type='official' AND display_name=$1 AND status<>'blocked' ORDER BY created_at LIMIT 1", [vendor])).rows[0];
-   if (!supplier) supplier = (await db.query(`INSERT INTO suppliers(legal_name,display_name,source_type,service_type,region,contact_email,reference_url,notes,next_action,created_by,owner_subject) VALUES($1,$1,'official','model_api','中国大陆','','',$2,'',$3,$3) RETURNING id,display_name,legal_name`, [vendor, '评测专用：只作对比评测的官方参照，不给员工路由。', req.staff.subject])).rows[0];
-   await db.query(`INSERT INTO supplier_lab_suppliers(id,name,legal_name,kind,created_by,canonical_supplier_id) VALUES($1,$2,$3,'reference',$4,$1) ON CONFLICT(canonical_supplier_id) DO NOTHING`, [supplier.id, supplier.display_name, supplier.legal_name, req.staff.subject]);
-   const lab = (await db.query('SELECT id FROM supplier_lab_suppliers WHERE canonical_supplier_id=$1', [supplier.id])).rows[0];
-   const fingerprint = hash(key).slice(0, 12);
-   if ((await db.query('SELECT 1 FROM supplier_lab_credentials WHERE credential_fingerprint=$1', [fingerprint])).rowCount) throw new HttpError(409, '这把 Key 已经登记过');
-   const label = '评测专用 ' + new Date().toISOString().slice(0, 10) + ' · ' + fingerprint.slice(0, 4);
-   const credential = (await db.query('INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,label', [lab.id, label, baseUrl, box.seal({ key }), fingerprint, req.staff.subject])).rows[0];
-   for (const model of models) await db.query(`INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_ciphertext,credential_fingerprint,created_by,supplier_id,credential_id) VALUES($1,'reference',$2,$7,NULL,$3,$4,$5,$6)`, [model.slice(0, 100), baseUrl, fingerprint, req.staff.subject, lab.id, credential.id, model]);
-   await audit(db, req.actor, 'compare.reference_key_created', null, credential.id, { supplier_id: supplier.id, host: new URL(baseUrl).hostname, models: models.length, purpose: 'evaluation_only' });
-   return { credential_id: credential.id, label: credential.label, supplier_id: supplier.id };
-  });
-  res.status(201).json({ ...result, models, discovery_error: discoveryError });
+  const result = await storeReferenceKey(pool, box, fetchImpl, req.actor, req.staff.subject, { vendorName, baseUrl, key, modelIds: Array.isArray(b.model_ids) ? b.model_ids : [] });
+  res.status(201).json(result);
  });
+
 }
