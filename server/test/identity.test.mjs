@@ -559,6 +559,13 @@ test('employee credit is one-time, company-only, reserved before calling and cha
    const t=v.replays.find(r=>r.feature==='tools'&&r.target.startsWith('ours:glm-5.3:')),o=v.replays.find(r=>r.feature==='out_32k'&&r.target.startsWith('ours:glm-5.3:'));
    assert.equal(t.status,'pass');assert.equal(o.status,'fail');assert.match(o.note,/网关拒绝/);assert.equal(v.targets.models.find(m=>m.id==='glm-5.3').keys[0].role,'primary');
    assert.equal((await staffer.j.call('/api/staff/lab/agents')).status,401);
+   // formats learned from real WorkBuddy 5.9.3 traffic: offered for one-click add, imported as recordings
+   v=(await ops.call('/api/staff/lab/agents')).data;const seen=v.seen.find(x=>x.name==='WorkBuddy'&&x.version==='5.9.3');assert.ok(seen&&seen.formats>=1,'WorkBuddy 5.9.3 seen in real calls');
+   const wb593=(await ops.call('/api/staff/lab/agents',{method:'POST',body:{name:'WorkBuddy',version:'5.9.3'}})).data;
+   const im=await ops.call(`/api/staff/lab/agents/${wb593.id}/import-learned`,{method:'POST',body:{}});assert.equal(im.status,200);assert.ok(im.data.added>=1&&im.data.formats>=1);
+   const again=await ops.call(`/api/staff/lab/agents/${wb593.id}/import-learned`,{method:'POST',body:{}});assert.equal(again.data.added,0,'import is idempotent');
+   v=(await ops.call('/api/staff/lab/agents?agent='+wb593.id)).data;assert.ok(v.recordings.length>=1&&v.recordings.every(r=>r.source==='learned'));assert.ok(v.recordings.some(r=>r.feature==='tools'));assert.equal(v.agents.find(x=>x.id===wb593.id).learned_new,0);
+   assert.ok(!v.seen.some(x=>x.name==='WorkBuddy'&&x.version==='5.9.3'),'no longer offered once registered');
   }finally{pilotFetch=saved;}}
 
  {// Agent 对比：评测 Key 走网关但不计员工额度，记完整对话；按任务打标；B 路手贴；盲评两次换位；人工盲投

@@ -95,13 +95,16 @@ export function agentRoutes(app, pool, cfg, requireStaff, upstreamFetch = fetch)
     (SELECT max(r.captured_at) FROM agent_recordings r WHERE r.agent_id=a.id) AS last_recorded_at,
     (SELECT max(x.created_at) FROM agent_replays x WHERE x.agent_id=a.id) AS last_replayed_at
    FROM agents a ORDER BY a.name,a.created_at DESC`), targets()]);
-  const list = agents.rows.map(a => ({ ...a, detected_version: versionIn(a.name, a.last_detail), repo: KNOWN_AGENTS.find(k => k.name === a.name)?.repo || null }));
-  const out = { features: FEATURES.map(([fid, name]) => ({ id: fid, name, hint: FEATURE_HINTS[fid] })), known: KNOWN_AGENTS.map(k => k.name), agents: list,
+  const learned = (await pool.query(`SELECT client,client_detail,signature,seen_count FROM acceptance_profiles WHERE NOT synthetic AND client NOT IN ('未识别','未提供','未识别的工具')`)).rows.map(r => ({ ...r, version: versionIn(r.client, r.client_detail) }));
+  const imported = new Set((await pool.query('SELECT agent_id||\'|\'||signature AS k FROM agent_recordings')).rows.map(r => r.k));
+  const list = agents.rows.map(a => { const mine = learned.filter(l => l.client === a.name && (a.version === '未知' || !l.version || l.version === a.version)); return { ...a, detected_version: versionIn(a.name, a.last_detail), repo: KNOWN_AGENTS.find(k => k.name === a.name)?.repo || null, learned_formats: mine.length, learned_new: mine.filter(l => !imported.has(a.id + '|' + l.signature)).length }; });
+  const seen = Object.values(learned.reduce((m, l) => { const k = l.client + '|' + (l.version || '未知'); (m[k] ||= { name: l.client, version: l.version || '未知', formats: 0, calls: 0 }); m[k].formats++; m[k].calls += l.seen_count; return m; }, {})).filter(x => !agents.rows.some(a => a.name === x.name && a.version === x.version)).sort((a, b) => b.calls - a.calls);
+  const out = { features: FEATURES.map(([fid, name]) => ({ id: fid, name, hint: FEATURE_HINTS[fid] })), known: KNOWN_AGENTS.map(k => k.name), seen, agents: list,
    targets: { models: t.models, official: t.official.map(({ credential_ciphertext, base_url, ...o }) => o) }, run: run && { ...run } };
   if (agentId) {
    const [session, recordings, replays] = await Promise.all([
     pool.query("SELECT s.*,k.label AS key_label,k.key_hint,u.email AS owner_email FROM agent_sessions s JOIN employee_api_keys k ON k.id=s.key_id LEFT JOIN \"user\" u ON u.id=k.owner_id WHERE s.agent_id=$1 AND s.status='open' ORDER BY s.created_at DESC LIMIT 1", [agentId]),
-    pool.query(`SELECT r.id,r.feature,r.signature,r.count,r.captured_at,r.client,r.client_detail,r.rejected,r.last_error,p.features AS seen_features,p.shape->'tool_count' AS tool_count,p.shape->'params' AS params,p.shape->'total_chars' AS total_chars
+    pool.query(`SELECT r.id,r.feature,r.signature,r.count,r.captured_at,r.client,r.client_detail,r.rejected,r.last_error,r.source,p.features AS seen_features,p.shape->'tool_count' AS tool_count,p.shape->'params' AS params,p.shape->'total_chars' AS total_chars
      FROM agent_recordings r LEFT JOIN acceptance_profiles p ON p.signature=r.signature WHERE r.agent_id=$1 ORDER BY r.feature,r.captured_at DESC`, [agentId]),
     pool.query('SELECT DISTINCT ON (feature,signature,target) feature,signature,target,target_label,model_id,status,http_status,latency_ms,note,excerpt,created_at FROM agent_replays WHERE agent_id=$1 ORDER BY feature,signature,target,created_at DESC', [agentId])
    ]);
@@ -130,6 +133,22 @@ export function agentRoutes(app, pool, cfg, requireStaff, upstreamFetch = fetch)
    if (!r.ok) throw new HttpError(502, `GitHub 返回 HTTP ${r.status}`);
    const j = await r.json(); res.json({ repo, latest: String(j.tag_name || j.name || '').replace(/^v/i, ''), published_at: j.published_at || null, url: j.html_url || null });
   } catch (e) { if (e instanceof HttpError) throw e; throw new HttpError(502, '查询 GitHub 失败：' + String(e.message || e).slice(0, 120)); }
+ });
+
+// Formats the gateway already learned from real employee calls of this agent (and version) become recordings, one per feature they exercise.
+ app.post('/api/staff/lab/agents/:id/import-learned', requireStaff, async (req, res) => {
+  requireTechnical(req); const agentId = id(req.params.id);
+  const a = (await pool.query('SELECT * FROM agents WHERE id=$1', [agentId])).rows[0]; if (!a) throw new HttpError(404, '没有这个 Agent');
+  const profiles = (await pool.query('SELECT signature,client,client_detail,features,seen_count,rejected_count,last_error,last_seen FROM acceptance_profiles WHERE NOT synthetic AND client=$1', [a.name])).rows
+   .filter(p => a.version === '未知' || !versionIn(p.client, p.client_detail) || versionIn(p.client, p.client_detail) === a.version);
+  let added = 0;
+  for (const p of profiles) for (const f of p.features.filter(f => FEATURE_IDS.has(f))) {
+   const r = await pool.query(`INSERT INTO agent_recordings(agent_id,feature,signature,client,client_detail,count,rejected,last_error,captured_at,source) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'learned') ON CONFLICT(agent_id,feature,signature) DO NOTHING`,
+    [agentId, f, p.signature, p.client, p.client_detail, p.seen_count, p.rejected_count > 0, p.last_error, p.last_seen]);
+   added += r.rowCount;
+  }
+  await audit(pool, req.actor, 'agent.learned_imported', null, agentId, { formats: profiles.length, recordings: added });
+  res.json({ formats: profiles.length, added, features: [...new Set(profiles.flatMap(p => p.features))].filter(f => FEATURE_IDS.has(f)).length });
  });
 
  app.get('/api/staff/lab/agents/keys', requireStaff, async (req, res) => {
