@@ -558,11 +558,25 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
  const credential=(await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,'stress','https://kerapi.cn/v1',$2,'fp','staff-owner') RETURNING id",[supplier,vault(process.env.SUPPLIER_LAB_SECRET).seal({key:'fixture-stress'})])).rows[0].id;
  const endpoint=(await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES('stress','supplier','https://kerapi.cn/v1','stress-model','fp','staff-owner',$1,$2) RETURNING id",[supplier,credential])).rows[0].id;
  process.env.SUPPLIER_LAB_ALLOWED_HOSTS='api.deepseek.com,kerapi.cn';
- const start=body=>admin.call('/api/staff/lab/stress',{method:'POST',body:{endpoint_id:endpoint,concurrency:2,requests:4,budget_yuan:1,...body}});
- assert.equal((await start({})).status,400,'needs rates');await pool.query('UPDATE supplier_lab_endpoints SET input_yuan_per_m=1000,cached_input_yuan_per_m=1,output_yuan_per_m=1000 WHERE id=$1',[endpoint]);
- assert.equal((await start({budget_yuan:0.01})).status,400,'over budget');assert.equal((await start({concurrency:11})).status,400);
- const realFetch=globalThis.fetch;let upstreamHits=0;globalThis.fetch=(url,options)=>{if(!String(url).startsWith('https://kerapi.cn'))return realFetch(url,options);upstreamHits++;return Promise.resolve(new Response(JSON.stringify({id:'s',model:'stress-model',choices:[{message:{role:'assistant',content:'391'},finish_reason:'stop'}],usage:{prompt_tokens:10,completion_tokens:2,total_tokens:12}}),{status:200,headers:{'content-type':'application/json','x-request-id':'s'}}));};
- try{const started=await start({});assert.equal(started.status,202,JSON.stringify(started.data));let runs;for(let i=0;i<50;i++){runs=(await admin.call('/api/staff/lab/stress')).data.runs;if(runs[0].finished_at)break;await new Promise(r=>setTimeout(r,50));}assert.ok(runs[0].finished_at);assert.equal(runs[0].done,4);assert.equal(upstreamHits,4);}finally{globalThis.fetch=realFetch;}
+ {// 阶梯压测：逐档加压、流式计时、失败过多自动停
+  const saved=pilotFetch;let hits=0;
+  pilotFetch=async(url,options)=>{hits++;const body=JSON.parse(options.body);assert.equal(body.stream,true);
+   if(hits>3)return new Response('{"error":{"message":"rate limited"}}',{status:429});
+   await new Promise(r=>setTimeout(r,20));
+   return new Response('data: {"choices":[{"delta":{"content":"你"}}]}\n\ndata: {"choices":[{"delta":{"content":"好"}}]}\n\ndata: {"choices":[],"usage":{"prompt_tokens":40,"completion_tokens":20}}\n\ndata: [DONE]\n\n',{status:200,headers:{'content-type':'text/event-stream'}});};
+  try{
+   const start=body=>admin.call('/api/staff/lab/load-tests',{method:'POST',body:{endpoint_id:endpoint,profile:'short',steps:[1,2,4],rounds:1,budget_yuan:1,...body}});
+   assert.equal((await jar().call('/api/staff/lab/load-tests')).status,401);
+   assert.equal((await start({})).status,400,'needs rates');await pool.query('UPDATE supplier_lab_endpoints SET input_yuan_per_m=1,cached_input_yuan_per_m=0.1,output_yuan_per_m=4 WHERE id=$1',[endpoint]);
+   assert.equal((await start({steps:[3]})).status,400,'fixed step choices');assert.equal((await start({budget_yuan:0.000001})).status,400,'over budget');assert.equal((await start({profile:'huge'})).status,400);
+   const started=await start({});assert.equal(started.status,202,JSON.stringify(started.data));assert.equal(started.data.requests,7);
+   assert.equal((await start({})).status,409,'one load test at a time');
+   let t;for(let i=0;i<100;i++){t=(await admin.call('/api/staff/lab/load-tests')).data.tests.find(x=>x.id===started.data.test_id);if(t.status!=='running')break;await new Promise(r=>setTimeout(r,30));}
+   assert.equal(t.status,'stopped');assert.match(t.stop_reason,/并发 4 时失败 4\/4/);assert.equal(hits,7);
+   assert.equal(t.summary.stable_concurrency,2);assert.deepEqual(t.summary.steps.map(x=>x.ok),[1,2,0]);assert.equal(t.summary.steps[2].rate_limited,4);
+   assert.ok(t.summary.steps[0].ttft_p50>0&&t.summary.steps[0].throughput>0);assert.ok(Math.abs(t.summary.cost_yuan-3*(40+80)/1e6)<1e-9,'cost from real usage');
+   assert.equal((await admin.call('/api/staff/lab/load-tests/'+t.id+'/stop',{method:'POST',body:{}})).status,409);
+  }finally{pilotFetch=saved;}}
 
  {// 对比评测：官方 Key 只做评测参照；规则、换位盲评、人工盲评
   const saved=pilotFetch,chats=[];

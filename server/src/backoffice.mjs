@@ -1,12 +1,10 @@
-import { HttpError,id,text,transaction,audit,vault } from './core.mjs';
+import { HttpError,id,text,transaction,audit } from './core.mjs';
 import { requireBusiness,requireTechnical } from './workspaces.mjs';
 import { employeeRoutes } from './employee-credit.mjs';
 import { OFFICIAL_MODELS,findOfficialModel } from './official-models.mjs';
-import { CASES,runSupplierProbe,validateLabBaseUrl } from './supplier-lab.mjs';
 
 const CREDIT_CODE=/^[0-9A-Z]{18}$/;
 const TICKET_STATES=['open','in_progress','closed'];
-const STRESS_LIMITS={concurrency:10,requests:50,budget:5};
 
 export function customerBackofficeRoutes(app,pool,requireCustomer){
  app.post('/api/platform/upgrade',requireCustomer,async(req,res)=>{
@@ -29,22 +27,6 @@ export function customerBackofficeRoutes(app,pool,requireCustomer){
   if(open>=20)throw new HttpError(429,'未关闭的工单过多，请等待处理');
   res.status(201).json((await pool.query('INSERT INTO support_tickets(user_id,subject,body) VALUES($1,$2,$3) RETURNING id,subject,body,status,staff_note,created_at,updated_at',[req.customer.id,subject,body])).rows[0]);
  });
-}
-
-export function stressBudget(endpoint,prompt,maxTokens,requests){
- if(endpoint.input_yuan_per_m===null||endpoint.output_yuan_per_m===null)return null;
- const perCall=(Buffer.byteLength(prompt)*Number(endpoint.input_yuan_per_m)+maxTokens*Number(endpoint.output_yuan_per_m))*2/1000000;
- return perCall*requests;
-}
-
-async function runStress(pool,box,endpoint,caseDef,runId,concurrency,requests){
- let next=0;
- const worker=async()=>{while(next<requests){next++;await runSupplierProbe(endpoint,caseDef,box,runId,pool).catch(()=>{});}};
- try{await Promise.all(Array.from({length:concurrency},worker));}
- finally{
-  await pool.query("UPDATE supplier_lab_runs SET status='completed',finished_at=now() WHERE id=$1",[runId]).catch(()=>{});
-  await pool.query('UPDATE supplier_lab_stress_runs SET finished_at=now() WHERE run_id=$1',[runId]).catch(()=>{});
- }
 }
 
 export function staffBackofficeRoutes(app,pool,cfg,requireStaff){
@@ -147,36 +129,5 @@ export function staffBackofficeRoutes(app,pool,cfg,requireStaff){
    await audit(db,req.actor,req.body.paused?'channel.paused':'channel.resumed',null,model.id,{reason});
   });
   res.json({model_id:model.id,paused:req.body.paused});
- });
- app.get('/api/staff/lab/stress',requireStaff,async(req,res)=>{
-  requireTechnical(req);
-  const [endpoints,runs]=await Promise.all([
-   pool.query("SELECT e.id,e.label,e.model_id,e.input_yuan_per_m,e.output_yuan_per_m FROM supplier_lab_endpoints e JOIN supplier_lab_credentials c ON c.id=e.credential_id WHERE e.kind='supplier' AND e.disabled_at IS NULL AND c.disabled_at IS NULL ORDER BY e.created_at DESC LIMIT 100"),
-   pool.query(`SELECT s.run_id,s.concurrency,s.requests,s.budget_yuan,s.created_at,s.finished_at,e.model_id,count(t.id)::int AS done,count(t.id) FILTER(WHERE t.error_code IS NULL)::int AS ok,count(t.id) FILTER(WHERE t.http_status=429)::int AS rate_limited,percentile_cont(0.5) WITHIN GROUP(ORDER BY t.latency_ms) AS p50_ms,percentile_cont(0.95) WITHIN GROUP(ORDER BY t.latency_ms) AS p95_ms,coalesce(sum(t.estimated_cost_yuan),0) AS cost_yuan
-    FROM supplier_lab_stress_runs s JOIN supplier_lab_endpoints e ON e.id=s.endpoint_id LEFT JOIN supplier_lab_transactions t ON t.run_id=s.run_id GROUP BY s.run_id,e.model_id ORDER BY s.created_at DESC LIMIT 30`)]);
-  res.json({limits:STRESS_LIMITS,endpoints:endpoints.rows,runs:runs.rows});
- });
- app.post('/api/staff/lab/stress',requireStaff,async(req,res)=>{
-  requireTechnical(req);
-  if(!process.env.SUPPLIER_LAB_SECRET)throw new HttpError(503,'验收加密服务未配置');
-  const endpointId=id(req.body?.endpoint_id),concurrency=Number(req.body?.concurrency),requests=Number(req.body?.requests),budget=Number(req.body?.budget_yuan);
-  if(!Number.isInteger(concurrency)||concurrency<1||concurrency>STRESS_LIMITS.concurrency)throw new HttpError(400,`并发需在 1 至 ${STRESS_LIMITS.concurrency} 之间`);
-  if(!Number.isInteger(requests)||requests<concurrency||requests>STRESS_LIMITS.requests)throw new HttpError(400,`请求数需不少于并发且不超过 ${STRESS_LIMITS.requests}`);
-  if(!Number.isFinite(budget)||budget<=0||budget>STRESS_LIMITS.budget)throw new HttpError(400,`预算需大于 0 且不超过 ${STRESS_LIMITS.budget} 元`);
-  const endpoint=(await pool.query("SELECT e.*,c.credential_ciphertext AS active_ciphertext FROM supplier_lab_endpoints e JOIN supplier_lab_credentials c ON c.id=e.credential_id WHERE e.id=$1 AND e.kind='supplier' AND e.disabled_at IS NULL AND c.disabled_at IS NULL",[endpointId])).rows[0];
-  if(!endpoint)throw new HttpError(404,'型号不存在或已停用');
-  validateLabBaseUrl(endpoint.base_url);
-  const caseDef=CASES[0],need=stressBudget(endpoint,caseDef.prompt,caseDef.maxTokens,requests);
-  if(need===null)throw new HttpError(400,'请先登记这个型号的费率');
-  if(need>budget)throw new HttpError(400,`最高费用约 ¥${need.toFixed(4)}，超过预算`);
-  const runId=await transaction(pool,async db=>{
-   await db.query('SELECT pg_advisory_xact_lock(148921,11)');
-   if((await db.query("SELECT 1 FROM supplier_lab_stress_runs WHERE finished_at IS NULL AND created_at>now()-interval '10 minutes'")).rowCount)throw new HttpError(409,'已有压测正在运行');
-   const run=(await db.query('INSERT INTO supplier_lab_runs(supplier_endpoint_id,case_ids,created_by) VALUES($1,$2,$3) RETURNING id',[endpointId,[caseDef.id],req.staff.subject])).rows[0].id;
-   await db.query('INSERT INTO supplier_lab_stress_runs(run_id,endpoint_id,concurrency,requests,budget_yuan,created_by) VALUES($1,$2,$3,$4,$5,$6)',[run,endpointId,concurrency,requests,budget,req.staff.subject]);
-   await audit(db,req.actor,'supplier_lab.stress_started',null,run,{concurrency,requests,budget});return run;
-  });
-  void runStress(pool,vault(process.env.SUPPLIER_LAB_SECRET),endpoint,caseDef,runId,concurrency,requests);
-  res.status(202).json({run_id:runId,max_cost_yuan:need});
  });
 }
