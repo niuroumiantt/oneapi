@@ -112,13 +112,13 @@ const REFUND_REJECTED=new Set(['ACQ.TRADE_NOT_EXIST','ACQ.TRADE_STATUS_ERROR','A
 
 // Staff refunds (商务后台). The refund amount is held from the balance up front so the customer
 // cannot spend money that is on its way back to them; a definitive Alipay rejection releases it.
-export function staffPaymentRoutes(app,pool,requireStaff,requireBusiness,alipay){
+export function staffPaymentRoutes(app,pool,requireStaff,requireFinance,alipay){
  const view=async(where,params=[])=>(await pool.query(`SELECT o.id,o.out_trade_no,o.provider_trade_no,o.amount_fen::text,o.refunded_fen::text,o.status,o.created_at,o.paid_at,a.cash_balance_fen::text AS account_balance_fen,
    coalesce(g.name,u.name) AS account_name,CASE WHEN a.organization_id IS NULL THEN 'personal' ELSE 'organization' END AS account_kind,u.email AS owner_email,p.email AS payer_email,
    coalesce((SELECT json_agg(json_build_object('id',r.id,'amount_fen',r.amount_fen::text,'reason',r.reason,'status',r.status,'error_code',r.error_code,'requested_by',r.requested_by,'created_at',r.created_at,'completed_at',r.completed_at) ORDER BY r.created_at) FROM payment_refunds r WHERE r.order_id=o.id),'[]') AS refunds
   FROM payment_orders o JOIN billing_accounts a ON a.id=o.account_id LEFT JOIN organizations g ON g.id=a.organization_id LEFT JOIN "user" u ON u.id=a.owner_id JOIN "user" p ON p.id=o.created_by
   ${where} ORDER BY o.created_at DESC LIMIT 200`,params)).rows;
- app.get('/api/staff/payments/orders',requireStaff,async(req,res)=>{requireBusiness(req);res.json({enabled:Boolean(alipay),orders:await view("WHERE o.status='paid' OR o.created_at>now()-interval '7 days'")});});
+ app.get('/api/staff/payments/orders',requireStaff,async(req,res)=>{requireFinance(req);res.json({enabled:Boolean(alipay),orders:await view("WHERE o.status='paid' OR o.created_at>now()-interval '7 days'")});});
 
  // Sends (or resends — same out_request_no) the refund and settles the local record.
  async function settle(refundId){
@@ -149,7 +149,7 @@ export function staffPaymentRoutes(app,pool,requireStaff,requireBusiness,alipay)
  }
 
  app.post('/api/staff/payments/orders/:order/refunds',requireStaff,async(req,res)=>{
-  requireBusiness(req);if(!alipay)throw new HttpError(503,'支付宝未启用，无法发起原路退款');
+  requireFinance(req);if(!alipay)throw new HttpError(503,'支付宝未启用，无法发起原路退款');
   const orderId=id(req.params.order),amount=req.body?.amount_fen,reason=text(req.body?.reason,'退款原因',200),key=req.body?.idempotency_key;
   if(!Number.isSafeInteger(amount)||amount<=0)throw new HttpError(400,'退款金额不正确');
   if(typeof key!=='string'||!/^[A-Za-z0-9_-]{16,64}$/.test(key))throw new HttpError(400,'请刷新页面后重试');
@@ -174,7 +174,7 @@ export function staffPaymentRoutes(app,pool,requireStaff,requireBusiness,alipay)
   res.status(existing?200:201).json({refund_id:refundId,status,orders:await view('WHERE o.id=$1',[orderId])});
  });
  app.post('/api/staff/payments/refunds/:refund/retry',requireStaff,async(req,res)=>{
-  requireBusiness(req);if(!alipay)throw new HttpError(503,'支付宝未启用');
+  requireFinance(req);if(!alipay)throw new HttpError(503,'支付宝未启用');
   const refundId=id(req.params.refund);if(!(await pool.query('SELECT 1 FROM payment_refunds WHERE id=$1',[refundId])).rowCount)throw new HttpError(404,'退款记录不存在');
   res.json({refund_id:refundId,status:await settle(refundId)});
  });
