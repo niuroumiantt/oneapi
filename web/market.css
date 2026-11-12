@@ -48,3 +48,5 @@ body.market-active #config-dialog{background:#fffdf9;border:1px solid #e9dfd5;bo
 @media(max-width:760px){#market-view .m-model-facts{padding:0 24px 12px}#market-view .m-rate-preview-grid b{font-size:12px}.m-rate-table{font-size:10px}}
 
 #market-view .model-desc{font-size:12px;line-height:1.55;min-height:74px;color:#675e70}#market-view .m-rate-preview-grid>span{font-size:10px}#market-view .m-rate-preview-grid small{font-size:11px}#market-view .m-rate-preview>small{font-size:10px}#market-view .m-model .card-action{font-size:12px}
+#market-view .tag.tag-thinking{border-color:#d9cdea;background:#f6f1fc;color:#6f55a3;font-weight:600}#market-view .model-badge.model-badge-closed{background:#fff3e2;color:#a8650c}
+.price-example.m-cap-row>span{white-space:nowrap;margin-right:18px}.price-example.m-cap-row>b{text-align:right}
