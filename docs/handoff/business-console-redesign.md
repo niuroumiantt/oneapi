@@ -1,4 +1,4 @@
-# 商务后台重组交接（更新于 2026-11-12，机器 m5）
+# 商务后台重组交接（更新于 2026-11-12，机器 m5；已发布）
 
 ## 目标
 
@@ -13,7 +13,7 @@
 
 ## 进度
 
-已完成（分支 `claude/business-console-redesign`，基于 `origin/main` b662d20，已在本地提交，尚未推送）：
+已完成并上线（PR 48，合并提交 `2794997`）：
 
 - 迁移 `server/migrations/048_business_console.sql`：`staff_finance_access`、编码计数器与 `next_business_code()`、`suppliers.code` 与联系人、`customers`、`customer_notes`、`tax_invoices`、`supplier_payments`、`discount_grants`、工单分类与层级、`support_ticket_replies`、`support_answers`。可重复执行。
 - 后端 `server/src/business-console.mjs`：`/api/staff/business/*`（驾驶舱、损益、发票、上游付款、供应商、客户、折扣、工单与问答）和客户侧 `/api/billing/*/invoices`、`/api/support/answers`。
@@ -30,10 +30,18 @@
 - 可开票金额 = 充值入账 − 退款（含处理中）− 待开票和已开具的发票。作废、红冲、退回后金额回到额度。财务登记时可勾选“允许超出实收”（先票后款）。
 - 客户行由 `ensure_customers()` 在后台访问时补建，不挂在注册路径上。每个企业一条 E 编码，每个登录账号一条 P 编码。
 
+## 发布记录（2026-11-12）
+
+- 后端与前端均已上线源码 `27949973033342bf367e4a926476517765205a1b`，镜像 `oneapi-identity:2794997`。`/api/status`、`/release.json` 一致，新接口未登录返回 401。
+- 流程沿用既有发布方式：备份库 `/srv/oneapi-backups/oneapi-20261112T012120Z.dump` → 服务器上在旧镜像上叠新代码 → `migrate.mjs` → 切换 `oneapi-api-1` → 健康检查（失败自动还原）→ `push_static_candidate.sh` 发布静态。
+- 回滚：旧镜像 `oneapi-identity:b662d20` 与 `/srv/oneapi-runtime/pilot.override.before-2794997.yml` 保留。迁移只新增表和列，退回旧镜像后新表闲置、数据保留。不要删数据库卷。
+- 生产核对：3 家供应商得到 `S26-001`～`S26-003`；客户 9 个（企业 `E26-0001`，个人 `P26-00001`～`P26-00008`）；`staff_finance_access` 为 0 行。
+- 没有核对：登录后的商务后台页面（发布时没有员工身份可用）。
+
 ## 下一步
 
-1. 推送、开 PR、发布。发布后在生产库核对：现有 3 家供应商得到 `S26-001` 起的编码；客户编码按建档时间顺序生成。
-2. 平台管理员在“账户与权限”里给需要的人打开财务开关。
+1. 平台管理员在“账户与权限”里给需要的人打开财务开关。在此之前只有平台管理员能看到财务页；原来有商务权限的员工看不到收款与退款。
+2. 管理员登录线上商务后台，逐页看一遍（驾驶舱、损益、发票、客户、折扣、工单）。
 3. 未做、需要单独排期：对公转账入账（手工给客户加余额）、折扣接入扣费、发票 PDF 上传与邮件送达、已转技术的工单在技术后台显示、旧 `#ops/*` 预览页的清理。
 
 ## 待用户决定
