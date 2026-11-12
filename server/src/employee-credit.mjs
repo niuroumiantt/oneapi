@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import { HttpError,hash,id,text,token,transaction,audit,vault } from './core.mjs';
 import { isManager } from './organizations.mjs';
-import { OFFICIAL_MODELS,findOfficialModel,priceMultiplier } from './official-models.mjs';
+import { OFFICIAL_MODELS,findOfficialModel,priceMultiplier,capabilityTags,publicCapabilities } from './official-models.mjs';
 import { routeFetch } from './output-guard.mjs';
 
 // One 10-yuan grant per employee, never topped up automatically. Usage is charged at official list prices.
@@ -149,7 +149,7 @@ export async function upstreamSecret(route,cfg){
  return secret;
 }
 
-const publicModel=({id,name,family,tags,uses,rates,peakPricing})=>({id,name,family,tags,uses,input_yuan:rates.input,cached_yuan:rates.cached,output_yuan:rates.output,peak_multiplier:peakPricing?2:1});
+const publicModel=model=>{const {id,name,family,tags,uses,rates,peakPricing}=model;return {id,name,family,tags,uses,capability_tags:capabilityTags(model),capabilities:publicCapabilities(model,MAX_OUTPUT),input_yuan:rates.input,cached_yuan:rates.cached,output_yuan:rates.output,peak_multiplier:peakPricing?2:1};};
 
 async function activeMember(db,cfg,userId){
  return (await db.query("SELECT o.id,o.name FROM memberships m JOIN organizations o ON o.id=m.organization_id WHERE m.organization_id=$1 AND m.user_id=$2 AND m.status='active'",[cfg.employeeCredit.organizationId,userId])).rows[0];
@@ -183,6 +183,12 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
   if(!m||!isManager(m.role))throw new HttpError(403,'仅企业管理者可以操作');
   return org;
  };
+ // Public, for the 模型广场: which catalog models can be called right now. No keys, prices or routes.
+ const open={at:0,ids:[]};
+ app.get('/api/public/models',async(req,res)=>{
+  if(Date.now()-open.at>60000){open.ids=(await employeeRoutes(pool,cfg)).map(r=>r.model.id);open.at=Date.now();}
+  res.set('Cache-Control','public, max-age=60').json({models:OFFICIAL_MODELS.map(m=>({id:m.id,available:open.ids.includes(m.id)}))});
+ });
  const companyCalls="employee_calls c JOIN employee_credit_accounts a ON a.user_id=c.owner_id AND a.organization_id=$1";
  // Usage metadata only: prompts and answers are never stored or returned.
  app.get('/api/employee-credit/team',requireCustomer,async(req,res)=>{
@@ -388,7 +394,9 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
  }
  app.get('/v1/models',(req,res,next)=>isEmployee(req)?next():next('route'),async(req,res)=>{
   const key=await authenticate(req);
-  res.json({object:'list',data:(await employeeRoutes(pool,cfg)).filter(r=>!key.model_ids||key.model_ids.includes(r.model.id)).map(r=>({id:r.model.id,object:'model',owned_by:'semifly'}))});
+  res.json({object:'list',data:(await employeeRoutes(pool,cfg)).filter(r=>!key.model_ids||key.model_ids.includes(r.model.id))
+   // name, tags and capabilities are our additions; OpenAI clients ignore fields they do not know.
+   .map(r=>({id:r.model.id,object:'model',owned_by:'semifly',name:r.model.name,tags:capabilityTags(r.model),capabilities:publicCapabilities(r.model,MAX_OUTPUT)}))});
  });
  app.post('/v1/chat/completions',(req,res,next)=>isEmployee(req)?parser(req,res,next):next('route'),async(req,res)=>{
   const key=await authenticate(req);

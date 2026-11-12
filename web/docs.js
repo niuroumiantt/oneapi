@@ -7,7 +7,8 @@
  const note = (text, kind = 'info') => `<div class="doc-note ${kind}">${text}</div>`;
  const table = (heads, rows) => `<div class="doc-table"><table><thead><tr>${heads.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
  const link = (page, text) => `<a href="#docs/${page}">${text}</a>`;
- const MODELS = [['deepseek-flash', 'DeepSeek Flash', '对话、写作、代码'], ['deepseek-flash-0910', 'DeepSeek Flash 0910', '对话、写作、代码'], ['glm-5.3', 'GLM-5.3', '文本任务、复杂推理'], ['glm-5.3-flash', 'GLM-5.3-Flash', '轻量任务'], ['glm-5.3-flashx', 'GLM-5.3-FlashX', '轻量任务、代码']];
+ // Same catalog as the 模型广场 and the gateway (model-catalog.js); models without a route are left out.
+ const MODELS = (window.SemiflyModels || []).filter(m => m.verified);
  const curl = () => `curl ${BASE()}/chat/completions \\
   -H "Authorization: Bearer $SEMIFLY_API_KEY" \\
   -H "Content-Type: application/json" \\
@@ -131,7 +132,10 @@ ${table(['字段', '说明'], [['id', '本次补全的编号'], ['model', '实�
 
   { id: 'models', group: 'API 参考', title: '可用模型', body: () => `
 <p class="doc-lead"><span class="doc-method get">GET</span> <code>${esc(BASE())}/models</code> 返回当前这把 Key 可用的模型列表。</p>
-${table(['模型 ID', '名称', '适合'], MODELS.map(([id, name, use]) => [`<code>${id}</code>`, name, use]))}
+${table(['模型 ID', '名称', '思考', '其他能力'], MODELS.map(m => [`<code>${esc(m.id)}</code>`, esc(m.name), esc(m.tags[0]), esc(m.tags.slice(1).join('、'))]))}
+${note('“默认思考 · 可关”和“始终思考”的模型先思考再回答，思考内容也占用 max_tokens。max_tokens 设得太小时，content 会是空的、finish_reason 为 length。DeepSeek 可传 <code>thinking: {"type": "disabled"}</code> 关闭思考；GLM-5.3 系列不能关闭，最低可把 <code>reasoning_effort</code> 设为 <code>low</code>。')}
+<p>列表里每个模型除了标准的 <code>id</code>、<code>object</code>、<code>owned_by</code>，还带三个字段，方便程序判断模型能做什么：</p>
+${table(['字段', '含义'], [['name', '显示名称'], ['tags', '中文能力标签，与模型广场一致'], ['capabilities', '<code>thinking</code>（switchable 可关 / always 不能关 / none 不思考）、<code>reasoning_efforts</code>、<code>input</code> 和 <code>output</code>（text、image 等）、<code>tool_calling</code>、<code>parallel_tool_calls</code>、<code>json_output</code>、<code>json_schema</code>、<code>prompt_cache</code>、<code>context_window</code>、<code>max_output_tokens</code>']])}
 ${note('价格和实时状态以工作台“模型”页为准：红绿灯表示平台每 10 分钟实测一次的结果，绿灯可用，红灯失败或未接通，黄灯尚未实测。')}
 ${code(`curl ${BASE()}/models -H "Authorization: Bearer $SEMIFLY_API_KEY"`, 'curl')}` },
 
