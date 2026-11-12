@@ -16,7 +16,7 @@
 3. `usageWorker` 每 5 分钟同步 KerAPI 后运行 `settleEmployeeCalls`，按 credential + 上游 request ID 写实扣金额。
 4. 24 小时仍无账单的调用按预留金额结算。实扣高于余额时封顶，不透支，`actual_yuan` 保留真实值。
 
-代码：`server/src/employee-credit.mjs`、`server/migrations/025_employee_credit.sql`。`/v1` 路由须在全局 16 KB JSON 解析前挂载。Key 前缀 `sf_emp_`，与试用 `sf_test_` 并存。支持流式、工具调用，正文上限 512 KB，max_tokens 上限 8192，每 Key 每分钟 60 次，每人并发 3 个；这两项是默认值，管理者可在“员工”页按 Key 调高（并发最多 64、每分钟最多 1200，`server/migrations/050_key_rate_limits.sql`，接口 `POST /api/employee-credit/team/keys/:key/limits`），留空恢复默认。
+代码：`server/src/employee-credit.mjs`、`server/migrations/025_employee_credit.sql`。`/v1` 路由须在全局 16 KB JSON 解析前挂载。Key 前缀 `sf_emp_`（早期试用 `sf_test_` 已于 2026-11-12 下线）。支持流式、工具调用，正文上限 512 KB，max_tokens 上限 8192，每 Key 每分钟 60 次，每人并发 3 个；这两项是默认值，管理者可在“员工”页按 Key 调高（并发最多 64、每分钟最多 1200，`server/migrations/050_key_rate_limits.sql`，接口 `POST /api/employee-credit/team/keys/:key/limits`），留空恢复默认。
 
 ## 验证
 
