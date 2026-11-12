@@ -54,8 +54,8 @@ console.log(reply.choices[0].message.content, reply.usage);`;
   ['402', 'insufficient_quota', '公司额度不足以覆盖这次调用的预扣上限（输入长度 + max_tokens）。', '否', '调小 max_tokens 或缩短上下文；额度确实不够时，请企业管理者追加额度。'],
   ['403', 'model_not_allowed', '模型名不在开放列表里。', '否', '用 GET /v1/models 查看可用模型，确认 model 字段拼写。'],
   ['413', 'request_too_large', '单次请求超过 8MB。通常是 Agent 的对话太长、读入了大文件。', '否', '在 Agent 里新开对话，或让它压缩上下文；不要把整个仓库或大文件塞进一次请求。'],
-  ['429', 'rate_limit_exceeded', '同一把 Key 一分钟内超过 60 次请求。响应头带 Retry-After: 60。', '否', '按 Retry-After 等待后重试；批量任务请加间隔或多把 Key 分摊。'],
-  ['429', 'concurrency_limit_exceeded', '同一个人同时进行的请求超过 3 个。响应头带 Retry-After: 5。', '否', '降低并发，等前面的请求结束再发。'],
+  ['429', 'rate_limit_exceeded', '同一把 Key 一分钟内超过上限（默认 60 次）。响应头带 Retry-After: 60。', '否', '按 Retry-After 等待后重试；批量任务请加间隔，或请企业管理者在“员工”页调高这把 Key 的每分钟上限。'],
+  ['429', 'concurrency_limit_exceeded', '同一个人同时进行的请求超过这把 Key 的上限（默认 3 个）。响应头带 Retry-After: 5。', '否', '降低并发，等前面的请求结束再发；自动化任务可请企业管理者调高这把 Key 的同时请求数。'],
   ['502', 'upstream_error', '上游模型服务调用失败或超时。', '否', '可以重试，建议指数退避（1s、2s、4s…，最多 3 次）。持续出现请换模型或提交工单。'],
   ['502', 'upstream_bad_response', '上游返回了无法解析的内容。', '可能', '可以重试一次；仍失败请把 request_id 发给我们。'],
   ['503', 'model_unavailable', '模型暂时不可用：上游未接通、已暂停或正在维护。', '否', '看工作台“模型状态”的红绿灯，换一个绿灯模型；稍后再试。'],
@@ -106,7 +106,7 @@ ${note('调用失败（4xx、上游失败）不扣费。逐笔扣费明细在“
 <p>员工加入企业后自动获得公司额度，管理者可以在“员工”页调整。额度用完时接口返回 ${link('errors/insufficient_quota', '402 insufficient_quota')}。</p>` },
 
   { id: 'limits', group: '基础概念', title: '速率与用量限制', body: () => `
-${table(['限制', '数值', '超出时'], [['每把 Key 每分钟请求数', '60 次', `${link('errors/rate_limit_exceeded', '429 rate_limit_exceeded')}，Retry-After: 60`], ['每人同时进行的请求', '3 个', `${link('errors/concurrency_limit_exceeded', '429 concurrency_limit_exceeded')}，Retry-After: 5`], ['单次请求大小', '8MB', `${link('errors/request_too_large', '413 request_too_large')}`], ['单次输出 max_tokens', '1 – 32768，默认 4096', '400 invalid_request'], ['messages 条数', '最多 500 条', '400 invalid_request'], ['每人有效 Key', '5 把', '生成时提示']])}
+${table(['限制', '数值', '超出时'], [['每把 Key 每分钟请求数', '默认 60 次，管理者可按 Key 调到最多 1200 次', `${link('errors/rate_limit_exceeded', '429 rate_limit_exceeded')}，Retry-After: 60`], ['每人同时进行的请求', '默认 3 个，管理者可按 Key 调到最多 64 个', `${link('errors/concurrency_limit_exceeded', '429 concurrency_limit_exceeded')}，Retry-After: 5`], ['单次请求大小', '8MB', `${link('errors/request_too_large', '413 request_too_large')}`], ['单次输出 max_tokens', '1 – 32768，默认 4096', '400 invalid_request'], ['messages 条数', '最多 500 条', '400 invalid_request'], ['每人有效 Key', '5 把', '生成时提示']])}
 <h2 id="rpm">RPM 与 TPM</h2>
 <p><b>RPM</b> 是每分钟请求数，<b>TPM</b> 是每分钟 Token 数。工作台显示的是最近 24 小时的平均值：24 小时总量除以 1440 分钟。平均值很平滑，所以我们同时显示<b>峰值 RPM</b>，也就是最忙的那一分钟有多少次请求。峰值接近 60 时就会被限流。</p>
 <h2 id="retry">重试建议</h2>
