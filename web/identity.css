@@ -787,3 +787,31 @@ td>.live-dot:first-child{margin-right:5px}
 
 /* 密钥: the two ways of generating a key, framed as one step */
 .keygen-box{margin:0 0 18px;border:1.5px solid #d9c6f3;border-radius:18px;background:#fdfbff;overflow:hidden}.keygen-box>header{padding:16px 20px 4px}.keygen-box>header h3{margin:0 0 4px;font-size:17px;color:#5a1fa6}.keygen-box>header p{margin:0;color:#5b6478;font-size:13px}.keygen-box .pc-tab-page{border:0;box-shadow:none;background:transparent}.keygen-mine{display:block;padding:12px 16px;border:1px dashed #d9dce7;border-radius:12px;color:#4a5265;font-size:13px}.keygen-mine .link{color:#7740b6;font-weight:700}
+/* 接入配置：模型 → Agent 工具 → 接入方法，三步串成一条线 */
+.pc-steps{list-style:none;margin:2px 0 0;padding:0 16px}
+.pc-step{position:relative;display:grid;grid-template-columns:26px minmax(0,1fr);gap:12px;padding-bottom:16px}
+.pc-step:last-child{padding-bottom:4px}
+.pc-step:not(:last-child)::before{content:"";position:absolute;left:12px;top:28px;bottom:2px;width:2px;border-radius:2px;background:linear-gradient(#d9cdf3,#e6e8f0)}
+.pc-step-no{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#efe8fc;color:#6b34b8;font:800 12px/1 inherit;box-shadow:0 0 0 3px #fff}
+.pc-step:last-child .pc-step-no{background:#292c35;color:#fff}
+.pc-step-blocked .pc-step-no{background:#fde3e3;color:#b4262b}
+.pc-step-body{min-width:0;padding-top:3px}
+.pc-step-label{margin:0 0 7px;color:#7a8295;font-size:11px;font-weight:600;letter-spacing:.02em;line-height:1.4}
+.pc-step-label-strong{color:#202636;font-size:13px;font-weight:700;letter-spacing:0}
+.pc-step-label-strong b{color:#6b34b8}
+.pc-step-sub{margin:5px 0 0;color:#9aa1b0;font-size:10.5px}
+.pc-steps .personal-selected-model{margin:0;padding:9px 12px;border:1px solid #e0e3ee;border-radius:8px;background:#fff}
+.pc-steps .personal-selected-model b{font-size:15px}
+.pc-steps .personal-selected-model small{margin-left:10px}
+.pc-steps select[data-agent-tool]{width:100%;box-sizing:border-box;min-height:40px;padding:6px 12px;border:1px solid #d6dae4;border-radius:8px;background:#fff;color:#1c2541;font:inherit;font-size:14px;font-weight:700;cursor:pointer}
+.pc-steps select[data-agent-tool]:focus{outline:2px solid #c9b2f2;outline-offset:1px}
+.pc-howto{margin:0 0 10px;padding:9px 12px 9px 30px;border:1px solid #f0dfa6;border-radius:8px;background:#fffaea;color:#5f4b12;font-size:11.5px;line-height:1.6}
+.pc-howto li+li{margin-top:2px}
+.pc-howto li::marker{color:#b8901f;font-weight:700}
+.pc-step-warn{margin:0;padding:9px 12px;border:1px solid #f5c2c4;border-radius:8px;background:#fff3f3;color:#8f1f23;font-size:11.5px;line-height:1.6}
+.pc-steps .pc-access-values{margin:0;padding:0;border-top:0;gap:6px}
+.pc-steps .pc-access-values>div{grid-template-columns:110px minmax(0,1fr);gap:8px;min-height:30px}
+.pc-steps .pc-access-values span{color:#5b6478;font-size:11px}
+.pc-steps .pc-access-values code{min-height:30px;border-radius:7px}
+.pc-steps .personal-key-button{width:100%;margin:10px 0 0;border-radius:8px;min-height:38px}
+.personal-connect-panel .pc-steps+.pc-price-fields{margin-top:6px}
