@@ -7,6 +7,7 @@ import { HttpError,hash,id,text,token,transaction,audit,vault } from './core.mjs
 import { isManager } from './organizations.mjs';
 import { OFFICIAL_MODELS,findOfficialModel,priceMultiplier,capabilityTags,publicCapabilities } from './official-models.mjs';
 import { routeFetch } from './output-guard.mjs';
+import { GATEWAY_INSTANCE } from './gateway-instance.mjs';
 
 // One 10-yuan grant per employee, never topped up automatically. Usage is charged at official list prices.
 export const GRANT_YUAN='10.000000000000';
@@ -442,7 +443,8 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
    if(active>=concurrent){res.set('Retry-After','5');throw new HttpError(429,`同时最多 ${concurrent} 个请求`,'concurrency_limit_exceeded');}
    if(units(money.available_yuan<0?0:money.available_yuan)<units(hold))throw new HttpError(402,'公司额度不足以覆盖这次调用的上限，可调小 max_tokens');
    if(key.limit_yuan!==null){const used=(await db.query(`SELECT ${USED_ON_KEY} AS used FROM employee_calls WHERE key_id=$1`,[key.key_id])).rows[0].used;if(units(used)+units(hold)>units(key.limit_yuan))throw new HttpError(402,`这把 Key 已接近消费上限 ¥${Number(key.limit_yuan)}（已用 ¥${Number(used).toFixed(4)}），可调小 max_tokens 或换一把 Key`,'key_limit_reached');}
-   return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,client,client_detail,summary,profile_signature) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10,$11) RETURNING id",[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold,origin.client,origin.detail,summary,signature])).rows[0].id;
+   // gateway_instance: a restart releases the calls this process leaves open (gateway-instance.mjs).
+   return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,client,client_detail,summary,profile_signature,gateway_instance) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10,$11,$12) RETURNING id",[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold,origin.client,origin.detail,summary,signature,GATEWAY_INSTANCE])).rows[0].id;
   });
   const call={id:callId,ownerId:key.owner_id,rates:model.rates,multiplier};
   const started=performance.now(),abort=new AbortController();
@@ -484,6 +486,8 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
    throw new HttpError(response.status>=400&&response.status<500?response.status:502,`上游返回 HTTP ${response.status}${message?'：'+message:''}；本次未扣额度`);
   }
   res.set('X-Semifly-Call-Id',callId);
+  // Kept while the answer is still coming: if this process stops midway, the call settles from KerAPI's log (D6).
+  if(requestId)pool.query("UPDATE employee_calls SET upstream_request_id=$2 WHERE id=$1 AND status='pending'",[callId,requestId]).catch(()=>{});
   if(!stream){
    let result;
    try{result=await response.json();}
@@ -542,6 +546,7 @@ const freeOnKerapi=e=>String(e?.type)==='5'||(Number(e?.quota)===0&&!(Number(e?.
  * Settles calls whose response carried no usage. Safe to repeat. Rules (owner decision 2026-11-12, docs/14-gateway-settings.md D4):
  *  - KerAPI's log has the call: charge its token counts at the official price; nothing if KerAPI charged nothing.
  *  - The gateway itself stopped before the upstream answered (restart while the call was open, so no request ID): not charged.
+ *  - The gateway stopped while the answer was coming (GATEWAY_INTERRUPTED or STALE_PENDING) and KerAPI never logged it: not charged (H7 excludes these).
  *  - Otherwise, after the grace period: the hold (H7, still to be decided).
  */
 export async function settleEmployeeCalls(pool){
@@ -559,7 +564,7 @@ export async function settleEmployeeCalls(pool){
   // A log line with an amount but no token counts: charge what KerAPI charged.
   else if(r.evidence?.currency==='CNY'&&decimalPattern.test(r.evidence?.amount||''))billed.push({id:r.id,owner_id:r.owner_id,amount:r.evidence.amount,source:'supplier_log'});
  }
- const unbilled=(await pool.query(`SELECT id,owner_id,hold_yuan AS amount FROM employee_calls WHERE status='awaiting_bill' AND created_at<now()-interval '${BILL_GRACE}' ORDER BY created_at LIMIT 1000`)).rows;
+ const unbilled=(await pool.query(`SELECT id,owner_id,hold_yuan AS amount FROM employee_calls WHERE status='awaiting_bill' AND created_at<now()-interval '${BILL_GRACE}' AND error_code IS DISTINCT FROM 'GATEWAY_INTERRUPTED' AND error_code IS DISTINCT FROM 'STALE_PENDING' ORDER BY created_at LIMIT 1000`)).rows;
  const billedIds=new Set(billed.map(r=>r.id));
  const work=[...billed,...unbilled.filter(r=>!billedIds.has(r.id)).map(r=>({...r,source:'hold_fallback'}))];
  let settled=0;
@@ -571,5 +576,8 @@ export async function settleEmployeeCalls(pool){
    if(charged){await db.query('UPDATE employee_credit_accounts SET spent_yuan=spent_yuan+$2 WHERE user_id=$1',[row.owner_id,charged.charged_yuan]);settled++;}
   });
  }
+ // Interrupted by the gateway and still not in KerAPI's log after the grace period: the employee is not charged.
+ await pool.query(`UPDATE employee_calls c SET status='failed' WHERE c.status='awaiting_bill' AND c.error_code IN ('GATEWAY_INTERRUPTED','STALE_PENDING') AND c.created_at<now()-interval '${BILL_GRACE}'
+  AND NOT EXISTS(SELECT 1 FROM supplier_usage_records r WHERE r.credential_id=c.credential_id AND r.request_id=c.upstream_request_id)`);
  return {settled};
 }
