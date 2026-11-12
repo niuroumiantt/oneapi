@@ -1,16 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGate,estimateTokens,GATEWAY_DEFAULTS } from '../src/gateway-limits.mjs';
+import { createGate,createSeatGate,estimateTokens,GATEWAY_DEFAULTS,SEAT_CONCURRENT,SEAT_TPM,rejectionLayer } from '../src/gateway-limits.mjs';
 
 const limits={max_concurrent:3,tpm:10000,org_max_concurrent:2,org_tpm:4000};
 const clock=()=>{let t=1_000_000;const now=()=>t;now.advance=ms=>{t+=ms;};return now;};
 const blocked=(fn,code,pattern)=>assert.throws(fn,e=>e.status===429&&e.code===code&&pattern.test(e.message)&&e.retryAfter>=1);
 
-test('decided defaults: company 50 at once and 15M TPM, each organization 10 and 2M',()=>{
+test('decided defaults: company 50 at once and 15M TPM, each organization 10 and 2M; seat 10 / 3M',()=>{
  assert.deepEqual({...GATEWAY_DEFAULTS},{max_concurrent:50,tpm:15000000,org_max_concurrent:10,org_tpm:2000000});
+ assert.deepEqual({max_concurrent:SEAT_CONCURRENT,tpm:SEAT_TPM},{max_concurrent:10,tpm:3000000});
  assert.equal(estimateTokens(4000),1000,'four bytes reserve one token');
+ assert.equal(rejectionLayer('person_tpm_exceeded'),'person');
+ assert.equal(rejectionLayer('gateway_busy'),'company');
  const gate=createGate(clock());gate.admit('a',1500000,GATEWAY_DEFAULTS).release();
  blocked(()=>gate.admit('a',600000,GATEWAY_DEFAULTS),'organization_limit_exceeded',/已用约 150 万 Token，上限 200 万/);
+});
+
+test('person seat TPM: one person shares the window across keys; cancel counts nothing',()=>{
+ const now=clock(),seat=createSeatGate(now);
+ const a=seat.admit('p1',2000000,SEAT_TPM);seat.admit('p1',900000,SEAT_TPM).release();
+ blocked(()=>seat.admit('p1',200000,SEAT_TPM),'person_tpm_exceeded',/席位上限 300 万/);
+ seat.admit('p2',3000000,SEAT_TPM).release();
+ a.settle({input:1000,output:500,cached:0});a.release();
+ now.advance(60001);
+ assert.equal(seat.snapshot().people.find(x=>x.id==='p1')?.tpm||0,0);
+ seat.admit('p1',3000000,SEAT_TPM).cancel();
+ assert.deepEqual(seat.snapshot().people,[]);
 });
 
 test('concurrency: the organization limit stops its own calls, the company limit stops everyone',()=>{

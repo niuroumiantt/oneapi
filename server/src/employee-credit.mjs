@@ -7,15 +7,16 @@ import { HttpError,hash,id,text,token,transaction,audit,vault } from './core.mjs
 import { isManager } from './organizations.mjs';
 import { OFFICIAL_MODELS,findOfficialModel,priceMultiplier,capabilityTags,publicCapabilities } from './official-models.mjs';
 import { routeFetch } from './output-guard.mjs';
-import { createGate,gatewayLimits,estimateTokens } from './gateway-limits.mjs';
+import { createGate,createSeatGate,gatewayLimits,estimateTokens,SEAT_CONCURRENT,SEAT_TPM } from './gateway-limits.mjs';
 import { OFFICIAL_VENDORS,STANDBY_VENDORS } from './eval-keys.mjs';
 import { GATEWAY_INSTANCE } from './gateway-instance.mjs';
 
 // One 10-yuan grant per employee, never topped up automatically. Usage is charged at official list prices.
 export const GRANT_YUAN='10.000000000000';
 export const MAX_BODY='8mb';
-// MAX_CONCURRENT and PER_MINUTE are the defaults; a manager may raise them for one key, up to the ceilings.
-export const MAX_CONCURRENT=3,PER_MINUTE=60,KEY_CONCURRENT_CEILING=64,KEY_PER_MINUTE_CEILING=1200;
+// Person seat (owner decision 2026-11-12, items 5–6): defaults are a guardrail. All of one person's keys share the
+// concurrent count and the seat TPM. A manager may still raise one key (e.g. batch jobs) up to the ceilings.
+export const MAX_CONCURRENT=SEAT_CONCURRENT,PER_MINUTE=60,KEY_CONCURRENT_CEILING=64,KEY_PER_MINUTE_CEILING=1200;
 const MAX_KEYS=5,DEFAULT_OUTPUT=4096,MAX_OUTPUT=32768,MAX_MESSAGES=500;
 // How long one request may run (owner decision 2026-11-12, docs/14-gateway-settings.md D1/D3): 15 minutes in total, which
 // lets a 32K-token answer finish at about 50 tokens/s; a streamed request is also cut when the upstream sends nothing for
@@ -390,7 +391,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
 }
 
 /** Must be mounted before the app-wide 16 KB JSON parser; agent requests carry whole conversations and tool schemas. */
-export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=createGate()){
+export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=createGate(),seat=createSeatGate()){
  const isEmployee=req=>keyPattern.test(req.get('authorization')||'');
  app.use('/v1',(req,res,next)=>{req.requestId='req_'+token().slice(0,24);res.set('X-Semifly-Request-Id',req.requestId);next();});
  const json=express.json({limit:MAX_BODY});
@@ -402,19 +403,20 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
    JOIN memberships m ON m.user_id=k.owner_id AND m.organization_id=$2 AND m.status='active'
    WHERE k.secret_hash=$1 AND k.revoked_at IS NULL AND u."emailVerified" AND NOT coalesce(u.disabled,false)`,[hash(secret),cfg.employeeCredit.organizationId])).rows[0];
   if(!key)throw new HttpError(401,'平台 Key 无效或已停用');
+  req.employeeAuth=key;
   return key;
  }
  async function limit(key,res){
   const keyId=key.key_id,perMinute=key.per_minute??PER_MINUTE;
-  // Per key, not per IP: a whole office usually shares one egress address.
+  // Per key, not per IP: a whole office usually shares one egress address. RPM stays an abuse floor (item 5).
   const count=(await pool.query("INSERT INTO request_limits(key,count,expires_at) VALUES($1,1,now()+interval '1 minute') ON CONFLICT(key) DO UPDATE SET count=CASE WHEN request_limits.expires_at<now() THEN 1 ELSE request_limits.count+1 END,expires_at=CASE WHEN request_limits.expires_at<now() THEN now()+interval '1 minute' ELSE request_limits.expires_at END RETURNING count",[hash('employee-v1|'+keyId)])).rows[0].count;
-  if(count>perMinute){res.set('Retry-After','60');throw new HttpError(429,`请求过于频繁：这把 Key 每分钟最多 ${perMinute} 次`,'rate_limit_exceeded');}
+  if(count>perMinute){res.set('Retry-After','60');throw Object.assign(new HttpError(429,`请求过于频繁：这把 Key 每分钟最多 ${perMinute} 次`,'rate_limit_exceeded'),{layer:'key'});}
  }
  const fail=(callId,code,started,detail=null)=>pool.query("UPDATE employee_calls SET status='failed',error_code=$2,latency_ms=$3,error_detail=$4,finished_at=now() WHERE id=$1 AND status='pending'",[callId,code,Math.round(performance.now()-started),detail?String(detail).slice(0,300):null]);
  /** Charges the official price as soon as usage is known; without usage the hold stays until a bill arrives. */
  async function answered(call,requestId,usage,started){
   const latency=Math.round(performance.now()-started);
-  call.slot?.settle(usage);
+  call.slot?.settle(usage);call.seatSlot?.settle(usage);
   // An official standby line has no KerAPI log to settle from later; without usage the call is free (docs/14-gateway-settings.md F5).
   if(!usage&&call.official){await pool.query("UPDATE employee_calls SET status='settled',upstream_request_id=$2,latency_ms=$3,charged_yuan=0,actual_yuan=NULL,settlement_source='official_unmetered',finished_at=now(),settled_at=now() WHERE id=$1 AND status='pending'",[call.id,requestId,latency]);return;}
   if(!usage){await pool.query("UPDATE employee_calls SET status='awaiting_bill',upstream_request_id=$2,latency_ms=$3,finished_at=now() WHERE id=$1 AND status='pending'",[call.id,requestId,latency]);return;}
@@ -443,10 +445,13 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
   if(key.model_ids&&!key.model_ids.includes(model.id))throw new HttpError(403,`这把 Key 只能调用：${key.model_ids.join('、')}`,'model_not_allowed');
   const route=(await employeeRoutes(pool,cfg)).find(r=>r.model.id===model.id);
   if(!route)throw new HttpError(503,'这个模型暂时不可用','model_unavailable');
-  // Company-wide and per-organization gates (docs/14-gateway-settings.md C6/C10); the slot is freed when the response closes.
-  let slot;
-  try{slot=gate.admit(key.organization_id,estimateTokens(input),await gatewayLimits(pool,key.organization_id));}catch(e){if(e.retryAfter)res.set('Retry-After',String(e.retryAfter));throw e;}
-  res.once('close',()=>slot.release());if(res.destroyed)slot.release();
+  // Company/org gates (C6/C10) then person seat TPM (items 5–6). Slots free when the response closes.
+  const estimate=estimateTokens(input);
+  let slot,seatSlot;
+  try{slot=gate.admit(key.organization_id,estimate,await gatewayLimits(pool,key.organization_id));}catch(e){if(e.retryAfter)res.set('Retry-After',String(e.retryAfter));throw e;}
+  try{seatSlot=seat.admit(key.owner_id,estimate,SEAT_TPM);}catch(e){slot.cancel();if(e.retryAfter)res.set('Retry-After',String(e.retryAfter));throw e;}
+  const freeSlots=()=>{seatSlot?.release();slot.release();};
+  res.once('close',freeSlots);if(res.destroyed)freeSlots();
   const multiplier=priceMultiplier(model,new Date(),cfg.employeeCredit.holidays),hold=holdYuan(model.rates,{input,output},multiplier);
   const summary=await summariesOn(pool,cfg)?callSummary(req.body.messages):null;
   const callId=await transaction(pool,async db=>{
@@ -454,16 +459,16 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
    await db.query('SELECT user_id FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[key.owner_id]);
    const money=await balance(db,key.owner_id);
    const active=(await db.query(`SELECT count(*)::int AS count FROM employee_calls WHERE owner_id=$1 AND status='pending' AND created_at>now()-interval '${STALE_PENDING}'`,[key.owner_id])).rows[0].count;
-   // Calls are counted per owner; the key in hand decides how many of them may be open at once.
+   // Concurrent slots are counted per person across all keys (item 6); this key's setting is the cap while it is in use.
    const concurrent=key.max_concurrent??MAX_CONCURRENT;
-   if(active>=concurrent){res.set('Retry-After','5');throw new HttpError(429,`同时最多 ${concurrent} 个请求`,'concurrency_limit_exceeded');}
+   if(active>=concurrent){res.set('Retry-After','5');throw Object.assign(new HttpError(429,`同时最多 ${concurrent} 个请求（你名下所有 Key 合计）`,'concurrency_limit_exceeded'),{layer:'person'});}
    if(units(money.available_yuan<0?0:money.available_yuan)<units(hold))throw new HttpError(402,'公司额度不足以覆盖这次调用的上限，可调小 max_tokens');
    if(key.limit_yuan!==null){const used=(await db.query(`SELECT ${USED_ON_KEY} AS used FROM employee_calls WHERE key_id=$1`,[key.key_id])).rows[0].used;if(units(used)+units(hold)>units(key.limit_yuan))throw new HttpError(402,`这把 Key 已接近消费上限 ¥${Number(key.limit_yuan)}（已用 ¥${Number(used).toFixed(4)}），可调小 max_tokens 或换一把 Key`,'key_limit_reached');}
    // gateway_instance: a restart releases the calls this process leaves open (gateway-instance.mjs).
    return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,client,client_detail,summary,profile_signature,gateway_instance) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10,$11,$12) RETURNING id",[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold,origin.client,origin.detail,summary,signature,GATEWAY_INSTANCE])).rows[0].id;
   // Refused here (balance, key cap, this person's own limit): the call never reaches KerAPI, so it uses no tokens.
-  }).catch(e=>{slot.cancel();throw e;});
-  const call={id:callId,ownerId:key.owner_id,rates:model.rates,multiplier,slot};
+  }).catch(e=>{seatSlot.cancel();slot.cancel();throw e;});
+  const call={id:callId,ownerId:key.owner_id,rates:model.rates,multiplier,slot,seatSlot};
   const started=performance.now(),abort=new AbortController();
   const totalMs=cfg.employeeCredit.timeouts?.total??UPSTREAM_TIMEOUT_MS,idleMs=cfg.employeeCredit.timeouts?.idle??UPSTREAM_IDLE_MS;
   // cut: which of our own limits ended the upstream request ('idle' or 'total'); null while neither has.
@@ -507,7 +512,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
    if(response.status===429){
     // KerAPI's own limit (20 million tokens a minute for the whole platform), not this caller's quota.
     const wait=Number(response.headers.get('retry-after'));res.set('Retry-After',String(Number.isInteger(wait)&&wait>=1&&wait<=60?wait:5));
-    throw new HttpError(429,`上游 KerAPI 繁忙（限流），不是你的额度问题，请稍后重试${message?'。上游说明：'+message:''}；本次未扣额度`,'upstream_rate_limited');
+    throw Object.assign(new HttpError(429,`上游 KerAPI 繁忙（限流），不是你的额度问题，请稍后重试${message?'。上游说明：'+message:''}；本次未扣额度`,'upstream_rate_limited'),{layer:'upstream'});
    }
    throw new HttpError(response.status>=400&&response.status<500?response.status:502,`上游返回 HTTP ${response.status}${message?'：'+message:''}；本次未扣额度`);
   }
