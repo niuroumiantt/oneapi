@@ -408,6 +408,9 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  assert.equal(officialPeak(new Date('2026-11-10T02:00:00Z')),true,'Tuesday 10:00 Beijing');assert.equal(officialPeak(new Date('2026-11-10T04:30:00Z')),false,'Tuesday 12:30 Beijing');assert.equal(officialPeak(new Date('2026-11-14T02:00:00Z')),false,'Saturday');assert.equal(officialPeak(new Date('2026-11-10T02:00:00Z'),new Set(['2026-11-10'])),false,'holiday');
  assert.equal(findOfficialModel('deepseek-v4.1-flash').id,'deepseek-flash');assert.equal(findOfficialModel('GLM-5.3').id,'glm-5.3');assert.equal(findOfficialModel('nope'),undefined);
  assert.throws(()=>employeeRequest({model:'x',messages:[{}]}),/未开放/);assert.equal(employeeRequest({model:'glm-5.3',messages:[{role:'user',content:'a'}]}).payload.model,'GLM-5.3');
+ assert.equal(employeeRequest({model:'glm-5.3',messages:[{role:'user',content:'a'}]}).output,8192,'always-thinking GLM defaults to 8K when max_tokens omitted');
+ assert.equal(employeeRequest({model:'deepseek-flash',messages:[{role:'user',content:'a'}]}).output,4096,'other models keep 4K default');
+ assert.equal(employeeRequest({model:'glm-5.3',messages:[{role:'user',content:'a'}],max_tokens:2048}).output,2048,'explicit max_tokens wins');
  assert.deepEqual(usageFrom({prompt_tokens:10,completion_tokens:2,prompt_tokens_details:{cached_tokens:4}}),{input:10,output:2,cached:4});
  {const h=o=>name=>o[name];assert.equal(callClient(h({'user-agent':'RooCode/3.1.0'})).client,'Roo Code');assert.equal(callClient(h({'user-agent':'OpenAI/Python 1.40.0'})).client,'Python（OpenAI SDK）');assert.equal(callClient(h({'user-agent':'curl/8.4.0'})).client,'curl');
   assert.equal(callClient(h({'x-semifly-client':'客服机器人','user-agent':'curl/8'})).client,'客服机器人');assert.equal(callClient(h({'user-agent':'Mozilla/5.0 WorkBuddy/1.2 Electron'})).client,'WorkBuddy');assert.equal(callClient(h({})).client,'未提供');assert.equal(callClient(h({'user-agent':'zzz'})).client,'未识别');

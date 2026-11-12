@@ -137,7 +137,7 @@ window.SemiflyModels=[
   "name": "GLM-5.3",
   "subtitle": "智谱 GLM · 文本与复杂任务",
   "badge": "功能对比已测",
-  "description": "智谱的旗舰文本型号，只接受文字输入。始终先思考再回答，不能关闭，max_tokens 需要留足。",
+  "description": "智谱的旗舰文本型号，只接受文字输入。始终先思考再回答，不能关闭；不传 max_tokens 时默认 8192。",
   "tags": [
    "始终思考",
    "工具调用",
