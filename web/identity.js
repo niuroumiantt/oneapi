@@ -60,7 +60,7 @@
    existingOrg.querySelector('.org-sidebar').innerHTML=nextOrg.querySelector('.org-sidebar').innerHTML;
    existingOrg.querySelector('.org-content').replaceWith(nextOrg.querySelector('.org-content'));
   }else host.innerHTML=header()+`<main class="live-main">${content}</main><footer class="live-footer"><span>semifly.ai · 深圳市格洛可半导体有限公司</span><span>中国区 · 独立身份与工作空间</span></footer>`;
-  if(!wasIdentityActive){document.querySelectorAll('#market-view,#admin-view,#login-view').forEach(el=>el.hidden=true);window.LandingUI?.hide();}
+  if(!wasIdentityActive){document.querySelectorAll('#market-view,#login-view').forEach(el=>el.hidden=true);window.LandingUI?.hide();}
   host.hidden=false;document.body.classList.remove('market-active','welcome-active','universe-active','ops-active','catalog-active','identity-context-personal','identity-context-enterprise','identity-context-staff');document.body.classList.add('identity-active','identity-context-'+contextKind());document.body.classList.toggle('personal-console-active',content.includes('class="personal-console"'));window.UniverseScene?.setActive(false);document.title='semifly.ai · '+({personal:'个人工作台',enterprise:'企业管理工作台',staff:'内部工作台'}[contextKind()]);
   document.body.classList.remove('identity-route-pending');
   if(resetScrollOnMount){window.scrollTo(0,0);resetScrollOnMount=false;}
@@ -773,7 +773,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   }
   const staffView=view==='staff-account'||view==='admin'||view.startsWith('ops/');if(!host.innerHTML.trim())host.innerHTML='<div class="live-loading" role="status">正在打开你的工作空间…</div>';
   // Coming from another view (console, landing): show this frame at once with a loading bar, instead of leaving the old page visible until data arrives.
-  if(!wasIdentityActive){document.querySelectorAll('#market-view,#admin-view,#login-view').forEach(el=>el.hidden=true);window.LandingUI?.hide();window.UniverseScene?.setActive(false);document.body.classList.remove('market-active','welcome-active','universe-active','catalog-active');document.body.classList.add('identity-active');host.hidden=false;host.classList.add('route-loading');}
+  if(!wasIdentityActive){document.querySelectorAll('#market-view,#login-view').forEach(el=>el.hidden=true);window.LandingUI?.hide();window.UniverseScene?.setActive(false);document.body.classList.remove('market-active','welcome-active','universe-active','catalog-active');document.body.classList.add('identity-active');host.hidden=false;host.classList.add('route-loading');}
   if(wasIdentityActive&&staff&&view.startsWith('ops/')){
    const cached=opsPageCache.get(view);
    if(cached)mount(cached);
