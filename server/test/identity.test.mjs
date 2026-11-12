@@ -104,7 +104,11 @@ let owner,other,member,dept,billing,orgA,orgB;
 test('verified registration creates durable personal identity and isolated organization ownership',async()=>{
  owner=await user('owner');other=await user('other');member=await user('member');dept=await user('department');billing=await user('billing');orgA=await organization(owner,'Company A');orgB=await organization(other,'Company B');
  assert.equal((await owner.j.call('/api/platform/me')).data.organizations[0].role,'owner');assert.equal((await other.j.call(`/api/platform/organizations/${orgA.id}`)).status,403);assert.equal((await owner.j.call('/api/staff/members')).status,401);
- {const before=(await owner.j.call('/api/platform/me')).data;assert.equal(before.personal_assets,false);const key=(await pool.query("INSERT INTO pilot_api_keys(owner_id,label,secret_hash,key_hint,model_id) VALUES($1,'personal-assets-check','personal-assets-check-hash','hint','deepseek-flash') RETURNING id",[before.user.id])).rows[0].id;assert.equal((await owner.j.call('/api/platform/me')).data.personal_assets,true);await pool.query('DELETE FROM pilot_api_keys WHERE id=$1',[key]);}
+ {const before=(await owner.j.call('/api/platform/me')).data;assert.equal(before.personal_assets,false);
+  await pool.query('DELETE FROM billing_accounts WHERE owner_id=$1',[before.user.id]);
+  await pool.query('INSERT INTO billing_accounts(owner_id,cash_balance_fen) VALUES($1,100)',[before.user.id]);
+  assert.equal((await owner.j.call('/api/platform/me')).data.personal_assets,true);
+  await pool.query('DELETE FROM billing_accounts WHERE owner_id=$1',[before.user.id]);}
  const fresh=jar();for(const [k,v]of owner.j.cookies)fresh.cookies.set(k,v);assert.equal((await fresh.call(`/api/platform/organizations/${orgA.id}`)).data.organization.name,'Company A');
 });
 test('staff pages load the same table sorter as the customer site',async()=>{
@@ -347,60 +351,12 @@ test('expired shared links fail; repeated applications remain one pending reques
  const fresh=await joinLink(owner,orgA);const results=await Promise.all([1,2].map(()=>other.j.call('/api/platform/join-requests',{method:'POST',body:{token:fresh.token}})));assert.deepEqual(results.map(r=>r.status).sort(),[202,202]);
  const pending=(await owner.j.call(`/api/platform/organizations/${orgA.id}`)).data.joinRequests.filter(x=>x.user_id===other.user.id);assert.equal(pending.length,1);
 });
-test('personal pilot keys are scoped, hashed, capped and record real upstream usage',async()=>{
- pilotDir=await mkdtemp(join(tmpdir(),'oneapi-pilot-'));
- const keyFile=join(pilotDir,'upstream-key');await writeFile(keyFile,'fixture-upstream-secret\n',{mode:0o600});
- appCfg.pilot.keyFile=keyFile;appCfg.pilot.emails.add(owner.email);
- pilotFetch=async(url,options)=>{
-  assert.equal(url,'https://api.deepseek.com/chat/completions');
-  assert.equal(options.headers.Authorization,'Bearer fixture-upstream-secret');
-  const payload=JSON.parse(options.body);
-  assert.ok(['deepseek-flash','deepseek-v4-pro'].includes(payload.model));
-  assert.equal(payload.thinking.type,'disabled');
-  return new Response(JSON.stringify({id:'fixture-call',model:payload.model,choices:[{message:{role:'assistant',content:'OK'},finish_reason:'stop'}],usage:{prompt_tokens:7,prompt_cache_hit_tokens:2,completion_tokens:1}}),{status:200,headers:{'Content-Type':'application/json'}});
- };
+test('early personal pilot (sf_test_) is retired',async()=>{
  assert.equal((await jar().call('/api/pilot/status')).status,401);
- assert.equal((await other.j.call('/api/pilot/status')).data.enabled,false);
- assert.equal((await other.j.call('/api/pilot/keys',{method:'POST',body:{label:'Unauthorized'}})).status,403);
- assert.equal((await owner.j.call('/api/pilot/keys',{method:'POST',body:{label:'No model',confirm_model:true}})).status,400);
- assert.equal((await owner.j.call('/api/pilot/keys',{method:'POST',body:{label:'No confirmation',model_id:'deepseek-v4-pro'}})).status,400);
- const created=await owner.j.call('/api/pilot/keys',{method:'POST',body:{label:'My Agent',model_id:'deepseek-flash',confirm_model:true}});
- assert.equal(created.status,201,JSON.stringify(created.data));
- assert.equal(created.data.key.model_id,'deepseek-flash');
- const secret=created.data.secret;assert.match(secret,/^sf_test_[A-Za-z0-9_-]{43}$/);
- const stored=(await pool.query('SELECT secret_hash FROM pilot_api_keys WHERE id=$1',[created.data.key.id])).rows[0];
- assert.notEqual(stored.secret_hash,secret);assert.equal(stored.secret_hash,createHash('sha256').update(secret).digest('hex'));
- assert.equal((await owner.j.call('/api/pilot/status')).data.keys[0].secret,undefined);
- const spentBefore=(await owner.j.call('/api/billing/personal')).data.total_spent_fen;
- const call=()=>owner.j.call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+secret},body:{model:'deepseek-flash',messages:[{role:'user',content:'Reply OK'}],max_tokens:16}});
- assert.equal((await call()).status,200);
- const proCreated=await owner.j.call('/api/pilot/keys',{method:'POST',body:{label:'Reasoning Agent',model_id:'deepseek-v4-pro',confirm_model:true}});
- assert.equal(proCreated.status,201,JSON.stringify(proCreated.data));
- assert.equal(proCreated.data.key.model_id,'deepseek-v4-pro');
- const proSecret=proCreated.data.secret;
- const proCall=()=>owner.j.call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+proSecret},body:{model:'deepseek-v4-pro',messages:[{role:'user',content:'Reply OK'}],max_tokens:16}});
- assert.equal((await owner.j.call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+secret},body:{model:'deepseek-v4-pro',messages:[{role:'user',content:'No'}]}})).status,403);
- assert.equal((await proCall()).status,200);
- const status=(await owner.j.call('/api/pilot/status')).data;
- assert.deepEqual(status.model_ids,['deepseek-flash','deepseek-v4-pro']);
- assert.equal(status.calls_today,2);assert.equal(status.recent_calls[0].model_id,'deepseek-v4-pro');assert.equal(status.recent_calls[0].input_tokens,7);assert.equal(status.recent_calls[0].cache_hit_tokens,2);assert.equal(Number(status.recent_calls[0].estimated_upstream_yuan),0.0000726);
- assert.equal(status.usage_window_days,30);
- assert.deepEqual(status.usage_by_model.map(row=>[row.model_id,row.successful_calls,Number(row.input_tokens),Number(row.cache_hit_tokens)]),[['deepseek-flash',1,7,2],['deepseek-v4-pro',1,7,2]]);
- assert.equal(status.usage_by_key.length,2);
- assert.equal(status.usage_by_key.find(row=>row.key_id===created.data.key.id).successful_calls,1);
- assert.equal(status.usage_chart.billing_state,'pilot_not_billed');
- assert.equal(status.usage_chart.rows.reduce((n,r)=>n+Number(r.input_tokens),0),14);
- assert.equal(status.usage_chart.rows.reduce((n,r)=>n+Number(r.output_tokens),0),2);
- assert.equal(status.recent_calls[0].key_label,'Reasoning Agent');
- assert.equal(status.recent_calls[0].secret,undefined);
- assert.equal((await owner.j.call('/api/billing/personal')).data.total_spent_fen,spentBefore);
- assert.equal((await owner.j.call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+secret},body:{model:'deepseek-flash',stream:true,messages:[{role:'user',content:'No'}]}})).status,400);
- for(let n=2;n<10;n++)assert.equal((await call()).status,200);
- assert.equal((await call()).status,429);
- assert.equal((await owner.j.call('/api/pilot/keys/'+created.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);
- assert.equal((await call()).status,401);
- assert.equal((await owner.j.call('/api/pilot/keys/'+proCreated.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);
- assert.equal((await proCall()).status,401);
+ const st=await owner.j.call('/api/pilot/status');assert.equal(st.status,200);assert.equal(st.data.enabled,false);assert.equal(st.data.retired,true);
+ assert.equal((await owner.j.call('/api/pilot/keys',{method:'POST',body:{label:'Nope',model_id:'deepseek-flash',confirm_model:true}})).status,410);
+ const call=await jar().call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer sf_test_'+'x'.repeat(43)},body:{model:'deepseek-flash',messages:[{role:'user',content:'hi'}]}});
+ assert.equal(call.status,410);assert.match(String(call.data.error?.message||call.data.error||''),/下线|sf_test_/);
 });
 test('employee credit is one-time, company-only, reserved before calling and charged at official prices',async()=>{
  const rate={input:'2',cached:'0.5',output:'8'};
