@@ -720,6 +720,19 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  assert.equal((await staffer.j.call('/api/employee-credit/keys/'+created.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call()).status,401);
  appCfg.employeeCredit.organizationId='';
 });
+test('cloud cost and capacity page reads real gateway calls, is technical-staff only and never echoes secrets',async()=>{
+ assert.equal((await jar().call('/api/staff/capacity')).status,401);
+ const savedIdentity=identity;identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};const ops=jar();await staffLogin(ops);identity=savedIdentity;
+ const r=await ops.call('/api/staff/capacity?days=7');assert.equal(r.status,200,JSON.stringify(r.data));
+ const calls=(await pool.query("SELECT count(*)::int AS n FROM employee_calls WHERE created_at>=now()-interval '7 days'")).rows[0].n;
+ assert.ok(calls>0);assert.equal(r.data.usage.calls,calls);assert.ok(r.data.usage.peak_concurrency>=1);
+ assert.ok(r.data.model.people.length>=1&&r.data.model.people.every(p=>p.name&&!('owner_id' in p)));assert.ok(r.data.model.clients.length>=1);
+ assert.equal(r.data.model.scales[0].multiplier,1);assert.ok(r.data.usage.hours.length>=1);
+ assert.equal(JSON.stringify(r.data).includes('fixture-kerapi-secret'),false);assert.equal(JSON.stringify(r.data).includes('secret_hash'),false);
+ const cheaper=await ops.call('/api/staff/capacity?days=7&egress_yuan_per_gb=0.36');assert.equal(cheaper.data.assumptions.egress_yuan_per_gb.overridden,true);
+ assert.ok(Math.abs(cheaper.data.model.window.bandwidth*2-r.data.model.window.bandwidth)<0.0001);
+ assert.equal((await ops.call('/api/staff/capacity?days=2')).status,400);assert.equal((await ops.call('/api/staff/capacity?gateway_share=5')).status,400);
+});
 test('back office: two switches, one-way enterprise upgrade, tickets, channel pause and budgeted stress runs',async()=>{
  assert.equal(hasBusiness({status:'active',role:'support'}),true);assert.equal(hasBusiness({status:'active',role:'pending'}),false);assert.equal(hasBusiness({status:'suspended',role:'operations'}),false);
  const u=await user('upgrade-person'),other=await user('upgrade-other');
