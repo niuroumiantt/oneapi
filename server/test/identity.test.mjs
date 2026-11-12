@@ -406,6 +406,13 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  const rate={input:'2',cached:'0.5',output:'8'};
  assert.equal(holdYuan(rate,{input:1000,cached:400,output:100},1),'0.002200000000');assert.equal(holdYuan(rate,{input:1000,cached:400,output:100},2),'0.004400000000');
  assert.equal(officialPeak(new Date('2026-11-10T02:00:00Z')),true,'Tuesday 10:00 Beijing');assert.equal(officialPeak(new Date('2026-11-10T04:30:00Z')),false,'Tuesday 12:30 Beijing');assert.equal(officialPeak(new Date('2026-11-14T02:00:00Z')),false,'Saturday');assert.equal(officialPeak(new Date('2026-11-10T02:00:00Z'),new Set(['2026-11-10'])),false,'holiday');
+ // Built-in State Council holidays (H3): weekday holiday mornings are off-peak; ordinary Tue peak still peak.
+ {const {CHINA_HOLIDAYS}=await import('../src/china-holidays.mjs');
+  assert.ok(CHINA_HOLIDAYS.has('2026-10-01')&&CHINA_HOLIDAYS.has('2027-06-09'));
+  assert.equal(officialPeak(new Date('2026-10-01T02:00:00Z'),CHINA_HOLIDAYS),false,'National Day Thu 10:00 BJ');
+  assert.equal(officialPeak(new Date('2027-06-09T02:00:00Z'),CHINA_HOLIDAYS),false,'Dragon Boat Wed 10:00 BJ');
+  assert.equal(officialPeak(new Date('2026-02-28T02:00:00Z'),CHINA_HOLIDAYS),false,'makeup Saturday stays off-peak');
+  assert.equal(officialPeak(new Date('2026-11-10T02:00:00Z'),CHINA_HOLIDAYS),true,'ordinary Tue morning still peak');}
  assert.equal(findOfficialModel('deepseek-v4.1-flash').id,'deepseek-flash');assert.equal(findOfficialModel('GLM-5.3').id,'glm-5.3');assert.equal(findOfficialModel('nope'),undefined);
  assert.throws(()=>employeeRequest({model:'x',messages:[{}]}),/未开放/);assert.equal(employeeRequest({model:'glm-5.3',messages:[{role:'user',content:'a'}]}).payload.model,'GLM-5.3');
  assert.equal(employeeRequest({model:'glm-5.3',messages:[{role:'user',content:'a'}]}).output,8192,'always-thinking GLM defaults to 8K when max_tokens omitted');
@@ -867,6 +874,25 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  assert.equal((await staffer.j.call('/api/employee-credit/keys/'+created.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call()).status,401);
  appCfg.employeeCredit.organizationId='';
 });
+test('official price watch is technical-staff only, compares fixtures, never writes the catalog',async()=>{
+ assert.equal((await jar().call('/api/staff/lab/official-prices')).status,401);
+ const savedIdentity=identity;identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};const ops=jar();await staffLogin(ops);identity=savedIdentity;
+ const empty=await ops.call('/api/staff/lab/official-prices');assert.equal(empty.status,200,JSON.stringify(empty.data));
+ assert.ok(String(empty.data.note).includes('不自动改价'));assert.ok(empty.data.holidays.years.some(y=>y.year===2026));
+ assert.ok(empty.data.catalog.some(m=>m.id==='deepseek-flash'&&m.rates.input==='1'));
+ const deepseekHtml=`<html><body>百万tokens输入 （缓存命中） 空闲时段 0.02元 0.15元 百万tokens输入 （缓存未命中） 空闲时段 1元 4.5元 百万tokens输出 空闲时段 4元 13.5元 北京时间周一至周五（不含中国法定节假日）9:00 - 12:00、14:00 - 18:00 为高峰时段；其余时段，包括周末及中国法定节假日全天均为空闲时段。</body></html>`;
+ const glmHtml=`<html><body>| GLM-5.3 | 1M | 8 | 28 | 限时免费 | 2 |\n| GLM-5.3-Flash | 1M | 0.8 | 2.8 | 限时免费 | 0.23 |\n| GLM-5.3-FlashX | 1M | 2 | 7 | 限时免费 | 0.57 |</body></html>`;
+ const savedFetch=pilotFetch;
+ pilotFetch=async(url)=>{const body=String(url).includes('deepseek')?deepseekHtml:glmHtml;return {ok:true,status:200,text:async()=>body};};
+ try{
+  const run=await ops.call('/api/staff/lab/official-prices',{method:'POST',body:{}});
+  assert.equal(run.status,200,JSON.stringify(run.data));assert.ok(run.data.match>=5,JSON.stringify(run.data));assert.equal(run.data.price_diff,0);assert.equal(run.data.fetch_failed,0);
+  const view=await ops.call('/api/staff/lab/official-prices');assert.equal(view.status,200);assert.ok(view.data.last_run);assert.equal(view.data.sources.length,2);
+  assert.ok(view.data.sources.every(s=>['match','page_changed'].includes(s.status)));
+  assert.equal(findOfficialModel('deepseek-flash').rates.input,'1');
+ }finally{pilotFetch=savedFetch;}
+});
+
 test('cloud cost and capacity page reads real gateway calls, is technical-staff only and never echoes secrets',async()=>{
  assert.equal((await jar().call('/api/staff/capacity')).status,401);
  const savedIdentity=identity;identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};const ops=jar();await staffLogin(ops);identity=savedIdentity;

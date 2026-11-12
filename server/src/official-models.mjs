@@ -1,5 +1,6 @@
 // Official list prices in yuan per million tokens, from the vendors' public CNY pricing pages
-// (queried 2026-11-09). These are what employees are charged, whatever the upstream route costs.
+// (queried 2026-11-12). These are what employees are charged, whatever the upstream route costs.
+// Following official = list prices + DeepSeek peak windows + China statutory holidays; GLM has no peak.
 // This file is the one model catalog: the gateway, /v1/models, the consoles and the public 模型广场 all read it.
 // The 模型广场 copy (web/model-catalog.js) is generated from here by scripts/build_model_catalog.mjs; a test fails when it is stale.
 const flash={input:'1',cached:'0.02',output:'4'};

@@ -2,6 +2,7 @@ import { settleEmployeeCalls } from './employee-credit.mjs';
 import {syncKerapi} from './usage-reconciliation.mjs';
 import {vault} from './core.mjs';
 import { runKeyWatch, WATCH_INTERVAL_MS } from './key-watch.mjs';
+import { runOfficialPriceWatch, PRICE_WATCH_INTERVAL_MS } from './official-price-watch.mjs';
 import pg from 'pg';
 import { config } from './core.mjs';
 import { createApp } from './app.mjs';
@@ -20,5 +21,8 @@ const usageWorker=setInterval(async()=>{if(syncingUsage||!process.env.SUPPLIER_L
 // Key watch: what each purchase key really serves, every 30 minutes (first run 2 minutes after start).
 let watching=false;const watchOnce=async()=>{if(watching||!process.env.SUPPLIER_LAB_SECRET)return;watching=true;try{const r=await runKeyWatch(pool,{box:vault(process.env.SUPPLIER_LAB_SECRET),mail});console.log(JSON.stringify({event:'key_watch',new_events:r.new_events,events:r.events,mailed:r.mailed}));}catch(e){console.error('key_watch_unavailable',String(e?.message||e).slice(0,200));}finally{watching=false;}};
 const watchStart=setTimeout(watchOnce,120000),watchWorker=setInterval(watchOnce,WATCH_INTERVAL_MS);
+// Official price watch: scrape vendor pricing pages ~every 6 hours (first run 5 minutes after start). Never writes the catalog.
+let priceWatching=false;const priceWatchOnce=async()=>{if(priceWatching)return;priceWatching=true;try{const r=await runOfficialPriceWatch(pool,{trigger:'schedule'});console.log(JSON.stringify({event:'official_price_watch',run_id:r.run_id,match:r.match,price_diff:r.price_diff,fetch_failed:r.fetch_failed,page_changed:r.page_changed}));}catch(e){console.error('official_price_watch_unavailable',String(e?.message||e).slice(0,200));}finally{priceWatching=false;}};
+const priceWatchStart=setTimeout(priceWatchOnce,300000),priceWatchWorker=setInterval(priceWatchOnce,PRICE_WATCH_INTERVAL_MS);
 // A stopping process serves its open calls for at most 20 seconds, less than gateway-instance.mjs GONE_AFTER.
-for(const signal of ['SIGTERM' ,'SIGINT'])process.on(signal,()=>{clearInterval(lifelineWorker);clearInterval(worker);clearInterval(cleanup);clearInterval(usageWorker);clearTimeout(watchStart);clearInterval(watchWorker);server.close(async()=>{await markStopped(pool).catch(()=>{});await pool.end();process.exit(0);});setTimeout(()=>process.exit(1),20000).unref();});
+for(const signal of ['SIGTERM' ,'SIGINT'])process.on(signal,()=>{clearInterval(lifelineWorker);clearInterval(worker);clearInterval(cleanup);clearInterval(usageWorker);clearTimeout(watchStart);clearInterval(watchWorker);clearTimeout(priceWatchStart);clearInterval(priceWatchWorker);server.close(async()=>{await markStopped(pool).catch(()=>{});await pool.end();process.exit(0);});setTimeout(()=>process.exit(1),20000).unref();});
