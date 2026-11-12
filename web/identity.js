@@ -192,15 +192,17 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
  // 右侧固定列出 Agent 需要的三项信息；完整 Key 只保存在当前页面内存，刷新后不再显示。
  function employeeKeyPanel(c){
   const tool=agentTool(),model=employeeKeyModelId(c),issued=employeeIssuedKey,active=(c.keys||[]).find(k=>!k.revoked_at);
-  const head=`<h3>复制到 Agent</h3><label class="key-agent-tool">接入工具${agentToolSelect()}</label>`;
-  if(tool.unsupported)return `<aside class="key-agent-panel" data-key-agent-panel>${head}<p class="key-agent-warning">${esc(tool.unsupported)}</p></aside>`;
+  const picked=(c.models||[]).find(m=>m.id===model)||{name:model||'所选模型'};
+  const head=`<header class="kg-step3-head"><span class="pc-step-no">3</span><h4>${agentStepTitle(picked)}</h4></header>`;
+  if(tool.unsupported)return `<section class="kg-step3 pc-step-blocked" data-key-agent-panel>${head}<p class="pc-step-warn">${esc(tool.unsupported)}</p></section>`;
   const keyField=issued?`<code class="is-secret">${esc(issued.secret)}</code>`:active?`<code class="is-muted">sf_emp_…${esc(active.key_hint)}</code>`:'<code class="is-muted">生成后显示在这里</code>';
   const all=[`${tool.base}: ${c.base_url}`,`${tool.key}: ${issued?issued.secret:'（填入你保存的 Key）'}`,`${tool.model}: ${model||'暂无可用模型'}`].join('\n');
-  const hint=issued?'<p class="key-agent-warning">这把 Key 只显示这一次，刷新或离开后无法再查看，请现在保存。</p>':active?'<p class="live-small">完整 Key 只在生成时显示。遗失时请停用后重新生成。</p>':'';
+  const hint=issued?'<p class="key-agent-warning">这把 Key 只显示这一次，刷新或离开后无法再查看，请现在保存。</p>':'';
+  const gen=`<form id="live-employee-create" class="kg-gen"><input name="label" required maxlength="50" aria-label="用途名称" placeholder="用途名称，例如：我的 ${esc(tool.id==='api'||tool.id==='other'?'Agent':tool.name)}"><button class="personal-key-button personal-key-button-active" type="submit">${ico('command')} ${issued||active?'再生成一把':'生成 API Key'}</button><div role="status"></div></form>`;
   const key=issued?.secret||'YOUR_API_KEY',guides=[['steps','操作步骤'],...(tool.snippet&&model?[['file','配置文件']]:[]),...(tool.examples&&model?[['curl','curl'],['python','Python'],['node','Node']]:[]),['limits','使用限制']],guide=pageView('agent-guide',guides);
   const code=value=>`<pre class="key-agent-snippet">${esc(value)}</pre>`;
-  const guideBody=guide==='file'?code(tool.snippet(c.base_url,key,model))+keyAgentCopy(tool.snippet(c.base_url,key,model),'配置文件'):guide==='curl'?code(curlExample(c.base_url,model,key)):guide==='python'?code(pythonExample(c.base_url,model,key)):guide==='node'?code(nodeExample(c.base_url,model,key)):guide==='limits'?`${tool.note?`<p class="live-small">${esc(tool.note)}</p>`:''}<p class="live-small">${esc(employeeKeyNote(c))}</p><p class="live-small">公司额度按模型官网价扣除，DeepSeek 工作日高峰时段为 2 倍。</p>`:`<ol class="key-guide-steps">${tool.steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol>`;
-  return `<aside class="key-agent-panel" data-key-agent-panel>${head}<div class="key-agent-config"><div class="key-agent-rows">${keyAgentRow(1,esc(tool.base),`<code>${esc(c.base_url)}</code>`,c.base_url)}${keyAgentRow(2,esc(tool.key),keyField,issued?.secret)}${keyAgentRow(3,esc(tool.model),`<code>${esc(model||'暂无可用模型')}</code>`,model)}</div>${hint}<button type="button" class="key-agent-copy-all" data-live="key-guide-copy" data-copy="${esc(all)}" data-toast="配置已复制。">复制全部</button></div><div class="key-agent-help">${pageTabs('agent-guide',guides)}<div class="key-agent-guide">${guideBody}</div></div></aside>`;
+  const guideBody=guide==='file'?code(tool.snippet(c.base_url,key,model))+keyAgentCopy(tool.snippet(c.base_url,key,model),'配置文件'):guide==='curl'?code(curlExample(c.base_url,model,key)):guide==='python'?code(pythonExample(c.base_url,model,key)):guide==='node'?code(nodeExample(c.base_url,model,key)):guide==='limits'?`${tool.note?`<p class="live-small">${esc(tool.note)}</p>`:''}<p class="live-small">${esc(employeeKeyNote(c))}</p><p class="live-small">公司额度按模型官网价扣除，DeepSeek 工作日高峰时段为 2 倍。</p>`:`<ol class="pc-howto">${tool.steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol>`;
+  return `<section class="kg-step3" data-key-agent-panel>${head}<div class="kg-step3-grid"><div class="kg-guide">${pageTabs('agent-guide',guides)}<div class="key-agent-guide">${guideBody}</div></div><div class="kg-values">${gen}<div class="key-agent-rows">${keyAgentRow(1,esc(tool.base),`<code>${esc(c.base_url)}</code>`,c.base_url)}${keyAgentRow(2,esc(tool.key),keyField,issued?.secret)}${keyAgentRow(3,esc(tool.model),`<code>${esc(model||'暂无可用模型')}</code>`,model)}</div>${hint}<button type="button" class="key-agent-copy-all" data-live="key-guide-copy" data-copy="${esc(all)}" data-toast="配置已复制。">复制全部</button></div></div></section>`;
  }
  function employeeCreditKeys(){
   const c=employeeCredit,keys=c.keys||[],calls=c.recent_calls||[],callPage=pagedRows('employee-calls',calls);
@@ -210,10 +212,10 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   // Managers have that under 用量 → 我的用量; other employees keep it here, under the box.
   const manager=Boolean(lastOrg?.permissions?.manager&&lastOrg?.organization?.id),genViews=[['setup','① 为指定 Agent 生成 Key'],['direct','② 为多个模型生成 Key']],genView=pageView('employee-gen',genViews);
   const views=[['keys',`我的 Key · ${keys.filter(k=>!k.revoked_at).length}`],['calls',`调用历史 · ${calls.length}`]],view=pageView('employee-keys',views);
-  const setup=`<div class="key-workbench"><div class="key-workbench-main"><form id="live-employee-create" class="key-create-form"><label>选择模型<select data-employee-key-model${c.model_ids.length?'':' disabled'}>${c.model_ids.length?(c.models||[]).map(m=>`<option value="${esc(m.id)}"${m.id===employeeKeyModelId(c)?' selected':''}>${esc(m.name)}</option>`).join(''):'<option>暂无可用模型</option>'}</select><small>一把 Key 可调用全部模型，这里决定右侧的模型。</small></label><label>用途名称<input name="label" required maxlength="50" placeholder="例如：我的 Agent"></label><button class="personal-key-button personal-key-button-active" type="submit">${ico('command')} 生成 API Key</button><div role="status"></div></form><p class="live-small">最多保留 ${c.key_limit} 枚有效 Key。离开公司企业空间后 Key 自动失效。</p>${c.summaries_enabled?`<p class="summary-notice">${ico('circle-alert')} 本公司已开启调用摘要：每次调用会保存你最后一条提问的前 ${c.summary_chars||60} 个字，密钥、邮箱、手机号、证件号等会自动隐去，保存 30 天，仅企业管理者可见。不会保存完整对话。</p>`:''}</div>${employeeKeyPanel(c)}</div>`;
+  const setup=`<div class="kg-flow"><div class="kg-pick"><label class="kg-step"><span class="pc-step-no">1</span><span class="kg-step-body"><small>您选择的模型</small><select data-employee-key-model${c.model_ids.length?'':' disabled'}>${c.model_ids.length?(c.models||[]).map(m=>`<option value="${esc(m.id)}"${m.id===employeeKeyModelId(c)?' selected':''}>${esc(m.name)}</option>`).join(''):'<option>暂无可用模型</option>'}</select></span></label><span class="kg-arrow" aria-hidden="true">→</span><label class="kg-step"><span class="pc-step-no">2</span><span class="kg-step-body"><small>您正在使用的 Agent 工具</small>${agentToolSelect()}</span></label></div>${employeeKeyPanel(c)}<p class="live-small kg-foot">一把 Key 可调用全部模型，第 1 步只决定填进工具的模型名。最多保留 ${c.key_limit} 枚有效 Key，离开公司企业空间后自动失效。</p>${c.summaries_enabled?`<p class="summary-notice">${ico('circle-alert')} 本公司已开启调用摘要：每次调用会保存你最后一条提问的前 ${c.summary_chars||60} 个字，密钥、邮箱、手机号、证件号等会自动隐去，保存 30 天，仅企业管理者可见。不会保存完整对话。</p>`:''}</div>`;
   const list=keyTable(keys,{action:'employee-revoke'});
   const table=`<div class="personal-table-wrap"><table><thead><tr><th>时间</th><th>来源</th><th>模型 / Key</th><th>输入 / 缓存 / 输出</th><th>金额</th><th>状态</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="personal-model-empty">尚无调用记录。</td></tr>'}</tbody></table></div>${callPage.pager}`;
-  const box=`<section class="keygen-box"><header><h3>一键生成 Key</h3><p>两种方式，按用途选一种：<b>①</b> 给某个 Agent（WorkBuddy、Cursor 等）生成，右侧照着配置；<b>②</b> 给脚本或程序生成一把只能调用所选模型的 Key，可设消费上限。</p></header>${tabbedPage('employee-gen',genViews,genView==='direct'?directKeyPanel(c):setup)}</section>`;
+  const box=`<section class="keygen-box"><header><h3>一键生成 Key</h3><p>接 WorkBuddy、Cursor 等工具选 <b>①</b>；自己写脚本或程序选 <b>②</b>。</p></header>${tabbedPage('employee-gen',genViews,genView==='direct'?directKeyPanel(c):setup)}</section>`;
   const mine=manager?`<p class="keygen-mine">${ico('chart-no-axes-combined')} 我的 ${keys.filter(k=>!k.revoked_at).length} 把 Key 和最近 ${calls.length} 次调用，在 <button type="button" class="link" data-live="go-my-usage">用量 → 我的用量</button> 查看和停用。</p>`:tabbedPage('employee-keys',views,view==='calls'?table:list);
   return box+mine;
  }
@@ -262,8 +264,8 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   const env=issued?`export SEMIFLY_API_KEY="${issued.secret}"\nexport SEMIFLY_BASE_URL="${c.base_url}"`:'';
   const sample=issued?curlExample(c.base_url,issued.models[0],'$SEMIFLY_API_KEY'):'';
   const result=issued?`<aside class="direct-result"><h3>${esc(issued.label)} · 已生成</h3><p class="key-agent-warning">完整 Key 只显示这一次，离开页面后无法再查看，请现在保存。</p>${keyAgentRow(1,'API Key',`<code class="is-secret">${esc(issued.secret)}</code>`,issued.secret)}${keyAgentRow(2,'接口地址',`<code>${esc(c.base_url)}</code>`,c.base_url)}${keyAgentRow(3,'可用模型',`<code>${esc(issued.models.join(', '))}</code>`,issued.models.join(', '))}${issued.limit?`<p class="live-small">消费上限 ¥${esc(issued.limit)}</p>`:''}<h4>放进命令行</h4><pre class="key-agent-snippet">${esc(env)}</pre>${keyAgentCopy(env,'环境变量')}<h4>调用示例</h4><pre class="key-agent-snippet">${esc(sample)}</pre>${keyAgentCopy(sample,'curl 示例')}<p class="live-small">更多示例和错误码见 <a href="#docs/quickstart">文档中心</a>。</p></aside>`
-   :`<aside class="direct-result is-empty"><h3>生成后在这里显示</h3><ol class="key-guide-steps"><li>勾选要用的模型，可以从“模型”页勾选后直接跳过来。</li><li>填写用途名称，需要时设置消费上限。</li><li>生成后复制 Key、接口地址和模型名，放进你的脚本或命令行。</li></ol></aside>`;
-  return `<div class="direct-key">${form}${result}</div>`;
+   :'';
+  return `<div class="direct-key${issued?'':' is-solo'}">${form}${result}</div>`;
  }
  function keyTable(keys,{owner=false,action}={}){
   if(!keys.length)return '<p class="personal-model-empty">尚未生成 Key。</p>';
@@ -949,13 +951,13 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
     const models=[...directPicked].filter(id=>(employeeCredit?.models||[]).some(m=>m.id===id));if(!models.length)throw Error('请至少勾选一个模型。');
     const result=await api('/api/employee-credit/keys',{label:values.label,models,limit_yuan:values.limit_yuan?.trim()||null});
     directIssued={secret:result.secret,label:result.key.label,models,limit:values.limit_yuan?.trim()||''};
-    employeeCredit=await api('/api/employee-credit/status').catch(()=>employeeCredit);redrawKeysOrModels();showToast('Key 已生成，请在右侧复制保存。');
+    employeeCredit=await api('/api/employee-credit/status').catch(()=>employeeCredit);redrawKeysOrModels();showToast('Key 已生成，请在第 3 步复制保存。');
    }
    else if(formId==='live-employee-create'){
     const result=await api('/api/employee-credit/keys',{label:values.label});
     employeeIssuedKey={id:result.key.id,secret:result.secret};
     employeeCredit=await api('/api/employee-credit/status').catch(()=>employeeCredit);updatePersonalDashboard();
-    host?.querySelector('[data-key-agent-panel]')?.scrollIntoView({block:'nearest'});showToast('Key 已生成，请在右侧复制保存。');
+    host?.querySelector('[data-key-agent-panel]')?.scrollIntoView({block:'nearest'});showToast('Key 已生成，请在第 3 步复制保存。');
    }
    else if(formId==='live-pilot-create'){
     const result=await api('/api/pilot/keys',{label:values.label,model_id:values.model_id,confirm_model:values.confirm_model==='yes'});
