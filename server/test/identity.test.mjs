@@ -110,6 +110,10 @@ test('verified registration creates durable personal identity and isolated organ
 test('staff pages load the same table sorter as the customer site',async()=>{
  assert.equal(await readFile(new URL('../private/table-sort.js',import.meta.url),'utf8'),await readFile(new URL('../../web/table-sort.js',import.meta.url),'utf8'));
 });
+test('staff pages load the same dropdown menu as the customer site',async()=>{
+ assert.equal(await readFile(new URL('../private/select-menu.js',import.meta.url),'utf8'),await readFile(new URL('../../web/select-menu.js',import.meta.url),'utf8'));
+ for(const page of ['workspace.html','supplier-lab.html','admin-shell.html'])assert.match(await readFile(new URL('../private/'+page,import.meta.url),'utf8'),/\/api\/staff\/select-menu\.js/,page);
+});
 test('managers keep one department list that members and join requests must use',async()=>{
  const boss=await user('deptboss'),joiner=await user('deptjoiner'),org=await organization(boss,'Department Co');
  await pool.query("UPDATE memberships SET department='Legacy Team' WHERE organization_id=$1",[org.id]);

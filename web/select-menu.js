@@ -1,8 +1,24 @@
-// 全站下拉框：点开后在选择框下方弹出圆角菜单，代替系统那种盖在选择框上的弹层。
+// 全站下拉框（客户站 web/select-menu.js 与员工后台 server/private/select-menu.js 必须一字不差）：点开后在选择框下方弹出圆角菜单，代替系统那种盖在选择框上的弹层。
 // 原生 <select> 保留：取值、表单提交和各页面的 change 监听都不变，这里只换弹出的菜单。
 // 触屏设备、多选框、带 data-native-select 的区域继续用系统菜单。
 (()=>{
  if(window.matchMedia&&matchMedia('(pointer: coarse)').matches)return;
+ // 样式随脚本一起，员工后台页面（server/private/ 下的同名副本）不需要另外引用 CSS。
+ if(!document.getElementById('sm-style')){const style=document.createElement('style');style.id='sm-style';style.textContent=`
+.sm-menu{position:fixed;z-index:10000;box-sizing:border-box;overflow:auto;padding:6px;border:1px solid #e3e5ec;border-radius:12px;background:#fff;box-shadow:0 14px 34px rgba(22,26,44,.16),0 2px 6px rgba(22,26,44,.08);color:#1c2133;font-family:inherit;line-height:1.35;animation:sm-in .12s ease-out;overscroll-behavior:contain}
+.sm-menu.is-up{animation-name:sm-in-up}
+@keyframes sm-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@keyframes sm-in-up{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.sm-item{display:flex;align-items:center;gap:6px;padding:7px 14px 7px 8px;border-radius:7px;cursor:default;user-select:none;white-space:nowrap}
+.sm-check{flex:none;width:16px;text-align:center;color:#6b34b8;font-weight:700}
+.sm-item.is-selected .sm-check::before{content:"✓"}
+.sm-item.is-selected{font-weight:600}
+.sm-item.is-active{background:#eef0f6}
+.sm-item.is-disabled{color:#a7adba}
+.sm-text{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.sm-group{padding:6px 14px 3px 30px;color:#959cab;font-size:.86em;font-weight:600}
+.sm-sep{height:1px;margin:5px 8px;background:#e6e8ee}
+`;document.head.append(style);}
  let menu=null,owner=null,rows=[],active=-1;
  const usable=s=>s&&s.tagName==='SELECT'&&!s.multiple&&!(s.size>1)&&!s.disabled&&!s.closest('[data-native-select]');
  const setActive=i=>{if(active>=0&&rows[active])rows[active].el.classList.remove('is-active');active=i;if(i>=0&&rows[i]){rows[i].el.classList.add('is-active');rows[i].el.scrollIntoView({block:'nearest'});}};
