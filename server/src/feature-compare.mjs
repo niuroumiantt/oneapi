@@ -34,7 +34,7 @@ const EXTRA_BY_ID = new Map(EXTRA.map(x => [x.id, x]));
 export const TESTS = [...FEATURES.map(([id, name]) => ({ id, name, group: GROUP[id] || '其他', hint: HINT[id] || '', long: LONG.includes(id), calls: 1 })), ...EXTRA.map(x => ({ id: x.id, name: x.name, group: x.group, hint: x.hint, long: false, calls: x.calls || 1 }))];
 const TEST_IDS = new Set(TESTS.map(t => t.id));
 // Reads a non-streaming JSON reply or an SSE stream into the same shape.
-function parseReply(http, raw, stream) {
+export function parseReply(http, raw, stream) {
  if (http < 200 || http >= 300) { let m = raw.slice(0, 300); try { const j = JSON.parse(raw); m = j.error?.message || j.message || m; } catch {} return { error: `HTTP ${http}：${m}` }; }
  const out = { content: '', reasoning: '', toolCalls: 0, toolNames: [], finish: null, usage: null };
  if (!stream) { try { const j = JSON.parse(raw), c = j.choices?.[0] || {}, m = c.message || {}; out.content = m.content || ''; out.reasoning = m.reasoning_content || ''; out.toolCalls = (m.tool_calls || []).length; out.toolNames = (m.tool_calls || []).map(t => t.function?.name); out.finish = c.finish_reason || null; out.usage = j.usage || null; } catch { return { error: '返回内容不是 JSON' }; } return out; }
@@ -81,10 +81,9 @@ export function buildSnapshot(run, items) {
  return { run: { id: run.id, started_at: run.created_at, finished_at: run.finished_at, requests: perModel * 2 * models.length }, tests: tests.map(({ id, name, group, hint }) => ({ id, name, group, hint })), models, findings };
 }
 
-export function featureCompareRoutes(app, pool, cfg, requireStaff, upstreamFetch = fetch) {
+// Shared by 功能对比 and 身份检测: our routed models paired with official models, and one request down either path.
+export function compareLinks(pool, cfg, upstreamFetch = fetch) {
  const secret = process.env.SUPPLIER_LAB_SECRET, box = secret?.length >= 32 ? vault(secret) : null;
- let active = null;
-
  async function references() {
   return (await pool.query(`SELECT e.id,e.model_id,e.base_url,c.credential_ciphertext,p.display_name AS vendor
    FROM supplier_lab_endpoints e JOIN supplier_lab_credentials c ON c.id=e.credential_id JOIN supplier_lab_suppliers s ON s.id=e.supplier_id JOIN suppliers p ON p.id=s.canonical_supplier_id
@@ -102,24 +101,30 @@ export function featureCompareRoutes(app, pool, cfg, requireStaff, upstreamFetch
  }
 
  // One request down one path. Ours goes through the same validation and translation employees get; official goes straight to the vendor.
- async function send(side, target, body) {
+ async function send(side, target, body, timeoutMs = TIMEOUT_MS) {
   const started = performance.now();
   try {
    if (side === 'ours') {
     const { payload, stream } = employeeRequest({ ...body, model: target.model.id });
     const key = await upstreamSecret(target, cfg);
-    const response = await routeFetch(pool, upstreamFetch, target.model.upstreamModel, `${target.baseUrl}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
+    const response = await routeFetch(pool, upstreamFetch, target.model.upstreamModel, `${target.baseUrl}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
     return { http: response.status, raw: await response.text(), stream, started };
    }
    const req = { ...body, model: target.model_id }, stream = req.stream === true; if (stream) req.stream_options = { include_usage: true };
    validateLabBaseUrl(target.base_url); const key = box.open(target.credential_ciphertext).key;
-   const response = await upstreamFetch(`${target.base_url}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(req), redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
+   const response = await upstreamFetch(`${target.base_url}/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(req), redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
    return { http: response.status, raw: (await response.text()).replaceAll(key, '***'), stream, started };
   } catch (e) {
-   const note = e instanceof HttpError ? `网关拒绝（${e.status}）：${e.message}` : e.name === 'TimeoutError' ? `超过 ${TIMEOUT_MS / 1000} 秒无响应` : (side === 'ours' ? '连接上游失败：' : '连接官方失败：') + String(e.message || e).slice(0, 200);
+   const note = e instanceof HttpError ? `网关拒绝（${e.status}）：${e.message}` : e.name === 'TimeoutError' ? `超过 ${timeoutMs / 1000} 秒无响应` : (side === 'ours' ? '连接上游失败：' : '连接官方失败：') + String(e.message || e).slice(0, 200);
    return { error: { status: 'fail', note, http_status: e instanceof HttpError ? e.status : null, latency_ms: Math.round(performance.now() - started), excerpt: '', usage: null } };
   }
  }
+ return { box, pairs, send };
+}
+
+export function featureCompareRoutes(app, pool, cfg, requireStaff, upstreamFetch = fetch) {
+ const { box, pairs, send } = compareLinks(pool, cfg, upstreamFetch);
+ let active = null;
  async function probe(side, target, testId) {
   const extra = EXTRA_BY_ID.get(testId);
   if (!extra) { const body = syntheticBody(testId), r = await send(side, target, body); if (r.error) return r.error; return sideRecord(judge(featuresOf(body), r.http, r.raw, r.stream), r.http, r.started, r.raw); }

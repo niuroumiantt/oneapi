@@ -796,6 +796,32 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
    for(let i=0;i<100;i++){v=(await admin.call('/api/staff/lab/feature-compare')).data;if(v.run.status!=='running')break;await new Promise(r=>setTimeout(r,30));}assert.equal(v.run.done,2);
    assert.equal((await jar().call('/api/staff/lab/feature-compare')).status,401);
   }finally{pilotFetch=saved;}}
+
+ {// 身份检测：分词指纹（固定多出 7 个 Token = 隐藏内容）、自报身份、输出相似、能力小测（少对 4 题 = 疑似降级）
+  const saved=pilotFetch;const {PROBES}=await import('../src/model-identity.mjs');const bench=PROBES.filter(p=>p.kind==='bench');
+  pilotFetch=async(url,options)=>{const body=JSON.parse(options.body),official=String(url).startsWith('https://open.bigmodel.cn'),text=String(body.messages.at(-1).content);
+   const reply=(content,prompt)=>new Response(JSON.stringify({model:official?'glm-5.3':'GLM-5.3',choices:[{message:{content},finish_reason:'stop'}],usage:{prompt_tokens:prompt,completion_tokens:30}}),{status:200});
+   const q=bench.find(p=>text.startsWith(p.prompt));if(q)return reply('想一想\n答案：'+(!official&&bench.indexOf(q)<4?'不知道':q.answer),50);
+   if(text.includes('你是什么模型'))return reply('我是智谱开发的 GLM 模型。',20);
+   if(text.includes('TCP')||text.includes('短诗')||text.includes('sky'))return reply('三次握手：客户端发 SYN，服务端回 SYN-ACK，客户端再回 ACK。',20);
+   return reply('好',text.length+(official?0:7));};
+  try{
+   let v=(await admin.call('/api/staff/lab/identity')).data;assert.equal(v.ready,true);assert.equal(v.sections.fingerprint,21);assert.equal(v.sections.bench,40);assert.equal(v.run,null);
+   assert.equal(v.models.find(m=>m.id==='glm-5.3').reference.model_id,'GLM-5.3','same pairing as 功能对比');
+   assert.equal((await admin.call('/api/staff/lab/identity/runs',{method:'POST',body:{sections:['nope']}})).status,400);
+   const started=await admin.call('/api/staff/lab/identity/runs',{method:'POST',body:{models:['glm-5.3']}});assert.equal(started.status,202,JSON.stringify(started.data));assert.equal(started.data.probes,29);assert.equal(started.data.calls,61);
+   assert.equal((await admin.call('/api/staff/lab/identity/runs',{method:'POST',body:{models:['glm-5.3']}})).status,409,'one run at a time');
+   for(let i=0;i<200;i++){v=(await admin.call('/api/staff/lab/identity')).data;if(v.run.status!=='running')break;await new Promise(r=>setTimeout(r,30));}
+   assert.equal(v.run.status,'completed');assert.equal(v.run.done,29);const d=v.detail['glm-5.3'];
+   assert.equal(d.tokenizer.status,'offset');assert.equal(d.tokenizer.offset,7);assert.equal(d.self.status,'same');assert.equal(d.self.ours.model,'GLM-5.3');assert.equal(d.similar.status,'close');
+   assert.equal(d.bench.n,20);assert.equal(d.bench.official,20);assert.equal(d.bench.ours,16);assert.equal(d.bench.status,'suspect');assert.equal(d.verdict,'suspect');
+   assert.equal(v.runs[0].summary['glm-5.3'].verdict,'suspect','history keeps the verdict');assert.ok(['peak','off'].includes(v.runs[0].period));
+   const only=await admin.call('/api/staff/lab/identity/runs',{method:'POST',body:{models:['glm-5.3'],sections:['fingerprint']}});assert.equal(only.data.probes,9);
+   for(let i=0;i<200;i++){v=(await admin.call('/api/staff/lab/identity')).data;if(v.run.status!=='running')break;await new Promise(r=>setTimeout(r,30));}
+   assert.equal(v.detail['glm-5.3'].bench,null);assert.equal(v.detail['glm-5.3'].verdict,'watch','hidden tokens alone are worth a look');
+   assert.ok(!JSON.stringify(v).includes('sk-glm-three'),'official key never shown');
+   assert.equal((await jar().call('/api/staff/lab/identity')).status,401);
+  }finally{pilotFetch=saved;}}
 });
 test('staff refunds go back to the payer once, hold the balance first and reverse rejections',async()=>{
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);

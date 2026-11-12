@@ -120,6 +120,7 @@ export function supplierLabRoutes(app, pool, requireStaff) {
   usageRoutes(app,pool,requireStaff,box);
   const access = (req, write = false) => { requireTechnical(req); if (write && !box) throw new HttpError(503, '验收台凭据加密密钥尚未配置'); };
   app.get('/api/staff/lab/console', requireStaff, (req, res) => { access(req); res.set('Cache-Control', 'no-store'); res.sendFile(new URL('../private/admin-shell.html', import.meta.url).pathname,{dotfiles:'allow'}); });
+  app.get('/api/staff/lab/manual', requireStaff, (req, res) => { access(req); res.set('Cache-Control', 'no-store'); res.sendFile(new URL('../private/testing-manual.html', import.meta.url).pathname,{dotfiles:'allow'}); });
   app.get('/api/staff/lab/view', requireStaff, (req, res) => { access(req); res.sendFile(new URL('../private/supplier-lab.html', import.meta.url).pathname,{dotfiles:'allow'}); });
   app.get('/api/staff/lab/console.js', requireStaff, (req, res) => { access(req); res.set('Cache-Control', 'no-store'); res.type('js').sendFile(new URL('../private/supplier-lab.js', import.meta.url).pathname,{dotfiles:'allow'}); });
   app.get('/api/staff/lab/logo.svg', requireStaff, (req, res) => { access(req); res.set('Cache-Control', 'no-store'); res.type('svg').sendFile(new URL('../private/supplier-lab-logo.svg', import.meta.url).pathname,{dotfiles:'allow'}); });
