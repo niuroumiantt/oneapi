@@ -169,7 +169,7 @@ ${table(['工具', '在哪里填', '注意'], [
  ['直接调用 API', `curl、Python、Node 示例见 ${link('quickstart', '快速开始')}`, '建议加 X-Semifly-Client 请求头'],
  ['自建 Agent', '选 OpenAI 兼容接口，填三项', '工具调用用 tools 参数；在请求头自报 X-Semifly-Client']])}
 <h2 id="unsupported">暂不支持</h2>
-<p>Claude Code 和 Codex 需要 Anthropic Messages 或 OpenAI Responses 接口，semifly 目前只提供 Chat Completions，暂时不能直接接入。</p>
+<p>员工侧目前只开放 <code>/v1/models</code> 和 <code>/v1/chat/completions</code>。Claude Code、Codex 等需要 Anthropic Messages 或 OpenAI Responses 的客户端暂时不能直接接入；embeddings、画图等专用接口也未开放，有明确需求后再加。</p>
 ${note('工作台“模型 → 接入配置”里选择工具，会显示带截图位置的分步说明，并可一键复制三项配置。')}` },
 
   { id: 'faq', group: '常见问题', title: '常见问题', body: () => FAQ.map(([group, items]) => `<h2 id="faq-${esc(group)}">${esc(group)}</h2>${items.map(([q, a]) => `<details class="doc-faq"><summary>${esc(q)}</summary><div>${a}</div></details>`).join('')}`).join('') }
