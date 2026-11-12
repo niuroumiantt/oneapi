@@ -863,3 +863,10 @@ td>.live-dot:first-child{margin-right:5px}
 .pc-steps select[data-agent-tool]:hover,.kg-step select[data-agent-tool]:hover{background-color:#bdf52c}
 .pc-steps select[data-agent-tool]:focus,.kg-step select[data-agent-tool]:focus{outline:2px solid #7fbf00;outline-offset:1px}
 .pc-steps select[data-agent-tool] option,.kg-step select[data-agent-tool] option,.pc-steps select[data-agent-tool] optgroup,.kg-step select[data-agent-tool] optgroup{background:#fff;color:#1c2541}
+/* 第 1、2 步的标题用深色；三项配置的名称一行放下（列宽按最长名称算，见 labelEm） */
+.pc-step-label,.kg-step-body small{color:#1c2133;font-size:12.5px;font-weight:700}
+.pc-step-label-strong{font-size:13px}
+.pc-steps .pc-access-values>div{grid-template-columns:calc(var(--kv-label,9) * 11px) minmax(0,1fr)}
+.pc-steps .pc-access-values span{white-space:nowrap}
+.kg-values .key-agent-row{grid-template-columns:calc(var(--kv-label,7) * 12px) minmax(0,1fr) 52px}
+.kg-values .key-agent-row small{white-space:nowrap}
