@@ -3,7 +3,7 @@
  'use strict';
  const known = {
   business: ['overview', 'pnl', 'payments', 'invoices', 'payables', 'suppliers', 'customers', 'upgrades', 'products', 'discounts', 'tickets', 'answers'],
-  technical: ['overview', 'keys', 'evalkeys', 'features', 'agents', 'agentcmp', 'matrix', 'supplier', 'suppliers', 'credentials', 'models', 'tests', 'transactions', 'compare', 'identity', 'stress', 'monitor', 'routing', 'handoff', 'releases', 'billing', 'upstream', 'servers', 'capacity']
+  technical: ['overview', 'keys', 'evalkeys', 'features', 'agents', 'agentcmp', 'matrix', 'supplier', 'suppliers', 'credentials', 'models', 'tests', 'transactions', 'compare', 'identity', 'stress', 'monitor', 'routing', 'handoff', 'releases', 'billing', 'upstream', 'servers', 'capacity', 'prices']
  };
  const titles = { business: '商务后台', technical: '技术后台' };
  const positions = { business: 'overview', technical: 'overview' }, frames = {};
