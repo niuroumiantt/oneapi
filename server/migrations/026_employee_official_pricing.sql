@@ -2,5 +2,6 @@
 ALTER TABLE employee_calls ALTER COLUMN credential_id DROP NOT NULL;
 ALTER TABLE employee_calls ADD COLUMN IF NOT EXISTS upstream text;
 ALTER TABLE employee_calls ADD COLUMN IF NOT EXISTS price_snapshot jsonb;
+-- Every file re-runs on each start; this list must stay the full set from 052, or re-running 026 rejects newer rows.
 ALTER TABLE employee_calls DROP CONSTRAINT IF EXISTS employee_calls_settlement_source_check;
-ALTER TABLE employee_calls ADD CONSTRAINT employee_calls_settlement_source_check CHECK(settlement_source IN ('supplier_log','hold_fallback','official_price'));
+ALTER TABLE employee_calls ADD CONSTRAINT employee_calls_settlement_source_check CHECK(settlement_source IN ('supplier_log','hold_fallback','official_price','supplier_tokens','supplier_free'));

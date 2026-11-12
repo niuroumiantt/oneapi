@@ -815,3 +815,47 @@ td>.live-dot:first-child{margin-right:5px}
 .pc-steps .pc-access-values code{min-height:30px;border-radius:7px}
 .pc-steps .personal-key-button{width:100%;margin:10px 0 0;border-radius:8px;min-height:38px}
 .personal-connect-panel .pc-steps+.pc-price-fields{margin-top:6px}
+/* 密钥 · 为 Agent 生成 Key：① 模型 → ② Agent 工具 → ③ 接入方法，和模型页同一套步骤 */
+.keygen-box{margin-bottom:12px}.keygen-box>header{padding:12px 18px 2px}.keygen-box>header h3{font-size:15px}.keygen-box>header p{font-size:12px}
+.keygen-box .pc-tab-body{padding:10px 16px 14px}
+.kg-flow{display:grid;gap:10px}
+.kg-pick{display:grid;grid-template-columns:minmax(0,1fr) 22px minmax(0,1fr);align-items:center;gap:8px}
+.kg-step{display:grid;grid-template-columns:26px minmax(0,1fr);align-items:center;gap:10px;padding:8px 12px;border:1px solid #e0e3ee;border-radius:10px;background:#fff}
+.kg-step-body{display:grid;gap:3px;min-width:0}
+.kg-step-body small{color:#7a8295;font-size:11px;font-weight:600}
+.kg-step select{width:100%;box-sizing:border-box;min-height:34px;padding:4px 10px;border:1px solid #d6dae4;border-radius:7px;background:#fff;color:#1c2541;font:inherit;font-size:13.5px;font-weight:700;cursor:pointer}
+.kg-arrow{color:#b79be6;font-size:18px;font-weight:700;text-align:center}
+.kg-step3{padding:10px 14px 12px;border:1px solid #d9c6f3;border-radius:10px;background:#fff}
+.kg-step3 .pc-step-no,.kg-flow .kg-step3 .pc-step-no{background:#292c35;color:#fff}
+.kg-step3.pc-step-blocked .pc-step-no{background:#fde3e3;color:#b4262b}
+.kg-step3-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.kg-step3-head h4{margin:0;color:#202636;font-size:13.5px;font-weight:700}
+.kg-step3-head h4 b{color:#6b34b8}
+.kg-step3-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:14px;align-items:start}
+.kg-guide{display:grid;gap:6px;min-width:0}
+.kg-guide .pc-view-tabs{padding:0}.kg-guide .pc-view-tabs button{padding:4px 9px;font-size:12px}
+.kg-guide .pc-howto{margin:0}
+.kg-values{display:grid;gap:6px;min-width:0}
+.kg-gen{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.kg-gen input{min-width:0;min-height:34px;padding:6px 10px;border:1px solid #d6dae4;border-radius:7px;font:inherit;font-size:13px}
+.kg-gen .personal-key-button{width:auto;min-height:34px;margin:0;padding:6px 14px;white-space:nowrap}
+.kg-gen [role=status]{grid-column:1/-1}.kg-gen [role=status]:empty{display:none}
+.kg-values .key-agent-row{min-height:34px;padding:3px 8px}
+.kg-values .key-agent-copy-all{padding:5px 12px}
+.kg-foot{margin:0}
+.kg-flow .summary-notice{margin:0}
+@media(max-width:900px){.kg-pick{grid-template-columns:minmax(0,1fr)}.kg-arrow{display:none}.kg-step3-grid{grid-template-columns:minmax(0,1fr)}}
+/* 为多个模型生成 Key：没生成前不占右栏，模型平铺成多列，表单收成一行 */
+.direct-key.is-solo{grid-template-columns:minmax(0,1fr)}
+.direct-key-form{padding:12px 14px}
+.direct-head{margin-bottom:8px}.direct-head .live-small{margin:0}
+.direct-key.is-solo .direct-models{grid-template-columns:repeat(auto-fill,minmax(290px,1fr))}
+.direct-model{padding:6px 10px}
+.direct-create{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) auto;align-items:end;margin-top:10px}
+.direct-create button,.direct-create .personal-key-button{grid-column:auto;width:auto;min-height:36px;margin:0;padding:6px 16px;white-space:nowrap}
+.direct-key-form>.live-small:last-child{margin:6px 0 0}
+@media(max-width:700px){.direct-create{grid-template-columns:minmax(0,1fr)}}
+.kg-values .key-agent-index{display:none}
+.kg-values .key-agent-row{grid-template-columns:78px minmax(0,1fr) 52px}
+.kg-values .key-agent-row code{font-size:12px}
+@media(max-width:480px){.kg-values .key-agent-row{grid-template-columns:minmax(0,1fr) 52px}.kg-values .key-agent-row small,.kg-values .key-agent-row code{grid-column:1}.kg-values .key-agent-row .key-agent-copy{grid-column:2;grid-row:1/3}}
