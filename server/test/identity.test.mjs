@@ -424,7 +424,8 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  for(const model of ['GLM-5.3','deepseek-v4.1-flash'])await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES($1,'supplier','https://kerapi.cn/v1',$1,'fp','credit-fixture',$2,$3)",[model,supplier,credential]);
  appCfg.employeeCredit.organizationId=company.id;
  // These billing checks fake calls of up to 5 million tokens; the gate is tested on its own further down.
- await pool.query('UPDATE organizations SET tpm=1000000000 WHERE id=$1',[company.id]);
+ // Raised the way staff would (limits_updated_at set), so re-running migration 053 later in this test keeps it.
+ await pool.query('UPDATE organizations SET tpm=1000000000,limits_updated_at=now() WHERE id=$1',[company.id]);
  assert.equal((await outsider.j.call('/api/employee-credit/status')).data.enabled,false);
  assert.equal((await outsider.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'No'}})).status,403);
  for(let i=0;i<2;i++){const s=(await staffer.j.call('/api/employee-credit/status')).data;assert.equal(s.enabled,true);assert.equal(s.max_output_tokens,32768);assert.ok(s.base_url.endsWith('/v1'));assert.equal(Number(s.available_yuan),10);assert.deepEqual(s.model_ids,['deepseek-flash','deepseek-v4-pro','glm-5.3']);assert.equal(s.models[2].input_yuan,'8');}
@@ -672,7 +673,9 @@ test('employee credit is one-time, company-only, reserved before calling and cha
         const c=(await pool.query('SELECT credential_id,status,settlement_source FROM employee_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 1',[staffer.user.id])).rows[0];assert.deepEqual(c,{credential_id:sb.data.credential_id,status:'settled',settlement_source:'official_price'});}
        // No usage from the official line: nothing to check it against later, so it is free.
        officialReply=()=>new Response(JSON.stringify({choices:[{message:{content:'ok'}}]}),{status:200,headers:{'content-type':'application/json'}});
-       {const r=await flash();assert.equal(r.status,200);const c=(await pool.query('SELECT status,charged_yuan,settlement_source FROM employee_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 1',[staffer.user.id])).rows[0];assert.deepEqual([c.status,Number(c.charged_yuan),c.settlement_source],['settled',0,'official_unmetered']);}
+       {const r=await flash();assert.equal(r.status,200);const c=(await pool.query('SELECT status,charged_yuan,settlement_source FROM employee_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 1',[staffer.user.id])).rows[0];assert.deepEqual([c.status,Number(c.charged_yuan),c.settlement_source],['settled',0,'official_unmetered']);
+        // Re-running every migration with this row present must not narrow the CHECK back to an older list.
+        await migrate(pool,service.auth);assert.match((await pool.query("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname='employee_calls_settlement_source_check'")).rows[0].d,/official_unmetered/);}
        // GLM has no mapping, so it gets no official line.
        {const before=official.length;const r=await call();assert.equal(r.status,502);assert.equal(official.length,before);}
        const replaced=await add({vendor:'deepseek',api_key:'sk-ds-standby-2',models:{'deepseek-flash':'deepseek-chat'}});assert.equal(replaced.status,201);assert.deepEqual(replaced.data.replaced,[sb.data.label],'one standby per vendor');
