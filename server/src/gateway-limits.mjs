@@ -9,8 +9,11 @@ import { HttpError, audit, transaction } from './core.mjs';
 import { requireTechnical } from './workspaces.mjs';
 
 export const GATEWAY_DEFAULTS=Object.freeze({max_concurrent:50,tpm:15000000,org_max_concurrent:10,org_tpm:2000000});
+// Person seat (owner decision 2026-11-12, items 5–6): one person's keys share this; limits are a guardrail, not a sales cap.
+export const SEAT_CONCURRENT=10,SEAT_TPM=3000000;
 export const CONCURRENT_RANGE=[1,1000],TPM_RANGE=[1000,1000000000];
 const WINDOW_MS=60000;
+const NIL_ORG='00000000-0000-0000-0000-000000000000',NIL_KEY='00000000-0000-0000-0000-000000000000';
 // Input is reserved at admission from the request size; the measured average is about 6.4 bytes per input token, so
 // 4 bytes per token reserves a little more than the real count. Completion replaces it with the real input and output.
 export const BYTES_PER_TOKEN=4;
@@ -33,7 +36,7 @@ export function createGate(now=()=>Date.now()){
  return {
   /** Admits one request or throws a 429 saying which layer is full. Synchronous, so check and reservation cannot interleave. */
   admit(org,estimate,limits){
-   const fail=(code,message,retry,layer,kind)=>{console.warn(JSON.stringify({event:'gateway_limit',layer,kind,org}));throw Object.assign(new HttpError(429,message,code),{retryAfter:retry});};
+   const fail=(code,message,retry,layer,kind)=>{console.warn(JSON.stringify({event:'gateway_limit',layer,kind,org}));throw Object.assign(new HttpError(429,message,code),{retryAfter:retry,layer});};
    const mineActive=orgActive.get(org)||0,{all,mine}=used(org);
    if(active>=limits.max_concurrent)fail('gateway_busy',`公司总通道繁忙：全平台同时进行的请求已达 ${limits.max_concurrent} 个上限，请几秒后重试。这不是你的额度问题`,5,'company','concurrency');
    if(all+estimate>limits.tpm)fail('gateway_busy',`公司总通道繁忙：全平台最近一分钟的 Token 用量已到上限，请稍后重试。这不是你的额度问题`,wait(org,estimate,limits.tpm,'all'),'company','tpm');
@@ -57,6 +60,54 @@ export function createGate(now=()=>Date.now()){
  };
 }
 
+/** Per-person TPM seat (items 5–6). Concurrent slots stay in the DB pending rows; this only meters Token/minute. */
+export function createSeatGate(now=()=>Date.now()){
+ let running=new Set(),window=[];
+ const prune=()=>{const cut=now()-WINDOW_MS;while(window.length&&window[0].at<=cut)window.shift();};
+ const used=person=>{prune();let n=0;for(const e of [...running,...window])if(e.person===person)n+=e.n;return n;};
+ const wait=(person,need,limit)=>{
+  let total=used(person)+need;
+  for(const e of window){if(e.person!==person)continue;total-=e.n;if(total<=limit)return Math.max(1,Math.ceil((e.at+WINDOW_MS-now())/1000));}
+  return WINDOW_MS/1000;
+ };
+ return {
+  admit(person,estimate,tpm=SEAT_TPM){
+   const mine=used(person);
+   if(mine+estimate>tpm){
+    const retry=wait(person,estimate,tpm);
+    throw Object.assign(new HttpError(429,`你名下最近一分钟已用约 ${amount(mine)} Token，席位上限 ${amount(tpm)}（输入加输出，含缓存命中；你的多把 Key 共用）。请稍后重试`,'person_tpm_exceeded'),{retryAfter:retry,layer:'person'});
+   }
+   const reserved={person,n:estimate};running.add(reserved);
+   let open=true,counted=null,finished=null;
+   const close=n=>{if(!open)return;open=false;running.delete(reserved);if(n){finished={at:now(),person,n};window.push(finished);}};
+   return {
+    settle(usage){if(!usage)return;counted=usage.input+usage.output;if(finished)finished.n=counted;},
+    release(){close(counted??estimate);},
+    cancel(){close(0);}
+   };
+  },
+  snapshot(){prune();const people=new Map();for(const e of [...running,...window])people.set(e.person,(people.get(e.person)||0)+e.n);
+   return {people:[...people.entries()].map(([id,tpm])=>({id,tpm}))};}
+ };
+}
+
+/** Upserts one gateway-own 429 into the daily counter table. Never throws into the request path. */
+export async function recordGatewayRejection(pool,{code,layer,organizationId=null,ownerId=null,keyId=null}){
+ if(!pool||!code||!layer)return;
+ try{
+  await pool.query(`INSERT INTO gateway_rejection_counts(day,code,layer,organization_id,owner_id,key_id,count,updated_at)
+   VALUES(CURRENT_DATE,$1,$2,$3,$4,$5,1,now())
+   ON CONFLICT(day,code,layer,organization_id,owner_id,key_id)
+   DO UPDATE SET count=gateway_rejection_counts.count+1,updated_at=now()`,
+   [code,layer,organizationId||NIL_ORG,ownerId||'',keyId||NIL_KEY]);
+ }catch(err){console.error(JSON.stringify({event:'gateway_rejection_record_failed',code:err.code||err.name}));}
+}
+
+export function rejectionLayer(code){
+ return ({rate_limit_exceeded:'key',concurrency_limit_exceeded:'person',person_tpm_exceeded:'person',
+  organization_limit_exceeded:'organization',gateway_busy:'company',upstream_rate_limited:'upstream'})[code]||'unknown';
+}
+
 /** The limits that apply to one organization: its own values where staff set them, the platform defaults otherwise. */
 export async function gatewayLimits(db,org){
  const r=(await db.query(`SELECT g.max_concurrent,g.tpm,coalesce(o.max_concurrent,g.org_max_concurrent) AS org_max_concurrent,coalesce(o.tpm,g.org_tpm) AS org_tpm
@@ -77,10 +128,21 @@ export function gatewayLimitRoutes(app,pool,requireStaff,gate){
    pool.query('SELECT id,name,max_concurrent,tpm,limits_updated_at FROM organizations ORDER BY (max_concurrent IS NOT NULL OR tpm IS NOT NULL) DESC,created_at LIMIT 500')]);
   const s=settings.rows[0],live=gate.snapshot(),now=new Map(live.organizations.map(o=>[o.id,o]));
   return {settings:{...s,tpm:Number(s.tpm),org_tpm:Number(s.org_tpm)},live:{active:live.active,tpm:live.tpm},
+   seat:{max_concurrent:SEAT_CONCURRENT,tpm:SEAT_TPM},
    organizations:orgs.rows.map(o=>({id:o.id,name:o.name,max_concurrent:o.max_concurrent,tpm:o.tpm===null?null:Number(o.tpm),limits_updated_at:o.limits_updated_at,
     effective:{max_concurrent:o.max_concurrent??s.org_max_concurrent,tpm:Number(o.tpm??s.org_tpm)},active:now.get(o.id)?.active||0,tpm_now:now.get(o.id)?.tpm||0}))};
  };
  app.get('/api/staff/lab/gateway-limits',requireStaff,async(req,res)=>{requireTechnical(req);res.json(await view());});
+ app.get('/api/staff/lab/gateway-rejections',requireStaff,async(req,res)=>{
+  requireTechnical(req);
+  const days=Math.min(30,Math.max(1,Number(req.query.days)||7));
+  const rows=(await pool.query(`SELECT day,code,layer,organization_id,owner_id,key_id,count,updated_at
+   FROM gateway_rejection_counts WHERE day>=CURRENT_DATE-($1::int-1) ORDER BY day DESC,count DESC`,[days])).rows;
+  const totals=(await pool.query(`SELECT day,code,layer,sum(count)::int AS count FROM gateway_rejection_counts
+   WHERE day>=CURRENT_DATE-($1::int-1) GROUP BY 1,2,3 ORDER BY day DESC,count DESC`,[days])).rows;
+  res.json({days,seat:{max_concurrent:SEAT_CONCURRENT,tpm:SEAT_TPM},totals,rows:rows.map(r=>({...r,
+   organization_id:r.organization_id===NIL_ORG?null:r.organization_id,owner_id:r.owner_id||null,key_id:r.key_id===NIL_KEY?null:r.key_id}))});
+ });
  app.post('/api/staff/lab/gateway-limits',requireStaff,async(req,res)=>{
   requireTechnical(req);const b=req.body||{};
   const next={max_concurrent:whole(b.max_concurrent,'全平台同时请求数',CONCURRENT_RANGE),tpm:whole(b.tpm,'全平台每分钟 Token 数',TPM_RANGE),

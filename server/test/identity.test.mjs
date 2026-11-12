@@ -490,8 +490,9 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  await pool.query('UPDATE employee_credit_accounts SET spent_yuan=granted_yuan-$2::numeric WHERE user_id=$1',[staffer.user.id,room]);
  const racing=await Promise.all([call(),call()]);assert.deepEqual(racing.map(r=>r.status).sort(),[200,402]);
  // Usage above the bound never overdraws, and the true price is kept.
+ // Keep settled tokens under the person seat TPM (3M) so later cases in this test are not blocked.
  await pool.query('UPDATE employee_credit_accounts SET spent_yuan=granted_yuan-$2::numeric WHERE user_id=$1',[staffer.user.id,room]);
- usage={prompt_tokens:5000000,completion_tokens:1};pilotFetch=async()=>reply();assert.equal((await call()).status,200);
+ usage={prompt_tokens:100000,completion_tokens:1};pilotFetch=async()=>reply();assert.equal((await call()).status,200);
  s=await status();assert.equal(Number(s.available_yuan),0);assert.equal(s.spent_yuan,s.granted_yuan);
  {// Owner decision 2026-11-12 (docs/14-gateway-settings.md D4): a hang-up is CLIENT_CLOSED; KerAPI's log prices a call at official rates; a gateway restart charges nothing.
   const saved=pilotFetch,newest=async()=>(await pool.query('SELECT id,status,error_code,charged_yuan,settlement_source FROM employee_calls ORDER BY created_at DESC LIMIT 1')).rows[0];
@@ -790,23 +791,23 @@ test('employee credit is one-time, company-only, reserved before calling and cha
   for(const body of [{max_concurrent:0},{max_concurrent:65},{max_concurrent:'2.5'},{per_minute:1201},{per_minute:'abc'}])assert.equal((await limits(boss,body)).status,400,JSON.stringify(body));
   assert.equal((await boss.j.call('/api/employee-credit/team/keys/00000000-0000-4000-8000-000000000000/limits',{method:'POST',body:{max_concurrent:8}})).status,404);
   await pool.query('DELETE FROM request_limits');
-  // Three calls in flight for this owner: the default stops the fourth.
+  // Ten calls in flight for this owner: the seat default (items 5–6) stops the eleventh.
   const inFlight=(await pool.query(`INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,client,client_detail,profile_signature)
-   SELECT key_id,owner_id,model_id,credential_id,upstream,price_snapshot,'pending',0,client,client_detail,profile_signature FROM employee_calls c,generate_series(1,3) WHERE c.id=(SELECT id FROM employee_calls WHERE key_id=$1 LIMIT 1) RETURNING id`,[kid])).rows.map(r=>r.id);
-  assert.equal(inFlight.length,3);
-  {const blocked=await call();assert.equal(blocked.status,429);assert.equal(blocked.data.error.code,'concurrency_limit_exceeded');assert.match(blocked.data.error.message,/同时最多 3 个请求/);}
+   SELECT key_id,owner_id,model_id,credential_id,upstream,price_snapshot,'pending',0,client,client_detail,profile_signature FROM employee_calls c,generate_series(1,10) WHERE c.id=(SELECT id FROM employee_calls WHERE key_id=$1 LIMIT 1) RETURNING id`,[kid])).rows.map(r=>r.id);
+  assert.equal(inFlight.length,10);
+  {const blocked=await call();assert.equal(blocked.status,429);assert.equal(blocked.data.error.code,'concurrency_limit_exceeded');assert.match(blocked.data.error.message,/同时最多 10 个请求/);}
   const beforeLimits=pilotFetch;usage={prompt_tokens:1,completion_tokens:1};pilotFetch=async()=>reply();
   await pool.query('UPDATE employee_credit_accounts SET granted_yuan=granted_yuan+5 WHERE user_id=$1',[staffer.user.id]); // the checks above left the account nearly spent
-  const raised=await limits(boss,{max_concurrent:8,per_minute:3});assert.equal(raised.status,200,JSON.stringify(raised.data));
-  assert.deepEqual(raised.data,{key:{id:kid,max_concurrent:8,per_minute:3},defaults:{max_concurrent:3,per_minute:60}});
+  const raised=await limits(boss,{max_concurrent:12,per_minute:3});assert.equal(raised.status,200,JSON.stringify(raised.data));
+  assert.deepEqual(raised.data,{key:{id:kid,max_concurrent:12,per_minute:3},defaults:{max_concurrent:10,per_minute:60}});
   for(let n=0;n<2;n++){const ok=await call();assert.equal(ok.status,200,JSON.stringify(ok.data));}
   {const fast=await call();assert.equal(fast.status,429);assert.equal(fast.data.error.code,'rate_limit_exceeded');assert.match(fast.data.error.message,/每分钟最多 3 次/);}
-  {const row=(await boss.j.call('/api/employee-credit/team')).data.keys.find(k=>k.id===kid);assert.deepEqual([row.max_concurrent,row.per_minute],[8,3]);
-   const own=(await staffer.j.call('/api/employee-credit/status')).data.keys.find(k=>k.id===kid);assert.deepEqual([own.max_concurrent,own.per_minute],[8,3]);}
+  {const row=(await boss.j.call('/api/employee-credit/team')).data.keys.find(k=>k.id===kid);assert.deepEqual([row.max_concurrent,row.per_minute],[12,3]);
+   const own=(await staffer.j.call('/api/employee-credit/status')).data.keys.find(k=>k.id===kid);assert.deepEqual([own.max_concurrent,own.per_minute],[12,3]);}
   // Empty values put the key back on the defaults, and the change is on the audit trail.
   assert.deepEqual((await limits(boss,{max_concurrent:'',per_minute:null})).data.key,{id:kid,max_concurrent:null,per_minute:null});
   await pool.query('DELETE FROM request_limits');
-  assert.equal((await call()).status,429,'back to three at once');
+  assert.equal((await call()).status,429,'back to ten at once');
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='employee_credit.key_limits_set' AND subject_id=$1",[kid])).rows[0].n,2);
   pilotFetch=beforeLimits;
   await pool.query('DELETE FROM employee_calls WHERE id=ANY($1)',[inFlight]);await pool.query('DELETE FROM request_limits');}
@@ -817,6 +818,7 @@ test('employee credit is one-time, company-only, reserved before calling and cha
   await pool.query('UPDATE organizations SET tpm=NULL WHERE id=$1',[company.id]);
   let v=(await ops.call('/api/staff/lab/gateway-limits')).data;
   assert.deepEqual([v.settings.max_concurrent,v.settings.tpm,v.settings.org_max_concurrent,v.settings.org_tpm],[50,15000000,10,2000000],'decided defaults');
+  assert.deepEqual(v.seat,{max_concurrent:10,tpm:3000000},'person seat defaults (items 5–6)');
   const mine=v.organizations.find(o=>o.id===company.id);assert.deepEqual(mine.effective,{max_concurrent:10,tpm:2000000},'an organization nobody set uses the defaults');
   assert.equal((await staffer.j.call('/api/staff/lab/gateway-limits')).status,401,'staff only');
   for(const body of [{max_concurrent:0,tpm:15000000,org_max_concurrent:10,org_tpm:2000000},{max_concurrent:50,tpm:999,org_max_concurrent:10,org_tpm:2000000},{max_concurrent:50,tpm:15000000,org_max_concurrent:'2.5',org_tpm:2000000}])assert.equal((await limits(body)).status,400,JSON.stringify(body));
@@ -842,6 +844,12 @@ test('employee credit is one-time, company-only, reserved before calling and cha
    const after=await call();assert.equal(after.status,200,'the slot is free again once the response closes');
   }finally{pilotFetch=saved;}
   v=(await ops.call('/api/staff/lab/gateway-limits')).data;assert.equal(v.live.active,0);assert.ok(v.live.tpm>0,'completed calls count their real tokens');
+  // Gateway-own 429s are counted daily so defaults can be checked against reality (items 5–6).
+  const rej=(await ops.call('/api/staff/lab/gateway-rejections?days=1')).data;
+  assert.deepEqual(rej.seat,{max_concurrent:10,tpm:3000000});
+  assert.ok(rej.totals.some(r=>r.code==='organization_limit_exceeded'&&r.layer==='organization'&&r.count>=1));
+  assert.ok(rej.totals.some(r=>r.code==='gateway_busy'&&r.layer==='company'&&r.count>=1));
+  assert.equal((await staffer.j.call('/api/staff/lab/gateway-rejections')).status,401);
   assert.equal((await limits({max_concurrent:50,tpm:15000000,org_max_concurrent:10,org_tpm:2000000})).status,200);
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='gateway.limits_set'")).rows[0].n,2);
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='gateway.organization_limits_set' AND organization_id=$1",[company.id])).rows[0].n,2);

@@ -23,7 +23,7 @@ import { supplierLabRoutes } from './supplier-lab.mjs';
 import { pilotInferenceRoutes } from './pilot-inference.mjs';
 import { customerBackofficeRoutes,staffBackofficeRoutes } from './backoffice.mjs';
 import { employeeCreditRoutes,employeeInferenceRoutes } from './employee-credit.mjs';
-import { createGate,gatewayLimitRoutes } from './gateway-limits.mjs';
+import { createGate,createSeatGate,gatewayLimitRoutes,recordGatewayRejection,rejectionLayer } from './gateway-limits.mjs';
 import { acceptanceRoutes } from './acceptance.mjs';
 import { compareRoutes } from './compare.mjs';
 import { stressRoutes } from './stress.mjs';
@@ -46,8 +46,8 @@ export function createApp(pool,cfg,transport){
  });
  const allowed=new Set(['sign-up/email','sign-in/email','sign-out','get-session','verify-email','send-verification-email','request-password-reset','reset-password','change-password','list-sessions','revoke-session','revoke-other-sessions']);
  app.all('/api/auth/*path',(req,res,next)=>{const path=req.path.slice('/api/auth/'.length);if(!allowed.has(path))return res.status(404).json({error:'接口不存在'});if(!mail.ready&&['sign-up/email','request-password-reset','send-verification-email'].includes(path))return res.status(503).json({error:'邮件服务暂时不可用，请稍后再试。'});next();},toNodeHandler(auth));
- const gate=createGate();
- employeeInferenceRoutes(app,pool,cfg,cfg.pilotFetch||fetch,gate);
+ const gate=createGate(),seat=createSeatGate();
+ employeeInferenceRoutes(app,pool,cfg,cfg.pilotFetch||fetch,gate,seat);
  app.use(express.json({limit:'16kb',verify:(req,_res,buf)=>{if(req.originalUrl==='/api/payments/wechat/notify')req.rawBody=buf;}}));
  const requireCustomer=async(req,res,next)=>{const session=await auth.api.getSession({headers:fromNodeHeaders(req.headers)});if(!session?.user)throw new HttpError(401,'请先登录');if(!session.user.emailVerified)throw new HttpError(403,'请先验证邮箱');if(session.user.disabled)throw new HttpError(403,'账户已停用');req.customer={id:session.user.id,name:session.user.name,email:session.user.email,emailVerified:true};req.actor={kind:'customer',id:session.user.id};next();};
  agentCompareGateway(app,pool,cfg,cfg.pilotFetch||fetch);employeeCreditRoutes(app,pool,cfg,requireCustomer,cfg.pilotFetch||fetch);pilotInferenceRoutes(app,pool,cfg,requireCustomer,cfg.pilotFetch||fetch);organizationRoutes(app,pool,cfg,requireCustomer);demoJourneyRoutes(app,pool,requireCustomer);billingRoutes(app,pool,requireCustomer,cfg,paymentRoutes(app,pool,requireCustomer,cfg,payClients));const staff=staffRoutes(app,pool,cfg);workspaceRoutes(app,pool,staff.requireStaff,cfg);serverObservationRoutes(app,pool,staff.requireStaff,cfg);aliyunRoutes(app,pool,staff.requireStaff);capacityRoutes(app,pool,staff.requireStaff);gatewayLimitRoutes(app,pool,staff.requireStaff,gate);supplierRoutes(app,pool,staff.requireStaff);validationRoutes(app,pool,staff.requireStaff);supplierLabRoutes(app,pool,staff.requireStaff);pricingRoutes(app,pool,staff.requireStaff);productReviewRoutes(app,pool,staff.requireStaff);promotionRoutes(app,pool,staff.requireStaff);
@@ -55,11 +55,15 @@ export function createApp(pool,cfg,transport){
  app.get('/api/status',async(req,res)=>{await pool.query('SELECT 1');res.json({app:'oneapi',status:'ok',source_sha:cfg.source,stage:'identity-live',customer_registration_enabled:mail.ready,staff_login_enabled:staff.configured,payments_enabled:Boolean(alipay||wechat),inference_enabled:false,pilot_inference_enabled:Boolean(cfg.pilot?.keyFile&&cfg.pilot?.emails?.size),business_ready:false});});
  app.use('/api',(_req,res)=>res.status(404).json({error:'接口不存在'}));
  app.use(express.static(new URL('../../web',import.meta.url).pathname,{index:'index.html',setHeaders(res){res.set('Cache-Control','no-store');}}));
- app.use((err,req,res,_next)=>{if(res.headersSent)return;const status=err instanceof HttpError?err.status:Number.isInteger(err.status)&&err.status>=400&&err.status<500?err.status:500;if(status===401&&req.method==='GET'&&['/api/staff/workspace/console','/api/staff/console'].includes(req.path))return res.redirect(302,'/api/staff/login?next=business');if(status===401&&req.method==='GET'&&req.path==='/api/staff/lab/console')return res.redirect(302,'/api/staff/login?next=lab');if(status===500)console.error(JSON.stringify({event:'request_failed',code:err.code||err.name||'ERROR',path:req.path.split('/').slice(0,4).join('/')}));const message=status===500?'服务暂时不可用，请稍后再试。':err.message;
+ app.use(async(err,req,res,_next)=>{if(res.headersSent)return;const status=err instanceof HttpError?err.status:Number.isInteger(err.status)&&err.status>=400&&err.status<500?err.status:500;if(status===401&&req.method==='GET'&&['/api/staff/workspace/console','/api/staff/console'].includes(req.path))return res.redirect(302,'/api/staff/login?next=business');if(status===401&&req.method==='GET'&&req.path==='/api/staff/lab/console')return res.redirect(302,'/api/staff/login?next=lab');if(status===500)console.error(JSON.stringify({event:'request_failed',code:err.code||err.name||'ERROR',path:req.path.split('/').slice(0,4).join('/')}));const message=status===500?'服务暂时不可用，请稍后再试。':err.message;
  // OpenAI-compatible clients only show error.message from an object.
  if(req.path.startsWith('/v1/')){
   const codes={400:'invalid_request',401:'invalid_api_key',402:'insufficient_quota',403:'model_not_allowed',404:'not_found',413:'request_too_large',429:'rate_limit_exceeded',502:'upstream_error',503:'service_unavailable',504:'upstream_timeout',499:'client_closed'};
   const code=(err instanceof HttpError&&err.code)||codes[status]||'server_error';
+  if(status===429){
+   const auth=req.employeeAuth;
+   await recordGatewayRejection(pool,{code,layer:err.layer||rejectionLayer(code),organizationId:auth?.organization_id,ownerId:auth?.owner_id,keyId:auth?.key_id});
+  }
   return res.status(status).json({error:{message,type:status===429?'rate_limit_error':status>=500?'server_error':'invalid_request_error',code,status,request_id:req.requestId||null,doc_url:`${cfg.origin}/#docs/errors/${code}`}});
  }
  res.status(status).json({error:message});});
