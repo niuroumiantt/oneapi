@@ -36,7 +36,8 @@ const LABEL = {
  conclusion: { passed: '基础验收通过', failed: '测试失败', inconclusive: '待核验' },
  usage: { matched: '金额已核对', mismatched: '金额存在差异', not_checked: '账单待核' },
  listing: { requested: '等待技术发布', published: '目录已发布', withdrawn: '已撤回' },
- refund: { pending: '处理中', succeeded: '已退回', failed: '支付宝拒绝' },
+ refund: { pending: '处理中', succeeded: '已退回', failed: '渠道拒绝' },
+ channel: { alipay_f2f: '支付宝', wechat_native: '微信支付' },
  order: { pending: '待付款', paid: '已付款', closed: '已关闭' },
  upgrade: { pending: '待审核', approved: '已通过', rejected: '已驳回' }
 };
@@ -163,9 +164,9 @@ pages.pnl = d => {
 pages.payments = p => {
  const rows = p.orders.map(o => {
   const left = Number(o.amount_fen) - Number(o.refunded_fen), pending = o.refunds.find(r => r.status === 'pending'), find = [o.out_trade_no, o.provider_trade_no, o.account_name, o.owner_email, o.payer_email].join(' ').toLowerCase();
-  return `<tr data-find="${att(find)}"><td><b>${esc(o.out_trade_no)}</b><small>${when(o.paid_at || o.created_at)}${o.provider_trade_no ? ' · 支付宝 ' + esc(o.provider_trade_no) : ''}</small></td><td>${esc(o.account_name)}<small>${o.account_kind === 'organization' ? '企业' : '个人'} · 付款人 ${esc(o.payer_email)} · 余额 ${fen(o.account_balance_fen)}</small></td>${num(fen(o.amount_fen) + (Number(o.refunded_fen) ? `<small>已退 ${fen(o.refunded_fen)}</small>` : ''), o.amount_fen)}<td>${pill('order', o.status)}${o.refunds.map(r => `<small>退款 ${fen(r.amount_fen)} · ${esc(LABEL.refund[r.status])} · ${esc(r.reason)}${r.status !== 'succeeded' && r.error_code ? ' · ' + esc(r.error_code) : ''}</small>`).join('')}</td><td>${pending ? `<button data-act="refund-retry" data-id="${att(pending.id)}">确认退款结果</button>` : o.status === 'paid' && left > 0 && p.enabled ? `<button data-act="refund" data-id="${att(o.id)}" data-left="${left}" data-balance="${att(o.account_balance_fen)}">原路退款</button>` : '—'}</td></tr>`;
+  return `<tr data-find="${att(find)}"><td><b>${esc(o.out_trade_no)}</b><small>${when(o.paid_at || o.created_at)}${' · ' + esc(LABEL.channel[o.provider] || o.provider)}${o.provider_trade_no ? ' ' + esc(o.provider_trade_no) : ''}</small></td><td>${esc(o.account_name)}<small>${o.account_kind === 'organization' ? '企业' : '个人'} · 付款人 ${esc(o.payer_email)} · 余额 ${fen(o.account_balance_fen)}</small></td>${num(fen(o.amount_fen) + (Number(o.refunded_fen) ? `<small>已退 ${fen(o.refunded_fen)}</small>` : ''), o.amount_fen)}<td>${pill('order', o.status)}${o.refunds.map(r => `<small>退款 ${fen(r.amount_fen)} · ${esc(LABEL.refund[r.status])} · ${esc(r.reason)}${r.status !== 'succeeded' && r.error_code ? ' · ' + esc(r.error_code) : ''}</small>`).join('')}</td><td>${pending ? `<button data-act="refund-retry" data-id="${att(pending.id)}">确认退款结果</button>` : o.status === 'paid' && left > 0 && p.channels?.includes(o.provider) ? `<button data-act="refund" data-id="${att(o.id)}" data-channel="${att(LABEL.channel[o.provider] || '')}" data-left="${left}" data-balance="${att(o.account_balance_fen)}">原路退款</button>` : '—'}</td></tr>`;
  }).join('');
- return section('支付宝订单与退款', table(['订单', '账户', ['金额'], '状态', '操作'], rows, '还没有付款订单。'), '<input id="find" type="search" placeholder="订单号 / 客户 / 邮箱" aria-label="搜索订单">', '退款原路退回付款人的支付宝。发起时先从账户余额中扣出退款金额；支付宝明确拒绝时自动冲回。客户已用掉的余额不能退。')
+ return section('在线支付订单与退款', table(['订单', '账户', ['金额'], '状态', '操作'], rows, '还没有付款订单。'), '<input id="find" type="search" placeholder="订单号 / 客户 / 邮箱" aria-label="搜索订单">', '退款原路退回付款人的支付宝或微信。发起时先从账户余额中扣出退款金额；支付渠道明确拒绝时自动冲回。客户已用掉的余额不能退。微信退款通常需要几秒到几分钟，结果会自动回传，也可以点“确认退款结果”。')
   + '<div class="callout">对公转账入账还没有接入：到账后目前仍需由技术在账本中处理，这里不提供手工加余额的入口。</div>';
 };
 
@@ -329,16 +330,16 @@ const ACTIONS = {
  refund(b) {
   const max = Math.min(Number(b.dataset.left), Number(b.dataset.balance));
   if (max <= 0) return notify('账户现金余额为 0，已使用的部分不能退款。');
-  simple('原路退款', `<p>款项退回付款人的支付宝，无法撤回。这笔订单最多可退 ${fen(max)}。</p><label>退款金额（元）<input name="amount" required inputmode="decimal" value="${(max / 100).toFixed(2)}"></label><label>退款原因（客户和审计记录可见）<input name="reason" required maxlength="200"></label><label class="check"><input type="checkbox" required> 我已核对订单和金额</label>`, async v => {
+  simple('原路退款', `<p>款项退回付款人的${esc(b.dataset.channel || '支付账户')}，无法撤回。这笔订单最多可退 ${fen(max)}。</p><label>退款金额（元）<input name="amount" required inputmode="decimal" value="${(max / 100).toFixed(2)}"></label><label>退款原因（客户和审计记录可见）<input name="reason" required maxlength="200"></label><label class="check"><input type="checkbox" required> 我已核对订单和金额</label>`, async v => {
    const m = /^(\d{1,9})(?:\.(\d{1,2}))?$/.exec(v.amount.trim());
    if (!m) throw Error('金额格式不正确');
    const amount = Number(m[1]) * 100 + Number((m[2] || '').padEnd(2, '0'));
    if (amount <= 0 || amount > max) throw Error('退款金额超出可退范围');
    const r = await api(`payments/orders/${b.dataset.id}/refunds`, { amount_fen: amount, reason: v.reason.trim(), idempotency_key: crypto.randomUUID().replace(/-/g, '') });
-   return { succeeded: '退款成功，已原路退回。', failed: '支付宝拒绝了这笔退款，金额已冲回账户余额。', pending: '支付宝暂未确认结果，金额已从余额中扣出。稍后点“确认退款结果”。' }[r.status];
+   return { succeeded: '退款成功，已原路退回。', failed: '支付渠道拒绝了这笔退款，金额已冲回账户余额。', pending: '退款已提交，渠道尚未确认结果，金额已从余额中扣出。稍后点“确认退款结果”。' }[r.status];
   }, '确认退款');
  },
- async 'refund-retry'(b) { const r = await api(`payments/refunds/${b.dataset.id}/retry`, {}); await reload(); notify({ succeeded: '退款已确认成功。', failed: '支付宝拒绝了这笔退款，金额已冲回。', pending: '支付宝仍未确认，请稍后再试。' }[r.status], r.status === 'succeeded'); },
+ async 'refund-retry'(b) { const r = await api(`payments/refunds/${b.dataset.id}/retry`, {}); await reload(); notify({ succeeded: '退款已确认成功。', failed: '支付渠道拒绝了这笔退款，金额已冲回。', pending: '渠道仍在处理，请稍后再试。' }[r.status], r.status === 'succeeded'); },
  'invoice-new': () => invoiceDialog(),
  'invoice-issue': b => simple('登记开具', `<p>在电子税务局开具后，把发票号码登记在这里。</p><label>发票号码<input name="invoice_number" required minlength="8" maxlength="30"></label><label>开票日期<input name="issued_on" type="date" required value="${today()}"></label>`, async v => { await api(`business/invoices/${b.dataset.id}/issue`, v); return '已登记为已开具。'; }, '登记'),
  'invoice-reject': b => simple('退回开票申请', '<label>退回原因（客户可见）<textarea name="note" required rows="3" maxlength="500"></textarea></label>', async v => { await api(`business/invoices/${b.dataset.id}/reject`, v); return '申请已退回，金额回到客户的可开票额度。'; }, '退回'),
