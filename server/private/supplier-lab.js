@@ -650,7 +650,7 @@ function idStyle(){if(document.querySelector('#idStyle'))return;const st=documen
 .id-hist tr{cursor:pointer}.id-hist tr.on td{background:#bbff7a12}`;document.head.append(st);}
 const idVerdict={ok:'正常：是官方模型',watch:'需要关注',suspect:'疑似不是同一个模型 / 被降级',pending:'还没测'};
 const idTok={match:['id-g','✓ 一致：同一种分词'],offset:['id-w','! 分词一致，但每次多/少固定 Token'],differ:['id-r','✕ 不一致：分词器不同'],unknown:['id-d','? 有一边没回报 Token']};
-const idSelf={same:['id-g','✓ 自称同一家'],other:['id-r','✕ 自称别家'],unclear:['id-d','— 没说清是谁'],unknown:['id-d','? 没有回答']};
+const idSelf={same:['id-g','✓ 自称同一家'],other:['id-w','! 自称别家'],other_ok:['id-d','— 自称别家，但分词已证明是同一家，不作数'],unclear:['id-d','— 没说清是谁'],unknown:['id-d','? 没有回答']};
 const idSim={close:['id-g','✓ 和官方一样像'],far:['id-w','! 和官方不太像'],noisy:['id-d','— 官方自己每次都不一样，不比较'],unknown:['id-d','? 没有回答']};
 const idBench={ok:['id-g','✓ 和官方持平'],watch:['id-w','! 比官方少对 2 题'],suspect:['id-r','✕ 明显低于官方'],insufficient:['id-d','— 答完的题太少']};
 const idState={right:['id-g','✓ 对'],wrong:['id-r','✕ 错'],cut:['id-w','截断'],error:['id-r','失败'],missing:['id-d','—']};
@@ -665,7 +665,7 @@ function identityView(){overviewStyle();idStyle();const d=idData;if(!d||Date.now
    <br>② <b>自报身份</b>：问它“你是谁”，看是不是自称同一家公司；同时看响应里回报的型号名。只作旁证，模型会说错。
    <br>③ <b>输出相似</b>：温度 0 下回答同样的开放题，看我们的回答和官方有多像。先拿官方自己答两次的相似度当基准，我们和官方的相似度不应明显更低。只作参考。
    <br>④ <b>能力小测</b>：20 道只有一个正确答案的小题（计算、日期、代码输出、逻辑），规则判分。比官方少对很多题，说明可能是更小或量化过的模型。</li>
-  <li><b>结论：</b><span class="id-pill ok">正常</span> 四项都没有问题；<span class="id-pill watch">需要关注</span> 有一项可疑，再测一次；<span class="id-pill suspect">疑似</span> 分词器不同、自称别家，或小测明显偏低。</li>
+  <li><b>结论：</b><span class="id-pill ok">正常</span> 四项都没有问题；<span class="id-pill watch">需要关注</span> 有一项可疑，再测一次；<span class="id-pill suspect">疑似</span> 分词器不同，或小测明显偏低。自称别家只作旁证：分词已经一致时不作数（DeepSeek 连官方都常自称 ChatGPT）。</li>
   <li><b>建议在高峰和低谷各测一次：</b>有的供应商在高峰期悄悄切到便宜的模型。下面的“历史”会标出每次是高峰还是低谷。</li></ol></details>`;
  const sec=(k,t,sub)=>`<label class="id-sec"><input type="checkbox" data-id-sec="${k}" ${idSecs.includes(k)?'checked':''}><span><b>${t}</b><small>${sub}</small></span></label>`;
  const prog=running?`<span class="acc-run">检测中 ${run.done}/${run.total} 项 · 开始于 ${when(run.created_at)}</span><progress class="live-progress" style="width:160px" max="${run.total}" value="${run.done}"></progress>`:'';
