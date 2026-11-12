@@ -14,7 +14,12 @@ export const MAX_BODY='8mb';
 // MAX_CONCURRENT and PER_MINUTE are the defaults; a manager may raise them for one key, up to the ceilings.
 export const MAX_CONCURRENT=3,PER_MINUTE=60,KEY_CONCURRENT_CEILING=64,KEY_PER_MINUTE_CEILING=1200;
 const MAX_KEYS=5,DEFAULT_OUTPUT=4096,MAX_OUTPUT=32768,MAX_MESSAGES=500;
-const UPSTREAM_TIMEOUT_MS=300000,STALE_PENDING='15 minutes',BILL_GRACE='24 hours';
+// How long one request may run (owner decision 2026-11-12, docs/14-gateway-settings.md D1/D3): 15 minutes in total, which
+// lets a 32K-token answer finish at about 50 tokens/s; a streamed request is also cut when the upstream sends nothing for
+// 60 seconds. A non-streamed reply arrives in one piece, so only the total applies to it.
+export const UPSTREAM_TIMEOUT_MS=900000,UPSTREAM_IDLE_MS=60000;
+// A call still open after this can no longer be running; it must stay above UPSTREAM_TIMEOUT_MS.
+const STALE_PENDING='20 minutes',BILL_GRACE='24 hours';
 const KERAPI_ORIGIN='https://kerapi.cn',DEEPSEEK_BASE='https://api.deepseek.com';
 const SCALE=1000000000000n;
 const keyPattern=/^Bearer (sf_emp_[A-Za-z0-9_-]{43})$/;
@@ -441,18 +446,30 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   });
   const call={id:callId,ownerId:key.owner_id,rates:model.rates,multiplier};
   const started=performance.now(),abort=new AbortController();
+  const totalMs=cfg.employeeCredit.timeouts?.total??UPSTREAM_TIMEOUT_MS,idleMs=cfg.employeeCredit.timeouts?.idle??UPSTREAM_IDLE_MS;
+  // cut: which of our own limits ended the upstream request ('idle' or 'total'); null while neither has.
+  const limitHit=new AbortController();let cut=null,idleTimer=null;
+  const stop=kind=>{cut??=kind;limitHit.abort(Object.assign(new Error('upstream '+kind+' timeout'),{name:'TimeoutError'}));};
+  const totalTimer=setTimeout(()=>stop('total'),totalMs);
+  // Called whenever the upstream shows life. Streams only: a non-streamed reply is silent until it is complete.
+  const touch=()=>{if(!stream)return;clearTimeout(idleTimer);idleTimer=setTimeout(()=>stop('idle'),idleMs);};
+  const timeoutText=()=>cut==='idle'?`上游连续 ${Math.round(idleMs/1000)} 秒没有输出，已中断`:`这次请求超过了 ${Math.round(totalMs/60000)} 分钟的时长上限，已中断`;
   // 'finish' also fires 'close'; only a close before the response ended is a disconnect.
-  res.on('close',()=>{if(!res.writableEnded)abort.abort();});
+  res.on('close',()=>{clearTimeout(totalTimer);clearTimeout(idleTimer);if(!res.writableEnded)abort.abort();});
+  touch();
   let response,upstreamKey,used=route;
   const candidates=[route,...(route.fallbacks||[])];
   for(let i=0;i<candidates.length;i++){
   const candidate=candidates[i],last=i===candidates.length-1;
   try{
    upstreamKey=await upstreamSecret(candidate,cfg);
-   response=await routeFetch(pool,upstreamFetch,candidate.model.upstreamModel,`${candidate.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify(payload),redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)])});
+   response=await routeFetch(pool,upstreamFetch,candidate.model.upstreamModel,`${candidate.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify(payload),redirect:'error',signal:AbortSignal.any([abort.signal,limitHit.signal])});
   }catch(error){
-   if(!last&&error.name!=='TimeoutError'&&!abort.signal.aborted){console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:error.name}));continue;}
-   await fail(callId,error.name==='TimeoutError'?'UPSTREAM_TIMEOUT':'UPSTREAM_FAILED',started,String(error.cause?.code||error.cause?.message||error.message||error.name).replaceAll(upstreamKey||'\u0000','[REDACTED]'));
+   if(!last&&!cut&&error.name!=='TimeoutError'&&!abort.signal.aborted){console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:error.name}));continue;}
+   const timedOut=Boolean(cut)||error.name==='TimeoutError',clientGone=!timedOut&&abort.signal.aborted;
+   // The caller hung up before the upstream answered: not an upstream failure, and KerAPI bills nothing for it.
+   await fail(callId,cut==='idle'?'UPSTREAM_IDLE_TIMEOUT':timedOut?'UPSTREAM_TIMEOUT':clientGone?'CLIENT_CLOSED':'UPSTREAM_FAILED',started,String(error.cause?.code||error.cause?.message||error.message||error.name).replaceAll(upstreamKey||'\u0000','[REDACTED]'));
+   if(timedOut)throw new HttpError(504,timeoutText()+'；本次未扣额度','upstream_timeout');
    throw new HttpError(502,'上游调用失败；本次未扣额度');
   }
   if(!last&&(response.status===401||response.status===403)){await response.body?.cancel().catch(()=>{});console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:'http_'+response.status}));continue;}
@@ -470,7 +487,13 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   if(!stream){
    let result;
    try{result=await response.json();}
-   catch{await answered(call,requestId,null,started);throw new HttpError(502,'上游响应格式异常','upstream_bad_response');}
+   catch{
+    await answered(call,requestId,null,started);
+    // The upstream had started answering, so it may bill us: the call waits for the supplier's log instead of being free.
+    if(cut){await pool.query('UPDATE employee_calls SET error_code=$2 WHERE id=$1',[call.id,'UPSTREAM_TIMEOUT']);throw new HttpError(504,timeoutText(),'upstream_timeout');}
+    if(abort.signal.aborted){await pool.query('UPDATE employee_calls SET error_code=$2 WHERE id=$1',[call.id,'CLIENT_CLOSED']);throw new HttpError(499,'客户端已断开','client_closed');}
+    throw new HttpError(502,'上游响应格式异常','upstream_bad_response');
+   }
    // A reply the output guard cut short has no reliable usage; billing waits for the supplier's own log.
    await answered(call,requestId,response.headers.get('x-semifly-guard-cut')?null:usageFrom(result.usage),started);
    return res.json(result);
@@ -480,6 +503,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   const inspect=line=>{if(!line.startsWith('data:')||!line.includes('"usage"'))return;try{const seen=usageFrom(JSON.parse(line.slice(5)).usage);if(seen)usage=seen;}catch{}};
   try{
    while(true){
+    touch();
     const {done,value}=await reader.read();
     if(done)break;
     const lines=(tail+decoder.decode(value,{stream:true})).split('\n');tail=lines.pop();if(tail.length>1048576)tail='';
@@ -492,21 +516,52 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   finally{
    await reader.cancel().catch(()=>{});
    await answered(call,requestId,usage,started);
+   // The caller hung up midway: it keeps what it received and the call settles from KerAPI's log (docs/14-gateway-settings.md D4).
+   if(!cut&&abort.signal.aborted)await pool.query('UPDATE employee_calls SET error_code=$2 WHERE id=$1',[call.id,'CLIENT_CLOSED']).catch(()=>{});
+   if(cut){
+    await pool.query('UPDATE employee_calls SET error_code=$2 WHERE id=$1',[call.id,cut==='idle'?'UPSTREAM_IDLE_TIMEOUT':'UPSTREAM_TIMEOUT']).catch(()=>{});
+    // Tell the client why the stream stops; OpenAI SDKs raise an error for a chunk that carries `error`. No [DONE] follows.
+    if(!res.destroyed)res.write(`data: ${JSON.stringify({error:{message:timeoutText(),type:'server_error',code:'upstream_timeout',request_id:req.requestId||null}})}\n\n`);
+   }
    res.end();
   }
  });
 }
 
-/** Settles calls whose response carried no usage, from KerAPI's log or the hold. Safe to repeat. */
+/** Price of what KerAPI's log says a call used, at the official rates recorded on the call; null when the log has no usable counts. */
+export function officialFromLog(snapshot,evidence){
+ const n=v=>{const x=Number(v);return Number.isSafeInteger(x)&&x>=0?x:null;};
+ const input=n(evidence?.input_tokens),output=n(evidence?.output_tokens),cached=n(evidence?.cached_input_tokens??0);
+ if(input===null||output===null||cached===null||cached>input||!snapshot?.input||!snapshot?.output)return null;
+ return holdYuan(snapshot,{input,cached,output},Number(snapshot.multiplier)||1);
+}
+// KerAPI writes a log line for failed requests too (type 5, quota 0): it charged us nothing for them.
+const freeOnKerapi=e=>String(e?.type)==='5'||(Number(e?.quota)===0&&!(Number(e?.amount)>0));
+
+/**
+ * Settles calls whose response carried no usage. Safe to repeat. Rules (owner decision 2026-11-12, docs/14-gateway-settings.md D4):
+ *  - KerAPI's log has the call: charge its token counts at the official price; nothing if KerAPI charged nothing.
+ *  - The gateway itself stopped before the upstream answered (restart while the call was open, so no request ID): not charged.
+ *  - Otherwise, after the grace period: the hold (H7, still to be decided).
+ */
 export async function settleEmployeeCalls(pool){
  await pool.query("UPDATE employee_calls SET summary=NULL WHERE summary IS NOT NULL AND created_at<now()-interval '30 days'");
+ // Open past the longest possible request, so the process that served it is gone. Without a request ID the upstream never answered.
+ await pool.query(`UPDATE employee_calls SET status='failed',finished_at=coalesce(finished_at,now()),error_code='GATEWAY_INTERRUPTED' WHERE upstream_request_id IS NULL AND (status='pending' AND created_at<now()-interval '${STALE_PENDING}' OR status='awaiting_bill' AND error_code='STALE_PENDING')`);
  await pool.query(`UPDATE employee_calls SET status='awaiting_bill',finished_at=now(),error_code='STALE_PENDING' WHERE status='pending' AND created_at<now()-interval '${STALE_PENDING}'`);
- const billed=(await pool.query(`SELECT c.id,c.owner_id,r.evidence->>'amount' AS amount FROM employee_calls c JOIN supplier_usage_records r ON r.credential_id=c.credential_id AND r.request_id=c.upstream_request_id
-  WHERE c.status='awaiting_bill' AND r.evidence->>'currency'='CNY' ORDER BY c.created_at LIMIT 1000`)).rows.filter(r=>decimalPattern.test(r.amount||''));
- // No bill after the grace period (for example a missing request ID): charge the conservative hold.
+ const logged=(await pool.query(`SELECT c.id,c.owner_id,c.price_snapshot,r.evidence FROM employee_calls c JOIN supplier_usage_records r ON r.credential_id=c.credential_id AND r.request_id=c.upstream_request_id
+  WHERE c.status='awaiting_bill' ORDER BY c.created_at LIMIT 1000`)).rows;
+ const billed=[];
+ for(const r of logged){
+  if(freeOnKerapi(r.evidence)){billed.push({id:r.id,owner_id:r.owner_id,amount:'0',source:'supplier_free'});continue;}
+  const official=officialFromLog(r.price_snapshot,r.evidence);
+  if(official!==null)billed.push({id:r.id,owner_id:r.owner_id,amount:official,source:'supplier_tokens'});
+  // A log line with an amount but no token counts: charge what KerAPI charged.
+  else if(r.evidence?.currency==='CNY'&&decimalPattern.test(r.evidence?.amount||''))billed.push({id:r.id,owner_id:r.owner_id,amount:r.evidence.amount,source:'supplier_log'});
+ }
  const unbilled=(await pool.query(`SELECT id,owner_id,hold_yuan AS amount FROM employee_calls WHERE status='awaiting_bill' AND created_at<now()-interval '${BILL_GRACE}' ORDER BY created_at LIMIT 1000`)).rows;
  const billedIds=new Set(billed.map(r=>r.id));
- const work=[...billed.map(r=>({...r,source:'supplier_log'})),...unbilled.filter(r=>!billedIds.has(r.id)).map(r=>({...r,source:'hold_fallback'}))];
+ const work=[...billed,...unbilled.filter(r=>!billedIds.has(r.id)).map(r=>({...r,source:'hold_fallback'}))];
  let settled=0;
  for(const row of work){
   await transaction(pool,async db=>{

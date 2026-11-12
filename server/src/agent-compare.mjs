@@ -23,7 +23,7 @@ export const AGENT_TASKS = Object.freeze([
 ]);
 const TASK_BY_ID = new Map(AGENT_TASKS.map(t => [t.id, t]));
 const keyPattern = /^Bearer (sf_eval_[A-Za-z0-9_-]{43})$/;
-const UPSTREAM_TIMEOUT_MS = 300000, MAX_STORED = 20000;
+const UPSTREAM_TIMEOUT_MS = 900000, MAX_STORED = 20000; // same total as the employee gateway (docs/14-gateway-settings.md D1)
 const clip = (s, n = 4000) => typeof s === 'string' ? (s.length > n ? s.slice(0, n) + `…（共 ${s.length} 字）` : s) : s;
 const storedRequest = body => ({ messages: (body.messages || []).slice(-40).map(m => ({ role: m.role, content: typeof m.content === 'string' ? clip(m.content) : Array.isArray(m.content) ? m.content.map(p => p?.type === 'text' ? clip(p.text, 2000) : { type: p?.type }) : null, tool_calls: Array.isArray(m.tool_calls) ? m.tool_calls.length : undefined })), tools: Array.isArray(body.tools) ? body.tools.length : 0, stream: body.stream === true, max_tokens: body.max_tokens ?? body.max_completion_tokens ?? null });
 

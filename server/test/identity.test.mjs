@@ -457,6 +457,26 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  const spentBefore=Number(s.spent_yuan);await settleEmployeeCalls(pool);await settleEmployeeCalls(pool);s=await status();assert.equal(Number((Number(s.spent_yuan)-spentBefore).toFixed(9)),0.000126,'charged once');assert.equal(Number(s.held_yuan),0);
  pilotFetch=async()=>new Response(JSON.stringify({error:{message:'bad fixture-kerapi-secret'}}),{status:500});
  const spent=s.spent_yuan,broken=await call();assert.equal(broken.status,502);assert.equal(JSON.stringify(broken.data).includes('fixture-kerapi-secret'),false);{const d=(await pool.query("SELECT error_detail FROM employee_calls WHERE status='failed' ORDER BY created_at DESC LIMIT 1")).rows[0].error_detail;assert.equal(d,'bad [REDACTED]','supplier message kept, key redacted');}s=await status();assert.equal(s.spent_yuan,spent);assert.equal(Number(s.held_yuan),0,'failed call releases its hold');
+ {// Time limits (docs/14-gateway-settings.md D1/D3): a stream is cut when the upstream goes silent, any request when it runs past the total.
+  const savedFetch=pilotFetch,lastCall=async()=>(await pool.query('SELECT status,error_code,charged_yuan FROM employee_calls ORDER BY created_at DESC LIMIT 1')).rows[0];
+  const hang=(_url,options)=>new Promise((_,no)=>options.signal.addEventListener('abort',()=>no(options.signal.reason)));
+  try{
+   appCfg.employeeCredit.timeouts={total:5000,idle:80};
+   // 1. A stream that never starts: 504 before any output, nothing charged.
+   pilotFetch=hang;const silent=await call({stream:true});assert.equal(silent.status,504,JSON.stringify(silent.data));assert.equal(silent.data.error.code,'upstream_timeout');assert.match(silent.data.error.message,/没有输出/);
+   let c=await lastCall();assert.equal(c.status,'failed');assert.equal(c.error_code,'UPSTREAM_IDLE_TIMEOUT');
+   // 2. A stream that starts and then stalls: the client gets what arrived, then an error event instead of [DONE]; billing waits for the supplier's log.
+   pilotFetch=async(_url,options)=>{const enc=new TextEncoder();return new Response(new ReadableStream({start(ctl){ctl.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"半句"}}]}\n\n'));options.signal.addEventListener('abort',()=>ctl.error(options.signal.reason));}}),{status:200,headers:{'content-type':'text/event-stream','x-request-id':'req-stalled'}});};
+   const stalled=await call({stream:true});assert.equal(stalled.status,200);assert.match(stalled.data,/半句/);assert.match(stalled.data,/"code":"upstream_timeout"/);assert.doesNotMatch(stalled.data,/\[DONE\]/);
+   c=await lastCall();assert.equal(c.status,'awaiting_bill','output was produced, so the supplier may bill it');assert.equal(c.error_code,'UPSTREAM_IDLE_TIMEOUT');
+   // 3. A non-streamed reply is silent until complete, so the idle limit does not apply to it.
+   pilotFetch=async()=>{await new Promise(r=>setTimeout(r,200));return reply();};assert.equal((await call()).status,200,'slower than the idle limit, still fine without stream');
+   // 4. The total limit applies to everything.
+   appCfg.employeeCredit.timeouts={total:80,idle:5000};pilotFetch=hang;const long=await call();assert.equal(long.status,504);assert.match(long.data.error.message,/时长上限/);
+   c=await lastCall();assert.equal(c.status,'failed');assert.equal(c.error_code,'UPSTREAM_TIMEOUT');
+   await pool.query("UPDATE employee_calls SET status='failed' WHERE upstream_request_id='req-stalled'");
+  }finally{delete appCfg.employeeCredit.timeouts;pilotFetch=savedFetch;}
+  const m=await import('../src/employee-credit.mjs');assert.equal(m.UPSTREAM_TIMEOUT_MS,900000,'15 minutes in total');assert.equal(m.UPSTREAM_IDLE_MS,60000,'60 seconds of silence');}
  // Only one of two concurrent calls fits, and the upstream is never asked for the other.
  usage={prompt_tokens:1,completion_tokens:1};pilotFetch=async()=>{await new Promise(r=>setTimeout(r,120));return reply();};
  const room=holdYuan({input:'8',cached:'2',output:'28'},{input:Buffer.byteLength(JSON.stringify({messages:glmBody.messages})),output:100},1);
@@ -466,6 +486,34 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  await pool.query('UPDATE employee_credit_accounts SET spent_yuan=granted_yuan-$2::numeric WHERE user_id=$1',[staffer.user.id,room]);
  usage={prompt_tokens:5000000,completion_tokens:1};pilotFetch=async()=>reply();assert.equal((await call()).status,200);
  s=await status();assert.equal(Number(s.available_yuan),0);assert.equal(s.spent_yuan,s.granted_yuan);
+ {// Owner decision 2026-11-12 (docs/14-gateway-settings.md D4): a hang-up is CLIENT_CLOSED; KerAPI's log prices a call at official rates; a gateway restart charges nothing.
+  const saved=pilotFetch,newest=async()=>(await pool.query('SELECT id,status,error_code,charged_yuan,settlement_source FROM employee_calls ORDER BY created_at DESC LIMIT 1')).rows[0];
+  const logLine=(id,evidence)=>pool.query('INSERT INTO supplier_usage_records(credential_id,request_id,model_id,occurred_at,evidence,sync_id) VALUES($1,$2,$3,now(),$4,$5)',[credential,id,'GLM-5.3',evidence,sync]);
+  try{
+   await pool.query('UPDATE employee_credit_accounts SET spent_yuan=0,granted_yuan=10 WHERE user_id=$1',[staffer.user.id]);
+   // 1. The caller hangs up while the upstream is still working: failed as CLIENT_CLOSED, nothing charged.
+   pilotFetch=(_u,o)=>new Promise((_,no)=>o.signal.addEventListener('abort',()=>no(o.signal.reason)));
+   const hangup=new AbortController();const pending=fetch(origin+'/v1/chat/completions',{method:'POST',signal:hangup.signal,headers:{Authorization:'Bearer '+created.data.secret,'Content-Type':'application/json'},body:JSON.stringify(glmBody)}).catch(()=>null);
+   await new Promise(r=>setTimeout(r,150));hangup.abort();await pending;
+   let c;for(let i=0;i<50&&(c=await newest()).status==='pending';i++)await new Promise(r=>setTimeout(r,20));
+   assert.equal(c.status,'failed');assert.equal(c.error_code,'CLIENT_CLOSED');assert.equal(c.charged_yuan,null);
+   // 2. A stream that ends without usage settles from KerAPI's token counts at the official price, not KerAPI's own amount.
+   pilotFetch=async()=>new Response('data: {"choices":[{"delta":{"content":"半"}}]}\n\n',{status:200,headers:{'content-type':'text/event-stream','x-request-id':'req-tokens'}});
+   await call({stream:true});await logLine('req-tokens',{amount:'0.000001000000',currency:'CNY',type:2,quota:5,input_tokens:1000,cached_input_tokens:200,output_tokens:300});
+   await settleEmployeeCalls(pool);c=(await pool.query("SELECT charged_yuan,settlement_source FROM employee_calls WHERE upstream_request_id='req-tokens'")).rows[0];
+   assert.equal(c.settlement_source,'supplier_tokens');assert.equal(Number(c.charged_yuan),Number(holdYuan({input:'8',cached:'2',output:'28'},{input:1000,cached:200,output:300},1)),'GLM-5.3 official price: 800×8 + 200×2 + 300×28 per million');
+   // 3. KerAPI logged the request as failed and charged nothing: nothing is charged here either.
+   pilotFetch=async()=>new Response('data: {"choices":[{"delta":{"content":"半"}}]}\n\n',{status:200,headers:{'content-type':'text/event-stream','x-request-id':'req-free'}});
+   await call({stream:true});await logLine('req-free',{amount:null,currency:'CNY',type:5,quota:0});
+   await settleEmployeeCalls(pool);c=(await pool.query("SELECT status,charged_yuan,settlement_source FROM employee_calls WHERE upstream_request_id='req-free'")).rows[0];
+   assert.equal(c.status,'settled');assert.equal(c.settlement_source,'supplier_free');assert.equal(Number(c.charged_yuan),0);
+   // 4. A call left open by a gateway restart, before the upstream answered: released, not charged; also when already marked STALE_PENDING.
+   const stuck=async extra=>(await pool.query(`INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,created_at${extra?',error_code':''}) SELECT key_id,owner_id,model_id,credential_id,upstream,price_snapshot,$1,'0.5',now()-interval '1 hour'${extra?",'STALE_PENDING'":''} FROM employee_calls WHERE upstream_request_id='req-free' RETURNING id`,[extra?'awaiting_bill':'pending'])).rows[0].id;
+   const a=await stuck(false),b=await stuck(true);const before=await status();
+   await settleEmployeeCalls(pool);const rows=(await pool.query('SELECT status,error_code,charged_yuan FROM employee_calls WHERE id=ANY($1::uuid[])',[[a,b]])).rows;
+   assert.deepEqual(rows.map(r=>[r.status,r.error_code,r.charged_yuan]),[['failed','GATEWAY_INTERRUPTED',null],['failed','GATEWAY_INTERRUPTED',null]]);
+   const after=await status();assert.equal(after.spent_yuan,before.spent_yuan,'nothing charged');assert.equal(Number(before.held_yuan)-Number(after.held_yuan),1,'both holds released');
+  }finally{pilotFetch=saved;}}
  // No usage and no bill: the hold is charged after the grace period.
  await pool.query('UPDATE employee_credit_accounts SET spent_yuan=5 WHERE user_id=$1',[staffer.user.id]);
  pilotFetch=async()=>new Response('data: {"choices":[]}\n\n',{status:200,headers:{'content-type':'text/event-stream'}});await call({stream:true});
