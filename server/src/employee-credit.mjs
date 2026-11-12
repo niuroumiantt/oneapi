@@ -575,11 +575,11 @@ export function officialFromLog(snapshot,evidence){
 const freeOnKerapi=e=>String(e?.type)==='5'||(Number(e?.quota)===0&&!(Number(e?.amount)>0));
 
 /**
- * Settles calls whose response carried no usage. Safe to repeat. Rules (owner decision 2026-11-12, docs/14-gateway-settings.md D4):
+ * Settles calls whose response carried no usage. Safe to repeat. Rules (owner decision 2026-11-12, docs/14-gateway-settings.md D4/H7):
  *  - KerAPI's log has the call: charge its token counts at the official price; nothing if KerAPI charged nothing.
  *  - The gateway itself stopped before the upstream answered (restart while the call was open, so no request ID): not charged.
- *  - The gateway stopped while the answer was coming (GATEWAY_INTERRUPTED or STALE_PENDING) and KerAPI never logged it: not charged (H7 excludes these).
- *  - Otherwise, after the grace period: the hold (H7, still to be decided).
+ *  - The gateway stopped while the answer was coming (GATEWAY_INTERRUPTED or STALE_PENDING) and KerAPI never logged it: not charged.
+ *  - Otherwise, after 24 hours with a request ID still unmatched: charge the hold (H7, owner decided 2026-11-12).
  */
 export async function settleEmployeeCalls(pool){
  await pool.query("UPDATE employee_calls SET summary=NULL WHERE summary IS NOT NULL AND created_at<now()-interval '30 days'");
