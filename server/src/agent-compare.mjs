@@ -69,7 +69,7 @@ export function agentCompareGateway(app, pool, cfg, upstreamFetch = fetch) {
   } else {
    const shaped = employeeRequest(body), route = (await employeeRoutes(pool, cfg)).find(r => r.model.id === shaped.model.id);
    if (!route) throw new HttpError(503, '这个模型暂时不可用', 'model_unavailable');
-   const pick = !key.credential_id || key.credential_id === route.credentialId ? route : (route.fallbacks || []).find(f => f.credentialId === key.credential_id);
+   const pick = !key.credential_id || key.credential_id === route.credentialId ? route : (route.fallbacks || []).filter(f => !f.official).find(f => f.credentialId === key.credential_id);
    if (!pick) throw new HttpError(503, '指定的采购 Key 不能调用这个模型', 'model_unavailable');
    const r = { ...route, credentialId: pick.credentialId, ciphertext: pick.ciphertext, baseUrl: pick.baseUrl };
    upstreamKey = await upstreamSecret(r, cfg); url = r.baseUrl; upstreamModel = route.model.upstreamModel; payload = shaped.payload; stream = shaped.stream;
@@ -129,7 +129,7 @@ export function agentCompareRoutes(app, pool, cfg, requireStaff, upstreamFetch =
   requireTechnical(req);
   const [agents, endpoints, runs, routes] = await Promise.all([pool.query('SELECT id,name,version FROM agents ORDER BY name,created_at DESC'), pool.query(refSql + ' ORDER BY s.kind DESC,p.display_name,e.model_id'),
    pool.query('SELECT r.id,r.name,r.status,r.created_at,r.closed_at,r.path_b,a.name AS agent_name,a.version AS agent_version FROM agent_compare_runs r JOIN agents a ON a.id=r.agent_id ORDER BY r.created_at DESC LIMIT 30'), employeeRoutes(pool, cfg)]);
-  const ids = [...new Set(routes.flatMap(r => [r.credentialId, ...(r.fallbacks || []).map(f => f.credentialId)].filter(Boolean)))];
+  const ids = [...new Set(routes.flatMap(r => [r.credentialId, ...(r.fallbacks || []).filter(f => !f.official).map(f => f.credentialId)].filter(Boolean)))];
   const creds = ids.length ? (await pool.query('SELECT id,label,priority FROM supplier_lab_credentials WHERE id=ANY($1::uuid[]) ORDER BY priority,created_at DESC', [ids])).rows : [];
   const out = { ready: Boolean(box), tasks: AGENT_TASKS, agents: agents.rows, official: endpoints.rows.filter(e => e.kind === 'reference').map(({ active_ciphertext, ...e }) => e), judges: endpoints.rows.map(({ active_ciphertext, ...e }) => e), our_keys: creds, runs: runs.rows };
   if (req.query.run) { const d = await loadRun(id(String(req.query.run))); const me = req.staff.subject; out.detail = { ...d, items: d.items.map(i => ({ ...i, reviews: d.reviews.filter(r => r.item_id === i.id).map(r => ({ verdict: r.verdict, mine: r.reviewer === me })) })), summary: summarizeAgentRun(d.run.task_ids, d.items, d.reviews) }; }

@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { generateKeyPair,exportJWK,SignJWT } from 'jose';
 import { createApp } from '../src/app.mjs';
 import { GRANT_YUAN,holdYuan,employeeRequest,usageFrom,settleEmployeeCalls,callClient,callSummary } from '../src/employee-credit.mjs';
-import { vault,hasBusiness } from '../src/core.mjs';
+import { vault,hasBusiness,hash } from '../src/core.mjs';
 import { findOfficialModel,officialPeak } from '../src/official-models.mjs';
 import { migrate } from '../src/migrate.mjs';
 import { config } from '../src/core.mjs';
@@ -614,6 +614,37 @@ test('employee credit is one-time, company-only, reserved before calling and cha
       seen.length=0;pilotFetch=async(_u,o)=>{seen.push(o.headers.Authorization);return new Response('{}',{status:429});};
       {const r=await flash();assert.equal(r.status,429);assert.deepEqual(seen,[primary,backup],'the duplicate is skipped');}
       await pool.query('DELETE FROM supplier_lab_endpoints WHERE credential_id=$1',[dup]);await pool.query('DELETE FROM supplier_lab_credentials WHERE id=$1',[dup]);
+      // An official standby key (docs/14-gateway-settings.md F5): its own key, mapped model by model, tried after KerAPI.
+      {const savedIdentity=identity;identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};const ops=jar();await staffLogin(ops);identity=savedIdentity;
+       const add=body=>ops.call('/api/staff/lab/standby-keys',{method:'POST',body}),official=[];
+       pilotFetch=async(url,o)=>{const u=String(url);
+        if(u==='https://api.deepseek.com/models')return new Response(JSON.stringify({data:[{id:'deepseek-chat'},{id:'deepseek-reasoner'}]}),{status:200});
+        if(u.startsWith('https://api.deepseek.com/')){official.push(JSON.parse(o.body));return officialReply();}
+        seen.push(o.headers.Authorization);return new Response('{}',{status:503});};
+       let officialReply=ok;
+       assert.equal((await add({vendor:'zai',api_key:'sk-x',models:{'glm-5.3':'glm-5.3'}})).status,400,'mainland vendors only');
+       assert.equal((await add({vendor:'deepseek',api_key:'sk-ds-standby',models:{}})).status,400,'at least one model');
+       assert.equal((await add({vendor:'deepseek',api_key:'sk-ds-standby',models:{'glm-5.3':'deepseek-chat'}})).status,400,'only models of that vendor');
+       {const r=await add({vendor:'deepseek',api_key:'sk-ds-standby',models:{'deepseek-flash':'deepseek-v9'}});assert.equal(r.status,400);assert.match(r.data.error,/官方型号列表里没有 deepseek-v9.*deepseek-chat/);}
+       await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,'评测专用 fixture','https://api.deepseek.com',$2,$3,'credit-fixture')",[supplier,vault(process.env.SUPPLIER_LAB_SECRET).seal({key:'sk-ds-eval'}),hash('sk-ds-eval').slice(0,12)]);
+       {const r=await add({vendor:'deepseek',api_key:'sk-ds-eval',models:{'deepseek-flash':'deepseek-chat'}});assert.equal(r.status,409);assert.match(r.data.error,/这是评测 Key/);}
+       await pool.query("DELETE FROM supplier_lab_credentials WHERE label='评测专用 fixture'");
+       const sb=await add({vendor:'deepseek',api_key:'sk-ds-standby',models:{'deepseek-flash':'DeepSeek-Chat'}});assert.equal(sb.status,201,JSON.stringify(sb.data));assert.deepEqual(sb.data.models,{'deepseek-flash':'deepseek-chat'},'matched to the vendor list without regard to case');
+       {const v=(await ops.call('/api/staff/lab/eval-keys')).data,ds=v.vendors.find(x=>x.id==='deepseek');assert.equal(ds.standby.key.id,sb.data.credential_id);assert.deepEqual(ds.standby.key.standby_models,{'deepseek-flash':'deepseek-chat'});assert.notEqual(ds.key?.id,sb.data.credential_id,'not listed as an evaluation key');assert.equal(v.vendors.find(x=>x.id==='zai').standby,null);}
+       // Every KerAPI line fails: the call goes to the official line with the official model name, at the official price.
+       seen.length=0;
+       {const r=await flash();assert.equal(r.status,200,JSON.stringify(r.data));assert.deepEqual(seen,[primary,backup],'KerAPI lines first');assert.equal(official.at(-1).model,'deepseek-chat');
+        const c=(await pool.query('SELECT credential_id,status,settlement_source FROM employee_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 1',[staffer.user.id])).rows[0];assert.deepEqual(c,{credential_id:sb.data.credential_id,status:'settled',settlement_source:'official_price'});}
+       // No usage from the official line: nothing to check it against later, so it is free.
+       officialReply=()=>new Response(JSON.stringify({choices:[{message:{content:'ok'}}]}),{status:200,headers:{'content-type':'application/json'}});
+       {const r=await flash();assert.equal(r.status,200);const c=(await pool.query('SELECT status,charged_yuan,settlement_source FROM employee_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 1',[staffer.user.id])).rows[0];assert.deepEqual([c.status,Number(c.charged_yuan),c.settlement_source],['settled',0,'official_unmetered']);}
+       // GLM has no mapping, so it gets no official line.
+       {const before=official.length;const r=await call();assert.equal(r.status,502);assert.equal(official.length,before);}
+       const replaced=await add({vendor:'deepseek',api_key:'sk-ds-standby-2',models:{'deepseek-flash':'deepseek-chat'}});assert.equal(replaced.status,201);assert.deepEqual(replaced.data.replaced,[sb.data.label],'one standby per vendor');
+       assert.equal((await ops.call(`/api/staff/lab/standby-keys/${replaced.data.credential_id}/disable`,{method:'POST',body:{}})).status,200);
+       assert.equal((await ops.call(`/api/staff/lab/standby-keys/${replaced.data.credential_id}/disable`,{method:'POST',body:{}})).status,404);
+       {const before=official.length;assert.equal((await flash()).status,502,'disabled: KerAPI failures reach the caller again');assert.equal(official.length,before);}
+       assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='gateway.standby_key_added'")).rows[0].n,2);}
       pilotFetch=before;await pool.query('DELETE FROM request_limits');}
      const savedIdentity=identity;identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};const ops=jar();await staffLogin(ops);identity=savedIdentity;
      const ov=await ops.call('/api/staff/lab/overview');assert.equal(ov.status,200,JSON.stringify(ov.data));assert.ok(ov.data.credentials.some(c=>c.id===credential&&c.failed_24h>=1));assert.ok(ov.data.models.some(m=>m.id==='deepseek-flash'&&m.routed&&m.fallbacks.length>=1));assert.ok(Array.isArray(ov.data.risks));

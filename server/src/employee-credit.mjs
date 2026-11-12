@@ -8,6 +8,7 @@ import { isManager } from './organizations.mjs';
 import { OFFICIAL_MODELS,findOfficialModel,priceMultiplier,capabilityTags,publicCapabilities } from './official-models.mjs';
 import { routeFetch } from './output-guard.mjs';
 import { createGate,gatewayLimits,estimateTokens } from './gateway-limits.mjs';
+import { OFFICIAL_VENDORS,STANDBY_VENDORS } from './eval-keys.mjs';
 
 // One 10-yuan grant per employee, never topped up automatically. Usage is charged at official list prices.
 export const GRANT_YUAN='10.000000000000';
@@ -22,6 +23,7 @@ export const UPSTREAM_TIMEOUT_MS=900000,UPSTREAM_IDLE_MS=60000;
 // A call still open after this can no longer be running; it must stay above UPSTREAM_TIMEOUT_MS.
 const STALE_PENDING='20 minutes',BILL_GRACE='24 hours';
 const KERAPI_ORIGIN='https://kerapi.cn',DEEPSEEK_BASE='https://api.deepseek.com';
+const STANDBY_ORIGINS=new Set(STANDBY_VENDORS.map(v=>new URL(OFFICIAL_VENDORS[v].base_url).origin));
 const SCALE=1000000000000n;
 const keyPattern=/^Bearer (sf_emp_[A-Za-z0-9_-]{43})$/;
 const decimalPattern=/^\d{1,12}(\.\d{1,12})?$/;
@@ -143,12 +145,17 @@ export async function employeeRoutes(db,cfg,{includePaused=false}={}){
  const byModel=new Map(),hasDeepseek=Boolean(await deepseekKey(cfg));
  // A key registered twice (same fingerprint, address written differently) is no standby: it fails exactly when the first does.
  for(const r of rows){const list=byModel.get(r.model_id)||[];if(!list.some(x=>x.credential_id===r.credential_id||(r.credential_fingerprint&&x.credential_fingerprint===r.credential_fingerprint)))list.push(r);byModel.set(r.model_id,list);}
+ // Official standby keys (docs/14-gateway-settings.md F5) come last, only for the models staff mapped to an official id.
+ const standby=(await db.query(`SELECT c.id,c.base_url,c.credential_ciphertext,c.standby_models FROM supplier_lab_credentials c JOIN supplier_lab_suppliers s ON s.id=c.supplier_id
+  WHERE c.purpose='gateway_standby' AND c.disabled_at IS NULL AND s.disabled_at IS NULL ORDER BY c.created_at DESC`)).rows.filter(r=>{try{return STANDBY_ORIGINS.has(new URL(r.base_url).origin);}catch{return false;}});
  const paused=includePaused?new Set():new Set((await db.query('SELECT model_id FROM channel_states WHERE paused')).rows.map(r=>r.model_id));
  return OFFICIAL_MODELS.filter(m=>!paused.has(m.id)).flatMap(model=>{
   if(model.upstream==='deepseek')return hasDeepseek?[{model,baseUrl:DEEPSEEK_BASE,credentialId:null}]:[];
   const [row,...rest]=byModel.get(model.upstreamModel)||[];
-  const toRoute=r=>({model,baseUrl:r.base_url,credentialId:r.credential_id,ciphertext:r.credential_ciphertext});
-  return row?[{...toRoute(row),fallbacks:rest.map(toRoute)}]:[];
+  const toRoute=r=>({model,baseUrl:r.base_url,credentialId:r.credential_id,ciphertext:r.credential_ciphertext,upstreamModel:model.upstreamModel});
+  const official=standby.filter(r=>typeof r.standby_models?.[model.id]==='string').map(r=>({model,baseUrl:r.base_url,credentialId:r.id,ciphertext:r.credential_ciphertext,upstreamModel:r.standby_models[model.id],official:true}));
+  // A standby backs up KerAPI; it never serves a model KerAPI has no key for.
+  return row?[{...toRoute(row),fallbacks:[...rest.map(toRoute),...official]}]:[];
  });
 }
 
@@ -407,6 +414,8 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
  async function answered(call,requestId,usage,started){
   const latency=Math.round(performance.now()-started);
   call.slot?.settle(usage);
+  // An official standby line has no KerAPI log to settle from later; without usage the call is free (docs/14-gateway-settings.md F5).
+  if(!usage&&call.official){await pool.query("UPDATE employee_calls SET status='settled',upstream_request_id=$2,latency_ms=$3,charged_yuan=0,actual_yuan=NULL,settlement_source='official_unmetered',finished_at=now(),settled_at=now() WHERE id=$1 AND status='pending'",[call.id,requestId,latency]);return;}
   if(!usage){await pool.query("UPDATE employee_calls SET status='awaiting_bill',upstream_request_id=$2,latency_ms=$3,finished_at=now() WHERE id=$1 AND status='pending'",[call.id,requestId,latency]);return;}
   const amount=holdYuan(call.rates,usage,call.multiplier);
   await transaction(pool,async db=>{
@@ -471,7 +480,8 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
   const candidate=candidates[i],last=i===candidates.length-1;
   try{
    upstreamKey=await upstreamSecret(candidate,cfg);
-   response=await routeFetch(pool,upstreamFetch,candidate.model.upstreamModel,`${candidate.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify(payload),redirect:'error',signal:AbortSignal.any([abort.signal,limitHit.signal])});
+   const upstreamModel=candidate.upstreamModel||candidate.model.upstreamModel;
+   response=await routeFetch(pool,upstreamFetch,upstreamModel,`${candidate.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify({...payload,model:upstreamModel}),redirect:'error',signal:AbortSignal.any([abort.signal,limitHit.signal])});
   }catch(error){
    if(!last&&!cut&&error.name!=='TimeoutError'&&!abort.signal.aborted){console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:error.name}));continue;}
    const timedOut=Boolean(cut)||error.name==='TimeoutError',clientGone=!timedOut&&abort.signal.aborted;
@@ -486,6 +496,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
   used=candidate;break;
   }
   if(used!==route)await pool.query('UPDATE employee_calls SET credential_id=$2 WHERE id=$1',[callId,used.credentialId]);
+  call.official=Boolean(used.official);
   const requestId=String(response.headers.get('x-request-id')||response.headers.get('x-oneapi-request-id')||'').slice(0,120)||null;
   if(!response.ok){
    const raw=(await response.text().catch(()=>'')).slice(0,4000);
