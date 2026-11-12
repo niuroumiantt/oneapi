@@ -205,7 +205,7 @@ ${note('工作台“模型 → 接入配置”里选择工具，会显示带截�
   const [, pageId = 'quickstart', anchor] = view.split('/');
   const page = PAGES.find(p => p.id === pageId) || PAGES[0];
   if (!host) { host = document.createElement('div');host.id = 'docs-view';document.body.append(host); }
-  document.querySelectorAll('#market-view,#admin-view,#login-view,#identity-view,#landing-view').forEach(el => { el.hidden = true; });
+  document.querySelectorAll('#market-view,#login-view,#identity-view,#landing-view').forEach(el => { el.hidden = true; });
   document.body.classList.remove('market-active', 'identity-active', 'welcome-active', 'universe-active', 'ops-active', 'catalog-active', 'landing-active');
   document.body.classList.add('docs-active');host.hidden = false;
   window.IdentityUI?.cancel?.();window.UniverseScene?.setActive?.(false);

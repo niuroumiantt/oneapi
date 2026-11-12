@@ -3,7 +3,7 @@
  'use strict';
  const known = {
   business: ['overview', 'pnl', 'payments', 'invoices', 'payables', 'suppliers', 'customers', 'upgrades', 'products', 'discounts', 'tickets', 'answers'],
-  technical: ['overview', 'keys', 'evalkeys', 'features', 'agents', 'agentcmp', 'matrix', 'supplier', 'suppliers', 'credentials', 'models', 'tests', 'transactions', 'compare', 'identity', 'stress', 'monitor', 'routing', 'handoff', 'releases', 'billing', 'upstream', 'servers']
+  technical: ['overview', 'keys', 'evalkeys', 'features', 'agents', 'agentcmp', 'matrix', 'supplier', 'suppliers', 'credentials', 'models', 'tests', 'transactions', 'compare', 'identity', 'stress', 'monitor', 'routing', 'handoff', 'releases', 'billing', 'upstream', 'servers', 'capacity']
  };
  const titles = { business: '商务后台', technical: '技术后台' };
  const positions = { business: 'overview', technical: 'overview' }, frames = {};
@@ -80,7 +80,7 @@
   window.IdentityUI?.cancel?.();
   document.body.classList.remove('identity-active', 'market-active', 'welcome-active', 'universe-active', 'catalog-active');
   window.UniverseScene?.setActive(false);
-  for (const id of ['identity-view', 'market-view', 'admin-view', 'login-view']) { const el = document.getElementById(id); if (el) el.hidden = true; }
+  for (const id of ['identity-view', 'market-view', 'login-view']) { const el = document.getElementById(id); if (el) el.hidden = true; }
   document.body.classList.add('console-active');
   host.hidden = false;
   const [path, query = ''] = view.split('?');

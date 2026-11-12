@@ -515,6 +515,35 @@ test('employee credit is one-time, company-only, reserved before calling and cha
    await settleEmployeeCalls(pool);const rows=(await pool.query('SELECT status,error_code,charged_yuan FROM employee_calls WHERE id=ANY($1::uuid[])',[[a,b]])).rows;
    assert.deepEqual(rows.map(r=>[r.status,r.error_code,r.charged_yuan]),[['failed','GATEWAY_INTERRUPTED',null],['failed','GATEWAY_INTERRUPTED',null]]);
    const after=await status();assert.equal(after.spent_yuan,before.spent_yuan,'nothing charged');assert.equal(Number(before.held_yuan)-Number(after.held_yuan),1,'both holds released');
+   // 5. Calls a stopped gateway process left open are released at once, not after 20 minutes (C4, D6; gateway-instance.mjs).
+   const {GATEWAY_INSTANCE,releaseInterruptedCalls,heartbeat,markStopped}=await import('../src/gateway-instance.mjs');
+   {// A call records the process serving it, and KerAPI's request ID as soon as the answer starts, not only when it ends.
+    pilotFetch=async(_u,o)=>{const enc=new TextEncoder();return new Response(new ReadableStream({start(ctl){ctl.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"半"}}]}\n\n'));o.signal.addEventListener('abort',()=>ctl.error(o.signal.reason));}}),{status:200,headers:{'content-type':'text/event-stream','x-request-id':'req-midway'}});};
+    const hangup=new AbortController();await fetch(origin+'/v1/chat/completions',{method:'POST',signal:hangup.signal,headers:{Authorization:'Bearer '+created.data.secret,'Content-Type':'application/json'},body:JSON.stringify({...glmBody,stream:true})});
+    let m;for(let i=0;i<50;i++){m=(await pool.query('SELECT id,status,upstream_request_id,gateway_instance FROM employee_calls ORDER BY created_at DESC LIMIT 1')).rows[0];if(m.upstream_request_id)break;await new Promise(r=>setTimeout(r,20));}
+    assert.deepEqual([m.status,m.upstream_request_id,m.gateway_instance],['pending','req-midway',GATEWAY_INSTANCE]);
+    hangup.abort();for(let i=0;i<50&&(await newest()).status==='pending';i++)await new Promise(r=>setTimeout(r,20));
+    await pool.query("UPDATE employee_calls SET status='failed' WHERE id=$1",[m.id]);}
+   const {randomUUID}=await import('node:crypto'),crashed=randomUUID(),running=randomUUID(),stopped=randomUUID();
+   await heartbeat(pool,crashed);await pool.query("UPDATE gateway_instances SET seen_at=now()-interval '1 minute' WHERE id=$1",[crashed]);
+   await heartbeat(pool,running);await heartbeat(pool,stopped);await markStopped(pool,stopped);
+   const open=async(instance,rid=null)=>(await pool.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,gateway_instance,upstream_request_id) SELECT key_id,owner_id,model_id,credential_id,upstream,price_snapshot,'pending','0.5',$1,$2 FROM employee_calls WHERE upstream_request_id='req-free' RETURNING id",[instance,rid])).rows[0].id;
+   const ids={unanswered:await open(crashed),streaming:await open(crashed,'req-cut'),neverLogged:await open(stopped,'req-never'),running:await open(running),self:await open(GATEWAY_INSTANCE),legacy:await open(null)};
+   const state=async()=>{const rows=(await pool.query('SELECT id,status,error_code FROM employee_calls WHERE id=ANY($1::uuid[])',[Object.values(ids)])).rows;return Object.fromEntries(Object.entries(ids).map(([k,v])=>{const x=rows.find(r=>r.id===v);return [k,x.status+(x.error_code?'/'+x.error_code:'')];}));};
+   const held=Number((await status()).held_yuan),r=await releaseInterruptedCalls(pool);
+   assert.deepEqual(r,{released:3,awaiting_bill:2,people:1,freed_yuan:'0.500000000000'});
+   assert.deepEqual(await state(),{unanswered:'failed/GATEWAY_INTERRUPTED',streaming:'awaiting_bill/GATEWAY_INTERRUPTED',neverLogged:'awaiting_bill/GATEWAY_INTERRUPTED',running:'pending',self:'pending',legacy:'pending'},'a running process, this one, and calls from before the change are left alone');
+   assert.equal(Number((held-Number((await status()).held_yuan)).toFixed(9)),0.5,'the unanswered call frees its hold and its concurrency slot at once');
+   assert.equal((await releaseInterruptedCalls(pool)).released,0,'safe to repeat');
+   // The answer was streaming: KerAPI's log prices it like a hang-up (D4). Never logged within the grace period: not charged (H7).
+   await logLine('req-cut',{amount:'0.000001000000',currency:'CNY',type:2,quota:5,input_tokens:100,cached_input_tokens:0,output_tokens:10});
+   await pool.query("UPDATE employee_calls SET created_at=now()-interval '2 days' WHERE id=$1",[ids.neverLogged]);
+   const spent=Number((await status()).spent_yuan);await settleEmployeeCalls(pool);
+   const billed=(await pool.query('SELECT status,settlement_source,charged_yuan FROM employee_calls WHERE id=$1',[ids.streaming])).rows[0];
+   assert.deepEqual([billed.status,billed.settlement_source,Number(billed.charged_yuan)],['settled','supplier_tokens',Number(holdYuan({input:'8',cached:'2',output:'28'},{input:100,cached:0,output:10},1))]);
+   assert.equal((await state()).neverLogged,'failed/GATEWAY_INTERRUPTED');
+   assert.equal(Number((Number((await status()).spent_yuan)-spent).toFixed(9)),Number(billed.charged_yuan),'only the logged call is charged');
+   await pool.query("UPDATE employee_calls SET status='failed' WHERE id=ANY($1::uuid[]) AND status='pending'",[[ids.running,ids.self,ids.legacy]]);
   }finally{pilotFetch=saved;}}
  // No usage and no bill: the hold is charged after the grace period.
  await pool.query('UPDATE employee_credit_accounts SET spent_yuan=5 WHERE user_id=$1',[staffer.user.id]);
@@ -817,6 +846,19 @@ test('employee credit is one-time, company-only, reserved before calling and cha
   await pool.query('DELETE FROM request_limits');}
  assert.equal((await staffer.j.call('/api/employee-credit/keys/'+created.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call()).status,401);
  appCfg.employeeCredit.organizationId='';
+});
+test('cloud cost and capacity page reads real gateway calls, is technical-staff only and never echoes secrets',async()=>{
+ assert.equal((await jar().call('/api/staff/capacity')).status,401);
+ const savedIdentity=identity;identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};const ops=jar();await staffLogin(ops);identity=savedIdentity;
+ const r=await ops.call('/api/staff/capacity?days=7');assert.equal(r.status,200,JSON.stringify(r.data));
+ const calls=(await pool.query("SELECT count(*)::int AS n FROM employee_calls WHERE created_at>=now()-interval '7 days'")).rows[0].n;
+ assert.ok(calls>0);assert.equal(r.data.usage.calls,calls);assert.ok(r.data.usage.peak_concurrency>=1);
+ assert.ok(r.data.model.people.length>=1&&r.data.model.people.every(p=>p.name&&!('owner_id' in p)));assert.ok(r.data.model.clients.length>=1);
+ assert.equal(r.data.model.scales[0].multiplier,1);assert.ok(r.data.usage.hours.length>=1);
+ assert.equal(JSON.stringify(r.data).includes('fixture-kerapi-secret'),false);assert.equal(JSON.stringify(r.data).includes('secret_hash'),false);
+ const cheaper=await ops.call('/api/staff/capacity?days=7&egress_yuan_per_gb=0.36');assert.equal(cheaper.data.assumptions.egress_yuan_per_gb.overridden,true);
+ assert.ok(Math.abs(cheaper.data.model.window.bandwidth*2-r.data.model.window.bandwidth)<0.0001);
+ assert.equal((await ops.call('/api/staff/capacity?days=2')).status,400);assert.equal((await ops.call('/api/staff/capacity?gateway_share=5')).status,400);
 });
 test('back office: two switches, one-way enterprise upgrade, tickets, channel pause and budgeted stress runs',async()=>{
  assert.equal(hasBusiness({status:'active',role:'support'}),true);assert.equal(hasBusiness({status:'active',role:'pending'}),false);assert.equal(hasBusiness({status:'suspended',role:'operations'}),false);

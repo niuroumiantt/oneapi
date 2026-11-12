@@ -191,7 +191,6 @@ select{box-sizing:border-box;height:42px;min-height:42px;padding-top:0;padding-b
 select option{font-size:14px}
 .live-form select{height:46px;min-height:46px;padding:0 38px 0 14px;font-size:14px}
 .live-form input{box-sizing:border-box;min-height:46px;font-size:14px}
-.table-toolbar select{height:40px;min-height:40px;font-size:12px}
 .m-filters select{height:42px;min-height:42px;padding-top:0;padding-bottom:0;font-size:12px}
 @media(max-width:700px){.m-filters select{max-width:160px;font-size:12px}}
 .billing-shell{max-width:1110px;margin:0 auto;padding:12px 0 22px;color:#1d2947}.billing-back{display:inline-block;margin-bottom:10px;color:#59708d;font-size:12px}.billing-heading h1{font-size:30px;margin:7px 0}.billing-heading p{color:#6c7a8f;font-size:13px;margin:0 0 18px}.billing-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}.billing-balance,.billing-readiness,.billing-next,.billing-history{border:1px solid #e2e8f0;border-radius:18px;padding:22px;background:#fff}.billing-balance{display:flex;flex-direction:column;justify-content:center;background:#1c2948;color:#fff;min-height:164px}.billing-balance span,.billing-readiness>span:first-child{font-size:12px;letter-spacing:.08em}.billing-balance strong{font-size:42px;line-height:1.2;margin:12px 0}.billing-balance small{font-size:11px;color:#bdcce1}.billing-readiness h2{font-size:20px;margin:9px 0}.billing-readiness p,.billing-next p,.billing-history p{font-size:12px;line-height:1.65;color:#6c7a8f}.billing-chip{display:inline-block;border-radius:99px;padding:7px 10px;background:#fff4ee;color:#aa5142;font-size:11px}.billing-next{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-top:13px;background:#f6f9fd}.billing-next h2,.billing-history h2{font-size:18px;margin:6px 0}.billing-next p{max-width:690px;margin:0}.billing-next a{white-space:nowrap}.billing-history{margin-top:13px}.billing-history p{margin:12px 0 0}.billing-history table{width:100%;font-size:12px}.billing-history td,.billing-history th{padding:10px;text-align:left}@media(max-width:700px){.billing-shell{padding:10px}.billing-grid{grid-template-columns:1fr}.billing-heading h1{font-size:24px}.billing-balance strong{font-size:34px}.billing-next{display:block}.billing-next a{margin-top:14px}}
@@ -787,3 +786,80 @@ td>.live-dot:first-child{margin-right:5px}
 
 /* 密钥: the two ways of generating a key, framed as one step */
 .keygen-box{margin:0 0 18px;border:1.5px solid #d9c6f3;border-radius:18px;background:#fdfbff;overflow:hidden}.keygen-box>header{padding:16px 20px 4px}.keygen-box>header h3{margin:0 0 4px;font-size:17px;color:#5a1fa6}.keygen-box>header p{margin:0;color:#5b6478;font-size:13px}.keygen-box .pc-tab-page{border:0;box-shadow:none;background:transparent}.keygen-mine{display:block;padding:12px 16px;border:1px dashed #d9dce7;border-radius:12px;color:#4a5265;font-size:13px}.keygen-mine .link{color:#7740b6;font-weight:700}
+/* 接入配置：模型 → Agent 工具 → 接入方法，三步串成一条线 */
+.pc-steps{list-style:none;margin:2px 0 0;padding:0 16px}
+.pc-step{position:relative;display:grid;grid-template-columns:26px minmax(0,1fr);gap:12px;padding-bottom:16px}
+.pc-step:last-child{padding-bottom:4px}
+.pc-step:not(:last-child)::before{content:"";position:absolute;left:12px;top:28px;bottom:2px;width:2px;border-radius:2px;background:linear-gradient(#d9cdf3,#e6e8f0)}
+.pc-step-no{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#efe8fc;color:#6b34b8;font:800 12px/1 inherit;box-shadow:0 0 0 3px #fff}
+.pc-step:last-child .pc-step-no{background:#292c35;color:#fff}
+.pc-step-blocked .pc-step-no{background:#fde3e3;color:#b4262b}
+.pc-step-body{min-width:0;padding-top:3px}
+.pc-step-label{margin:0 0 7px;color:#7a8295;font-size:11px;font-weight:600;letter-spacing:.02em;line-height:1.4}
+.pc-step-label-strong{color:#202636;font-size:13px;font-weight:700;letter-spacing:0}
+.pc-step-label-strong b{color:#6b34b8}
+.pc-step-sub{margin:5px 0 0;color:#9aa1b0;font-size:10.5px}
+.pc-steps .personal-selected-model{margin:0;padding:9px 12px;border:1px solid #e0e3ee;border-radius:8px;background:#fff}
+.pc-steps .personal-selected-model b{font-size:15px}
+.pc-steps .personal-selected-model small{margin-left:10px}
+.pc-steps select[data-agent-tool]{width:100%;box-sizing:border-box;min-height:40px;padding:6px 12px;border:1px solid #d6dae4;border-radius:8px;background:#fff;color:#1c2541;font:inherit;font-size:14px;font-weight:700;cursor:pointer}
+.pc-steps select[data-agent-tool]:focus{outline:2px solid #c9b2f2;outline-offset:1px}
+.pc-howto{margin:0 0 10px;padding:9px 12px 9px 30px;border:1px solid #f0dfa6;border-radius:8px;background:#fffaea;color:#5f4b12;font-size:11.5px;line-height:1.6}
+.pc-howto li+li{margin-top:2px}
+.pc-howto li::marker{color:#b8901f;font-weight:700}
+.pc-step-warn{margin:0;padding:9px 12px;border:1px solid #f5c2c4;border-radius:8px;background:#fff3f3;color:#8f1f23;font-size:11.5px;line-height:1.6}
+.pc-steps .pc-access-values{margin:0;padding:0;border-top:0;gap:6px}
+.pc-steps .pc-access-values>div{grid-template-columns:110px minmax(0,1fr);gap:8px;min-height:30px}
+.pc-steps .pc-access-values span{color:#5b6478;font-size:11px}
+.pc-steps .pc-access-values code{min-height:30px;border-radius:7px}
+.pc-steps .personal-key-button{width:100%;margin:10px 0 0;border-radius:8px;min-height:38px}
+.personal-connect-panel .pc-steps+.pc-price-fields{margin-top:6px}
+/* 密钥 · 为 Agent 生成 Key：① 模型 → ② Agent 工具 → ③ 接入方法，和模型页同一套步骤 */
+.keygen-box{margin-bottom:12px}.keygen-box>header{padding:12px 18px 2px}.keygen-box>header h3{font-size:15px}.keygen-box>header p{font-size:12px}
+.keygen-box .pc-tab-body{padding:10px 16px 14px}
+.kg-flow{display:grid;gap:10px}
+.kg-pick{display:grid;grid-template-columns:minmax(0,1fr) 22px minmax(0,1fr);align-items:center;gap:8px}
+.kg-step{display:grid;grid-template-columns:26px minmax(0,1fr);align-items:center;gap:10px;padding:8px 12px;border:1px solid #e0e3ee;border-radius:10px;background:#fff}
+.kg-step-body{display:grid;gap:3px;min-width:0}
+.kg-step-body small{color:#7a8295;font-size:11px;font-weight:600}
+.kg-step select{width:100%;box-sizing:border-box;min-height:34px;padding:4px 10px;border:1px solid #d6dae4;border-radius:7px;background:#fff;color:#1c2541;font:inherit;font-size:13.5px;font-weight:700;cursor:pointer}
+.kg-arrow{color:#b79be6;font-size:18px;font-weight:700;text-align:center}
+.kg-step3{padding:10px 14px 12px;border:1px solid #d9c6f3;border-radius:10px;background:#fff}
+.kg-step3 .pc-step-no,.kg-flow .kg-step3 .pc-step-no{background:#292c35;color:#fff}
+.kg-step3.pc-step-blocked .pc-step-no{background:#fde3e3;color:#b4262b}
+.kg-step3-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.kg-step3-head h4{margin:0;color:#202636;font-size:13.5px;font-weight:700}
+.kg-step3-head h4 b{color:#6b34b8}
+.kg-step3-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:14px;align-items:start}
+.kg-guide{display:grid;gap:6px;min-width:0}
+.kg-guide .pc-view-tabs{padding:0}.kg-guide .pc-view-tabs button{padding:4px 9px;font-size:12px}
+.kg-guide .pc-howto{margin:0}
+.kg-values{display:grid;gap:6px;min-width:0}
+.kg-gen{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.kg-gen input{min-width:0;min-height:34px;padding:6px 10px;border:1px solid #d6dae4;border-radius:7px;font:inherit;font-size:13px}
+.kg-gen .personal-key-button{width:auto;min-height:34px;margin:0;padding:6px 14px;white-space:nowrap}
+.kg-gen [role=status]{grid-column:1/-1}.kg-gen [role=status]:empty{display:none}
+.kg-values .key-agent-row{min-height:34px;padding:3px 8px}
+.kg-values .key-agent-copy-all{padding:5px 12px}
+.kg-foot{margin:0}
+.kg-flow .summary-notice{margin:0}
+@media(max-width:900px){.kg-pick{grid-template-columns:minmax(0,1fr)}.kg-arrow{display:none}.kg-step3-grid{grid-template-columns:minmax(0,1fr)}}
+/* 为多个模型生成 Key：没生成前不占右栏，模型平铺成多列，表单收成一行 */
+.direct-key.is-solo{grid-template-columns:minmax(0,1fr)}
+.direct-key-form{padding:12px 14px}
+.direct-head{margin-bottom:8px}.direct-head .live-small{margin:0}
+.direct-key.is-solo .direct-models{grid-template-columns:repeat(auto-fill,minmax(290px,1fr))}
+.direct-model{padding:6px 10px}
+.direct-create{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) auto;align-items:end;margin-top:10px}
+.direct-create button,.direct-create .personal-key-button{grid-column:auto;width:auto;min-height:36px;margin:0;padding:6px 16px;white-space:nowrap}
+.direct-key-form>.live-small:last-child{margin:6px 0 0}
+@media(max-width:700px){.direct-create{grid-template-columns:minmax(0,1fr)}}
+.kg-values .key-agent-index{display:none}
+.kg-values .key-agent-row{grid-template-columns:78px minmax(0,1fr) 52px}
+.kg-values .key-agent-row code{font-size:12px}
+@media(max-width:480px){.kg-values .key-agent-row{grid-template-columns:minmax(0,1fr) 52px}.kg-values .key-agent-row small,.kg-values .key-agent-row code{grid-column:1}.kg-values .key-agent-row .key-agent-copy{grid-column:2;grid-row:1/3}}
+/* 第 2 步的 Agent 工具选择框用荧光绿，提醒先选工具 */
+.pc-steps select[data-agent-tool],.kg-step select[data-agent-tool]{border-color:#9fdc1c;background-color:#c8ff3e;color:#1d2a00}
+.pc-steps select[data-agent-tool]:hover,.kg-step select[data-agent-tool]:hover{background-color:#bdf52c}
+.pc-steps select[data-agent-tool]:focus,.kg-step select[data-agent-tool]:focus{outline:2px solid #7fbf00;outline-offset:1px}
+.pc-steps select[data-agent-tool] option,.kg-step select[data-agent-tool] option,.pc-steps select[data-agent-tool] optgroup,.kg-step select[data-agent-tool] optgroup{background:#fff;color:#1c2541}
