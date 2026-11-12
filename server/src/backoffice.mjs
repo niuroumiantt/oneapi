@@ -20,12 +20,13 @@ export function customerBackofficeRoutes(app,pool,requireCustomer){
   });
   res.status(201).json(row);
  });
- app.get('/api/support/tickets',requireCustomer,async(req,res)=>res.json((await pool.query('SELECT id,subject,body,status,staff_note,created_at,updated_at FROM support_tickets WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50',[req.customer.id])).rows));
+ app.get('/api/support/tickets',requireCustomer,async(req,res)=>res.json((await pool.query('SELECT id,subject,body,status,category,staff_note,created_at,updated_at FROM support_tickets WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50',[req.customer.id])).rows));
  app.post('/api/support/tickets',requireCustomer,async(req,res)=>{
-  const subject=text(req.body?.subject,'问题标题',120),body=text(req.body?.body,'问题描述',4000);
+  const subject=text(req.body?.subject,'问题标题',120),body=text(req.body?.body,'问题描述',4000),category=req.body?.category===undefined?'question':req.body.category;
+  if(!['question','billing','invoice','bug','feedback'].includes(category))throw new HttpError(400,'问题类型不正确');
   const open=(await pool.query("SELECT count(*)::int AS n FROM support_tickets WHERE user_id=$1 AND status<>'closed'",[req.customer.id])).rows[0].n;
   if(open>=20)throw new HttpError(429,'未关闭的工单过多，请等待处理');
-  res.status(201).json((await pool.query('INSERT INTO support_tickets(user_id,subject,body) VALUES($1,$2,$3) RETURNING id,subject,body,status,staff_note,created_at,updated_at',[req.customer.id,subject,body])).rows[0]);
+  res.status(201).json((await pool.query('INSERT INTO support_tickets(user_id,subject,body,category) VALUES($1,$2,$3,$4) RETURNING id,subject,body,status,category,staff_note,created_at,updated_at',[req.customer.id,subject,body,category])).rows[0]);
  });
 }
 

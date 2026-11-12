@@ -1,4 +1,74 @@
-<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>semifly.ai · 业务运营</title><style>
-:root{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#242237;background:#f6f5fa}*{box-sizing:border-box}body{margin:0}a{color:#6b42cf;text-decoration:none}button,input,select{font:inherit}button,.button{border:1px solid #d9d5e4;background:white;border-radius:7px;padding:8px 12px;cursor:pointer;color:inherit}button:disabled{opacity:.5;cursor:not-allowed}button.primary{background:#7449dc;color:white;border-color:#7449dc}header{height:60px;background:#fff;border-bottom:1px solid #e3dfeb;display:flex;align-items:center;gap:20px;padding:0 24px}header b{font-size:19px}header .right{margin-left:auto;display:flex;gap:16px}.shell{display:grid;grid-template-columns:185px 1fr;height:calc(100dvh - 60px)}aside{padding:24px 14px;border-right:1px solid #e3dfeb;display:flex;flex-direction:column;background:#fbfaff}aside small{padding:0 10px;color:#766e88}nav{display:grid;gap:8px;margin-top:20px}nav button{text-align:left;border:0;background:transparent;padding:12px}nav button.active{background:#ece4fc;color:#6735cf;font-weight:600}aside>a{margin-top:auto;padding:10px}main{padding:22px 26px;min-width:0;display:flex;flex-direction:column;overflow:hidden}h1{font-size:24px;margin:0 0 4px}h2{font-size:16px;margin:0}p{margin:4px 0 18px;color:#726b80}.heading{display:flex;justify-content:space-between;align-items:center;gap:16px}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}.metric{background:white;border:1px solid #e3dfeb;padding:15px;border-radius:10px}.metric strong{font-size:25px;display:block}.metric span,small{color:#746d81}.panel{background:white;border:1px solid #e3dfeb;border-radius:10px;min-height:0;overflow:auto}.panel-title{display:flex;align-items:center;justify-content:space-between;padding:16px;border-bottom:1px solid #eee}.panel>p{padding:16px}#content{min-height:0;display:flex;flex-direction:column;flex:1;gap:14px}table{width:100%;border-collapse:collapse;text-align:left}th{position:sticky;top:0;background:#f8f7fb;color:#766d85;font-size:12px}td,th{padding:12px 16px;border-bottom:1px solid #efedf4}td small{display:block}td button{padding:5px 9px}code{font-size:12px}strong.good{color:#168050}.pill{display:inline-block;padding:3px 8px;background:#f0ecfa;border-radius:5px;font-size:12px}.warn{color:#996715}.empty{padding:48px;text-align:center;color:#7a7287}.links{display:flex;flex-wrap:wrap;gap:10px;padding:20px}.links a{border:1px solid #dfd9ec;padding:16px;border-radius:8px}.notice{color:#80551b;background:#fff4dd;border-radius:7px;padding:10px 14px}.notice:empty{display:none}.workflow{display:flex;gap:8px;margin-bottom:16px}.workflow span{padding:7px 12px;background:#eeebf5;border-radius:6px;flex:1;font-size:12px}dialog{width:min(560px,90vw);border:1px solid #ddd;border-radius:12px;padding:24px}dialog::backdrop{background:#28213655}form{display:grid;gap:14px}label{display:grid;gap:4px}input,select{padding:9px;border:1px solid #cfc9db;border-radius:6px}.actions{display:flex;justify-content:flex-end;gap:8px}@media(max-width:800px){.shell{grid-template-columns:1fr;height:auto}aside{display:none}main{overflow:visible;padding:16px}.metrics{grid-template-columns:repeat(3,1fr)}.panel{max-height:65vh}.workflow{flex-wrap:wrap}}
-body>header{display:none!important}.shell,.layout{height:100dvh!important;min-height:0!important}.side{min-height:0!important}
-</style><header><b>semifly.ai</b><span>商务后台</span><div class="right"><a id="technical" href="/api/staff/lab/console" hidden>切换技术后台 ↗</a><a href="/#staff-account">账户与权限</a></div></header><div class="shell"><aside><small>BUSINESS / 商务</small><nav id="nav"></nav><a href="/#personal">返回个人空间 ↗</a></aside><main><div class="heading"><div><h1 id="title">业务运营</h1><p id="subtitle">正在读取实际业务数据…</p></div><button id="refresh">刷新</button></div><div class="workflow"><span>① 采购登记</span><span>② 技术验收</span><span>③ 商品与售价复核</span><span>④ 申请上架 → 技术发布</span></div><div id="notice" class="notice" role="status"></div><div id="content"></div></main></div><dialog id="supplierDialog"><form id="supplierForm"><h2>建立供应商档案</h2><label>供应商名称<input name="display_name" required maxlength="100"></label><label>签约主体<input name="legal_name" required maxlength="160" placeholder="以合同或营业执照为准"></label><label>服务地区<input name="region" required maxlength="80" placeholder="未知请填待确认"></label><label>来源<select name="source_type"><option value="unconfirmed">待核验</option><option value="official">官方</option><option value="authorized_reseller">授权经销商</option><option value="cloud_provider">云服务商</option></select></label><p>保存后技术人员即可录入 Key。采购授权、合同和价格仍需在档案中核验。</p><div class="actions"><button type="button" id="cancel">取消</button><button class="primary" type="submit">保存档案</button></div></form></dialog><script src="/api/staff/workspace/console.js" defer></script><script src="/api/staff/table-sort.js" defer></script><script src="/api/staff/workspace/bridge.js" defer></script></html>
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>semifly.ai · 商务后台</title><style>
+:root{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#242237;background:#f6f5fa;
+ --line:#e3dfeb;--muted:#726b80;--accent:#7449dc;--accent-soft:#ece4fc;--accent-ink:#6735cf;--good:#168050;--warn:#996715;--bad:#b3261e;
+ /* Chart series, validated for colour-blind separation on a white surface. */
+ --series-1:#2a78d6;--series-2:#eb6834;--series-3:#1baf7a}
+*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0}a{color:#6b42cf;text-decoration:none}a:hover{text-decoration:underline}
+button,input,select,textarea{font:inherit;color:inherit}
+button,.button{border:1px solid #d9d5e4;background:#fff;border-radius:7px;padding:7px 12px;cursor:pointer}
+button:hover:not(:disabled){border-color:#b9b0d0}button:disabled{opacity:.5;cursor:not-allowed}
+button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}button.danger{color:var(--bad)}
+button.link{border:0;background:none;padding:0;color:#6b42cf}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+header{height:60px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:20px;padding:0 24px}header b{font-size:19px}header .right{margin-left:auto;display:flex;gap:16px}
+.shell{display:grid;grid-template-columns:200px minmax(0,1fr);height:calc(100dvh - 60px)}
+aside{padding:18px 12px;border-right:1px solid var(--line);display:flex;flex-direction:column;background:#fbfaff;overflow:auto}
+nav{display:grid;gap:2px}
+nav h3{margin:14px 10px 4px;font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.04em}nav h3:first-child{margin-top:0}
+nav button{display:flex;justify-content:space-between;align-items:center;text-align:left;border:0;background:transparent;padding:8px 10px;border-radius:7px}
+nav button:hover{background:#f1edf9}nav button.active{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+nav .count{min-width:20px;padding:0 6px;border-radius:10px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;text-align:center}
+aside>a{margin-top:auto;padding:10px}
+main{padding:22px 26px 40px;min-width:0;overflow:auto}
+h1{font-size:24px;margin:0 0 4px}h2{font-size:16px;margin:0}h3{font-size:14px;margin:0}p{margin:4px 0 14px;color:var(--muted)}
+small{color:var(--muted)}
+.heading{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}.heading .tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+section{margin-top:22px}section>.heading{margin-bottom:10px}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:14px 0}
+.metric{background:#fff;border:1px solid var(--line);padding:14px 16px;border-radius:10px;min-width:0}
+.metric span{color:var(--muted)}.metric strong{font-size:24px;display:block;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.metric strong.neg{color:var(--bad)}
+.todo{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.todo button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:12px 14px;border-radius:10px;text-align:left}
+.todo button b{font-size:20px;font-variant-numeric:tabular-nums}.todo button.has b{color:var(--accent-ink)}.todo button:not(.has){color:var(--muted)}
+.panel{background:#fff;border:1px solid var(--line);border-radius:10px;overflow:auto}
+.panel.pad{padding:16px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+table{width:100%;border-collapse:collapse;text-align:left}
+th{background:#f8f7fb;color:#766d85;font-size:12px;font-weight:600;white-space:nowrap}
+td,th{padding:10px 14px;border-bottom:1px solid #efedf4;vertical-align:top}tr:last-child td{border-bottom:0}
+td small{display:block}td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td button{padding:4px 9px;margin:1px 0}tr.clickable{cursor:pointer}tr.clickable:hover td{background:#faf8fe}
+code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f1eef8;border-radius:4px;padding:1px 5px;white-space:nowrap}
+.statement{width:100%}.statement td{padding:8px 16px}.statement td:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.statement tr.sub td{color:var(--muted);padding-top:2px;padding-bottom:2px;border-bottom:0}.statement tr.sub td:first-child{padding-left:32px}
+.statement tr.total td{font-weight:700;border-top:2px solid var(--line)}.statement tr.memo td{color:var(--muted);background:#fbfaff}
+.pill{display:inline-block;padding:2px 8px;background:#f0ecfa;border-radius:5px;font-size:12px;white-space:nowrap}
+.pill.good{background:#e3f4ea;color:var(--good)}.pill.warn{background:#fff4dd;color:var(--warn)}.pill.bad{background:#fde8e6;color:var(--bad)}.pill.off{background:#eeedf1;color:var(--muted)}
+.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.empty{padding:40px 16px;text-align:center;color:#7a7287}
+.notice{color:#80551b;background:#fff4dd;border-radius:7px;padding:10px 14px;margin-bottom:12px}.notice:empty{display:none}.notice.ok{color:#14603d;background:#e3f4ea}
+.callout{border-left:3px solid var(--accent);background:#fff;padding:10px 14px;border-radius:0 7px 7px 0;color:#4b4560;margin:10px 0}
+.workflow{display:flex;gap:8px;margin:10px 0;flex-wrap:wrap}.workflow span{padding:6px 12px;background:#eeebf5;border-radius:6px;flex:1;font-size:12px;white-space:nowrap}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input,select,textarea{padding:8px 9px;border:1px solid #cfc9db;border-radius:6px;background:#fff;max-width:100%}textarea{width:100%;resize:vertical}
+dialog{width:min(600px,94vw);max-height:90dvh;border:1px solid #ddd;border-radius:12px;padding:22px 24px;color:inherit}dialog.wide{width:min(900px,96vw)}dialog::backdrop{background:#28213655}
+form{display:grid;gap:12px}label{display:grid;gap:4px}label.check{display:flex;gap:8px;align-items:center}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}.form-error{color:var(--bad)}.form-error:empty{display:none}
+.thread{display:grid;gap:8px;margin:10px 0}.thread article{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#fff;white-space:pre-wrap;overflow-wrap:anywhere}
+.thread article.staff{background:#f6f2fe}.thread article header{all:unset;display:block;font-size:12px;color:var(--muted);margin-bottom:2px}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:12px 0}.facts div{background:#f8f7fb;border-radius:8px;padding:8px 12px}.facts span{display:block;font-size:12px;color:var(--muted)}.facts b{font-variant-numeric:tabular-nums}
+.chart{position:relative}.chart svg{display:block;width:100%;height:auto}.chart .grid{stroke:#ebe8f1}.chart text{font-size:11px;fill:#766d85}
+.chart .band{fill:transparent}.chart .band:hover,.chart .band:focus{fill:#7449dc0f;outline:none}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#4b4560;margin-bottom:6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px}
+.tip{position:absolute;pointer-events:none;background:#242237;color:#fff;border-radius:7px;padding:8px 10px;font-size:12px;line-height:1.6;white-space:nowrap;z-index:2}.tip i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px}
+@media(max-width:800px){.shell{grid-template-columns:minmax(0,1fr);height:auto}aside{border-right:0;border-bottom:1px solid var(--line);padding:8px 12px}aside>a{display:none}
+ nav{display:flex;overflow-x:auto;gap:4px}nav h3{display:none}nav button{white-space:nowrap;gap:6px}main{overflow:visible;padding:16px}.row2{grid-template-columns:1fr}}
+body>header{display:none!important}.shell{height:100dvh!important;min-height:0!important}
+@media(max-width:800px){.shell{height:auto!important}}
+</style><header><b>semifly.ai</b><span>商务后台</span><div class="right"><a id="technical" href="/api/staff/lab/console" hidden>切换技术后台 ↗</a><a href="/#staff-account">账户与权限</a></div></header>
+<div class="shell"><aside><nav id="nav" aria-label="商务后台导航"></nav><a href="/#personal">返回个人空间 ↗</a></aside>
+<main><div class="heading"><div><h1 id="title">商务后台</h1><p id="subtitle">正在读取实际业务数据…</p></div><div class="tools" id="tools"><button id="refresh">刷新</button></div></div>
+<div id="notice" class="notice" role="status"></div><div id="content"></div></main></div>
+<dialog id="dialog"><form id="dialogForm"></form></dialog>
+<script src="/api/staff/workspace/console.js" defer></script><script src="/api/staff/table-sort.js" defer></script><script src="/api/staff/workspace/bridge.js" defer></script></html>

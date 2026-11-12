@@ -2,7 +2,7 @@
 (() => {
  'use strict';
  const known = {
-  business: ['overview', 'upstream', 'products', 'customers', 'tickets', 'suppliers', 'finance'],
+  business: ['overview', 'pnl', 'payments', 'invoices', 'payables', 'suppliers', 'customers', 'upgrades', 'products', 'discounts', 'tickets', 'answers'],
   technical: ['overview', 'keys', 'evalkeys', 'features', 'agents', 'agentcmp', 'matrix', 'supplier', 'suppliers', 'credentials', 'models', 'tests', 'transactions', 'compare', 'identity', 'stress', 'monitor', 'routing', 'handoff', 'releases', 'billing', 'upstream', 'servers']
  };
  const titles = { business: '商务后台', technical: '技术后台' };
