@@ -10,6 +10,7 @@ test('answers are read from the last 答案 line and checked by rule', () => {
  assert.equal(checkAnswer('q_weekday', '答案：星期五。').correct, true);
  assert.equal(checkAnswer('q_logic', '答案：ＣＥＡＤＢ').correct, true, 'full-width letters');
  assert.equal(checkAnswer('q_pool', '\\boxed{36/7}').correct, true, 'no 答案 line: last line, boxed unwrapped');
+ for (const a of ['5623（七进制）', '(5623)₇', '5623_7', '5623']) assert.equal(checkAnswer('q_base', '答案：' + a).correct, true, a);
  for (const p of PROBES.filter(x => x.kind === 'bench')) assert.equal(checkAnswer(p.id, '答案：' + p.answer).correct, true, p.id + ' accepts its own key');
 });
 
@@ -37,7 +38,8 @@ test('a constant extra on every request means hidden text, not another model', (
 test('another tokenizer, another vendor or a lower score is a suspect', () => {
  assert.equal(summarize(items(i => i * 4, 0), 'glm').tokenizer.status, 'differ');
  assert.equal(summarize(items(i => i * 4, 0), 'glm').verdict, 'suspect');
- assert.equal(summarize(items(0, 0, '我是通义千问，由阿里云开发'), 'glm').self.status, 'other');
+ const claims=summarize(items(0, 0, '我是由 OpenAI 开发的 ChatGPT'), 'glm');assert.equal(claims.self.status, 'other_ok', 'tokenizer already proves the family');assert.equal(claims.verdict, 'ok', 'self-report alone never decides');
+ const both=summarize(items(i => i * 4, 0, '我是通义千问'), 'glm');assert.equal(both.self.status, 'other');assert.ok(both.reasons.some(r => r[0] === 'warn' && r[1].includes('qwen')));
  const low = summarize(items(0, 4), 'glm'); assert.equal(low.bench.status, 'suspect'); assert.equal(low.bench.ours, 16); assert.equal(low.verdict, 'suspect');
  assert.equal(summarize(items(0, 2), 'glm').bench.status, 'watch');
 });

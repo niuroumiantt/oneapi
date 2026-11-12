@@ -33,7 +33,7 @@ const BENCH = [
  ['q_weekday', '星期推算', '2031 年 7 月 4 日是星期几？', /^(星期|周)五$|^friday$/, '星期五'],
  ['q_prime', '第 n 个质数', '第 50 个质数是多少？（2 是第 1 个质数）', /^229$/, '229', true],
  ['q_digits', '数位之和', '2 的 50 次方的各位数字之和是多少？', /^76$/, '76', true],
- ['q_base', '进制转换', '把十进制数 2026 写成七进制。', /^5623(\(7\)|_?7|₇)?$/, '5623'],
+ ['q_base', '进制转换', '把十进制数 2026 写成七进制。', /^\(?5623\)?(_?\(?7\)?|₇|\(?七进制\)?|\(?base-?7\)?)?$/, '5623'],
  ['q_frac', '分数运算', '计算 1/3 + 1/7 + 1/21，写成最简分数。', /^11\/21$/, '11/21'],
  ['q_jssort', '代码输出（JS）', 'JavaScript 里 [10, 1, 3, 25, 100].sort() 的结果是什么？用方括号和英文逗号写出数组。', /^\[1,10,100,25,3\]$/, '[1,10,100,25,3]'],
  ['q_pyset', '代码输出（Python）', 'Python 里 print(len(set("mississippi"))) 输出什么？', /^4$/, '4', true],
@@ -107,9 +107,11 @@ export function summarize(items, family) {
  let self = null; const s = by('self')[0];
  if (s) {
   const o = vendorOf(s.official?.content), u = vendorOf(s.ours?.content);
-  const status = !ok(s.ours) ? 'unknown' : u === family ? 'same' : u ? 'other' : 'unclear';
+  // Self-report is the weakest evidence (DeepSeek models often call themselves ChatGPT, the official API included),
+  // so naming another vendor only counts when the tokenizer does not already prove the same family.
+  const status = !ok(s.ours) ? 'unknown' : u === family ? 'same' : !u ? 'unclear' : tokenizer?.status === 'match' ? 'other_ok' : 'other';
   self = { status, official: { vendor: o, text: s.official?.content?.slice(0, 300) || s.official?.error || '', model: s.official?.model || null }, ours: { vendor: u, text: s.ours?.content?.slice(0, 300) || s.ours?.error || '', model: s.ours?.model || null } };
-  if (status === 'other') reasons.push(['bad', `我们这一路的模型自称来自 ${u}，不是 ${family}`]);
+  if (status === 'other') reasons.push(['warn', `我们这一路的模型自称来自 ${u}，不是 ${family}${o === u ? '（官方这次也这样自称）' : ''}`]);
  }
  // 输出相似
  let similar = null; const sims = by('sim').filter(i => ok(i.official) && ok(i.official2) && ok(i.ours));
