@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import { HttpError,hash,id,text,token,transaction,audit,vault } from './core.mjs';
 import { isManager } from './organizations.mjs';
-import { OFFICIAL_MODELS,findOfficialModel,priceMultiplier,capabilityTags,publicCapabilities } from './official-models.mjs';
+import { OFFICIAL_MODELS,findOfficialModel,priceMultiplier,capabilityTags,publicCapabilities,defaultOutputTokens } from './official-models.mjs';
 import { routeFetch } from './output-guard.mjs';
 import { createGate,createSeatGate,gatewayLimits,estimateTokens,SEAT_CONCURRENT,SEAT_TPM } from './gateway-limits.mjs';
 import { OFFICIAL_VENDORS,STANDBY_VENDORS } from './eval-keys.mjs';
@@ -17,7 +17,7 @@ export const MAX_BODY='8mb';
 // Person seat (owner decision 2026-11-12, items 5–6): defaults are a guardrail. All of one person's keys share the
 // concurrent count and the seat TPM. A manager may still raise one key (e.g. batch jobs) up to the ceilings.
 export const MAX_CONCURRENT=SEAT_CONCURRENT,PER_MINUTE=60,KEY_CONCURRENT_CEILING=64,KEY_PER_MINUTE_CEILING=1200;
-const MAX_KEYS=5,DEFAULT_OUTPUT=4096,MAX_OUTPUT=32768,MAX_MESSAGES=500;
+const MAX_KEYS=5,MAX_OUTPUT=32768,MAX_MESSAGES=500;
 // How long one request may run (owner decision 2026-11-12, docs/14-gateway-settings.md D1/D3): 15 minutes in total, which
 // lets a 32K-token answer finish at about 50 tokens/s; a streamed request is also cut when the upstream sends nothing for
 // 60 seconds. A non-streamed reply arrives in one piece, so only the total applies to it.
@@ -76,7 +76,8 @@ export function employeeRequest(body){
  if(!Array.isArray(body.messages)||body.messages.length<1||body.messages.length>MAX_MESSAGES)throw new HttpError(400,`messages 需包含 1 至 ${MAX_MESSAGES} 条消息`);
  if(body.n!==undefined&&body.n!==1)throw new HttpError(400,'公司额度仅支持 n=1');
  if(body.max_tokens!==undefined&&body.max_completion_tokens!==undefined)throw new HttpError(400,'max_tokens 与 max_completion_tokens 只能传一个');
- const output=body.max_tokens??body.max_completion_tokens??DEFAULT_OUTPUT;
+ // Per-model default when omitted (B5): always-thinking GLM 8192, everyone else 4096.
+ const output=body.max_tokens??body.max_completion_tokens??defaultOutputTokens(model);
  if(!Number.isInteger(output)||output<1||output>MAX_OUTPUT)throw new HttpError(400,`max_tokens 必须在 1 至 ${MAX_OUTPUT} 之间`);
  const {max_completion_tokens:_ignored,...rest}=body,stream=body.stream===true;
  const payload={...rest,model:model.upstreamModel,max_tokens:output,stream};

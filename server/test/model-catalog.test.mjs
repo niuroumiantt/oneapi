@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { OFFICIAL_MODELS, capabilityTags, publicCapabilities, marketCatalog } from '../src/official-models.mjs';
+import { OFFICIAL_MODELS, capabilityTags, publicCapabilities, marketCatalog, defaultOutputTokens, GATEWAY_DEFAULT_OUTPUT } from '../src/official-models.mjs';
 import { catalogPath, catalogSource } from '../../scripts/build_model_catalog.mjs';
 
 test('the 模型广场 catalog file is generated from the gateway catalog and is up to date', async () => {
@@ -21,8 +21,12 @@ test('capability tags state what each model can do', () => {
   const c = publicCapabilities(m, 32768);
   assert.ok(['switchable', 'always', 'none'].includes(c.thinking));
   assert.equal(c.max_output_tokens, 32768);
+  assert.equal(c.default_max_tokens, defaultOutputTokens(m));
   assert.ok(c.input.includes('text') && c.output.includes('text'));
  }
+ assert.equal(defaultOutputTokens(OFFICIAL_MODELS.find(m => m.id === 'deepseek-flash')), GATEWAY_DEFAULT_OUTPUT);
+ assert.equal(defaultOutputTokens(OFFICIAL_MODELS.find(m => m.id === 'glm-5.3')), 8192);
+ assert.equal(defaultOutputTokens(OFFICIAL_MODELS.find(m => m.id === 'glm-5.3-flashx')), 8192);
 });
 
 test('market prices are the official rates; peak-priced models double at peak', () => {
