@@ -38,6 +38,8 @@ export function workspaceRoutes(app,pool,requireStaff,cfg){
  for(const path of ['/api/staff/console','/api/staff/workspace/console'])app.get(path,requireStaff,(req,res)=>{requireBusiness(req);res.sendFile(new URL('../private/admin-shell.html',import.meta.url).pathname,{dotfiles:'allow'})});
  app.get('/api/staff/console.js',requireStaff,(req,res)=>{requireBusiness(req);res.type('js').sendFile(new URL('../private/admin-shell.js',import.meta.url).pathname,{dotfiles:'allow'})});
  // Same file as web/table-sort.js: click a heading to sort.
+ // Same file as web/select-menu.js: dropdowns open a rounded menu below the control.
+ app.get('/api/staff/select-menu.js',requireStaff,(req,res)=>{res.type('js').sendFile(new URL('../private/select-menu.js',import.meta.url).pathname,{dotfiles:'allow'})});
  app.get('/api/staff/table-sort.js',requireStaff,(req,res)=>{res.type('js').sendFile(new URL('../private/table-sort.js',import.meta.url).pathname,{dotfiles:'allow'})});
  app.get('/api/staff/workspace/bridge.js',requireStaff,(req,res)=>{requireBusiness(req);res.type('js').sendFile(new URL('../private/workspace-bridge.js',import.meta.url).pathname,{dotfiles:'allow'})});
  app.get('/api/staff/workspace/plan',requireStaff,(req,res)=>{requireBusiness(req);res.redirect(302,'/api/staff/console#'+(req.staff.role==='platform_admin'||req.staff.technical_access?'technical/servers':'business/overview'))});
