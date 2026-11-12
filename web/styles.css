@@ -10,3 +10,17 @@
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}html{scroll-behavior:smooth}
 
 .preview-bar .demo-label{font-size:11px;color:#64748b;padding:7px 10px;border-radius:5px}.preview-bar .demo-label:hover{background:#e3eaf6}
+/* 全站下拉菜单（web/select-menu.js）：在选择框下方弹出，圆角、轻阴影 */
+.sm-menu{position:fixed;z-index:10000;box-sizing:border-box;overflow:auto;padding:6px;border:1px solid #e3e5ec;border-radius:12px;background:#fff;box-shadow:0 14px 34px rgba(22,26,44,.16),0 2px 6px rgba(22,26,44,.08);color:#1c2133;font-family:inherit;line-height:1.35;animation:sm-in .12s ease-out;overscroll-behavior:contain}
+.sm-menu.is-up{animation-name:sm-in-up}
+@keyframes sm-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@keyframes sm-in-up{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.sm-item{display:flex;align-items:center;gap:6px;padding:7px 14px 7px 8px;border-radius:7px;cursor:default;user-select:none;white-space:nowrap}
+.sm-check{flex:none;width:16px;text-align:center;color:#6b34b8;font-weight:700}
+.sm-item.is-selected .sm-check::before{content:"✓"}
+.sm-item.is-selected{font-weight:600}
+.sm-item.is-active{background:#eef0f6}
+.sm-item.is-disabled{color:#a7adba}
+.sm-text{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.sm-group{padding:6px 14px 3px 30px;color:#959cab;font-size:.86em;font-weight:600}
+.sm-sep{height:1px;margin:5px 8px;background:#e6e8ee}
