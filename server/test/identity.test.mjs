@@ -421,6 +421,26 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  const spentBefore=Number(s.spent_yuan);await settleEmployeeCalls(pool);await settleEmployeeCalls(pool);s=await status();assert.equal(Number((Number(s.spent_yuan)-spentBefore).toFixed(9)),0.000126,'charged once');assert.equal(Number(s.held_yuan),0);
  pilotFetch=async()=>new Response(JSON.stringify({error:{message:'bad fixture-kerapi-secret'}}),{status:500});
  const spent=s.spent_yuan,broken=await call();assert.equal(broken.status,502);assert.equal(JSON.stringify(broken.data).includes('fixture-kerapi-secret'),false);{const d=(await pool.query("SELECT error_detail FROM employee_calls WHERE status='failed' ORDER BY created_at DESC LIMIT 1")).rows[0].error_detail;assert.equal(d,'bad [REDACTED]','supplier message kept, key redacted');}s=await status();assert.equal(s.spent_yuan,spent);assert.equal(Number(s.held_yuan),0,'failed call releases its hold');
+ {// Time limits (docs/14-gateway-settings.md D1/D3): a stream is cut when the upstream goes silent, any request when it runs past the total.
+  const savedFetch=pilotFetch,lastCall=async()=>(await pool.query('SELECT status,error_code,charged_yuan FROM employee_calls ORDER BY created_at DESC LIMIT 1')).rows[0];
+  const hang=(_url,options)=>new Promise((_,no)=>options.signal.addEventListener('abort',()=>no(options.signal.reason)));
+  try{
+   appCfg.employeeCredit.timeouts={total:5000,idle:80};
+   // 1. A stream that never starts: 504 before any output, nothing charged.
+   pilotFetch=hang;const silent=await call({stream:true});assert.equal(silent.status,504,JSON.stringify(silent.data));assert.equal(silent.data.error.code,'upstream_timeout');assert.match(silent.data.error.message,/没有输出/);
+   let c=await lastCall();assert.equal(c.status,'failed');assert.equal(c.error_code,'UPSTREAM_IDLE_TIMEOUT');
+   // 2. A stream that starts and then stalls: the client gets what arrived, then an error event instead of [DONE]; billing waits for the supplier's log.
+   pilotFetch=async(_url,options)=>{const enc=new TextEncoder();return new Response(new ReadableStream({start(ctl){ctl.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"半句"}}]}\n\n'));options.signal.addEventListener('abort',()=>ctl.error(options.signal.reason));}}),{status:200,headers:{'content-type':'text/event-stream','x-request-id':'req-stalled'}});};
+   const stalled=await call({stream:true});assert.equal(stalled.status,200);assert.match(stalled.data,/半句/);assert.match(stalled.data,/"code":"upstream_timeout"/);assert.doesNotMatch(stalled.data,/\[DONE\]/);
+   c=await lastCall();assert.equal(c.status,'awaiting_bill','output was produced, so the supplier may bill it');assert.equal(c.error_code,'UPSTREAM_IDLE_TIMEOUT');
+   // 3. A non-streamed reply is silent until complete, so the idle limit does not apply to it.
+   pilotFetch=async()=>{await new Promise(r=>setTimeout(r,200));return reply();};assert.equal((await call()).status,200,'slower than the idle limit, still fine without stream');
+   // 4. The total limit applies to everything.
+   appCfg.employeeCredit.timeouts={total:80,idle:5000};pilotFetch=hang;const long=await call();assert.equal(long.status,504);assert.match(long.data.error.message,/时长上限/);
+   c=await lastCall();assert.equal(c.status,'failed');assert.equal(c.error_code,'UPSTREAM_TIMEOUT');
+   await pool.query("UPDATE employee_calls SET status='failed' WHERE upstream_request_id='req-stalled'");
+  }finally{delete appCfg.employeeCredit.timeouts;pilotFetch=savedFetch;}
+  const m=await import('../src/employee-credit.mjs');assert.equal(m.UPSTREAM_TIMEOUT_MS,900000,'15 minutes in total');assert.equal(m.UPSTREAM_IDLE_MS,60000,'60 seconds of silence');}
  // Only one of two concurrent calls fits, and the upstream is never asked for the other.
  usage={prompt_tokens:1,completion_tokens:1};pilotFetch=async()=>{await new Promise(r=>setTimeout(r,120));return reply();};
  const room=holdYuan({input:'8',cached:'2',output:'28'},{input:Buffer.byteLength(JSON.stringify({messages:glmBody.messages})),output:100},1);
