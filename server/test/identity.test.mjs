@@ -2,7 +2,7 @@ import test,{before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
 import { createServer } from 'node:http';
-import { randomBytes,createHash,generateKeyPairSync,createSign } from 'node:crypto';
+import { randomBytes,createHash,generateKeyPairSync,createSign,createVerify,createCipheriv } from 'node:crypto';
 import { signContent,responseNode } from '../src/alipay.mjs';
 import { mkdtemp, writeFile, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -26,6 +26,41 @@ async function fakeAlipay(_url,init){const p=Object.fromEntries(new URLSearchPar
   else{t.requests??=new Map();const fen=Math.round(Number(biz.refund_amount)*100),fresh=!t.requests.has(biz.out_request_no);if(fresh){t.requests.set(biz.out_request_no,fen);t.refundedFen=(t.refundedFen||0)+fen;}data={code:'10000',msg:'Success',out_trade_no:biz.out_trade_no,trade_no:t.trade_no,refund_fee:(t.refundedFen/100).toFixed(2),fund_change:fresh?'Y':'N'};}}
  else{const t=alipayTrades.get(biz.out_trade_no);data=t&&t.status!=='NOT_PAID_YET'?{code:'10000',msg:'Success',out_trade_no:biz.out_trade_no,trade_no:t.trade_no,trade_status:t.status,total_amount:t.amount}:{code:'40004',msg:'Business Failed',sub_code:'ACQ.TRADE_NOT_EXIST'};}
  const content=JSON.stringify(data);return new Response(`{"${node}":${content},"sign":"${alipaySign(content)}"}`,{headers:{'Content-Type':'application/json'}});}
+
+// Fake WeChat Pay v3 gateway: checks our merchant signature, signs every reply with the "WeChat Pay public key".
+const wxMerchant=generateKeyPairSync('rsa',{modulusLength:2048}),wxPlatform=generateKeyPairSync('rsa',{modulusLength:2048}),wxApiV3Key='0123456789abcdefABCDEF0123456789';
+const WX={mchId:'1900000001',appId:'wx00000000000000a1',certSerial:'5157F09EFDC096DE15EBE81A47057A7232F1B8E1',publicKeyId:'PUB_KEY_ID_0000000000000000000000000001'},wxTrades=new Map(),wxRefunds=new Map(),wxCalls=[];
+let wxRefundMode='ok';
+const wxSign=(body,{serial=WX.publicKeyId,key=wxPlatform.privateKey,ts=String(Math.floor(Date.now()/1000))}={})=>{const nonce=randomBytes(8).toString('hex');return {'Wechatpay-Timestamp':ts,'Wechatpay-Nonce':nonce,'Wechatpay-Serial':serial,'Wechatpay-Signature':createSign('RSA-SHA256').update(`${ts}\n${nonce}\n${body}\n`).sign(key,'base64')};};
+async function fakeWechat(url,init){
+ const u=new URL(url),path=u.pathname+u.search,body=init.body||'',auth=init.headers.Authorization||'',m=Object.fromEntries([...auth.matchAll(/(\w+)="([^"]*)"/g)].map(x=>[x[1],x[2]]));
+ const ok=auth.startsWith('WECHATPAY2-SHA256-RSA2048 ')&&m.mchid===WX.mchId&&m.serial_no===WX.certSerial&&createVerify('RSA-SHA256').update(`${init.method}\n${path}\n${m.timestamp}\n${m.nonce_str}\n${body}\n`).verify(wxMerchant.publicKey,m.signature,'base64');
+ wxCalls.push({method:init.method,path,ok,body:body?JSON.parse(body):null});
+ const reply=(status,obj)=>{const text=JSON.stringify(obj);return new Response(text,{status,headers:{'Content-Type':'application/json',...wxSign(text)}});};
+ if(!ok)return reply(401,{code:'SIGN_ERROR',message:'签名错误'});
+ if(init.method==='POST'&&u.pathname==='/v3/pay/transactions/native'){const b=JSON.parse(body);wxTrades.set(b.out_trade_no,{state:'NOTPAY',total:b.amount.total,appid:b.appid,transaction_id:'4200'+randomBytes(8).toString('hex'),notify:b.notify_url,expire:b.time_expire});return reply(200,{code_url:'weixin://wxpay/bizpayurl?pr='+randomBytes(4).toString('hex')});}
+ const q=u.pathname.match(/^\/v3\/pay\/transactions\/out-trade-no\/([^/]+)$/);
+ if(init.method==='GET'&&q){const no=decodeURIComponent(q[1]),t=wxTrades.get(no);if(!t)return reply(404,{code:'ORDER_NOT_EXIST',message:'订单不存在'});return reply(200,{appid:t.appid,mchid:WX.mchId,out_trade_no:no,trade_state:t.state,...(t.state==='NOTPAY'?{}:{transaction_id:t.transaction_id}),amount:{total:t.total,payer_total:t.total,currency:'CNY'}});}
+ if(init.method==='POST'&&u.pathname==='/v3/refund/domestic/refunds'){
+  if(wxRefundMode==='timeout')throw Error('simulated network timeout');
+  if(wxRefundMode==='reject')return reply(403,{code:'NOT_ENOUGH',message:'基本账户余额不足'});
+  const b=JSON.parse(body),t=wxTrades.get(b.out_trade_no);if(!t)return reply(404,{code:'RESOURCE_NOT_EXISTS',message:'订单不存在'});
+  if(b.amount.total!==t.total)return reply(400,{code:'PARAM_ERROR',message:'订单金额不符'});
+  let r=wxRefunds.get(b.out_refund_no);
+  if(!r){r={out_refund_no:b.out_refund_no,out_trade_no:b.out_trade_no,refund_id:'50'+randomBytes(8).toString('hex'),status:wxRefundMode==='processing'?'PROCESSING':'SUCCESS',notify:b.notify_url,amount:{refund:b.amount.refund,total:t.total,currency:'CNY'}};wxRefunds.set(b.out_refund_no,r);}
+  return reply(200,r);
+ }
+ const rq=u.pathname.match(/^\/v3\/refund\/domestic\/refunds\/([^/]+)$/);
+ if(init.method==='GET'&&rq){const r=wxRefunds.get(decodeURIComponent(rq[1]));return r?reply(200,r):reply(404,{code:'RESOURCE_NOT_EXISTS',message:'退款单不存在'});}
+ return reply(404,{code:'NOT_FOUND',message:'no such route'});
+}
+// Builds a notify exactly as WeChat does: AES-256-GCM resource under the APIv3 key, header-signed body.
+function wxNotify(event_type,resource,signOpts){
+ const nonce=randomBytes(6).toString('hex'),ad=event_type.startsWith('REFUND')?'refund':'transaction',c=createCipheriv('aes-256-gcm',Buffer.from(wxApiV3Key),Buffer.from(nonce));c.setAAD(Buffer.from(ad));
+ const ciphertext=Buffer.concat([c.update(JSON.stringify(resource)),c.final(),c.getAuthTag()]).toString('base64');
+ const body=JSON.stringify({id:randomBytes(8).toString('hex'),create_time:'2026-11-12T10:00:00+08:00',resource_type:'encrypt-resource',event_type,summary:'通知',resource:{original_type:ad,algorithm:'AEAD_AES_256_GCM',ciphertext,associated_data:ad,nonce}});
+ return fetch(origin+'/api/payments/wechat/notify',{method:'POST',headers:{'Content-Type':'application/json',...wxSign(body,signOpts)},body});
+}
 let pool,appServer,idpServer,service,origin,idpOrigin,appCfg,pilotDir,pilotFetch=fetch,identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true},revoked=false;
 const sent=[],codes=new Map(),access=new Map();let serial=1;
 const password='Local-only!Testing-1842';
@@ -53,6 +88,7 @@ before(async()=>{
  appServer=createServer();await new Promise(r=>appServer.listen(0,'127.0.0.1',r));origin='http://127.0.0.1:'+appServer.address().port;
  const cfg=config({APP_ORIGIN:origin,DATABASE_URL:databaseURL,BETTER_AUTH_SECRET:'test-only-strong-secret-932847239847293847',STAFF_OIDC_ISSUER:idpOrigin,STAFF_OIDC_CLIENT_ID:'oneapi-test-staff',STAFF_OIDC_CLIENT_SECRET:'test-client-secret',STAFF_BOOTSTRAP_SUB:'staff-owner',BANK_TRANSFER_VERIFIED:'true',BANK_TRANSFER_ACCOUNT_NAME:'Company Test',BANK_TRANSFER_BANK_NAME:'Test Bank Branch',BANK_TRANSFER_ACCOUNT_NUMBER:'0000000000000000'});
  cfg.alipay={...cfg.alipay,enabled:true,appId:'2021000000000001',sellerId:'2088000000000001',privateKey:pem(appKeys.privateKey),publicKey:pem(alipayKeys.publicKey),allowedEmails:new Set(['nobody@example.test'])};cfg.alipayFetch=fakeAlipay;
+ cfg.wechat={...cfg.wechat,enabled:true,mchId:WX.mchId,appId:WX.appId,certSerial:WX.certSerial,privateKey:pem(wxMerchant.privateKey),publicKeyId:WX.publicKeyId,publicKey:pem(wxPlatform.publicKey),apiV3Key:wxApiV3Key,allowedEmails:new Set(['nobody@example.test'])};cfg.wechatFetch=fakeWechat;
  appCfg=cfg;cfg.pilotFetch=(...args)=>pilotFetch(...args);
  service=createApp(pool,cfg,{sendMail:async m=>{sent.push(m);return {};},verify:async()=>true});await migrate(pool,service.auth);await pool.query('TRUNCATE "user",staff_members,staff_oidc_states,mail_outbox,request_limits,"rateLimit",channel_states,acceptance_profiles,agents,published_reports,identity_check_runs,identity_check_items CASCADE');appServer.on('request',service.app);
 });
@@ -1009,6 +1045,92 @@ test('alipay face-to-face recharge credits the exact amount once, only after a s
  const t4=await tradeOf(orgOrder.data.order.id);assert.equal((await notify({out_trade_no:t4.out,trade_no:t4.trade.trade_no,trade_status:'TRADE_SUCCESS',total_amount:'10.00'})).text,'success');
  assert.equal((await payer.j.call(`/api/billing/organizations/${org.id}`)).data.cash_balance_fen,'1000');assert.equal((await balance()).cash_balance_fen,'3550');
  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='billing.recharge.alipay_paid' AND subject_id=ANY($1)",[[orderId,second.id,orgOrder.data.order.id]])).rows[0].n,3);
+});
+test('wechat native recharge credits the exact amount once, only after a signed and decrypted confirmation',async()=>{
+ const payer=await user('wx-payer'),outsider=await user('wx-outsider'),balance=async()=>(await payer.j.call('/api/billing/personal')).data;
+ const create=(amount,key,j=payer.j)=>j.call('/api/billing/personal/wechat-orders',{method:'POST',body:{amount_fen:amount,idempotency_key:key}});
+ const outOf=async orderId=>(await pool.query('SELECT out_trade_no FROM payment_orders WHERE id=$1',[orderId])).rows[0].out_trade_no;
+ const paidResource=(out,t,over={})=>({appid:WX.appId,mchid:WX.mchId,out_trade_no:out,transaction_id:t.transaction_id,trade_type:'NATIVE',trade_state:'SUCCESS',amount:{total:t.total,payer_total:t.total,currency:'CNY'},...over});
+ assert.equal((await create(1000,'wx-first-order-0001')).status,403,'channel stays closed outside the allow list');
+ appCfg.wechat.allowedEmails.add(payer.email);
+ assert.ok((await balance()).recharge.channels.includes('wechat_native'));
+ const created=await create(1000,'wx-first-order-0001');assert.equal(created.status,201);assert.equal(created.data.order.provider,'wechat_native');assert.match(created.data.order.qr_svg,/^<svg/);
+ assert.ok(wxCalls.every(c=>c.ok),'every gateway request carries a valid merchant signature');
+ const out=await outOf(created.data.order.id),t=wxTrades.get(out);
+ assert.equal(t.total,1000);assert.equal(t.notify,origin+'/api/payments/wechat/notify');assert.match(t.expire,/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+08:00$/);
+ assert.equal((await create(1000,'wx-first-order-0001')).status,200,'same key returns the same order');
+ assert.equal((await outsider.j.call('/api/billing/payment-orders/'+created.data.order.id)).status,404);
+ assert.equal((await payer.j.call('/api/billing/payment-orders/'+created.data.order.id)).data.order.status,'pending');
+ // Forged signature, unknown key id, foreign merchant and wrong amount are all refused without crediting.
+ assert.equal((await wxNotify('TRANSACTION.SUCCESS',paidResource(out,t),{key:wxMerchant.privateKey})).status,400);
+ assert.equal((await wxNotify('TRANSACTION.SUCCESS',paidResource(out,t),{serial:'PUB_KEY_ID_OTHER'})).status,400);
+ assert.equal((await wxNotify('TRANSACTION.SUCCESS',paidResource(out,t),{ts:String(Math.floor(Date.now()/1000)-3600)})).status,400,'stale notifies are refused');
+ assert.equal((await wxNotify('TRANSACTION.SUCCESS',paidResource(out,t,{mchid:'1900000099'}))).status,400);
+ assert.equal((await wxNotify('TRANSACTION.SUCCESS',paidResource(out,t,{amount:{total:1,payer_total:1,currency:'CNY'}}))).status,500);
+ assert.equal((await balance()).cash_balance_fen,'0');
+ // The real notify credits once; a replay is acknowledged but changes nothing.
+ assert.equal((await wxNotify('TRANSACTION.SUCCESS',paidResource(out,t))).status,204);
+ assert.equal((await wxNotify('TRANSACTION.SUCCESS',paidResource(out,t))).status,204);
+ assert.equal((await balance()).cash_balance_fen,'1000');
+ const paid=(await payer.j.call('/api/billing/payment-orders/'+created.data.order.id)).data.order;assert.equal(paid.status,'paid');assert.equal(paid.qr_svg,null);
+ // Lost notify: the poll's active query credits it.
+ const second=(await create(2550,'wx-second-order-002')).data.order,t2=wxTrades.get(await outOf(second.id));t2.state='SUCCESS';
+ assert.equal((await payer.j.call('/api/billing/payment-orders/'+second.id)).data.order.status,'paid');
+ assert.equal((await payer.j.call('/api/billing/payment-orders/'+second.id)).data.order.status,'paid');
+ assert.equal((await balance()).cash_balance_fen,'3550');
+ // Closed by WeChat: closed locally, nothing credited.
+ const third=(await create(800,'wx-third-order-0003')).data.order;wxTrades.get(await outOf(third.id)).state='CLOSED';
+ assert.equal((await payer.j.call('/api/billing/payment-orders/'+third.id)).data.order.status,'closed');
+ // A WeChat result can never pay an Alipay order with the same number.
+ appCfg.alipay.allowedEmails.add(payer.email);
+ const ali=(await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:900,idempotency_key:'wx-cross-alipay-001'}})).data.order,aliOut=await outOf(ali.id);
+ assert.equal((await wxNotify('TRANSACTION.SUCCESS',{appid:WX.appId,mchid:WX.mchId,out_trade_no:aliOut,transaction_id:'4200cross',trade_state:'SUCCESS',amount:{total:900,payer_total:900,currency:'CNY'}})).status,500);
+ assert.equal((await balance()).cash_balance_fen,'3550');
+ assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='billing.recharge.wechat_paid' AND subject_id=ANY($1)",[[created.data.order.id,second.id]])).rows[0].n,2);
+});
+test('wechat refunds go back once, survive timeouts and settle from refund notifies',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ const buyer=await user('wx-refund-buyer');appCfg.wechat.allowedEmails.add(buyer.email);
+ const order=(await buyer.j.call('/api/billing/personal/wechat-orders',{method:'POST',body:{amount_fen:3000,idempotency_key:'wx-refund-order-0001'}})).data.order;
+ const o=(await pool.query('SELECT out_trade_no,account_id FROM payment_orders WHERE id=$1',[order.id])).rows[0];wxTrades.get(o.out_trade_no).state='SUCCESS';
+ assert.equal((await buyer.j.call('/api/billing/payment-orders/'+order.id)).data.order.status,'paid');
+ const bal=async()=>(await buyer.j.call('/api/billing/personal')).data.cash_balance_fen,ask=(amount,key)=>admin.call(`/api/staff/payments/orders/${order.id}/refunds`,{method:'POST',body:{amount_fen:amount,reason:'客户申请退款',idempotency_key:key}});
+ const outNo=async refundId=>(await pool.query('SELECT out_request_no FROM payment_refunds WHERE id=$1',[refundId])).rows[0].out_request_no;
+ const refundNotify=async(refundId,refund_status)=>wxNotify('REFUND.'+refund_status,{mchid:WX.mchId,out_trade_no:o.out_trade_no,transaction_id:'x',out_refund_no:await outNo(refundId),refund_id:'50x',refund_status,amount:{total:3000,refund:1,payer_total:3000,payer_refund:1}});
+ const list=(await admin.call('/api/staff/payments/orders')).data;assert.ok(list.channels.includes('wechat_native'));assert.equal(list.orders.find(x=>x.id===order.id).provider,'wechat_native');
+ const first=await ask(1000,'wx-refund-key-ok-0001');assert.equal(first.data.status,'succeeded');assert.equal(await bal(),'2000');
+ const sent=wxCalls.findLast(c=>c.path==='/v3/refund/domestic/refunds');assert.deepEqual(sent.body.amount,{refund:1000,total:3000,currency:'CNY'});assert.equal(sent.body.notify_url,origin+'/api/payments/wechat/notify');
+ // Timeout: held, then the retry looks the refund up, finds none, and sends it once.
+ wxRefundMode='timeout';const lost=await ask(500,'wx-refund-key-lost-001');assert.equal(lost.data.status,'pending');assert.equal(await bal(),'1500');
+ wxRefundMode='ok';assert.equal((await admin.call(`/api/staff/payments/refunds/${lost.data.refund_id}/retry`,{method:'POST',body:{}})).data.status,'succeeded');
+ assert.equal([...wxRefunds.values()].filter(r=>r.out_trade_no===o.out_trade_no).length,2);
+ // Processing: settled by the signed refund notify; a retry afterwards changes nothing.
+ wxRefundMode='processing';const slow=await ask(300,'wx-refund-key-slow-001');assert.equal(slow.data.status,'pending');wxRefundMode='ok';
+ assert.equal((await refundNotify(slow.data.refund_id,'SUCCESS')).status,204);
+ assert.equal((await pool.query('SELECT status FROM payment_refunds WHERE id=$1',[slow.data.refund_id])).rows[0].status,'succeeded');
+ assert.equal((await admin.call(`/api/staff/payments/refunds/${slow.data.refund_id}/retry`,{method:'POST',body:{}})).data.status,'succeeded');
+ // Processing then CLOSED, and an outright NOT_ENOUGH rejection, both give the money back.
+ wxRefundMode='processing';const closed=await ask(200,'wx-refund-key-close-01');wxRefundMode='ok';
+ assert.equal((await refundNotify(closed.data.refund_id,'CLOSED')).status,204);
+ wxRefundMode='reject';const rejected=await ask(200,'wx-refund-key-reject01');wxRefundMode='ok';assert.equal(rejected.data.status,'failed');
+ assert.equal(await bal(),'1200');
+ const ledger=(await pool.query('SELECT kind,amount_fen::int FROM billing_ledger WHERE account_id=$1 ORDER BY id',[o.account_id])).rows.map(r=>r.kind+':'+r.amount_fen);
+ assert.deepEqual(ledger,['recharge:3000','refund:-1000','refund:-500','refund:-300','refund:-200','reversal:200','refund:-200','reversal:200']);
+ assert.equal((await pool.query('SELECT refunded_fen::int FROM payment_orders WHERE id=$1',[order.id])).rows[0].refunded_fen,1800);
+ assert.ok(wxCalls.every(c=>c.ok));
+});
+test('wechat pay client refuses unsigned or foreign-signed replies and decrypts resources',async()=>{
+ const {wechatpayClient,decryptResource,beijingRfc3339}=await import('../src/wechatpay.mjs');
+ const base={mchId:WX.mchId,appId:WX.appId,certSerial:WX.certSerial,privateKey:pem(wxMerchant.privateKey),publicKeyId:WX.publicKeyId,publicKey:pem(wxPlatform.publicKey),apiV3Key:wxApiV3Key};
+ await assert.rejects(wechatpayClient(base,async()=>new Response('{"code":"SIGN_ERROR","message":"x"}',{status:401})).query('A1'),/WECHATPAY_UNSIGNED_401_SIGN_ERROR/);
+ await assert.rejects(wechatpayClient(base,async()=>{const t='{"trade_state":"SUCCESS"}';return new Response(t,{headers:wxSign(t,{key:wxMerchant.privateKey})});}).query('A1'),/WECHATPAY_UNSIGNED_200/);
+ await assert.rejects(wechatpayClient(base,async()=>new Response('busy',{status:503})).query('A1'),/WECHATPAY_HTTP_503/);
+ assert.throws(()=>wechatpayClient({...base,apiV3Key:'short'}),/WECHATPAY_API_V3_KEY_LENGTH/);
+ const nonce='abcdefabcdef',c=createCipheriv('aes-256-gcm',Buffer.from(wxApiV3Key),Buffer.from(nonce));c.setAAD(Buffer.from('ad'));
+ const ciphertext=Buffer.concat([c.update('{"ok":1}'),c.final(),c.getAuthTag()]).toString('base64');
+ assert.equal(decryptResource(Buffer.from(wxApiV3Key),{ciphertext,nonce,associated_data:'ad'}),'{"ok":1}');
+ assert.throws(()=>decryptResource(Buffer.from(wxApiV3Key),{ciphertext,nonce,associated_data:'other'}));
+ assert.equal(beijingRfc3339(new Date('2026-11-12T02:30:05Z')),'2026-11-12T10:30:05+08:00');
 });
 test('alipay helpers cut the signed response node verbatim and parse money strictly',async()=>{
  const {alipayClient}=await import('../src/alipay.mjs'),unsigned=alipayClient({appId:'x',privateKey:pem(appKeys.privateKey),publicKey:pem(alipayKeys.publicKey)},async()=>new Response('{"alipay_trade_query_response":{"code":"40003","msg":"Insufficient Conditions","sub_code":"isv.missing-signature-config"}}'));
