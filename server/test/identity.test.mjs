@@ -419,6 +419,8 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  const credential=(await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,'credit','https://kerapi.cn/v1',$2,'fp','credit-fixture') RETURNING id",[supplier,vault(process.env.SUPPLIER_LAB_SECRET).seal({key:'fixture-kerapi-secret'})])).rows[0].id;
  for(const model of ['GLM-5.3','deepseek-v4.1-flash'])await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES($1,'supplier','https://kerapi.cn/v1',$1,'fp','credit-fixture',$2,$3)",[model,supplier,credential]);
  appCfg.employeeCredit.organizationId=company.id;
+ // These billing checks fake calls of up to 5 million tokens; the gate is tested on its own further down.
+ await pool.query('UPDATE organizations SET tpm=1000000000 WHERE id=$1',[company.id]);
  assert.equal((await outsider.j.call('/api/employee-credit/status')).data.enabled,false);
  assert.equal((await outsider.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'No'}})).status,403);
  for(let i=0;i<2;i++){const s=(await staffer.j.call('/api/employee-credit/status')).data;assert.equal(s.enabled,true);assert.equal(s.max_output_tokens,32768);assert.ok(s.base_url.endsWith('/v1'));assert.equal(Number(s.available_yuan),10);assert.deepEqual(s.model_ids,['deepseek-flash','deepseek-v4-pro','glm-5.3']);assert.equal(s.models[2].input_yuan,'8');}
@@ -717,6 +719,49 @@ test('employee credit is one-time, company-only, reserved before calling and cha
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='employee_credit.key_limits_set' AND subject_id=$1",[kid])).rows[0].n,2);
   pilotFetch=beforeLimits;
   await pool.query('DELETE FROM employee_calls WHERE id=ANY($1)',[inFlight]);await pool.query('DELETE FROM request_limits');}
+ // Company-wide gate and per-organization limits (docs/14-gateway-settings.md C6/C10).
+ {const savedIdentity=identity;identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};const ops=jar();await staffLogin(ops);identity=savedIdentity;
+  const limits=(body)=>ops.call('/api/staff/lab/gateway-limits',{method:'POST',body}),orgLimits=(org,body)=>ops.call('/api/staff/lab/gateway-limits/organizations/'+org,{method:'POST',body});
+  await pool.query('DELETE FROM request_limits');await pool.query('UPDATE employee_credit_accounts SET granted_yuan=granted_yuan+5 WHERE user_id=$1',[staffer.user.id]);
+  await pool.query('UPDATE organizations SET tpm=NULL WHERE id=$1',[company.id]);
+  let v=(await ops.call('/api/staff/lab/gateway-limits')).data;
+  assert.deepEqual([v.settings.max_concurrent,v.settings.tpm,v.settings.org_max_concurrent,v.settings.org_tpm],[50,15000000,10,2000000],'decided defaults');
+  const mine=v.organizations.find(o=>o.id===company.id);assert.deepEqual(mine.effective,{max_concurrent:10,tpm:2000000},'an organization nobody set uses the defaults');
+  assert.equal((await staffer.j.call('/api/staff/lab/gateway-limits')).status,401,'staff only');
+  for(const body of [{max_concurrent:0,tpm:15000000,org_max_concurrent:10,org_tpm:2000000},{max_concurrent:50,tpm:999,org_max_concurrent:10,org_tpm:2000000},{max_concurrent:50,tpm:15000000,org_max_concurrent:'2.5',org_tpm:2000000}])assert.equal((await limits(body)).status,400,JSON.stringify(body));
+  assert.equal((await orgLimits('00000000-0000-4000-8000-000000000000',{max_concurrent:5})).status,404);
+  assert.equal((await orgLimits(company.id,{max_concurrent:1001})).status,400);
+  // A per-organization token limit refuses a request larger than what is left, before anything reaches KerAPI.
+  const set=await orgLimits(company.id,{max_concurrent:'',tpm:1000});assert.equal(set.status,200,JSON.stringify(set.data));
+  assert.deepEqual(set.data.organizations.find(o=>o.id===company.id).effective,{max_concurrent:10,tpm:1000});
+  const sent=upstreamCalls.length;
+  {const big=await call({messages:[{role:'user',content:'x'.repeat(5000)}]});assert.equal(big.status,429);assert.equal(big.data.error.code,'organization_limit_exceeded');assert.match(big.data.error.message,/上限 1000（输入加输出，含缓存命中）/);assert.ok(Number(big.headers.get('retry-after'))>=1);}
+  assert.equal(upstreamCalls.length,sent,'refused before the upstream');
+  // Back to a high token limit: the faked 5-million-token calls above are still inside the last minute.
+  assert.equal((await orgLimits(company.id,{max_concurrent:null,tpm:1000000000})).status,200);
+  // The company-wide gate: with room for one request, a second waits for the first to finish.
+  assert.equal((await limits({max_concurrent:1,tpm:15000000,org_max_concurrent:10,org_tpm:2000000})).status,200);
+  const saved=pilotFetch;let open;const held=new Promise(r=>{open=r;});pilotFetch=async(url,options)=>{upstreamCalls.push({url,options});await held;return reply();};
+  try{
+   const first=call();
+   for(let i=0;i<100&&upstreamCalls.length===sent;i++)await new Promise(r=>setTimeout(r,10));
+   v=(await ops.call('/api/staff/lab/gateway-limits')).data;assert.equal(v.live.active,1);assert.equal(v.organizations.find(o=>o.id===company.id).active,1);
+   const busy=await call();assert.equal(busy.status,429);assert.equal(busy.data.error.code,'gateway_busy');assert.match(busy.data.error.message,/全平台同时进行的请求已达 1 个上限/);assert.equal(busy.headers.get('retry-after'),'5');
+   open();assert.equal((await first).status,200);
+   const after=await call();assert.equal(after.status,200,'the slot is free again once the response closes');
+  }finally{pilotFetch=saved;}
+  v=(await ops.call('/api/staff/lab/gateway-limits')).data;assert.equal(v.live.active,0);assert.ok(v.live.tpm>0,'completed calls count their real tokens');
+  assert.equal((await limits({max_concurrent:50,tpm:15000000,org_max_concurrent:10,org_tpm:2000000})).status,200);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='gateway.limits_set'")).rows[0].n,2);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='gateway.organization_limits_set' AND organization_id=$1",[company.id])).rows[0].n,2);
+  // The migration sets our own company to 30 at once and 4 million tokens once; a later staff change is never overwritten.
+  const migration=await readFile(new URL('../migrations/053_gateway_limits.sql',import.meta.url),'utf8');
+  await pool.query('UPDATE organizations SET max_concurrent=NULL,tpm=NULL,limits_updated_at=NULL WHERE id=$1',[company.id]);await pool.query(migration);
+  assert.deepEqual((await pool.query('SELECT max_concurrent,tpm::int FROM organizations WHERE id=$1',[company.id])).rows[0],{max_concurrent:30,tpm:4000000});
+  await orgLimits(company.id,{max_concurrent:null,tpm:null});await pool.query(migration);
+  assert.deepEqual((await pool.query('SELECT max_concurrent,tpm FROM organizations WHERE id=$1',[company.id])).rows[0],{max_concurrent:null,tpm:null});
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM organizations WHERE max_concurrent IS NOT NULL AND id<>$1',[company.id])).rows[0].n,0,'other organizations keep the defaults');
+  await pool.query('DELETE FROM request_limits');}
  assert.equal((await staffer.j.call('/api/employee-credit/keys/'+created.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call()).status,401);
  appCfg.employeeCredit.organizationId='';
 });

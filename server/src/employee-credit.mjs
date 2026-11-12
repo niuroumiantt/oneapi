@@ -7,6 +7,7 @@ import { HttpError,hash,id,text,token,transaction,audit,vault } from './core.mjs
 import { isManager } from './organizations.mjs';
 import { OFFICIAL_MODELS,findOfficialModel,priceMultiplier,capabilityTags,publicCapabilities } from './official-models.mjs';
 import { routeFetch } from './output-guard.mjs';
+import { createGate,gatewayLimits,estimateTokens } from './gateway-limits.mjs';
 
 // One 10-yuan grant per employee, never topped up automatically. Usage is charged at official list prices.
 export const GRANT_YUAN='10.000000000000';
@@ -380,7 +381,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
 }
 
 /** Must be mounted before the app-wide 16 KB JSON parser; agent requests carry whole conversations and tool schemas. */
-export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
+export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=createGate()){
  const isEmployee=req=>keyPattern.test(req.get('authorization')||'');
  app.use('/v1',(req,res,next)=>{req.requestId='req_'+token().slice(0,24);res.set('X-Semifly-Request-Id',req.requestId);next();});
  const json=express.json({limit:MAX_BODY});
@@ -388,7 +389,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
  async function authenticate(req){
   if(!enabled(cfg))throw new HttpError(503,'公司额度尚未开放');
   const secret=keyPattern.exec(req.get('authorization'))[1];
-  const key=(await pool.query(`SELECT k.id AS key_id,k.owner_id,k.model_ids,k.limit_yuan,k.max_concurrent,k.per_minute FROM employee_api_keys k JOIN "user" u ON u.id=k.owner_id
+  const key=(await pool.query(`SELECT k.id AS key_id,k.owner_id,k.model_ids,k.limit_yuan,k.max_concurrent,k.per_minute,m.organization_id FROM employee_api_keys k JOIN "user" u ON u.id=k.owner_id
    JOIN memberships m ON m.user_id=k.owner_id AND m.organization_id=$2 AND m.status='active'
    WHERE k.secret_hash=$1 AND k.revoked_at IS NULL AND u."emailVerified" AND NOT coalesce(u.disabled,false)`,[hash(secret),cfg.employeeCredit.organizationId])).rows[0];
   if(!key)throw new HttpError(401,'平台 Key 无效或已停用');
@@ -404,6 +405,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
  /** Charges the official price as soon as usage is known; without usage the hold stays until a bill arrives. */
  async function answered(call,requestId,usage,started){
   const latency=Math.round(performance.now()-started);
+  call.slot?.settle(usage);
   if(!usage){await pool.query("UPDATE employee_calls SET status='awaiting_bill',upstream_request_id=$2,latency_ms=$3,finished_at=now() WHERE id=$1 AND status='pending'",[call.id,requestId,latency]);return;}
   const amount=holdYuan(call.rates,usage,call.multiplier);
   await transaction(pool,async db=>{
@@ -430,6 +432,10 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   if(key.model_ids&&!key.model_ids.includes(model.id))throw new HttpError(403,`这把 Key 只能调用：${key.model_ids.join('、')}`,'model_not_allowed');
   const route=(await employeeRoutes(pool,cfg)).find(r=>r.model.id===model.id);
   if(!route)throw new HttpError(503,'这个模型暂时不可用','model_unavailable');
+  // Company-wide and per-organization gates (docs/14-gateway-settings.md C6/C10); the slot is freed when the response closes.
+  let slot;
+  try{slot=gate.admit(key.organization_id,estimateTokens(input),await gatewayLimits(pool,key.organization_id));}catch(e){if(e.retryAfter)res.set('Retry-After',String(e.retryAfter));throw e;}
+  res.once('close',()=>slot.release());if(res.destroyed)slot.release();
   const multiplier=priceMultiplier(model,new Date(),cfg.employeeCredit.holidays),hold=holdYuan(model.rates,{input,output},multiplier);
   const summary=await summariesOn(pool,cfg)?callSummary(req.body.messages):null;
   const callId=await transaction(pool,async db=>{
@@ -443,8 +449,9 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
    if(units(money.available_yuan<0?0:money.available_yuan)<units(hold))throw new HttpError(402,'公司额度不足以覆盖这次调用的上限，可调小 max_tokens');
    if(key.limit_yuan!==null){const used=(await db.query(`SELECT ${USED_ON_KEY} AS used FROM employee_calls WHERE key_id=$1`,[key.key_id])).rows[0].used;if(units(used)+units(hold)>units(key.limit_yuan))throw new HttpError(402,`这把 Key 已接近消费上限 ¥${Number(key.limit_yuan)}（已用 ¥${Number(used).toFixed(4)}），可调小 max_tokens 或换一把 Key`,'key_limit_reached');}
    return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,client,client_detail,summary,profile_signature) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10,$11) RETURNING id",[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold,origin.client,origin.detail,summary,signature])).rows[0].id;
-  });
-  const call={id:callId,ownerId:key.owner_id,rates:model.rates,multiplier};
+  // Refused here (balance, key cap, this person's own limit): the call never reaches KerAPI, so it uses no tokens.
+  }).catch(e=>{slot.cancel();throw e;});
+  const call={id:callId,ownerId:key.owner_id,rates:model.rates,multiplier,slot};
   const started=performance.now(),abort=new AbortController();
   const totalMs=cfg.employeeCredit.timeouts?.total??UPSTREAM_TIMEOUT_MS,idleMs=cfg.employeeCredit.timeouts?.idle??UPSTREAM_IDLE_MS;
   // cut: which of our own limits ended the upstream request ('idle' or 'total'); null while neither has.
