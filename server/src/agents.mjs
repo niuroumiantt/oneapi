@@ -51,10 +51,10 @@ export function agentRoutes(app, pool, cfg, requireStaff, upstreamFetch = fetch)
 
  async function targets() {
   const routes = await employeeRoutes(pool, cfg);
-  const ids = [...new Set(routes.flatMap(r => [r.credentialId, ...(r.fallbacks || []).map(f => f.credentialId)].filter(Boolean)))];
+  const ids = [...new Set(routes.flatMap(r => [r.credentialId, ...(r.fallbacks || []).filter(f => !f.official).map(f => f.credentialId)].filter(Boolean)))];
   const labels = ids.length ? new Map((await pool.query('SELECT id,label,priority FROM supplier_lab_credentials WHERE id=ANY($1::uuid[])', [ids])).rows.map(r => [r.id, r])) : new Map();
   const models = routes.map(r => ({ id: r.model.id, name: r.model.name, family: r.model.family, upstream_model: r.model.upstreamModel,
-   keys: [r, ...(r.fallbacks || [])].filter(k => k.credentialId).map((k, i) => ({ credential_id: k.credentialId, label: labels.get(k.credentialId)?.label || '—', role: i === 0 ? 'primary' : labels.get(k.credentialId)?.priority === 2 ? 'standby' : 'auto' })) }));
+   keys: [r, ...(r.fallbacks || []).filter(f => !f.official)].filter(k => k.credentialId).map((k, i) => ({ credential_id: k.credentialId, label: labels.get(k.credentialId)?.label || '—', role: i === 0 ? 'primary' : labels.get(k.credentialId)?.priority === 2 ? 'standby' : 'auto' })) }));
   const official = (await pool.query(`SELECT e.id,e.model_id,e.base_url,c.credential_ciphertext,p.display_name AS vendor FROM supplier_lab_endpoints e JOIN supplier_lab_credentials c ON c.id=e.credential_id JOIN supplier_lab_suppliers s ON s.id=e.supplier_id JOIN suppliers p ON p.id=s.canonical_supplier_id
    WHERE e.kind='reference' AND e.disabled_at IS NULL AND c.disabled_at IS NULL AND s.disabled_at IS NULL ORDER BY p.display_name,e.model_id`)).rows;
   return { routes, models, official };
@@ -199,7 +199,7 @@ export function agentRoutes(app, pool, cfg, requireStaff, upstreamFetch = fetch)
    else {
     const route = t.routes.find(r => r.model.id === String(w?.model_id)); if (!route) throw new HttpError(400, `模型 ${w?.model_id} 没有接通`);
     const credentialId = w.credential_id ? String(w.credential_id) : null;
-    const pick = !credentialId || credentialId === route.credentialId ? route : (route.fallbacks || []).find(f => f.credentialId === credentialId);
+    const pick = !credentialId || credentialId === route.credentialId ? route : (route.fallbacks || []).filter(f => !f.official).find(f => f.credentialId === credentialId);
     if (!pick) throw new HttpError(400, '这把 Key 不能调用这个模型');
     const keyLabel = t.models.find(m => m.id === route.model.id)?.keys.find(k => k.credential_id === pick.credentialId)?.label || '';
     list.push({ kind: 'ours', model_id: route.model.id, credential_id: pick.credentialId, route: { ...route, credentialId: pick.credentialId, ciphertext: pick.ciphertext, baseUrl: pick.baseUrl }, label: `${route.model.name} · ${keyLabel}` });

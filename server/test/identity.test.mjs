@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { generateKeyPair,exportJWK,SignJWT } from 'jose';
 import { createApp } from '../src/app.mjs';
 import { GRANT_YUAN,holdYuan,employeeRequest,usageFrom,settleEmployeeCalls,callClient,callSummary } from '../src/employee-credit.mjs';
-import { vault,hasBusiness } from '../src/core.mjs';
+import { vault,hasBusiness,hash } from '../src/core.mjs';
 import { findOfficialModel,officialPeak } from '../src/official-models.mjs';
 import { migrate } from '../src/migrate.mjs';
 import { config } from '../src/core.mjs';
@@ -419,6 +419,8 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  const credential=(await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,'credit','https://kerapi.cn/v1',$2,'fp','credit-fixture') RETURNING id",[supplier,vault(process.env.SUPPLIER_LAB_SECRET).seal({key:'fixture-kerapi-secret'})])).rows[0].id;
  for(const model of ['GLM-5.3','deepseek-v4.1-flash'])await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES($1,'supplier','https://kerapi.cn/v1',$1,'fp','credit-fixture',$2,$3)",[model,supplier,credential]);
  appCfg.employeeCredit.organizationId=company.id;
+ // These billing checks fake calls of up to 5 million tokens; the gate is tested on its own further down.
+ await pool.query('UPDATE organizations SET tpm=1000000000 WHERE id=$1',[company.id]);
  assert.equal((await outsider.j.call('/api/employee-credit/status')).data.enabled,false);
  assert.equal((await outsider.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'No'}})).status,403);
  for(let i=0;i<2;i++){const s=(await staffer.j.call('/api/employee-credit/status')).data;assert.equal(s.enabled,true);assert.equal(s.max_output_tokens,32768);assert.ok(s.base_url.endsWith('/v1'));assert.equal(Number(s.available_yuan),10);assert.deepEqual(s.model_ids,['deepseek-flash','deepseek-v4-pro','glm-5.3']);assert.equal(s.models[2].input_yuan,'8');}
@@ -620,6 +622,59 @@ test('employee credit is one-time, company-only, reserved before calling and cha
      const r=await jar().call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+created.data.secret},body:{model:'deepseek-flash',max_tokens:16,messages:[{role:'user',content:'hi'}]}});assert.equal(r.status,200,JSON.stringify(r.data));
      assert.deepEqual(seen,['Bearer fixture-kerapi-secret','Bearer fixture-standby-secret'],'a primary 401 falls over to the standby key');
      assert.equal((await pool.query('SELECT credential_id FROM employee_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 1',[staffer.user.id])).rows[0].credential_id,standby,'the call is recorded against the key that answered');
+     // Owner decision 2026-11-12 (docs/14-gateway-settings.md F4): KerAPI rate-limited (429) or failing (5xx) before any
+     // output also moves to the next line; a request error (400) does not; when every line is rate-limited the caller
+     // gets upstream_rate_limited, which is not its own quota.
+     {const before=pilotFetch;await pool.query('DELETE FROM request_limits');await pool.query('UPDATE employee_credit_accounts SET granted_yuan=granted_yuan+5 WHERE user_id=$1',[staffer.user.id]);
+      const primary='Bearer fixture-kerapi-secret',backup='Bearer fixture-standby-secret',ok=()=>new Response(JSON.stringify({choices:[{message:{content:'ok'}}],usage:{prompt_tokens:5,completion_tokens:1}}),{status:200,headers:{'content-type':'application/json'}});
+      const flash=()=>jar().call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+created.data.secret},body:{model:'deepseek-flash',max_tokens:16,messages:[{role:'user',content:'hi'}]}});
+      for(const code of [429,500,503]){seen.length=0;pilotFetch=async(_u,o)=>{seen.push(o.headers.Authorization);return o.headers.Authorization===primary?new Response('{"error":{"message":"busy"}}',{status:code}):ok();};
+       const r=await flash();assert.equal(r.status,200,code+' '+JSON.stringify(r.data));assert.deepEqual(seen,[primary,backup],code+' moves to the standby');}
+      seen.length=0;pilotFetch=async(_u,o)=>{seen.push(o.headers.Authorization);return new Response('{"error":{"message":"bad request"}}',{status:400});};
+      {const r=await flash();assert.equal(r.status,400);assert.deepEqual(seen,[primary],'a request error is not retried elsewhere');}
+      seen.length=0;pilotFetch=async(_u,o)=>{seen.push(o.headers.Authorization);return new Response('{"error":{"message":"TPM exceeded"}}',{status:429,headers:{'retry-after':'7'}});};
+      {const r=await flash();assert.equal(r.status,429);assert.equal(r.data.error.code,'upstream_rate_limited');assert.match(r.data.error.message,/不是你的额度问题.*TPM exceeded/);assert.equal(r.headers.get('retry-after'),'7');assert.deepEqual(seen,[primary,backup]);
+       assert.equal((await pool.query('SELECT status,error_code,charged_yuan FROM employee_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 1',[staffer.user.id])).rows[0].error_code,'UPSTREAM_HTTP_429');}
+      pilotFetch=async()=>new Response('{}',{status:503});
+      {const r=await flash();assert.equal(r.status,502,'every line failing is still an upstream error');}
+      // A key registered a second time (same fingerprint) is not a standby and is never tried.
+      const dup=(await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by,priority) VALUES($1,'same key','https://kerapi.cn',$2,'fp','credit-fixture',2) RETURNING id",[supplier,vault(process.env.SUPPLIER_LAB_SECRET).seal({key:'fixture-kerapi-secret-again'})])).rows[0].id;
+      await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES('dup flash','supplier','https://kerapi.cn','deepseek-v4.1-flash','fp','credit-fixture',$1,$2)",[supplier,dup]);
+      seen.length=0;pilotFetch=async(_u,o)=>{seen.push(o.headers.Authorization);return new Response('{}',{status:429});};
+      {const r=await flash();assert.equal(r.status,429);assert.deepEqual(seen,[primary,backup],'the duplicate is skipped');}
+      await pool.query('DELETE FROM supplier_lab_endpoints WHERE credential_id=$1',[dup]);await pool.query('DELETE FROM supplier_lab_credentials WHERE id=$1',[dup]);
+      // An official standby key (docs/14-gateway-settings.md F5): its own key, mapped model by model, tried after KerAPI.
+      {const savedIdentity=identity;identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};const ops=jar();await staffLogin(ops);identity=savedIdentity;
+       const add=body=>ops.call('/api/staff/lab/standby-keys',{method:'POST',body}),official=[];
+       pilotFetch=async(url,o)=>{const u=String(url);
+        if(u==='https://api.deepseek.com/models')return new Response(JSON.stringify({data:[{id:'deepseek-chat'},{id:'deepseek-reasoner'}]}),{status:200});
+        if(u.startsWith('https://api.deepseek.com/')){official.push(JSON.parse(o.body));return officialReply();}
+        seen.push(o.headers.Authorization);return new Response('{}',{status:503});};
+       let officialReply=ok;
+       assert.equal((await add({vendor:'zai',api_key:'sk-x',models:{'glm-5.3':'glm-5.3'}})).status,400,'mainland vendors only');
+       assert.equal((await add({vendor:'deepseek',api_key:'sk-ds-standby',models:{}})).status,400,'at least one model');
+       assert.equal((await add({vendor:'deepseek',api_key:'sk-ds-standby',models:{'glm-5.3':'deepseek-chat'}})).status,400,'only models of that vendor');
+       {const r=await add({vendor:'deepseek',api_key:'sk-ds-standby',models:{'deepseek-flash':'deepseek-v9'}});assert.equal(r.status,400);assert.match(r.data.error,/官方型号列表里没有 deepseek-v9.*deepseek-chat/);}
+       await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,'评测专用 fixture','https://api.deepseek.com',$2,$3,'credit-fixture')",[supplier,vault(process.env.SUPPLIER_LAB_SECRET).seal({key:'sk-ds-eval'}),hash('sk-ds-eval').slice(0,12)]);
+       {const r=await add({vendor:'deepseek',api_key:'sk-ds-eval',models:{'deepseek-flash':'deepseek-chat'}});assert.equal(r.status,409);assert.match(r.data.error,/这是评测 Key/);}
+       await pool.query("DELETE FROM supplier_lab_credentials WHERE label='评测专用 fixture'");
+       const sb=await add({vendor:'deepseek',api_key:'sk-ds-standby',models:{'deepseek-flash':'DeepSeek-Chat'}});assert.equal(sb.status,201,JSON.stringify(sb.data));assert.deepEqual(sb.data.models,{'deepseek-flash':'deepseek-chat'},'matched to the vendor list without regard to case');
+       {const v=(await ops.call('/api/staff/lab/eval-keys')).data,ds=v.vendors.find(x=>x.id==='deepseek');assert.equal(ds.standby.key.id,sb.data.credential_id);assert.deepEqual(ds.standby.key.standby_models,{'deepseek-flash':'deepseek-chat'});assert.notEqual(ds.key?.id,sb.data.credential_id,'not listed as an evaluation key');assert.equal(v.vendors.find(x=>x.id==='zai').standby,null);}
+       // Every KerAPI line fails: the call goes to the official line with the official model name, at the official price.
+       seen.length=0;
+       {const r=await flash();assert.equal(r.status,200,JSON.stringify(r.data));assert.deepEqual(seen,[primary,backup],'KerAPI lines first');assert.equal(official.at(-1).model,'deepseek-chat');
+        const c=(await pool.query('SELECT credential_id,status,settlement_source FROM employee_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 1',[staffer.user.id])).rows[0];assert.deepEqual(c,{credential_id:sb.data.credential_id,status:'settled',settlement_source:'official_price'});}
+       // No usage from the official line: nothing to check it against later, so it is free.
+       officialReply=()=>new Response(JSON.stringify({choices:[{message:{content:'ok'}}]}),{status:200,headers:{'content-type':'application/json'}});
+       {const r=await flash();assert.equal(r.status,200);const c=(await pool.query('SELECT status,charged_yuan,settlement_source FROM employee_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 1',[staffer.user.id])).rows[0];assert.deepEqual([c.status,Number(c.charged_yuan),c.settlement_source],['settled',0,'official_unmetered']);}
+       // GLM has no mapping, so it gets no official line.
+       {const before=official.length;const r=await call();assert.equal(r.status,502);assert.equal(official.length,before);}
+       const replaced=await add({vendor:'deepseek',api_key:'sk-ds-standby-2',models:{'deepseek-flash':'deepseek-chat'}});assert.equal(replaced.status,201);assert.deepEqual(replaced.data.replaced,[sb.data.label],'one standby per vendor');
+       assert.equal((await ops.call(`/api/staff/lab/standby-keys/${replaced.data.credential_id}/disable`,{method:'POST',body:{}})).status,200);
+       assert.equal((await ops.call(`/api/staff/lab/standby-keys/${replaced.data.credential_id}/disable`,{method:'POST',body:{}})).status,404);
+       {const before=official.length;assert.equal((await flash()).status,502,'disabled: KerAPI failures reach the caller again');assert.equal(official.length,before);}
+       assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='gateway.standby_key_added'")).rows[0].n,2);}
+      pilotFetch=before;await pool.query('DELETE FROM request_limits');}
      const savedIdentity=identity;identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};const ops=jar();await staffLogin(ops);identity=savedIdentity;
      const ov=await ops.call('/api/staff/lab/overview');assert.equal(ov.status,200,JSON.stringify(ov.data));assert.ok(ov.data.credentials.some(c=>c.id===credential&&c.failed_24h>=1));assert.ok(ov.data.models.some(m=>m.id==='deepseek-flash'&&m.routed&&m.fallbacks.length>=1));assert.ok(Array.isArray(ov.data.risks));
      assert.equal((await ops.call('/api/staff/lab/credentials/'+standby+'/priority',{method:'POST',body:{role:'primary'}})).status,200);assert.equal((await pool.query('SELECT priority FROM supplier_lab_credentials WHERE id=$1',[credential])).rows[0].priority,2,'the old primary becomes standby');
@@ -746,6 +801,49 @@ test('employee credit is one-time, company-only, reserved before calling and cha
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='employee_credit.key_limits_set' AND subject_id=$1",[kid])).rows[0].n,2);
   pilotFetch=beforeLimits;
   await pool.query('DELETE FROM employee_calls WHERE id=ANY($1)',[inFlight]);await pool.query('DELETE FROM request_limits');}
+ // Company-wide gate and per-organization limits (docs/14-gateway-settings.md C6/C10).
+ {const savedIdentity=identity;identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};const ops=jar();await staffLogin(ops);identity=savedIdentity;
+  const limits=(body)=>ops.call('/api/staff/lab/gateway-limits',{method:'POST',body}),orgLimits=(org,body)=>ops.call('/api/staff/lab/gateway-limits/organizations/'+org,{method:'POST',body});
+  await pool.query('DELETE FROM request_limits');await pool.query('UPDATE employee_credit_accounts SET granted_yuan=granted_yuan+5 WHERE user_id=$1',[staffer.user.id]);
+  await pool.query('UPDATE organizations SET tpm=NULL WHERE id=$1',[company.id]);
+  let v=(await ops.call('/api/staff/lab/gateway-limits')).data;
+  assert.deepEqual([v.settings.max_concurrent,v.settings.tpm,v.settings.org_max_concurrent,v.settings.org_tpm],[50,15000000,10,2000000],'decided defaults');
+  const mine=v.organizations.find(o=>o.id===company.id);assert.deepEqual(mine.effective,{max_concurrent:10,tpm:2000000},'an organization nobody set uses the defaults');
+  assert.equal((await staffer.j.call('/api/staff/lab/gateway-limits')).status,401,'staff only');
+  for(const body of [{max_concurrent:0,tpm:15000000,org_max_concurrent:10,org_tpm:2000000},{max_concurrent:50,tpm:999,org_max_concurrent:10,org_tpm:2000000},{max_concurrent:50,tpm:15000000,org_max_concurrent:'2.5',org_tpm:2000000}])assert.equal((await limits(body)).status,400,JSON.stringify(body));
+  assert.equal((await orgLimits('00000000-0000-4000-8000-000000000000',{max_concurrent:5})).status,404);
+  assert.equal((await orgLimits(company.id,{max_concurrent:1001})).status,400);
+  // A per-organization token limit refuses a request larger than what is left, before anything reaches KerAPI.
+  const set=await orgLimits(company.id,{max_concurrent:'',tpm:1000});assert.equal(set.status,200,JSON.stringify(set.data));
+  assert.deepEqual(set.data.organizations.find(o=>o.id===company.id).effective,{max_concurrent:10,tpm:1000});
+  const sent=upstreamCalls.length;
+  {const big=await call({messages:[{role:'user',content:'x'.repeat(5000)}]});assert.equal(big.status,429);assert.equal(big.data.error.code,'organization_limit_exceeded');assert.match(big.data.error.message,/上限 1000（输入加输出，含缓存命中）/);assert.ok(Number(big.headers.get('retry-after'))>=1);}
+  assert.equal(upstreamCalls.length,sent,'refused before the upstream');
+  // Back to a high token limit: the faked 5-million-token calls above are still inside the last minute.
+  assert.equal((await orgLimits(company.id,{max_concurrent:null,tpm:1000000000})).status,200);
+  // The company-wide gate: with room for one request, a second waits for the first to finish.
+  assert.equal((await limits({max_concurrent:1,tpm:15000000,org_max_concurrent:10,org_tpm:2000000})).status,200);
+  const saved=pilotFetch;let open;const held=new Promise(r=>{open=r;});pilotFetch=async(url,options)=>{upstreamCalls.push({url,options});await held;return reply();};
+  try{
+   const first=call();
+   for(let i=0;i<100&&upstreamCalls.length===sent;i++)await new Promise(r=>setTimeout(r,10));
+   v=(await ops.call('/api/staff/lab/gateway-limits')).data;assert.equal(v.live.active,1);assert.equal(v.organizations.find(o=>o.id===company.id).active,1);
+   const busy=await call();assert.equal(busy.status,429);assert.equal(busy.data.error.code,'gateway_busy');assert.match(busy.data.error.message,/全平台同时进行的请求已达 1 个上限/);assert.equal(busy.headers.get('retry-after'),'5');
+   open();assert.equal((await first).status,200);
+   const after=await call();assert.equal(after.status,200,'the slot is free again once the response closes');
+  }finally{pilotFetch=saved;}
+  v=(await ops.call('/api/staff/lab/gateway-limits')).data;assert.equal(v.live.active,0);assert.ok(v.live.tpm>0,'completed calls count their real tokens');
+  assert.equal((await limits({max_concurrent:50,tpm:15000000,org_max_concurrent:10,org_tpm:2000000})).status,200);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='gateway.limits_set'")).rows[0].n,2);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='gateway.organization_limits_set' AND organization_id=$1",[company.id])).rows[0].n,2);
+  // The migration sets our own company to 30 at once and 4 million tokens once; a later staff change is never overwritten.
+  const migration=await readFile(new URL('../migrations/053_gateway_limits.sql',import.meta.url),'utf8');
+  await pool.query('UPDATE organizations SET max_concurrent=NULL,tpm=NULL,limits_updated_at=NULL WHERE id=$1',[company.id]);await pool.query(migration);
+  assert.deepEqual((await pool.query('SELECT max_concurrent,tpm::int FROM organizations WHERE id=$1',[company.id])).rows[0],{max_concurrent:30,tpm:4000000});
+  await orgLimits(company.id,{max_concurrent:null,tpm:null});await pool.query(migration);
+  assert.deepEqual((await pool.query('SELECT max_concurrent,tpm FROM organizations WHERE id=$1',[company.id])).rows[0],{max_concurrent:null,tpm:null});
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM organizations WHERE max_concurrent IS NOT NULL AND id<>$1',[company.id])).rows[0].n,0,'other organizations keep the defaults');
+  await pool.query('DELETE FROM request_limits');}
  assert.equal((await staffer.j.call('/api/employee-credit/keys/'+created.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call()).status,401);
  appCfg.employeeCredit.organizationId='';
 });

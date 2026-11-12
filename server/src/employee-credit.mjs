@@ -7,6 +7,8 @@ import { HttpError,hash,id,text,token,transaction,audit,vault } from './core.mjs
 import { isManager } from './organizations.mjs';
 import { OFFICIAL_MODELS,findOfficialModel,priceMultiplier,capabilityTags,publicCapabilities } from './official-models.mjs';
 import { routeFetch } from './output-guard.mjs';
+import { createGate,gatewayLimits,estimateTokens } from './gateway-limits.mjs';
+import { OFFICIAL_VENDORS,STANDBY_VENDORS } from './eval-keys.mjs';
 import { GATEWAY_INSTANCE } from './gateway-instance.mjs';
 
 // One 10-yuan grant per employee, never topped up automatically. Usage is charged at official list prices.
@@ -22,6 +24,7 @@ export const UPSTREAM_TIMEOUT_MS=900000,UPSTREAM_IDLE_MS=60000;
 // A call still open after this can no longer be running; it must stay above UPSTREAM_TIMEOUT_MS.
 const STALE_PENDING='20 minutes',BILL_GRACE='24 hours';
 const KERAPI_ORIGIN='https://kerapi.cn',DEEPSEEK_BASE='https://api.deepseek.com';
+const STANDBY_ORIGINS=new Set(STANDBY_VENDORS.map(v=>new URL(OFFICIAL_VENDORS[v].base_url).origin));
 const SCALE=1000000000000n;
 const keyPattern=/^Bearer (sf_emp_[A-Za-z0-9_-]{43})$/;
 const decimalPattern=/^\d{1,12}(\.\d{1,12})?$/;
@@ -135,19 +138,25 @@ async function deepseekKey(cfg){
 /** Official models that currently have a working upstream route. */
 export async function employeeRoutes(db,cfg,{includePaused=false}={}){
  const wanted=OFFICIAL_MODELS.filter(m=>m.upstream==='kerapi').map(m=>m.upstreamModel);
- const rows=(await db.query(`SELECT e.model_id,e.base_url,e.credential_id,c.credential_ciphertext,c.priority
+ const rows=(await db.query(`SELECT e.model_id,e.base_url,e.credential_id,c.credential_ciphertext,c.credential_fingerprint,c.priority
   FROM supplier_lab_endpoints e JOIN supplier_lab_credentials c ON c.id=e.credential_id JOIN supplier_lab_suppliers s ON s.id=e.supplier_id
   WHERE e.model_id=ANY($1::text[]) AND e.kind='supplier' AND e.disabled_at IS NULL AND c.disabled_at IS NULL AND s.disabled_at IS NULL
    AND NOT EXISTS(SELECT 1 FROM suppliers p WHERE p.id=s.canonical_supplier_id AND p.status='blocked')
   ORDER BY e.model_id,c.priority,c.created_at DESC,e.created_at DESC`,[wanted])).rows.filter(r=>{try{return new URL(r.base_url).origin===KERAPI_ORIGIN;}catch{return false;}});
  const byModel=new Map(),hasDeepseek=Boolean(await deepseekKey(cfg));
- for(const r of rows){const list=byModel.get(r.model_id)||[];if(!list.some(x=>x.credential_id===r.credential_id))list.push(r);byModel.set(r.model_id,list);}
+ // A key registered twice (same fingerprint, address written differently) is no standby: it fails exactly when the first does.
+ for(const r of rows){const list=byModel.get(r.model_id)||[];if(!list.some(x=>x.credential_id===r.credential_id||(r.credential_fingerprint&&x.credential_fingerprint===r.credential_fingerprint)))list.push(r);byModel.set(r.model_id,list);}
+ // Official standby keys (docs/14-gateway-settings.md F5) come last, only for the models staff mapped to an official id.
+ const standby=(await db.query(`SELECT c.id,c.base_url,c.credential_ciphertext,c.standby_models FROM supplier_lab_credentials c JOIN supplier_lab_suppliers s ON s.id=c.supplier_id
+  WHERE c.purpose='gateway_standby' AND c.disabled_at IS NULL AND s.disabled_at IS NULL ORDER BY c.created_at DESC`)).rows.filter(r=>{try{return STANDBY_ORIGINS.has(new URL(r.base_url).origin);}catch{return false;}});
  const paused=includePaused?new Set():new Set((await db.query('SELECT model_id FROM channel_states WHERE paused')).rows.map(r=>r.model_id));
  return OFFICIAL_MODELS.filter(m=>!paused.has(m.id)).flatMap(model=>{
   if(model.upstream==='deepseek')return hasDeepseek?[{model,baseUrl:DEEPSEEK_BASE,credentialId:null}]:[];
   const [row,...rest]=byModel.get(model.upstreamModel)||[];
-  const toRoute=r=>({model,baseUrl:r.base_url,credentialId:r.credential_id,ciphertext:r.credential_ciphertext});
-  return row?[{...toRoute(row),fallbacks:rest.map(toRoute)}]:[];
+  const toRoute=r=>({model,baseUrl:r.base_url,credentialId:r.credential_id,ciphertext:r.credential_ciphertext,upstreamModel:model.upstreamModel});
+  const official=standby.filter(r=>typeof r.standby_models?.[model.id]==='string').map(r=>({model,baseUrl:r.base_url,credentialId:r.id,ciphertext:r.credential_ciphertext,upstreamModel:r.standby_models[model.id],official:true}));
+  // A standby backs up KerAPI; it never serves a model KerAPI has no key for.
+  return row?[{...toRoute(row),fallbacks:[...rest.map(toRoute),...official]}]:[];
  });
 }
 
@@ -381,7 +390,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
 }
 
 /** Must be mounted before the app-wide 16 KB JSON parser; agent requests carry whole conversations and tool schemas. */
-export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
+export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=createGate()){
  const isEmployee=req=>keyPattern.test(req.get('authorization')||'');
  app.use('/v1',(req,res,next)=>{req.requestId='req_'+token().slice(0,24);res.set('X-Semifly-Request-Id',req.requestId);next();});
  const json=express.json({limit:MAX_BODY});
@@ -389,7 +398,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
  async function authenticate(req){
   if(!enabled(cfg))throw new HttpError(503,'公司额度尚未开放');
   const secret=keyPattern.exec(req.get('authorization'))[1];
-  const key=(await pool.query(`SELECT k.id AS key_id,k.owner_id,k.model_ids,k.limit_yuan,k.max_concurrent,k.per_minute FROM employee_api_keys k JOIN "user" u ON u.id=k.owner_id
+  const key=(await pool.query(`SELECT k.id AS key_id,k.owner_id,k.model_ids,k.limit_yuan,k.max_concurrent,k.per_minute,m.organization_id FROM employee_api_keys k JOIN "user" u ON u.id=k.owner_id
    JOIN memberships m ON m.user_id=k.owner_id AND m.organization_id=$2 AND m.status='active'
    WHERE k.secret_hash=$1 AND k.revoked_at IS NULL AND u."emailVerified" AND NOT coalesce(u.disabled,false)`,[hash(secret),cfg.employeeCredit.organizationId])).rows[0];
   if(!key)throw new HttpError(401,'平台 Key 无效或已停用');
@@ -405,6 +414,9 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
  /** Charges the official price as soon as usage is known; without usage the hold stays until a bill arrives. */
  async function answered(call,requestId,usage,started){
   const latency=Math.round(performance.now()-started);
+  call.slot?.settle(usage);
+  // An official standby line has no KerAPI log to settle from later; without usage the call is free (docs/14-gateway-settings.md F5).
+  if(!usage&&call.official){await pool.query("UPDATE employee_calls SET status='settled',upstream_request_id=$2,latency_ms=$3,charged_yuan=0,actual_yuan=NULL,settlement_source='official_unmetered',finished_at=now(),settled_at=now() WHERE id=$1 AND status='pending'",[call.id,requestId,latency]);return;}
   if(!usage){await pool.query("UPDATE employee_calls SET status='awaiting_bill',upstream_request_id=$2,latency_ms=$3,finished_at=now() WHERE id=$1 AND status='pending'",[call.id,requestId,latency]);return;}
   const amount=holdYuan(call.rates,usage,call.multiplier);
   await transaction(pool,async db=>{
@@ -431,6 +443,10 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   if(key.model_ids&&!key.model_ids.includes(model.id))throw new HttpError(403,`这把 Key 只能调用：${key.model_ids.join('、')}`,'model_not_allowed');
   const route=(await employeeRoutes(pool,cfg)).find(r=>r.model.id===model.id);
   if(!route)throw new HttpError(503,'这个模型暂时不可用','model_unavailable');
+  // Company-wide and per-organization gates (docs/14-gateway-settings.md C6/C10); the slot is freed when the response closes.
+  let slot;
+  try{slot=gate.admit(key.organization_id,estimateTokens(input),await gatewayLimits(pool,key.organization_id));}catch(e){if(e.retryAfter)res.set('Retry-After',String(e.retryAfter));throw e;}
+  res.once('close',()=>slot.release());if(res.destroyed)slot.release();
   const multiplier=priceMultiplier(model,new Date(),cfg.employeeCredit.holidays),hold=holdYuan(model.rates,{input,output},multiplier);
   const summary=await summariesOn(pool,cfg)?callSummary(req.body.messages):null;
   const callId=await transaction(pool,async db=>{
@@ -445,8 +461,9 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
    if(key.limit_yuan!==null){const used=(await db.query(`SELECT ${USED_ON_KEY} AS used FROM employee_calls WHERE key_id=$1`,[key.key_id])).rows[0].used;if(units(used)+units(hold)>units(key.limit_yuan))throw new HttpError(402,`这把 Key 已接近消费上限 ¥${Number(key.limit_yuan)}（已用 ¥${Number(used).toFixed(4)}），可调小 max_tokens 或换一把 Key`,'key_limit_reached');}
    // gateway_instance: a restart releases the calls this process leaves open (gateway-instance.mjs).
    return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,client,client_detail,summary,profile_signature,gateway_instance) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10,$11,$12) RETURNING id",[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold,origin.client,origin.detail,summary,signature,GATEWAY_INSTANCE])).rows[0].id;
-  });
-  const call={id:callId,ownerId:key.owner_id,rates:model.rates,multiplier};
+  // Refused here (balance, key cap, this person's own limit): the call never reaches KerAPI, so it uses no tokens.
+  }).catch(e=>{slot.cancel();throw e;});
+  const call={id:callId,ownerId:key.owner_id,rates:model.rates,multiplier,slot};
   const started=performance.now(),abort=new AbortController();
   const totalMs=cfg.employeeCredit.timeouts?.total??UPSTREAM_TIMEOUT_MS,idleMs=cfg.employeeCredit.timeouts?.idle??UPSTREAM_IDLE_MS;
   // cut: which of our own limits ended the upstream request ('idle' or 'total'); null while neither has.
@@ -465,7 +482,8 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
   const candidate=candidates[i],last=i===candidates.length-1;
   try{
    upstreamKey=await upstreamSecret(candidate,cfg);
-   response=await routeFetch(pool,upstreamFetch,candidate.model.upstreamModel,`${candidate.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify(payload),redirect:'error',signal:AbortSignal.any([abort.signal,limitHit.signal])});
+   const upstreamModel=candidate.upstreamModel||candidate.model.upstreamModel;
+   response=await routeFetch(pool,upstreamFetch,upstreamModel,`${candidate.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+upstreamKey,'Content-Type':'application/json'},body:JSON.stringify({...payload,model:upstreamModel}),redirect:'error',signal:AbortSignal.any([abort.signal,limitHit.signal])});
   }catch(error){
    if(!last&&!cut&&error.name!=='TimeoutError'&&!abort.signal.aborted){console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:error.name}));continue;}
    const timedOut=Boolean(cut)||error.name==='TimeoutError',clientGone=!timedOut&&abort.signal.aborted;
@@ -474,15 +492,23 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch){
    if(timedOut)throw new HttpError(504,timeoutText()+'；本次未扣额度','upstream_timeout');
    throw new HttpError(502,'上游调用失败；本次未扣额度');
   }
-  if(!last&&(response.status===401||response.status===403)){await response.body?.cancel().catch(()=>{});console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:'http_'+response.status}));continue;}
+  // Nothing has been sent to the caller yet, so trying the next line is invisible to it (owner decision 2026-11-12,
+  // docs/14-gateway-settings.md F4): a key refused (401/403), rate-limited (429) or failing (5xx). Timeouts never switch.
+  if(!last&&([401,403,429].includes(response.status)||response.status>=500)){await response.body?.cancel().catch(()=>{});console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:'http_'+response.status}));continue;}
   used=candidate;break;
   }
   if(used!==route)await pool.query('UPDATE employee_calls SET credential_id=$2 WHERE id=$1',[callId,used.credentialId]);
+  call.official=Boolean(used.official);
   const requestId=String(response.headers.get('x-request-id')||response.headers.get('x-oneapi-request-id')||'').slice(0,120)||null;
   if(!response.ok){
    const raw=(await response.text().catch(()=>'')).slice(0,4000);
    let message='';try{const m=JSON.parse(raw)?.error?.message;if(typeof m==='string')message=m.replaceAll(upstreamKey,'[REDACTED]').slice(0,500);}catch{}
    await fail(callId,'UPSTREAM_HTTP_'+response.status,started,message||raw.replaceAll(upstreamKey,'[REDACTED]').slice(0,300)||null);
+   if(response.status===429){
+    // KerAPI's own limit (20 million tokens a minute for the whole platform), not this caller's quota.
+    const wait=Number(response.headers.get('retry-after'));res.set('Retry-After',String(Number.isInteger(wait)&&wait>=1&&wait<=60?wait:5));
+    throw new HttpError(429,`上游 KerAPI 繁忙（限流），不是你的额度问题，请稍后重试${message?'。上游说明：'+message:''}；本次未扣额度`,'upstream_rate_limited');
+   }
    throw new HttpError(response.status>=400&&response.status<500?response.status:502,`上游返回 HTTP ${response.status}${message?'：'+message:''}；本次未扣额度`);
   }
   res.set('X-Semifly-Call-Id',callId);
