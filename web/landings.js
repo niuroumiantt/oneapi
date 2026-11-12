@@ -12,7 +12,7 @@
  let host,current;
  function render(key){
   current=key;const p=pages[key];if(!host){host=document.createElement('div');host.id='landing-view';document.body.append(host);}
-  document.querySelectorAll('#market-view,#admin-view,#login-view,#identity-view').forEach(el=>el.hidden=true);
+  document.querySelectorAll('#market-view,#login-view,#identity-view').forEach(el=>el.hidden=true);
   document.body.classList.remove('market-active','identity-active','welcome-active','universe-active','ops-active','catalog-active');document.body.classList.add('landing-active');host.hidden=false;
   window.IdentityUI?.cancel();window.UniverseScene?.setActive(false);
   const link=(label,to,cls)=>to.startsWith('detail:')?`<button class="${cls}" data-landing-detail="${to.slice(7)}">${label}${icon('arrow-up-right')}</button>`:`<a class="${cls}" href="#${to}">${label}${icon('arrow-up-right')}</a>`;

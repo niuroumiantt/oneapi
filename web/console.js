@@ -80,7 +80,7 @@
   window.IdentityUI?.cancel?.();
   document.body.classList.remove('identity-active', 'market-active', 'welcome-active', 'universe-active', 'catalog-active');
   window.UniverseScene?.setActive(false);
-  for (const id of ['identity-view', 'market-view', 'admin-view', 'login-view']) { const el = document.getElementById(id); if (el) el.hidden = true; }
+  for (const id of ['identity-view', 'market-view', 'login-view']) { const el = document.getElementById(id); if (el) el.hidden = true; }
   document.body.classList.add('console-active');
   host.hidden = false;
   const [path, query = ''] = view.split('?');

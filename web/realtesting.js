@@ -47,7 +47,7 @@
 
  function render() {
   if (!host) { host = document.createElement('div'); host.id = 'realtesting-view'; document.body.append(host); }
-  document.querySelectorAll('#market-view,#admin-view,#login-view,#identity-view,#landing-view,#docs-view').forEach(el => { el.hidden = true; });
+  document.querySelectorAll('#market-view,#login-view,#identity-view,#landing-view,#docs-view').forEach(el => { el.hidden = true; });
   document.body.classList.remove('market-active', 'identity-active', 'welcome-active', 'universe-active', 'ops-active', 'catalog-active', 'landing-active', 'docs-active');
   document.body.classList.add('realtesting-active'); host.hidden = false;
   window.IdentityUI?.cancel?.(); window.UniverseScene?.setActive?.(false);
