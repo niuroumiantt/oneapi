@@ -593,6 +593,28 @@ test('employee credit is one-time, company-only, reserved before calling and cha
      const r=await jar().call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+created.data.secret},body:{model:'deepseek-flash',max_tokens:16,messages:[{role:'user',content:'hi'}]}});assert.equal(r.status,200,JSON.stringify(r.data));
      assert.deepEqual(seen,['Bearer fixture-kerapi-secret','Bearer fixture-standby-secret'],'a primary 401 falls over to the standby key');
      assert.equal((await pool.query('SELECT credential_id FROM employee_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 1',[staffer.user.id])).rows[0].credential_id,standby,'the call is recorded against the key that answered');
+     // Owner decision 2026-11-12 (docs/14-gateway-settings.md F4): KerAPI rate-limited (429) or failing (5xx) before any
+     // output also moves to the next line; a request error (400) does not; when every line is rate-limited the caller
+     // gets upstream_rate_limited, which is not its own quota.
+     {const before=pilotFetch;await pool.query('DELETE FROM request_limits');await pool.query('UPDATE employee_credit_accounts SET granted_yuan=granted_yuan+5 WHERE user_id=$1',[staffer.user.id]);
+      const primary='Bearer fixture-kerapi-secret',backup='Bearer fixture-standby-secret',ok=()=>new Response(JSON.stringify({choices:[{message:{content:'ok'}}],usage:{prompt_tokens:5,completion_tokens:1}}),{status:200,headers:{'content-type':'application/json'}});
+      const flash=()=>jar().call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+created.data.secret},body:{model:'deepseek-flash',max_tokens:16,messages:[{role:'user',content:'hi'}]}});
+      for(const code of [429,500,503]){seen.length=0;pilotFetch=async(_u,o)=>{seen.push(o.headers.Authorization);return o.headers.Authorization===primary?new Response('{"error":{"message":"busy"}}',{status:code}):ok();};
+       const r=await flash();assert.equal(r.status,200,code+' '+JSON.stringify(r.data));assert.deepEqual(seen,[primary,backup],code+' moves to the standby');}
+      seen.length=0;pilotFetch=async(_u,o)=>{seen.push(o.headers.Authorization);return new Response('{"error":{"message":"bad request"}}',{status:400});};
+      {const r=await flash();assert.equal(r.status,400);assert.deepEqual(seen,[primary],'a request error is not retried elsewhere');}
+      seen.length=0;pilotFetch=async(_u,o)=>{seen.push(o.headers.Authorization);return new Response('{"error":{"message":"TPM exceeded"}}',{status:429,headers:{'retry-after':'7'}});};
+      {const r=await flash();assert.equal(r.status,429);assert.equal(r.data.error.code,'upstream_rate_limited');assert.match(r.data.error.message,/不是你的额度问题.*TPM exceeded/);assert.equal(r.headers.get('retry-after'),'7');assert.deepEqual(seen,[primary,backup]);
+       assert.equal((await pool.query('SELECT status,error_code,charged_yuan FROM employee_calls WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 1',[staffer.user.id])).rows[0].error_code,'UPSTREAM_HTTP_429');}
+      pilotFetch=async()=>new Response('{}',{status:503});
+      {const r=await flash();assert.equal(r.status,502,'every line failing is still an upstream error');}
+      // A key registered a second time (same fingerprint) is not a standby and is never tried.
+      const dup=(await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by,priority) VALUES($1,'same key','https://kerapi.cn',$2,'fp','credit-fixture',2) RETURNING id",[supplier,vault(process.env.SUPPLIER_LAB_SECRET).seal({key:'fixture-kerapi-secret-again'})])).rows[0].id;
+      await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES('dup flash','supplier','https://kerapi.cn','deepseek-v4.1-flash','fp','credit-fixture',$1,$2)",[supplier,dup]);
+      seen.length=0;pilotFetch=async(_u,o)=>{seen.push(o.headers.Authorization);return new Response('{}',{status:429});};
+      {const r=await flash();assert.equal(r.status,429);assert.deepEqual(seen,[primary,backup],'the duplicate is skipped');}
+      await pool.query('DELETE FROM supplier_lab_endpoints WHERE credential_id=$1',[dup]);await pool.query('DELETE FROM supplier_lab_credentials WHERE id=$1',[dup]);
+      pilotFetch=before;await pool.query('DELETE FROM request_limits');}
      const savedIdentity=identity;identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};const ops=jar();await staffLogin(ops);identity=savedIdentity;
      const ov=await ops.call('/api/staff/lab/overview');assert.equal(ov.status,200,JSON.stringify(ov.data));assert.ok(ov.data.credentials.some(c=>c.id===credential&&c.failed_24h>=1));assert.ok(ov.data.models.some(m=>m.id==='deepseek-flash'&&m.routed&&m.fallbacks.length>=1));assert.ok(Array.isArray(ov.data.risks));
      assert.equal((await ops.call('/api/staff/lab/credentials/'+standby+'/priority',{method:'POST',body:{role:'primary'}})).status,200);assert.equal((await pool.query('SELECT priority FROM supplier_lab_credentials WHERE id=$1',[credential])).rows[0].priority,2,'the old primary becomes standby');

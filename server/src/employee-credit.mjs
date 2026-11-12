@@ -135,13 +135,14 @@ async function deepseekKey(cfg){
 /** Official models that currently have a working upstream route. */
 export async function employeeRoutes(db,cfg,{includePaused=false}={}){
  const wanted=OFFICIAL_MODELS.filter(m=>m.upstream==='kerapi').map(m=>m.upstreamModel);
- const rows=(await db.query(`SELECT e.model_id,e.base_url,e.credential_id,c.credential_ciphertext,c.priority
+ const rows=(await db.query(`SELECT e.model_id,e.base_url,e.credential_id,c.credential_ciphertext,c.credential_fingerprint,c.priority
   FROM supplier_lab_endpoints e JOIN supplier_lab_credentials c ON c.id=e.credential_id JOIN supplier_lab_suppliers s ON s.id=e.supplier_id
   WHERE e.model_id=ANY($1::text[]) AND e.kind='supplier' AND e.disabled_at IS NULL AND c.disabled_at IS NULL AND s.disabled_at IS NULL
    AND NOT EXISTS(SELECT 1 FROM suppliers p WHERE p.id=s.canonical_supplier_id AND p.status='blocked')
   ORDER BY e.model_id,c.priority,c.created_at DESC,e.created_at DESC`,[wanted])).rows.filter(r=>{try{return new URL(r.base_url).origin===KERAPI_ORIGIN;}catch{return false;}});
  const byModel=new Map(),hasDeepseek=Boolean(await deepseekKey(cfg));
- for(const r of rows){const list=byModel.get(r.model_id)||[];if(!list.some(x=>x.credential_id===r.credential_id))list.push(r);byModel.set(r.model_id,list);}
+ // A key registered twice (same fingerprint, address written differently) is no standby: it fails exactly when the first does.
+ for(const r of rows){const list=byModel.get(r.model_id)||[];if(!list.some(x=>x.credential_id===r.credential_id||(r.credential_fingerprint&&x.credential_fingerprint===r.credential_fingerprint)))list.push(r);byModel.set(r.model_id,list);}
  const paused=includePaused?new Set():new Set((await db.query('SELECT model_id FROM channel_states WHERE paused')).rows.map(r=>r.model_id));
  return OFFICIAL_MODELS.filter(m=>!paused.has(m.id)).flatMap(model=>{
   if(model.upstream==='deepseek')return hasDeepseek?[{model,baseUrl:DEEPSEEK_BASE,credentialId:null}]:[];
@@ -479,7 +480,9 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
    if(timedOut)throw new HttpError(504,timeoutText()+'；本次未扣额度','upstream_timeout');
    throw new HttpError(502,'上游调用失败；本次未扣额度');
   }
-  if(!last&&(response.status===401||response.status===403)){await response.body?.cancel().catch(()=>{});console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:'http_'+response.status}));continue;}
+  // Nothing has been sent to the caller yet, so trying the next line is invisible to it (owner decision 2026-11-12,
+  // docs/14-gateway-settings.md F4): a key refused (401/403), rate-limited (429) or failing (5xx). Timeouts never switch.
+  if(!last&&([401,403,429].includes(response.status)||response.status>=500)){await response.body?.cancel().catch(()=>{});console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:'http_'+response.status}));continue;}
   used=candidate;break;
   }
   if(used!==route)await pool.query('UPDATE employee_calls SET credential_id=$2 WHERE id=$1',[callId,used.credentialId]);
@@ -488,6 +491,11 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
    const raw=(await response.text().catch(()=>'')).slice(0,4000);
    let message='';try{const m=JSON.parse(raw)?.error?.message;if(typeof m==='string')message=m.replaceAll(upstreamKey,'[REDACTED]').slice(0,500);}catch{}
    await fail(callId,'UPSTREAM_HTTP_'+response.status,started,message||raw.replaceAll(upstreamKey,'[REDACTED]').slice(0,300)||null);
+   if(response.status===429){
+    // KerAPI's own limit (20 million tokens a minute for the whole platform), not this caller's quota.
+    const wait=Number(response.headers.get('retry-after'));res.set('Retry-After',String(Number.isInteger(wait)&&wait>=1&&wait<=60?wait:5));
+    throw new HttpError(429,`上游 KerAPI 繁忙（限流），不是你的额度问题，请稍后重试${message?'。上游说明：'+message:''}；本次未扣额度`,'upstream_rate_limited');
+   }
    throw new HttpError(response.status>=400&&response.status<500?response.status:502,`上游返回 HTTP ${response.status}${message?'：'+message:''}；本次未扣额度`);
   }
   res.set('X-Semifly-Call-Id',callId);
