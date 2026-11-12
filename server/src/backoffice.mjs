@@ -4,7 +4,6 @@ import { employeeRoutes } from './employee-credit.mjs';
 import { OFFICIAL_MODELS,findOfficialModel } from './official-models.mjs';
 
 const CREDIT_CODE=/^[0-9A-Z]{18}$/;
-const TICKET_STATES=['open','in_progress','closed'];
 
 export function customerBackofficeRoutes(app,pool,requireCustomer){
  app.post('/api/platform/upgrade',requireCustomer,async(req,res)=>{
@@ -149,12 +148,6 @@ export function staffBackofficeRoutes(app,pool,cfg,requireStaff){
    await audit(db,req.actor,'account_upgrade.approved',org.id,row.id);return {status:'approved',organization_id:org.id};
   });
   res.json(result);
- });
- app.post('/api/staff/tickets/:ticket',requireStaff,async(req,res)=>{
-  requireBusiness(req);const status=req.body?.status,note=typeof req.body?.staff_note==='string'?req.body.staff_note.trim().slice(0,2000):'';
-  if(!TICKET_STATES.includes(status))throw new HttpError(400,'工单状态不正确');
-  const row=(await pool.query('UPDATE support_tickets SET status=$2,staff_note=$3,handled_by=$4,updated_at=now() WHERE id=$1 RETURNING id,status',[id(req.params.ticket),status,note,req.staff.subject])).rows[0];
-  if(!row)throw new HttpError(404,'工单不存在');res.json(row);
  });
  app.get('/api/staff/lab/channels',requireStaff,async(req,res)=>{requireTechnical(req);res.json(await channelList());});
  app.post('/api/staff/lab/channels/:model',requireStaff,async(req,res)=>{
