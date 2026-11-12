@@ -509,6 +509,8 @@ test('employee credit is one-time, company-only, reserved before calling and cha
    await call({stream:true});await logLine('req-free',{amount:null,currency:'CNY',type:5,quota:0});
    await settleEmployeeCalls(pool);c=(await pool.query("SELECT status,charged_yuan,settlement_source FROM employee_calls WHERE upstream_request_id='req-free'")).rows[0];
    assert.equal(c.status,'settled');assert.equal(c.settlement_source,'supplier_free');assert.equal(Number(c.charged_yuan),0);
+   // Every deploy re-runs all migrations: older files must not re-impose a CHECK these newer rows would break.
+   await migrate(pool,service.auth);assert.match((await pool.query("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname='employee_calls_settlement_source_check'")).rows[0].d,/supplier_free/);
    // 4. A call left open by a gateway restart, before the upstream answered: released, not charged; also when already marked STALE_PENDING.
    const stuck=async extra=>(await pool.query(`INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,created_at${extra?',error_code':''}) SELECT key_id,owner_id,model_id,credential_id,upstream,price_snapshot,$1,'0.5',now()-interval '1 hour'${extra?",'STALE_PENDING'":''} FROM employee_calls WHERE upstream_request_id='req-free' RETURNING id`,[extra?'awaiting_bill':'pending'])).rows[0].id;
    const a=await stuck(false),b=await stuck(true);const before=await status();
