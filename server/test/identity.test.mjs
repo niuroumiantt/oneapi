@@ -143,19 +143,19 @@ test('managers keep one department list that members and join requests must use'
 });
 test('real billing reads are isolated and cannot credit funds without a merchant',async()=>{
  assert.equal((await jar().call('/api/billing/personal')).status,401);
- const personal=await owner.j.call('/api/billing/personal');assert.equal(personal.status,200);assert.equal(personal.data.scope,'personal');assert.equal(personal.data.cash_balance_fen,'0');assert.equal(personal.data.total_recharged_fen,'0');assert.deepEqual(personal.data.entries,[]);assert.deepEqual(personal.data.usage_by_model,[]);assert.equal(personal.data.recharge.enabled,false);assert.equal(personal.data.recharge.minimum_fen,500);assert.equal(personal.data.bank_transfer,undefined);
- const org=await owner.j.call(`/api/billing/organizations/${orgA.id}`);assert.equal(org.status,200);assert.equal(org.data.scope,'organization');assert.equal(org.data.cash_balance_fen,'0');assert.equal(org.data.refund.enabled,false);assert.equal(org.data.bank_transfer.enabled,true);assert.equal(org.data.bank_transfer.account_number,'0000000000000000');
+ const personal=await owner.j.call('/api/billing/personal');assert.equal(personal.status,200);assert.equal(personal.data.scope,'personal');assert.equal(personal.data.cash_balance_fen,'0');assert.equal(personal.data.list_credit_fen,'0');assert.equal(personal.data.total_recharged_fen,'0');assert.deepEqual(personal.data.entries,[]);assert.deepEqual(personal.data.usage_by_model,[]);assert.equal(personal.data.recharge.enabled,false);assert.equal(personal.data.recharge.minimum_fen,500);assert.match(personal.data.refund.policy,/15%/);assert.equal(personal.data.bank_transfer,undefined);
+ const org=await owner.j.call(`/api/billing/organizations/${orgA.id}`);assert.equal(org.status,200);assert.equal(org.data.scope,'organization');assert.equal(org.data.cash_balance_fen,'0');assert.equal(org.data.list_credit_fen,'0');assert.equal(org.data.refund.enabled,false);assert.equal(org.data.bank_transfer.enabled,true);assert.equal(org.data.bank_transfer.account_number,'0000000000000000');
  assert.equal((await other.j.call(`/api/billing/organizations/${orgA.id}`)).status,403);
  assert.equal((await owner.j.call(`/api/billing/organizations/${orgB.id}`)).status,403);
  assert.equal((await owner.j.call('/api/billing/personal',{method:'POST',body:{amount_fen:500}})).status,404);
  assert.equal((await owner.j.call('/api/billing/recharge',{method:'POST',body:{amount_fen:500}})).status,404);
- const accountId=(await pool.query('INSERT INTO billing_accounts(owner_id,cash_balance_fen,total_spent_fen) VALUES($1,1200,300) RETURNING id',[owner.user.id])).rows[0].id;
+ const accountId=(await pool.query('INSERT INTO billing_accounts(owner_id,cash_balance_fen,list_credit_fen,total_spent_fen) VALUES($1,1200,1200,300) RETURNING id',[owner.user.id])).rows[0].id;
  await pool.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'recharge',500,500,'payment','test-payment-1'),($1,'recharge',1000,1500,'payment','test-payment-2'),($1,'usage',-300,1200,'usage','test-usage-1')",[accountId]);
- const funded=await owner.j.call('/api/billing/personal');assert.equal(funded.data.total_recharged_fen,'1500');assert.equal(funded.data.total_spent_fen,'300');assert.equal(funded.data.cash_balance_fen,'1200');assert.equal(funded.data.entries.length,3);
+ const funded=await owner.j.call('/api/billing/personal');assert.equal(funded.data.total_recharged_fen,'1500');assert.equal(funded.data.total_spent_fen,'300');assert.equal(funded.data.cash_balance_fen,'1200');assert.equal(funded.data.list_credit_fen,'1200');assert.equal(funded.data.entries.length,3);
  assert.equal((await other.j.call('/api/billing/personal')).data.total_recharged_fen,'0');
- const orgAccountId=(await pool.query('INSERT INTO billing_accounts(organization_id,cash_balance_fen,total_spent_fen) VALUES($1,2200,300) RETURNING id',[orgA.id])).rows[0].id;
+ const orgAccountId=(await pool.query('INSERT INTO billing_accounts(organization_id,cash_balance_fen,list_credit_fen,total_spent_fen) VALUES($1,2200,2200,300) RETURNING id',[orgA.id])).rows[0].id;
  await pool.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'recharge',2500,2500,'payment','test-org-payment-1'),($1,'usage',-300,2200,'usage','test-org-usage-1')",[orgAccountId]);
- const fundedOrg=await owner.j.call(`/api/billing/organizations/${orgA.id}`);assert.equal(fundedOrg.data.total_recharged_fen,'2500');assert.equal(fundedOrg.data.total_spent_fen,'300');assert.equal(fundedOrg.data.cash_balance_fen,'2200');
+ const fundedOrg=await owner.j.call(`/api/billing/organizations/${orgA.id}`);assert.equal(fundedOrg.data.total_recharged_fen,'2500');assert.equal(fundedOrg.data.total_spent_fen,'300');assert.equal(fundedOrg.data.cash_balance_fen,'2200');assert.equal(fundedOrg.data.list_credit_fen,'2200');
  assert.equal((await other.j.call(`/api/billing/organizations/${orgA.id}`)).status,403);
 });
 test('one reusable link accepts distinct verified applicants; each needs separate approval',async()=>{
@@ -1122,7 +1122,7 @@ test('staff refunds go back to the payer once, hold the balance first and revers
  const view=(await admin.call('/api/staff/payments/orders')).data.orders.find(o=>o.id===order.id);
  assert.equal(view.refunded_fen,'1500');assert.deepEqual(view.refunds.map(r=>r.status),['succeeded','succeeded','failed']);
  // Spent money cannot be refunded.
- await pool.query('UPDATE billing_accounts SET cash_balance_fen=200 WHERE id=$1',[out.account_id]);
+ await pool.query('UPDATE billing_accounts SET cash_balance_fen=200,list_credit_fen=200 WHERE id=$1',[out.account_id]);
  assert.match((await ask(1000,'refund-key-spent-00001')).data.error,/已使用的部分不能退款/);
  const ledger=(await pool.query('SELECT kind,amount_fen::int FROM billing_ledger WHERE account_id=$1 ORDER BY id',[out.account_id])).rows.map(r=>r.kind+':'+r.amount_fen);
  assert.deepEqual(ledger,['recharge:3000','refund:-1000','refund:-500','refund:-500','reversal:500']);
@@ -1370,8 +1370,8 @@ test('business console: finance switch, codes, CRM, invoices against paid money,
 
  // Finance is a third switch: a business employee sees no revenue, cost, invoice or refund data.
  assert.deepEqual((await biz.call('/api/staff/workspace/access')).data,{business:true,technical:false,finance:false});
- for(const path of ['/api/staff/business/finance','/api/staff/business/invoices','/api/staff/business/supplier-payments','/api/staff/payments/orders'])assert.equal((await biz.call(path)).status,403,path);
- const plain=(await biz.call('/api/staff/business/dashboard')).data;assert.equal(plain.finance,null);assert.equal(plain.counts.invoices_requested,undefined);assert.equal(plain.staff.finance,false);
+ for(const path of ['/api/staff/business/finance','/api/staff/business/invoices','/api/staff/business/supplier-payments','/api/staff/business/bank-transfers','/api/staff/payments/orders'])assert.equal((await biz.call(path)).status,403,path);
+ const plain=(await biz.call('/api/staff/business/dashboard')).data;assert.equal(plain.finance,null);assert.equal(plain.counts.invoices_requested,undefined);assert.equal(plain.counts.bank_transfers_pending,undefined);assert.equal(plain.staff.finance,false);
  assert.equal((await biz.call('/api/staff/members/biz-fixture/finance-access',{method:'PUT',body:{enabled:true}})).status,403);
  const full=(await admin.call('/api/staff/business/dashboard')).data;assert.equal(full.finance.series.length,12);assert.equal(typeof full.counts.invoices_requested,'number');
 
@@ -1481,4 +1481,47 @@ test('business console helpers parse money, months and tags strictly',async()=>{
  for(const bad of ['2026-13','26-11','2026-1',202611])assert.throws(()=>accountingMonth(bad),/月份/);
  assert.deepEqual(tagList([' 高校 ','高校','重点']),['高校','重点']);assert.throws(()=>tagList(['a b']));assert.throws(()=>tagList('高校'));assert.throws(()=>tagList(Array(11).fill('x').map((x,i)=>x+i)));
  assert.equal(invoiceable({recharged_fen:'3000',refunded_fen:'500',invoiced_fen:'2000'}),500);
+});
+test('list-credit refund formula and dual-approval bank transfer',async()=>{
+ const {refundCashFen,REFUND_POLICY_ZH}=await import('../src/list-credit.mjs');
+ assert.match(REFUND_POLICY_ZH,/15%/);assert.match(REFUND_POLICY_ZH,/已开具销项发票/);
+ assert.deepEqual(refundCashFen({faceFen:10000,cashPaidFen:3000,remainingFen:5000,hasIssuedInvoice:false}),{ok:true,grossFen:1500,feeFen:225,netFen:1275});
+ assert.equal(refundCashFen({faceFen:10000,cashPaidFen:3000,remainingFen:5000,hasIssuedInvoice:true}).code,'invoice_blocks_refund');
+ assert.equal(refundCashFen({faceFen:10000,cashPaidFen:3000,remainingFen:0,hasIssuedInvoice:false}).code,'nothing_to_refund');
+ assert.equal(refundCashFen({faceFen:100,cashPaidFen:100,remainingFen:1,hasIssuedInvoice:false}).code,'fee_consumes_refund');
+
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ identity={sub:'finance-a',email:'finance-a@example.test',name:'Finance A',staff_approved:true};const fa=jar();await staffLogin(fa);
+ identity={sub:'finance-b',email:'finance-b@example.test',name:'Finance B',staff_approved:true};const fb=jar();await staffLogin(fb);
+ assert.equal((await admin.call('/api/staff/members/finance-a',{method:'PATCH',body:{role:'operations',status:'active'}})).status,200);
+ assert.equal((await admin.call('/api/staff/members/finance-b',{method:'PATCH',body:{role:'operations',status:'active'}})).status,200);
+ identity={sub:'finance-a',email:'finance-a@example.test',name:'Finance A',staff_approved:true};await staffLogin(fa);
+ identity={sub:'finance-b',email:'finance-b@example.test',name:'Finance B',staff_approved:true};await staffLogin(fb);
+ assert.equal((await admin.call('/api/staff/members/finance-a/finance-access',{method:'PUT',body:{enabled:true}})).status,200);
+ assert.equal((await admin.call('/api/staff/members/finance-b/finance-access',{method:'PUT',body:{enabled:true}})).status,200);
+
+ const buyer=await user('bank-xfer'),org=await organization(buyer,'Bank Xfer Co');
+ await pool.query('SELECT ensure_customers()');
+ const enterprise=(await fa.call('/api/staff/business/customers')).data.customers.find(c=>c.organization_id===org.id);
+ assert.ok(enterprise);
+ const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(new Date());
+ const post=(j,path,body={})=>j.call(path,{method:'POST',body});
+ assert.equal((await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,cash_yuan:'100',face_yuan:'50',received_on:day})).status,400,'face below cash');
+ const reg=await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,cash_yuan:'40',face_yuan:'100',received_on:day,reference:'BT-1',note:'合同价'});
+ assert.equal(reg.status,201,JSON.stringify(reg.data));assert.equal(reg.data.status,'pending');
+ const pending=await fa.call('/api/staff/business/bank-transfers');assert.equal(pending.data.entries[0].id,reg.data.id);assert.match(pending.data.refund_policy,/15%/);
+ assert.equal((await admin.call('/api/staff/business/dashboard')).data.counts.bank_transfers_pending>=1,true);
+ assert.equal((await post(fa,`/api/staff/business/bank-transfers/${reg.data.id}/approve`)).status,403,'registrar cannot approve');
+ const bal=async()=>{const a=(await pool.query('SELECT cash_balance_fen::int,list_credit_fen::int FROM billing_accounts WHERE organization_id=$1',[org.id])).rows[0];return a||{cash_balance_fen:0,list_credit_fen:0};};
+ assert.deepEqual(await bal(),{cash_balance_fen:0,list_credit_fen:0},'pending does not credit');
+ const ok=await post(fb,`/api/staff/business/bank-transfers/${reg.data.id}/approve`,{note:'流水已核对'});
+ assert.equal(ok.status,200);assert.equal(ok.data.status,'approved');
+ assert.deepEqual(await bal(),{cash_balance_fen:4000,list_credit_fen:10000});
+ const view=await buyer.j.call(`/api/billing/organizations/${org.id}`);
+ assert.equal(view.data.cash_balance_fen,'4000');assert.equal(view.data.list_credit_fen,'10000');assert.equal(view.data.total_recharged_fen,'4000');
+ assert.equal((await post(fb,`/api/staff/business/bank-transfers/${reg.data.id}/approve`)).status,409);
+ const other=await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,cash_yuan:'10',received_on:day,reference:'BT-2'});
+ assert.equal(other.status,201);assert.equal(Number(other.data.face_fen),1000,'face defaults to cash');
+ assert.equal((await post(fb,`/api/staff/business/bank-transfers/${other.data.id}/reject`,{note:'付款户名不符'})).status,200);
+ assert.deepEqual(await bal(),{cash_balance_fen:4000,list_credit_fen:10000},'reject leaves balances');
 });
