@@ -28,7 +28,7 @@
 | 12 | 早期试用 Key（L1） | ✅ 本分支：下线 `sf_test_`；迁移 058 停用存量；个人台 `/api/pilot/status` 关闭 |
 | 13 | 网关不自动重试（F7） | ✅ 已定（2026-11-13）：不自动重试；重试交给客户端 |
 | 14 | 非流式卡死检测（D7） | ⚠ 仍先不做（2026-11-13 维持） |
-| 15 | KerAPI 没收钱时通道费（`supplier_free`） | ✅ 本分支：提交 Token × ¥0.005/百万；优先日志 input，否则 `estimated_input_tokens`（迁移 059） |
+| 15 | KerAPI 没收钱时通道费（`supplier_free`） | ✅ 已上线（PR #81，镜像 `888509f`）：提交 Token × ¥0.005/百万；优先日志 input，否则 `estimated_input_tokens`（迁移 059） |
 
 发布后的生产状态（2026-11-12 17:41 北京时间）：镜像 `e2b1ca8`（含第 5–6 条席位 10/300 万 TPM + 迁移 056 的 429 计数）；静态 `e2b1ca80d8a0`；`gateway_rejection_counts` 已建表。此前：`d90b454` 时 `CLIENT_CLOSED` 384 次；21 笔重启卡住的调用已释放。
 
