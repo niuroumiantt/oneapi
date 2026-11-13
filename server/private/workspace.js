@@ -39,7 +39,7 @@ const LABEL = {
  listing: { requested: '等待技术发布', published: '目录已发布', withdrawn: '已撤回' },
  refund: { pending: '处理中', succeeded: '已退回', failed: '渠道拒绝' },
  transfer: { pending: '待复核', approved: '已入账', rejected: '已驳回' },
- channel: { alipay_f2f: '支付宝', wechat_native: '微信支付' },
+ channel: { alipay_f2f: '支付宝（电脑网站）', wechat_native: '微信支付' },
  order: { pending: '待付款', paid: '已付款', closed: '已关闭' },
  upgrade: { pending: '待审核', approved: '已通过', rejected: '已驳回' }
 };

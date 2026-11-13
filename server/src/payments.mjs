@@ -1,5 +1,6 @@
-// Online recharge through Alipay 当面付 and WeChat Pay Native. A customer gets a fixed-amount order
-// and its QR code; the balance changes only after a signed channel result confirms that exact order and amount.
+// Online recharge through Alipay 电脑网站支付 and WeChat Pay Native. Alipay opens the official
+// cashier (scan-to-pay there); WeChat returns a Native QR on our page. Balance changes only after a
+// signed channel result confirms that exact order and amount.
 import express from 'express';
 import { randomBytes } from 'node:crypto';
 import qrcode from 'qrcode-generator';
@@ -21,7 +22,11 @@ export function parseRechargeFen(value){
 const outTradeNo=()=>'OA'+new Date().toISOString().replace(/\D/g,'').slice(0,14)+randomBytes(6).toString('hex');
 function qrSvg(text){const q=qrcode(0,'M');q.addData(text);q.make();return q.createSvgTag({cellSize:4,margin:2,scalable:true});}
 function orderView(o){
- return {id:o.id,provider:o.provider,status:o.status,amount_fen:String(o.amount_fen),expires_at:o.expires_at,paid_at:o.paid_at,expired:o.status==='pending'&&new Date(o.expires_at)<new Date(),qr_svg:o.status==='pending'&&o.qr_code&&new Date(o.expires_at)>new Date()?qrSvg(o.qr_code):null};
+ const live=o.status==='pending'&&o.qr_code&&new Date(o.expires_at)>new Date();
+ // WeChat: render QR ourselves. Alipay page pay: browser opens the cashier URL (no local QR).
+ const wechat=o.provider==='wechat_native';
+ return {id:o.id,provider:o.provider,status:o.status,amount_fen:String(o.amount_fen),expires_at:o.expires_at,paid_at:o.paid_at,expired:o.status==='pending'&&new Date(o.expires_at)<new Date(),
+  qr_svg:live&&wechat?qrSvg(o.qr_code):null,pay_url:live&&!wechat?o.qr_code:null};
 }
 
 // Single place where a confirmed payment becomes money. Row lock + ledger unique key make
@@ -56,11 +61,12 @@ function gateways(cfg,{alipay,wechat}){
  const out={};
  if(alipay)out.alipay_f2f={
   allowedEmails:cfg.alipay?.allowedEmails,
-  async createCode(order){
-   let r;try{r=await alipay.precreate({outTradeNo:order.out_trade_no,amountFen:order.amount_fen,subject:'OneAPI 账户充值',notifyUrl:cfg.origin+'/api/payments/alipay/notify',timeoutMinutes:ORDER_TTL_MINUTES});}
-   catch(e){console.error(JSON.stringify({event:'alipay_precreate_failed',code:e.message}));return null;}
-   if(r?.code!=='10000'||!r.qr_code){console.error(JSON.stringify({event:'alipay_precreate_rejected',code:r?.code,sub_code:r?.sub_code}));return null;}
-   return r.qr_code;
+  // Internal id stays alipay_f2f; product is 电脑网站支付 (FAST_INSTANT_TRADE_PAY).
+  async createCode(order,{returnUrl}={}){
+   try{
+    return alipay.pagePayUrl({outTradeNo:order.out_trade_no,amountFen:order.amount_fen,subject:'OneAPI 账户充值',
+     notifyUrl:cfg.origin+'/api/payments/alipay/notify',returnUrl:returnUrl||cfg.origin+'/#billing/personal',timeoutMinutes:ORDER_TTL_MINUTES});
+   }catch(e){console.error(JSON.stringify({event:'alipay_page_pay_failed',code:e.message}));return null;}
   },
   async check(order){
    const r=await alipay.query(order.out_trade_no);
@@ -132,8 +138,9 @@ export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
    if(order.account_id!==account.id||Number(order.amount_fen)!==amount||order.provider!==provider)throw new HttpError(409,'该笔订单信息已变化，请刷新页面后重新充值');
   }
   if(order.status==='pending'&&!order.qr_code&&new Date(order.expires_at)>new Date()){
-   const code=await gw[provider].createCode(order);
-   if(!code)throw new HttpError(502,`${name}暂时无法生成付款码，请稍后重试。`);
+   const returnUrl=ownerColumn==='organization_id'?`${cfg.origin}/#billing/organization/${ownerValue}`:`${cfg.origin}/#billing/personal`;
+   const code=await gw[provider].createCode(order,{returnUrl});
+   if(!code)throw new HttpError(502,provider==='wechat_native'?`${name}暂时无法生成付款码，请稍后重试。`:`${name}暂时无法打开付款页，请稍后重试。`);
    order=(await pool.query('UPDATE payment_orders SET qr_code=$2,updated_at=now() WHERE id=$1 RETURNING *',[order.id,code])).rows[0];
   }
   res.status(created?201:200).json({order:orderView(order)});
