@@ -43,6 +43,14 @@ export function holdYuan(rate,{input,cached=0,output},multiplier=1){
  const base=BigInt(input-cached)*units(rate.input)+BigInt(cached)*units(rate.cached??rate.input)+BigInt(output)*units(rate.output);
  return format((base*BigInt(multiplier)+999999n)/1000000n);
 }
+// Platform channel fee when KerAPI charged nothing (owner decision 2026-11-13, gateway settings #15): bandwidth cost ≈ ¥0.005 / M submitted tokens.
+export const CHANNEL_FEE_YUAN_PER_MILLION='0.005';
+/** Channel fee for submitted input tokens, rounded up to the ledger's precision. Zero tokens → "0". */
+export function channelFeeYuan(inputTokens){
+ const n=Number.isSafeInteger(inputTokens)&&inputTokens>0?inputTokens:0;
+ if(!n)return format(0n);
+ return format((BigInt(n)*units(CHANNEL_FEE_YUAN_PER_MILLION)+999999n)/1000000n);
+}
 
 /** Validates the caller's body and returns the upstream payload plus its billing bound. */
 // GLM 5.3 always thinks and only accepts reasoning_effort low, high or max (confirmed against 智谱's official API:
@@ -466,7 +474,8 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
    if(units(money.available_yuan<0?0:money.available_yuan)<units(hold))throw new HttpError(402,'公司额度不足以覆盖这次调用的上限，可调小 max_tokens');
    if(key.limit_yuan!==null){const used=(await db.query(`SELECT ${USED_ON_KEY} AS used FROM employee_calls WHERE key_id=$1`,[key.key_id])).rows[0].used;if(units(used)+units(hold)>units(key.limit_yuan))throw new HttpError(402,`这把 Key 已接近消费上限 ¥${Number(key.limit_yuan)}（已用 ¥${Number(used).toFixed(4)}），可调小 max_tokens 或换一把 Key`,'key_limit_reached');}
    // gateway_instance: a restart releases the calls this process leaves open (gateway-instance.mjs).
-   return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,client,client_detail,summary,profile_signature,gateway_instance) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10,$11,$12) RETURNING id",[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold,origin.client,origin.detail,summary,signature,GATEWAY_INSTANCE])).rows[0].id;
+   // estimated_input_tokens: used for channel fee when KerAPI's log says it charged nothing (H6 / #15).
+   return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,estimated_input_tokens,client,client_detail,summary,profile_signature,gateway_instance) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10,$11,$12,$13) RETURNING id",[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold,estimate,origin.client,origin.detail,summary,signature,GATEWAY_INSTANCE])).rows[0].id;
   // Refused here (balance, key cap, this person's own limit): the call never reaches KerAPI, so it uses no tokens.
   }).catch(e=>{seatSlot.cancel();slot.cancel();throw e;});
   const call={id:callId,ownerId:key.owner_id,rates:model.rates,multiplier,slot,seatSlot};
@@ -575,8 +584,9 @@ export function officialFromLog(snapshot,evidence){
 const freeOnKerapi=e=>String(e?.type)==='5'||(Number(e?.quota)===0&&!(Number(e?.amount)>0));
 
 /**
- * Settles calls whose response carried no usage. Safe to repeat. Rules (owner decision 2026-11-12, docs/14-gateway-settings.md D4/H7):
- *  - KerAPI's log has the call: charge its token counts at the official price; nothing if KerAPI charged nothing.
+ * Settles calls whose response carried no usage. Safe to repeat. Rules (docs/14-gateway-settings.md D4/H6/H7):
+ *  - KerAPI's log has the call: charge its token counts at the official price; if KerAPI charged nothing, charge the
+ *    platform channel fee on submitted tokens (owner decision 2026-11-13, #15).
  *  - The gateway itself stopped before the upstream answered (restart while the call was open, so no request ID): not charged.
  *  - The gateway stopped while the answer was coming (GATEWAY_INTERRUPTED or STALE_PENDING) and KerAPI never logged it: not charged.
  *  - Otherwise, after 24 hours with a request ID still unmatched: charge the hold (H7, owner decided 2026-11-12).
@@ -586,11 +596,15 @@ export async function settleEmployeeCalls(pool){
  // Open past the longest possible request, so the process that served it is gone. Without a request ID the upstream never answered.
  await pool.query(`UPDATE employee_calls SET status='failed',finished_at=coalesce(finished_at,now()),error_code='GATEWAY_INTERRUPTED' WHERE upstream_request_id IS NULL AND (status='pending' AND created_at<now()-interval '${STALE_PENDING}' OR status='awaiting_bill' AND error_code='STALE_PENDING')`);
  await pool.query(`UPDATE employee_calls SET status='awaiting_bill',finished_at=now(),error_code='STALE_PENDING' WHERE status='pending' AND created_at<now()-interval '${STALE_PENDING}'`);
- const logged=(await pool.query(`SELECT c.id,c.owner_id,c.price_snapshot,r.evidence FROM employee_calls c JOIN supplier_usage_records r ON r.credential_id=c.credential_id AND r.request_id=c.upstream_request_id
+ const logged=(await pool.query(`SELECT c.id,c.owner_id,c.price_snapshot,c.estimated_input_tokens,r.evidence FROM employee_calls c JOIN supplier_usage_records r ON r.credential_id=c.credential_id AND r.request_id=c.upstream_request_id
   WHERE c.status='awaiting_bill' ORDER BY c.created_at LIMIT 1000`)).rows;
  const billed=[];
  for(const r of logged){
-  if(freeOnKerapi(r.evidence)){billed.push({id:r.id,owner_id:r.owner_id,amount:'0',source:'supplier_free'});continue;}
+  if(freeOnKerapi(r.evidence)){
+   const fromLog=tokens(r.evidence?.input_tokens),submitted=fromLog??(Number.isSafeInteger(r.estimated_input_tokens)&&r.estimated_input_tokens>=0?r.estimated_input_tokens:0);
+   billed.push({id:r.id,owner_id:r.owner_id,amount:channelFeeYuan(submitted),source:'supplier_free',input_tokens:submitted||null});
+   continue;
+  }
   const official=officialFromLog(r.price_snapshot,r.evidence);
   if(official!==null)billed.push({id:r.id,owner_id:r.owner_id,amount:official,source:'supplier_tokens'});
   // A log line with an amount but no token counts: charge what KerAPI charged.
@@ -604,7 +618,7 @@ export async function settleEmployeeCalls(pool){
   await transaction(pool,async db=>{
    const account=(await db.query('SELECT granted_yuan-spent_yuan AS remaining FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[row.owner_id])).rows[0];
    // A registered rate below the real price can exceed the hold; the employee is never overdrawn.
-   const charged=(await db.query("UPDATE employee_calls SET status='settled',actual_yuan=$2::numeric,charged_yuan=LEAST($2::numeric,$3::numeric),settlement_source=$4,settled_at=now() WHERE id=$1 AND status='awaiting_bill' RETURNING charged_yuan",[row.id,row.amount,account.remaining,row.source])).rows[0];
+   const charged=(await db.query("UPDATE employee_calls SET status='settled',actual_yuan=$2::numeric,charged_yuan=LEAST($2::numeric,$3::numeric),settlement_source=$4,input_tokens=coalesce($5,input_tokens),settled_at=now() WHERE id=$1 AND status='awaiting_bill' RETURNING charged_yuan",[row.id,row.amount,account.remaining,row.source,row.input_tokens??null])).rows[0];
    if(charged){await db.query('UPDATE employee_credit_accounts SET spent_yuan=spent_yuan+$2 WHERE user_id=$1',[row.owner_id,charged.charged_yuan]);settled++;}
   });
  }

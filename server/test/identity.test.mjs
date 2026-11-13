@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateKeyPair,exportJWK,SignJWT } from 'jose';
 import { createApp } from '../src/app.mjs';
-import { GRANT_YUAN,holdYuan,employeeRequest,usageFrom,settleEmployeeCalls,callClient,callSummary } from '../src/employee-credit.mjs';
+import { GRANT_YUAN,holdYuan,channelFeeYuan,employeeRequest,usageFrom,settleEmployeeCalls,callClient,callSummary } from '../src/employee-credit.mjs';
 import { vault,hasBusiness,hash } from '../src/core.mjs';
 import { findOfficialModel,officialPeak } from '../src/official-models.mjs';
 import { migrate } from '../src/migrate.mjs';
@@ -361,6 +361,7 @@ test('early personal pilot (sf_test_) is retired',async()=>{
 test('employee credit is one-time, company-only, reserved before calling and charged at official prices',async()=>{
  const rate={input:'2',cached:'0.5',output:'8'};
  assert.equal(holdYuan(rate,{input:1000,cached:400,output:100},1),'0.002200000000');assert.equal(holdYuan(rate,{input:1000,cached:400,output:100},2),'0.004400000000');
+ assert.equal(channelFeeYuan(0),'0.000000000000');assert.equal(channelFeeYuan(2000),'0.000010000000');assert.equal(channelFeeYuan(1),'0.000000005000');
  assert.equal(officialPeak(new Date('2026-11-10T02:00:00Z')),true,'Tuesday 10:00 Beijing');assert.equal(officialPeak(new Date('2026-11-10T04:30:00Z')),false,'Tuesday 12:30 Beijing');assert.equal(officialPeak(new Date('2026-11-14T02:00:00Z')),false,'Saturday');assert.equal(officialPeak(new Date('2026-11-10T02:00:00Z'),new Set(['2026-11-10'])),false,'holiday');
  // Built-in State Council holidays (H3): weekday holiday mornings are off-peak; ordinary Tue peak still peak.
  {const {CHINA_HOLIDAYS}=await import('../src/china-holidays.mjs');
@@ -388,6 +389,9 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  const supplier=(await pool.query("INSERT INTO supplier_lab_suppliers(name,kind,created_by) VALUES('KerAPI credit fixture','supplier','credit-fixture') RETURNING id")).rows[0].id;
  const credential=(await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,'credit','https://kerapi.cn/v1',$2,'fp','credit-fixture') RETURNING id",[supplier,vault(process.env.SUPPLIER_LAB_SECRET).seal({key:'fixture-kerapi-secret'})])).rows[0].id;
  for(const model of ['GLM-5.3','deepseek-v4.1-flash'])await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES($1,'supplier','https://kerapi.cn/v1',$1,'fp','credit-fixture',$2,$3)",[model,supplier,credential]);
+ // Official DeepSeek models (deepseek-v4-pro) read the standby key file used by the employee gateway.
+ if(!pilotDir){pilotDir=await mkdtemp(join(tmpdir(),'oneapi-pilot-'));await writeFile(join(pilotDir,'deepseek.key'),'fixture-upstream-secret');}
+ appCfg.pilot.keyFile=join(pilotDir,'deepseek.key');
  appCfg.employeeCredit.organizationId=company.id;
  // These billing checks fake calls of up to 5 million tokens; the gate is tested on its own further down.
  // Raised the way staff would (limits_updated_at set), so re-running migration 053 later in this test keeps it.
@@ -476,11 +480,23 @@ test('employee credit is one-time, company-only, reserved before calling and cha
    await call({stream:true});await logLine('req-tokens',{amount:'0.000001000000',currency:'CNY',type:2,quota:5,input_tokens:1000,cached_input_tokens:200,output_tokens:300});
    await settleEmployeeCalls(pool);c=(await pool.query("SELECT charged_yuan,settlement_source FROM employee_calls WHERE upstream_request_id='req-tokens'")).rows[0];
    assert.equal(c.settlement_source,'supplier_tokens');assert.equal(Number(c.charged_yuan),Number(holdYuan({input:'8',cached:'2',output:'28'},{input:1000,cached:200,output:300},1)),'GLM-5.3 official price: 800×8 + 200×2 + 300×28 per million');
-   // 3. KerAPI logged the request as failed and charged nothing: nothing is charged here either.
+   // 3. KerAPI charged nothing: platform channel fee on submitted tokens (owner 2026-11-13, #15). Prefer log input; else estimated_input_tokens.
    pilotFetch=async()=>new Response('data: {"choices":[{"delta":{"content":"半"}}]}\n\n',{status:200,headers:{'content-type':'text/event-stream','x-request-id':'req-free'}});
-   await call({stream:true});await logLine('req-free',{amount:null,currency:'CNY',type:5,quota:0});
-   await settleEmployeeCalls(pool);c=(await pool.query("SELECT status,charged_yuan,settlement_source FROM employee_calls WHERE upstream_request_id='req-free'")).rows[0];
-   assert.equal(c.status,'settled');assert.equal(c.settlement_source,'supplier_free');assert.equal(Number(c.charged_yuan),0);
+   await call({stream:true});
+   const freeEst=(await pool.query("SELECT estimated_input_tokens FROM employee_calls WHERE upstream_request_id='req-free'")).rows[0].estimated_input_tokens;
+   assert.ok(freeEst>0,'admit stores estimated_input_tokens');
+   await logLine('req-free',{amount:null,currency:'CNY',type:5,quota:0});
+   await settleEmployeeCalls(pool);c=(await pool.query("SELECT status,charged_yuan,settlement_source,input_tokens FROM employee_calls WHERE upstream_request_id='req-free'")).rows[0];
+   assert.equal(c.status,'settled');assert.equal(c.settlement_source,'supplier_free');
+   assert.equal(Number(c.charged_yuan),Number(channelFeeYuan(freeEst)));assert.equal(c.input_tokens,freeEst);
+   pilotFetch=async()=>new Response('data: {"choices":[{"delta":{"content":"半"}}]}\n\n',{status:200,headers:{'content-type':'text/event-stream','x-request-id':'req-free-log'}});
+   await call({stream:true});await logLine('req-free-log',{amount:null,currency:'CNY',type:5,quota:0,input_tokens:2000});
+   await settleEmployeeCalls(pool);c=(await pool.query("SELECT charged_yuan,settlement_source,input_tokens FROM employee_calls WHERE upstream_request_id='req-free-log'")).rows[0];
+   assert.equal(c.settlement_source,'supplier_free');assert.equal(Number(c.charged_yuan),Number(channelFeeYuan(2000)));assert.equal(c.input_tokens,2000);
+   const bare=(await pool.query(`INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,upstream_request_id) SELECT key_id,owner_id,model_id,credential_id,upstream,price_snapshot,'awaiting_bill','0.5','req-free-bare' FROM employee_calls WHERE upstream_request_id='req-free' RETURNING id`)).rows[0].id;
+   await logLine('req-free-bare',{amount:null,currency:'CNY',type:5,quota:0});
+   await settleEmployeeCalls(pool);c=(await pool.query('SELECT charged_yuan,settlement_source FROM employee_calls WHERE id=$1',[bare])).rows[0];
+   assert.equal(c.settlement_source,'supplier_free');assert.equal(Number(c.charged_yuan),0,'no estimate and no log tokens → ¥0');
    // Every deploy re-runs all migrations: older files must not re-impose a CHECK these newer rows would break.
    await migrate(pool,service.auth);assert.match((await pool.query("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname='employee_calls_settlement_source_check'")).rows[0].d,/supplier_free/);
    // 4. A call left open by a gateway restart, before the upstream answered: released, not charged; also when already marked STALE_PENDING.
