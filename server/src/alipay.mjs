@@ -1,5 +1,6 @@
-// Alipay Open Platform adapter for 当面付 (face-to-face QR). Only signs, calls and verifies;
-// order state and ledger postings live in payments.mjs.
+// Alipay Open Platform adapter for 电脑网站支付 (PC website cashier).
+// Orders and ledger live in payments.mjs. Page pay is a signed redirect to Alipay's
+// gateway (not a JSON precreate); the cashier page itself can show a scan-to-pay QR.
 import { createPrivateKey, createPublicKey, createSign, createVerify } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
@@ -45,9 +46,13 @@ export function alipayClient(cfg,fetchImpl=fetch){
  const privateKey=loadAlipayKey(cfg.privateKey??readFileSync(cfg.privateKeyFile,'utf8'),'private');
  const alipayPublicKey=loadAlipayKey(cfg.publicKey??readFileSync(cfg.publicKeyFile,'utf8'),'public');
  const gateway=cfg.gateway||ALIPAY_GATEWAY;
- async function call(method,biz,extra={}){
+ function signedParams(method,biz,extra={}){
   const params={app_id:cfg.appId,method,format:'JSON',charset:'utf-8',sign_type:'RSA2',timestamp:beijingTimestamp(),version:'1.0',...extra,biz_content:JSON.stringify(biz)};
   params.sign=rsa2Sign(signContent(params),privateKey);
+  return params;
+ }
+ async function call(method,biz,extra={}){
+  const params=signedParams(method,biz,extra);
   const response=await fetchImpl(gateway+'?charset=utf-8',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=utf-8'},body:new URLSearchParams(params).toString(),signal:AbortSignal.timeout(10000)});
   if(!response.ok)throw Error('ALIPAY_HTTP_'+response.status);
   const raw=await response.text(),{node,content}=responseNode(raw,method),body=JSON.parse(raw),data=body[node];
@@ -60,7 +65,12 @@ export function alipayClient(cfg,fetchImpl=fetch){
  }
  return {
   appId:cfg.appId,sellerId:cfg.sellerId||'',
-  precreate:({outTradeNo,amountFen,subject,notifyUrl,timeoutMinutes})=>call('alipay.trade.precreate',{out_trade_no:outTradeNo,total_amount:fenToYuan(amountFen),subject,timeout_express:`${timeoutMinutes}m`,product_code:'FACE_TO_FACE_PAYMENT'},{notify_url:notifyUrl}),
+  // PC website pay: browser opens this URL; Alipay shows its cashier (often with a scan QR).
+  pagePayUrl({outTradeNo,amountFen,subject,notifyUrl,returnUrl,timeoutMinutes}){
+   const biz={out_trade_no:outTradeNo,total_amount:fenToYuan(amountFen),subject,product_code:'FAST_INSTANT_TRADE_PAY',timeout_express:`${timeoutMinutes}m`};
+   const params=signedParams('alipay.trade.page.pay',biz,{notify_url:notifyUrl,return_url:returnUrl});
+   return gateway+'?'+new URLSearchParams(params).toString();
+  },
   query:outTradeNo=>call('alipay.trade.query',{out_trade_no:outTradeNo}),
   // Idempotent per out_request_no: resending the same request never refunds twice.
   refund:({outTradeNo,outRequestNo,amountFen,reason})=>call('alipay.trade.refund',{out_trade_no:outTradeNo,out_request_no:outRequestNo,refund_amount:fenToYuan(amountFen),refund_reason:reason}),

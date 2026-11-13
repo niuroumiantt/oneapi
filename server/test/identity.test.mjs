@@ -20,7 +20,7 @@ let alipayRefundMode='ok';
 const pem=k=>k.export({type:k.type==='private'?'pkcs8':'spki',format:'pem'}),alipaySign=content=>createSign('RSA-SHA256').update(content).sign(alipayKeys.privateKey,'base64');
 async function fakeAlipay(_url,init){const p=Object.fromEntries(new URLSearchParams(init.body));const ok=(await import('node:crypto')).createVerify('RSA-SHA256').update(signContent(p)).verify(appKeys.publicKey,p.sign,'base64');alipayCalls.push({method:p.method,ok});const biz=JSON.parse(p.biz_content),node=p.method.replaceAll('.','_')+'_response';let data;
  if(!ok)data={code:'40002',msg:'Invalid Arguments',sub_code:'isv.invalid-signature'};
- else if(p.method==='alipay.trade.precreate'){alipayTrades.set(biz.out_trade_no,{status:'WAIT_BUYER_PAY',amount:biz.total_amount,trade_no:'2026'+randomBytes(8).toString('hex'),notify:p.notify_url});data={code:'10000',msg:'Success',out_trade_no:biz.out_trade_no,qr_code:'https://qr.alipay.com/bax'+randomBytes(6).toString('hex')};}
+ else if(p.method==='alipay.trade.page.pay'){alipayTrades.set(biz.out_trade_no,{status:'WAIT_BUYER_PAY',amount:biz.total_amount,trade_no:'2026'+randomBytes(8).toString('hex'),notify:p.notify_url});data={code:'10000',msg:'Success'};}
  else if(p.method==='alipay.trade.refund'){if(alipayRefundMode==='timeout')throw Error('simulated network timeout');const t=alipayTrades.get(biz.out_trade_no);
   if(alipayRefundMode==='reject'||!t)data={code:'40004',msg:'Business Failed',sub_code:t?'ACQ.SELLER_BALANCE_NOT_ENOUGH':'ACQ.TRADE_NOT_EXIST'};
   else{t.requests??=new Map();const fen=Math.round(Number(biz.refund_amount)*100),fresh=!t.requests.has(biz.out_request_no);if(fresh){t.requests.set(biz.out_request_no,fen);t.refundedFen=(t.refundedFen||0)+fen;}data={code:'10000',msg:'Success',out_trade_no:biz.out_trade_no,trade_no:t.trade_no,refund_fee:(t.refundedFen/100).toFixed(2),fund_change:fresh?'Y':'N'};}}
@@ -71,6 +71,11 @@ function jar(ip='192.0.2.'+(serial++)){const cookies=new Map();return {cookies,a
 async function user(label){const j=jar(),email=`${label}-${serial}@example.test`;const r=await j.call('/api/auth/sign-up/email',{method:'POST',body:{email,password,name:label,callbackURL:origin+'/#account'}});assert.equal(r.status,200,JSON.stringify(r.data));await service.mail.drain();const message=sent.findLast(m=>m.to===email&&m.subject.includes('验证'));assert.ok(message);const url=message.text.match(/https?:\/\/\S+/)[0];const verified=await j.call(url);assert.equal(verified.status,302);assert.equal((await j.call('/api/platform/me')).status,200);return {j,email,user:(await j.call('/api/platform/me')).data.user};}
 async function organization(u,name){const r=await pool.query('INSERT INTO organizations(name,created_by) VALUES($1,$2) RETURNING id,name,region,created_at',[name,u.user.id]);await pool.query("INSERT INTO memberships(organization_id,user_id,role) VALUES($1,$2,'owner')",[r.rows[0].id,u.user.id]);return r.rows[0];}
 async function joinLink(owner,org){const r=await owner.j.call(`/api/platform/organizations/${org.id}/join-links`,{method:'POST',body:{}});assert.equal(r.status,201,JSON.stringify(r.data));return {token:r.data.url.split('#join/')[1],id:r.data.id};}
+// Page-pay orders never hit the fake gateway on create; seed query/notify state from the signed pay URL.
+function seedAlipayTrade(outTradeNo,amountYuan,notify=origin+'/api/payments/alipay/notify'){
+ const trade={status:'WAIT_BUYER_PAY',amount:amountYuan,trade_no:'2026'+randomBytes(8).toString('hex'),notify};
+ alipayTrades.set(outTradeNo,trade);return trade;
+}
 async function applyAndApprove(owner,org,recipient,link,department=''){const r=await recipient.j.call('/api/platform/join-requests',{method:'POST',body:{token:link.token,name:recipient.user.name,department}});assert.equal(r.status,202,JSON.stringify(r.data));const view=(await owner.j.call(`/api/platform/organizations/${org.id}`)).data;const request=view.joinRequests.find(x=>x.user_id===recipient.user.id);assert.ok(request);const approval=await owner.j.call(`/api/platform/organizations/${org.id}/join-requests/${request.id}/approve`,{method:'POST',body:{}});assert.equal(approval.status,200,JSON.stringify(approval.data));return request;}
 before(async()=>{
  process.env.SUPPLIER_LAB_SECRET="test-only-laboratory-secret-1234567890123456";
@@ -1098,7 +1103,7 @@ test('staff refunds go back to the payer once, hold the balance first and revers
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
  const buyer=await user('refund-buyer');appCfg.alipay.allowedEmails.add(buyer.email);
  const order=(await buyer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:3000,idempotency_key:'refund-order-key-0001'}})).data.order;
- const out=(await pool.query('SELECT out_trade_no,account_id FROM payment_orders WHERE id=$1',[order.id])).rows[0],trade=alipayTrades.get(out.out_trade_no);trade.status='TRADE_SUCCESS';
+ const out=(await pool.query('SELECT out_trade_no,account_id FROM payment_orders WHERE id=$1',[order.id])).rows[0],trade=seedAlipayTrade(out.out_trade_no,'30.00');trade.status='TRADE_SUCCESS';
  assert.equal((await buyer.j.call('/api/billing/alipay-orders/'+order.id)).data.order.status,'paid');
  const bal=async()=>(await buyer.j.call('/api/billing/personal')).data.cash_balance_fen,path=`/api/staff/payments/orders/${order.id}/refunds`;
  const ask=(amount,key,reason='客户申请退款')=>admin.call(path,{method:'POST',body:{amount_fen:amount,reason,idempotency_key:key}});
@@ -1201,11 +1206,20 @@ test('two workspaces share credentials, actual acceptance and fail-closed catalo
  assert.equal((await tech.call('/api/staff/lab/config')).status,403);
  assert.equal((await jar().call('/api/staff/workspace/console')).location,'/api/staff/login?next=business');
 });
-test('alipay face-to-face recharge credits the exact amount once, only after a signed confirmation',async()=>{
+test('alipay website pay credits the exact amount once, only after a signed confirmation',async()=>{
  const payer=await user('payer'),outsider=await user('outsider'),org=await organization(payer,'Payer Co');
  const balance=async()=>(await payer.j.call('/api/billing/personal')).data;
  const notify=async(params,signer=alipaySign)=>{const p={notify_time:'2026-11-11 10:00:00',notify_type:'trade_status_sync',notify_id:randomBytes(8).toString('hex'),app_id:appCfg.alipay.appId,seller_id:appCfg.alipay.sellerId,charset:'utf-8',version:'1.0',sign_type:'RSA2',...params};p.sign=signer(signContent(p,{skipSignType:true}));const r=await fetch(origin+'/api/payments/alipay/notify',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','x-real-ip':'198.51.100.7'},body:new URLSearchParams(p).toString()});return {status:r.status,text:await r.text()};};
- const tradeOf=async orderId=>{const o=(await pool.query('SELECT out_trade_no FROM payment_orders WHERE id=$1',[orderId])).rows[0];return {out:o.out_trade_no,trade:alipayTrades.get(o.out_trade_no)};};
+ // Page pay only builds a signed URL (no gateway round-trip); seed query/notify state from the order.
+ const remember=async(orderId,amountYuan)=>{
+  const o=(await pool.query('SELECT out_trade_no,qr_code FROM payment_orders WHERE id=$1',[orderId])).rows[0];
+  const q=new URL(o.qr_code),biz=JSON.parse(q.searchParams.get('biz_content'));
+  assert.equal(q.searchParams.get('method'),'alipay.trade.page.pay');assert.equal(biz.product_code,'FAST_INSTANT_TRADE_PAY');
+  assert.equal(biz.total_amount,amountYuan);assert.equal(q.searchParams.get('notify_url'),origin+'/api/payments/alipay/notify');
+  assert.ok(createVerify('RSA-SHA256').update(signContent(Object.fromEntries(q.searchParams))).verify(appKeys.publicKey,q.searchParams.get('sign'),'base64'));
+  const trade={status:'WAIT_BUYER_PAY',amount:amountYuan,trade_no:'2026'+randomBytes(8).toString('hex'),notify:q.searchParams.get('notify_url')};
+  alipayTrades.set(o.out_trade_no,trade);return {out:o.out_trade_no,trade};
+ };
  // Allowlist gates the channel before merchant go-live.
  assert.deepEqual((await balance()).recharge.channels,[]);
  assert.equal((await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:1000,idempotency_key:'k'.repeat(20)}})).status,403);
@@ -1214,13 +1228,12 @@ test('alipay face-to-face recharge credits the exact amount once, only after a s
  assert.equal((await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:499,idempotency_key:'a'.repeat(20)}})).status,400);
  assert.equal((await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:10.5,idempotency_key:'a'.repeat(20)}})).status,400);
  const created=await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:1000,idempotency_key:'first-order-key-0001'}});
- assert.equal(created.status,201,JSON.stringify(created.data));assert.equal(created.data.order.status,'pending');assert.match(created.data.order.qr_svg,/^<svg/);
- assert.ok(alipayCalls.every(c=>c.ok),'every gateway request is RSA2-signed with the app key');
+ assert.equal(created.status,201,JSON.stringify(created.data));assert.equal(created.data.order.status,'pending');
+ assert.equal(created.data.order.qr_svg,null);assert.match(created.data.order.pay_url,/alipay\.trade\.page\.pay/);
  const again=await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:1000,idempotency_key:'first-order-key-0001'}});
  assert.equal(again.status,200);assert.equal(again.data.order.id,created.data.order.id);
  assert.equal((await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:2000,idempotency_key:'first-order-key-0001'}})).status,409);
- const orderId=created.data.order.id,{out,trade}=await tradeOf(orderId);
- assert.equal(trade.amount,'10.00');assert.equal(trade.notify,origin+'/api/payments/alipay/notify');
+ const orderId=created.data.order.id,{out,trade}=await remember(orderId,'10.00');
  assert.equal((await outsider.j.call('/api/billing/alipay-orders/'+orderId)).status,404);
  assert.equal((await payer.j.call('/api/billing/alipay-orders/'+orderId)).data.order.status,'pending');
  // Forged signature, wrong merchant and wrong amount never move money.
@@ -1234,21 +1247,22 @@ test('alipay face-to-face recharge credits the exact amount once, only after a s
  assert.equal((await notify({out_trade_no:out,trade_no:trade.trade_no,trade_status:'TRADE_SUCCESS',total_amount:'10.00'})).text,'success');
  assert.equal((await notify({out_trade_no:out,trade_no:trade.trade_no,trade_status:'TRADE_FINISHED',total_amount:'10.00'})).text,'success');
  let view=await balance();assert.equal(view.cash_balance_fen,'1000');assert.equal(view.total_recharged_fen,'1000');assert.equal(view.entries.length,1);assert.equal(view.entries[0].kind,'recharge');
- const paid=(await payer.j.call('/api/billing/alipay-orders/'+orderId)).data.order;assert.equal(paid.status,'paid');assert.equal(paid.qr_svg,null);
+ const paid=(await payer.j.call('/api/billing/alipay-orders/'+orderId)).data.order;assert.equal(paid.status,'paid');assert.equal(paid.pay_url,null);assert.equal(paid.qr_svg,null);
  // A lost notify is recovered by the polling query.
- const second=(await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:2550,idempotency_key:'second-order-key-002'}})).data.order,t2=await tradeOf(second.id);
+ const second=(await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:2550,idempotency_key:'second-order-key-002'}})).data.order,t2=await remember(second.id,'25.50');
  t2.trade.status='TRADE_SUCCESS';
  assert.equal((await payer.j.call('/api/billing/alipay-orders/'+second.id)).data.order.status,'paid');
  assert.equal((await payer.j.call('/api/billing/alipay-orders/'+second.id)).data.order.status,'paid');
  view=await balance();assert.equal(view.cash_balance_fen,'3550');assert.equal(view.entries.length,2);
  // Closed trades close the order without money.
- const third=(await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:800,idempotency_key:'third-order-key-0003'}})).data.order,t3=await tradeOf(third.id);
+ const third=(await payer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:800,idempotency_key:'third-order-key-0003'}})).data.order,t3=await remember(third.id,'8.00');
  assert.equal((await notify({out_trade_no:t3.out,trade_no:t3.trade.trade_no,trade_status:'TRADE_CLOSED',total_amount:'8.00'})).text,'success');
  assert.equal((await payer.j.call('/api/billing/alipay-orders/'+third.id)).data.order.status,'closed');assert.equal((await balance()).cash_balance_fen,'3550');
  // Enterprise recharge is for managers only and lands in the enterprise account.
  assert.equal((await outsider.j.call(`/api/billing/organizations/${org.id}/alipay-orders`,{method:'POST',body:{amount_fen:1000,idempotency_key:'org-order-key-00001'}})).status,403);
  const orgOrder=await payer.j.call(`/api/billing/organizations/${org.id}/alipay-orders`,{method:'POST',body:{amount_fen:1000,idempotency_key:'org-order-key-00001'}});assert.equal(orgOrder.status,201);
- const t4=await tradeOf(orgOrder.data.order.id);assert.equal((await notify({out_trade_no:t4.out,trade_no:t4.trade.trade_no,trade_status:'TRADE_SUCCESS',total_amount:'10.00'})).text,'success');
+ assert.match(decodeURIComponent(orgOrder.data.order.pay_url),/#billing\/organization\//);
+ const t4=await remember(orgOrder.data.order.id,'10.00');assert.equal((await notify({out_trade_no:t4.out,trade_no:t4.trade.trade_no,trade_status:'TRADE_SUCCESS',total_amount:'10.00'})).text,'success');
  assert.equal((await payer.j.call(`/api/billing/organizations/${org.id}`)).data.cash_balance_fen,'1000');assert.equal((await balance()).cash_balance_fen,'3550');
  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='billing.recharge.alipay_paid' AND subject_id=ANY($1)",[[orderId,second.id,orgOrder.data.order.id]])).rows[0].n,3);
 });
@@ -1405,7 +1419,7 @@ test('business console: finance switch, codes, CRM, invoices against paid money,
  assert.equal((await invoices()).data.available_fen,'0');assert.equal((await request({amount_yuan:'10'})).status,409);
  appCfg.alipay.allowedEmails.add(buyer.email);
  const order=(await post(buyer.j,'/api/billing/personal/alipay-orders',{amount_fen:3000,idempotency_key:'invoice-order-key-0001'})).data.order;
- alipayTrades.get((await pool.query('SELECT out_trade_no FROM payment_orders WHERE id=$1',[order.id])).rows[0].out_trade_no).status='TRADE_SUCCESS';
+ seedAlipayTrade((await pool.query('SELECT out_trade_no FROM payment_orders WHERE id=$1',[order.id])).rows[0].out_trade_no,'30.00').status='TRADE_SUCCESS';
  assert.equal((await buyer.j.call('/api/billing/alipay-orders/'+order.id)).data.order.status,'paid');
  assert.equal((await invoices()).data.available_fen,'3000');
  assert.equal((await request({amount_yuan:'10',invoice_type:'special',tax_number:'91110000MA01ABCD2X'})).status,400,'no special invoice for a personal account');
