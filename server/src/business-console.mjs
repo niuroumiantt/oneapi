@@ -3,6 +3,7 @@
 import { HttpError, id, text, transaction, audit, hasBusiness } from './core.mjs';
 import { OFFICIAL_MODELS } from './official-models.mjs';
 import { isManager } from './organizations.mjs';
+import { REFUND_POLICY_ZH } from './list-credit.mjs';
 
 export const hasFinance = staff => hasBusiness(staff) && (staff.role === 'platform_admin' || staff.finance_access === true);
 const isAdmin = staff => staff?.status === 'active' && staff.role === 'platform_admin';
@@ -80,6 +81,7 @@ const CUSTOMER_ROWS = `SELECT c.id,c.code,c.kind,c.stage,c.tags,c.owner_subject,
  (SELECT count(*) FROM memberships m WHERE m.organization_id=c.organization_id AND m.status='active')::int AS members,
  (SELECT string_agg(g.name,'、') FROM memberships m JOIN organizations g ON g.id=m.organization_id WHERE m.user_id=c.user_id AND m.status='active') AS orgs,
  coalesce(b.cash_balance_fen,0)::bigint AS balance_fen,
+ coalesce(b.list_credit_fen,0)::bigint AS list_credit_fen,
  coalesce((SELECT sum(l.amount_fen) FROM billing_ledger l WHERE l.account_id=b.id AND l.kind='recharge'),0)::bigint AS recharged_fen,
  credit.granted AS credit_granted,credit.spent AS credit_spent,used.calls_30d,used.last_call_at,
  (SELECT count(*) FROM support_tickets t WHERE t.status<>'closed' AND (t.user_id=c.user_id OR t.user_id IN (SELECT m.user_id FROM memberships m WHERE m.organization_id=c.organization_id AND m.status='active')))::int AS open_tickets
@@ -198,6 +200,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
     (SELECT count(*) FROM discount_grants WHERE status='active' AND now()>=starts_at AND now()<ends_at)::int AS discounts_active,
     (SELECT count(*) FROM tax_invoices WHERE direction='output' AND status='requested')::int AS invoices_requested,
     (SELECT count(*) FROM payment_refunds WHERE status='pending')::int AS refunds_pending,
+    (SELECT count(*) FROM bank_transfer_entries WHERE status='pending')::int AS bank_transfers_pending,
     (SELECT count(*) FROM channel_states WHERE paused)::int AS models_paused,
     (SELECT count(*) FROM customers WHERE kind='enterprise')::int AS enterprises,
     (SELECT count(*) FROM customers WHERE kind='personal')::int AS individuals,
@@ -206,7 +209,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
     (SELECT count(*) FROM suppliers)::int AS suppliers`),
    pool.query(`${CUSTOMER_ROWS} WHERE used.calls_30d>0 ORDER BY used.calls_30d DESC LIMIT 5`)]);
   const c = counts.rows[0];
-  if (!finance) { delete c.invoices_requested; delete c.refunds_pending; }
+  if (!finance) { delete c.invoices_requested; delete c.refunds_pending; delete c.bank_transfers_pending; }
   res.json({
    staff: { name: req.staff.name, finance, technical: req.staff.role === 'platform_admin' || req.staff.technical_access === true, admin: isAdmin(req.staff) },
    counts: c, top_customers: top.rows,
@@ -303,6 +306,71 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
    if (!voided) throw new HttpError(409, '这笔付款不存在或已经作废');
    await audit(db, req.actor, 'supplier_payment.voided', null, voided.id);
    return voided;
+  });
+  res.json(row);
+ });
+
+ // ---- Bank transfer dual approval -------------------------------------------------------------
+ const BANK_TRANSFER_ROWS = `SELECT e.id,e.customer_id,e.account_id,e.cash_fen,e.face_fen,to_char(e.received_on,'YYYY-MM-DD') AS received_day,
+  e.reference,e.note,e.status,e.created_by,e.created_at,e.decided_by,e.decided_at,e.decision_note,
+  c.code AS customer_code,coalesce(o.name,u.name) AS customer_name,c.kind AS customer_kind,
+  a.name AS created_by_name,k.name AS decided_by_name
+  FROM bank_transfer_entries e JOIN customers c ON c.id=e.customer_id
+  LEFT JOIN organizations o ON o.id=c.organization_id LEFT JOIN "user" u ON u.id=c.user_id
+  LEFT JOIN staff_members a ON a.subject=e.created_by LEFT JOIN staff_members k ON k.subject=e.decided_by`;
+
+ async function ensureBillingAccount(db, customer) {
+  if (customer.organization_id) {
+   await db.query('INSERT INTO billing_accounts(organization_id) VALUES($1) ON CONFLICT (organization_id) WHERE organization_id IS NOT NULL DO NOTHING', [customer.organization_id]);
+   return (await db.query('SELECT id FROM billing_accounts WHERE organization_id=$1', [customer.organization_id])).rows[0];
+  }
+  await db.query('INSERT INTO billing_accounts(owner_id) VALUES($1) ON CONFLICT (owner_id) WHERE owner_id IS NOT NULL DO NOTHING', [customer.user_id]);
+  return (await db.query('SELECT id FROM billing_accounts WHERE owner_id=$1', [customer.user_id])).rows[0];
+ }
+
+ app.get('/api/staff/business/bank-transfers', requireStaff, async (req, res) => {
+  requireFinance(req);
+  const entries = (await pool.query(`${BANK_TRANSFER_ROWS} ORDER BY e.status='pending' DESC,e.created_at DESC LIMIT 300`)).rows;
+  res.json({ entries, refund_policy: REFUND_POLICY_ZH });
+ });
+ app.post('/api/staff/business/bank-transfers', requireStaff, async (req, res) => {
+  requireFinance(req);
+  const b = req.body || {}, customerId = id(b.customer_id), cash = fen(b.cash_yuan, '实付金额'), receivedOn = day(b.received_on, '到账日期');
+  const faceRaw = b.face_yuan === undefined || b.face_yuan === null || b.face_yuan === '' ? null : fen(b.face_yuan, '官价额度面额');
+  const face = faceRaw ?? cash;
+  if (face < cash) throw new HttpError(400, '官价额度面额不能低于实付金额');
+  if (receivedOn > new Date(Date.now() + 86400000).toISOString().slice(0, 10)) throw new HttpError(400, '到账日期不能晚于今天');
+  const row = await transaction(pool, async db => {
+   const customer = (await db.query('SELECT id,kind,user_id,organization_id FROM customers WHERE id=$1 FOR UPDATE', [customerId])).rows[0];
+   if (!customer) throw new HttpError(404, '客户不存在');
+   const account = await ensureBillingAccount(db, customer);
+   const created = (await db.query(`INSERT INTO bank_transfer_entries(customer_id,account_id,cash_fen,face_fen,received_on,reference,note,created_by)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,status,cash_fen,face_fen`,
+    [customerId, account.id, cash, face, receivedOn, optional(b.reference, '回单号', 120), optional(b.note, '备注', 500), req.staff.subject])).rows[0];
+   await audit(db, req.actor, 'bank_transfer.registered', customer.organization_id, created.id, { cash_fen: cash, face_fen: face });
+   return created;
+  });
+  res.status(201).json(row);
+ });
+ app.post('/api/staff/business/bank-transfers/:entry/:action', requireStaff, async (req, res) => {
+  requireFinance(req);
+  const entryId = id(req.params.entry), action = choice(req.params.action, ['approve', 'reject'], '操作');
+  const decisionNote = action === 'reject' ? text(req.body?.note, '驳回原因', 500) : optional(req.body?.note, '备注', 500);
+  const row = await transaction(pool, async db => {
+   const cur = (await db.query('SELECT * FROM bank_transfer_entries WHERE id=$1 FOR UPDATE', [entryId])).rows[0];
+   if (!cur) throw new HttpError(404, '登记不存在');
+   if (cur.status !== 'pending') throw new HttpError(409, '这笔转账已经处理过');
+   if (cur.created_by === req.staff.subject) throw new HttpError(403, '登记人不能复核自己登记的转账');
+   if (action === 'reject') {
+    const rejected = (await db.query(`UPDATE bank_transfer_entries SET status='rejected',decided_by=$2,decided_at=now(),decision_note=$3 WHERE id=$1 RETURNING id,status`, [entryId, req.staff.subject, decisionNote])).rows[0];
+    await audit(db, req.actor, 'bank_transfer.rejected', null, entryId, { note: decisionNote });
+    return rejected;
+   }
+   const acct = (await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen+$2,list_credit_fen=list_credit_fen+$3 WHERE id=$1 RETURNING cash_balance_fen,list_credit_fen,organization_id', [cur.account_id, cur.cash_fen, cur.face_fen])).rows[0];
+   await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'recharge',$2,$3,'payment',$4)", [cur.account_id, cur.cash_fen, acct.cash_balance_fen, cur.id]);
+   const approved = (await db.query(`UPDATE bank_transfer_entries SET status='approved',decided_by=$2,decided_at=now(),decision_note=$3 WHERE id=$1 RETURNING id,status,cash_fen,face_fen`, [entryId, req.staff.subject, decisionNote])).rows[0];
+   await audit(db, req.actor, 'bank_transfer.approved', acct.organization_id, entryId, { cash_fen: String(cur.cash_fen), face_fen: String(cur.face_fen) });
+   return approved;
   });
   res.json(row);
  });

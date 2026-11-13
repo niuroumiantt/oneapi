@@ -6,6 +6,7 @@ import qrcode from 'qrcode-generator';
 import { HttpError,id,text,transaction,audit } from './core.mjs';
 import { isManager } from './organizations.mjs';
 import { yuanToFen } from './alipay.mjs';
+import { REFUND_POLICY_ZH } from './list-credit.mjs';
 
 export const RECHARGE_MIN_FEN=500,RECHARGE_MAX_FEN=5000000,ORDER_TTL_MINUTES=15;
 const PAID=new Set(['TRADE_SUCCESS','TRADE_FINISHED']);
@@ -33,10 +34,11 @@ export async function creditPaidOrder(pool,outTradeNoValue,{provider,tradeNo,tot
   if(o.provider!==provider)throw Error('PAYMENT_PROVIDER_MISMATCH');
   if(o.status==='paid'){if(o.provider_trade_no!==tradeNo)throw Error('PAYMENT_TRADE_MISMATCH');return {order:o,credited:false};}
   if(!tradeNo||totalFen===null||totalFen===undefined||BigInt(totalFen)!==BigInt(o.amount_fen))throw Error('PAYMENT_AMOUNT_MISMATCH');
-  const account=(await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen+$2 WHERE id=$1 RETURNING cash_balance_fen,organization_id',[o.account_id,o.amount_fen])).rows[0];
+  // Phase 1 online packs are 1:1 (face = cash). Promo-locked face lands in phase 2.
+  const account=(await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen+$2,list_credit_fen=list_credit_fen+$2 WHERE id=$1 RETURNING cash_balance_fen,list_credit_fen,organization_id',[o.account_id,o.amount_fen])).rows[0];
   await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'recharge',$2,$3,'payment',$4)",[o.account_id,o.amount_fen,account.cash_balance_fen,o.id]);
   const order=(await db.query("UPDATE payment_orders SET status='paid',provider_trade_no=$2,paid_at=now(),updated_at=now() WHERE id=$1 RETURNING *",[o.id,tradeNo])).rows[0];
-  await audit(db,{kind:'system',id:source},`billing.recharge.${CHANNELS[provider].audit}_paid`,account.organization_id,o.id,{amount_fen:String(o.amount_fen),provider_trade_no:tradeNo});
+  await audit(db,{kind:'system',id:source},`billing.recharge.${CHANNELS[provider].audit}_paid`,account.organization_id,o.id,{amount_fen:String(o.amount_fen),face_fen:String(o.amount_fen),provider_trade_no:tradeNo});
   return {order,credited:true};
  });
 }
@@ -221,7 +223,7 @@ export async function finishRefund(pool,refundId,{outcome,code},source){
    await audit(db,{kind:'system',id:source},`billing.refund.${ch}_succeeded`,null,cur.id,{order_id:o.id,amount_fen:String(cur.amount_fen)});
    return 'succeeded';
   }
-  const acct=(await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen+$2 WHERE id=$1 RETURNING cash_balance_fen,organization_id',[o.account_id,cur.amount_fen])).rows[0];
+  const acct=(await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen+$2,list_credit_fen=list_credit_fen+$2 WHERE id=$1 RETURNING cash_balance_fen,organization_id',[o.account_id,cur.amount_fen])).rows[0];
   await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'reversal',$2,$3,'correction',$4)",[o.account_id,cur.amount_fen,acct.cash_balance_fen,cur.id]);
   await db.query('UPDATE payment_orders SET refunded_fen=refunded_fen-$2,updated_at=now() WHERE id=$1',[o.id,cur.amount_fen]);
   await db.query("UPDATE payment_refunds SET status='failed',error_code=$2,completed_at=now() WHERE id=$1",[cur.id,String(code||'REJECTED').slice(0,120)]);
@@ -234,12 +236,12 @@ export async function finishRefund(pool,refundId,{outcome,code},source){
 // cannot spend money that is on its way back to them; a definitive channel rejection releases it.
 export function staffPaymentRoutes(app,pool,requireStaff,requireFinance,cfg,clients){
  const gw=gateways(cfg,clients);
- const view=async(where,params=[])=>(await pool.query(`SELECT o.id,o.provider,o.out_trade_no,o.provider_trade_no,o.amount_fen::text,o.refunded_fen::text,o.status,o.created_at,o.paid_at,a.cash_balance_fen::text AS account_balance_fen,
+ const view=async(where,params=[])=>(await pool.query(`SELECT o.id,o.provider,o.out_trade_no,o.provider_trade_no,o.amount_fen::text,o.refunded_fen::text,o.status,o.created_at,o.paid_at,a.cash_balance_fen::text AS account_balance_fen,a.list_credit_fen::text AS list_credit_fen,
    coalesce(g.name,u.name) AS account_name,CASE WHEN a.organization_id IS NULL THEN 'personal' ELSE 'organization' END AS account_kind,u.email AS owner_email,p.email AS payer_email,
    coalesce((SELECT json_agg(json_build_object('id',r.id,'amount_fen',r.amount_fen::text,'reason',r.reason,'status',r.status,'error_code',r.error_code,'requested_by',r.requested_by,'created_at',r.created_at,'completed_at',r.completed_at) ORDER BY r.created_at) FROM payment_refunds r WHERE r.order_id=o.id),'[]') AS refunds
   FROM payment_orders o JOIN billing_accounts a ON a.id=o.account_id LEFT JOIN organizations g ON g.id=a.organization_id LEFT JOIN "user" u ON u.id=a.owner_id JOIN "user" p ON p.id=o.created_by
   ${where} ORDER BY o.created_at DESC LIMIT 200`,params)).rows;
- app.get('/api/staff/payments/orders',requireStaff,async(req,res)=>{requireFinance(req);res.json({enabled:Object.keys(gw).length>0,channels:Object.keys(gw),orders:await view("WHERE o.status='paid' OR o.created_at>now()-interval '7 days'")});});
+ app.get('/api/staff/payments/orders',requireStaff,async(req,res)=>{requireFinance(req);res.json({enabled:Object.keys(gw).length>0,channels:Object.keys(gw),refund_policy:REFUND_POLICY_ZH,orders:await view("WHERE o.status='paid' OR o.created_at>now()-interval '7 days'")});});
 
  // Sends (or resends — same request number) the refund and settles the local record.
  async function settle(refundId){
@@ -268,9 +270,15 @@ export function staffPaymentRoutes(app,pool,requireStaff,requireFinance,cfg,clie
    if((await db.query("SELECT 1 FROM payment_refunds WHERE order_id=$1 AND status='pending'",[o.id])).rowCount)throw new HttpError(409,'该订单有一笔退款正在处理，请先确认其结果');
    if(amount>Number(o.amount_fen)-Number(o.refunded_fen))throw new HttpError(409,`最多可退 ¥${((Number(o.amount_fen)-Number(o.refunded_fen))/100).toFixed(2)}`);
    const acct=(await db.query('SELECT * FROM billing_accounts WHERE id=$1 FOR UPDATE',[o.account_id])).rows[0];
-   if(amount>Number(acct.cash_balance_fen))throw new HttpError(409,`账户现金余额只有 ¥${(Number(acct.cash_balance_fen)/100).toFixed(2)}，已使用的部分不能退款`);
+   if(amount>Number(acct.cash_balance_fen))throw new HttpError(409,`账户实付余额只有 ¥${(Number(acct.cash_balance_fen)/100).toFixed(2)}，已使用的部分不能退款`);
+   // Phase 1 online packs are 1:1: hold the same fen from list credit. Pack-aware formula is phase 4.
+   if(amount>Number(acct.list_credit_fen))throw new HttpError(409,`账户官价额度只有 ¥${(Number(acct.list_credit_fen)/100).toFixed(2)}，已使用的部分不能退款`);
+   const issued=(await db.query(`SELECT 1 FROM tax_invoices i JOIN customers c ON c.id=i.customer_id
+    JOIN billing_accounts b ON (b.organization_id=c.organization_id OR b.owner_id=c.user_id)
+    WHERE b.id=$1 AND i.direction='output' AND i.status='issued' LIMIT 1`,[acct.id])).rowCount;
+   if(issued)throw new HttpError(409,'该客户已开具销项发票，按规则不退款');
    const refund=(await db.query('INSERT INTO payment_refunds(order_id,out_request_no,amount_fen,reason,requested_by,idempotency_key) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',[o.id,'RF'+new Date().toISOString().replace(/\D/g,'').slice(0,14)+randomBytes(6).toString('hex'),amount,reason,req.staff.subject,key])).rows[0];
-   const after=(await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen-$2 WHERE id=$1 RETURNING cash_balance_fen',[acct.id,amount])).rows[0];
+   const after=(await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen-$2,list_credit_fen=list_credit_fen-$2 WHERE id=$1 RETURNING cash_balance_fen',[acct.id,amount])).rows[0];
    await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'refund',$2,$3,'refund',$4)",[acct.id,-amount,after.cash_balance_fen,refund.id]);
    await db.query('UPDATE payment_orders SET refunded_fen=refunded_fen+$2,updated_at=now() WHERE id=$1',[o.id,amount]);
    await audit(db,req.actor,'billing.refund.requested',acct.organization_id,refund.id,{order_id:o.id,amount_fen:String(amount),reason});
