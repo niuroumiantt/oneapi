@@ -126,6 +126,8 @@ async function monthFinance(pool, month) {
    SELECT (SELECT coalesce(-sum(l.amount_fen),0)/100.0 FROM billing_ledger l,r WHERE l.kind='usage' AND l.created_at>=r.a AND l.created_at<r.z) AS cash_revenue,
     (SELECT coalesce(sum(l.amount_fen),0)/100.0 FROM billing_ledger l,r WHERE l.kind='recharge' AND l.created_at>=r.a AND l.created_at<r.z) AS received,
     (SELECT coalesce(sum(f.amount_fen),0)/100.0 FROM payment_refunds f,r WHERE f.status='succeeded' AND f.completed_at>=r.a AND f.completed_at<r.z) AS refunded,
+    (SELECT coalesce(sum(o.channel_fee_fen),0)/100.0 FROM payment_orders o,r WHERE o.status='paid' AND o.paid_at>=r.a AND o.paid_at<r.z) AS channel_cost,
+    (SELECT count(*) FROM payment_orders o,r WHERE o.status='paid' AND o.channel_fee_fen IS NULL AND o.paid_at>=r.a AND o.paid_at<r.z) AS channel_unreconciled,
     (SELECT coalesce(sum(p.amount_fen),0)/100.0 FROM supplier_payments p,r WHERE p.voided_at IS NULL AND p.paid_on>=(r.a ${SH})::date AND p.paid_on<(r.z ${SH})::date) AS supplier_paid,
     (SELECT coalesce(sum(i.amount_fen),0)/100.0 FROM tax_invoices i,r WHERE i.direction='output' AND i.status='issued' AND i.issued_on>=(r.a ${SH})::date AND i.issued_on<(r.z ${SH})::date) AS invoiced,
     (SELECT coalesce(sum(u.amt),0) FROM u,r WHERE u.occurred_at>=r.a AND u.occurred_at<r.z AND ${UNCLAIMED}) AS other_cost,
@@ -151,8 +153,8 @@ async function monthFinance(pool, month) {
  return {
   month,
   // Recognised revenue is cash actually charged for usage. Internal credit is shown at list price but is not revenue.
-  accrual: { revenue, credit_list: list, upstream_cost: cost, sales_cost: salesCost, other_cost: otherCost, estimated_cost: n(sales.estimated), gross_profit: revenue - cost, list_margin: list + revenue > 0 ? (list + revenue - salesCost) / (list + revenue) : null, calls: n(sales.calls), unmatched_calls: n(sales.unmatched) },
-  cash: { received: n(t.received), refunded: n(t.refunded), supplier_paid: n(t.supplier_paid), net: n(t.received) - n(t.refunded) - n(t.supplier_paid), invoiced: n(t.invoiced) },
+  accrual: { revenue, channel_cost:n(t.channel_cost),channel_unreconciled:n(t.channel_unreconciled),operating_profit:revenue-cost-n(t.channel_cost), credit_list: list, upstream_cost: cost, sales_cost: salesCost, other_cost: otherCost, estimated_cost: n(sales.estimated), gross_profit: revenue - cost, list_margin: list + revenue > 0 ? (list + revenue - salesCost) / (list + revenue) : null, calls: n(sales.calls), unmatched_calls: n(sales.unmatched) },
+  cash: { received: n(t.received), refunded: n(t.refunded), supplier_paid: n(t.supplier_paid),channel_cost:n(t.channel_cost), net: n(t.received) - n(t.refunded) - n(t.supplier_paid) - n(t.channel_cost), invoiced: n(t.invoiced) },
   balances: { customer_cash: n(balances.rows[0].customer_cash), credit_unused: n(balances.rows[0].credit_unused), invoices_requested: n(balances.rows[0].invoices_requested) },
   by_product: byProduct.rows.map(p => ({ ...p, name: names.get(p.model_id) || p.model_id })),
   by_customer: byCustomer.rows,
@@ -173,7 +175,7 @@ async function yearSeries(pool) {
   ledger AS (SELECT ${key('l.created_at')} AS month,sum(l.amount_fen) FILTER(WHERE l.kind='recharge') AS recharge_fen,-sum(l.amount_fen) FILTER(WHERE l.kind='usage') AS usage_fen FROM billing_ledger l,b WHERE l.created_at>=b.t GROUP BY 1),
   refunds AS (SELECT ${key('f.completed_at')} AS month,sum(f.amount_fen) AS fen FROM payment_refunds f,b WHERE f.status='succeeded' AND f.completed_at>=b.t GROUP BY 1),
   paid AS (SELECT to_char(p.paid_on,'YYYY-MM') AS month,sum(p.amount_fen) AS fen FROM supplier_payments p,b WHERE p.voided_at IS NULL AND p.paid_on>=(b.t ${SH})::date GROUP BY 1)
-  SELECT m.month,coalesce(l.usage_fen,0)/100.0 AS revenue,coalesce(c.yuan,0) AS credit_list,coalesce(c.calls,0)::int AS calls,coalesce(k.yuan,0) AS upstream_cost,
+  SELECT m.month,coalesce(l.usage_fen,0)/100.0 AS revenue,coalesce(c.yuan,0) AS credit_list,coalesce(c.calls,0)::int AS calls,coalesce(k.yuan,0) AS upstream_cost,coalesce((SELECT sum(o.channel_fee_fen)/100.0 FROM payment_orders o WHERE o.status='paid' AND to_char(o.paid_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM')=m.month),0) AS channel_cost,
    coalesce(l.recharge_fen,0)/100.0 AS received,coalesce(f.fen,0)/100.0 AS refunded,coalesce(p.fen,0)/100.0 AS supplier_paid
   FROM months m LEFT JOIN cost k USING(month) LEFT JOIN credit c USING(month) LEFT JOIN ledger l USING(month) LEFT JOIN refunds f USING(month) LEFT JOIN paid p USING(month) ORDER BY m.month`)).rows
   .map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, k === 'month' ? v : Number(v)])));

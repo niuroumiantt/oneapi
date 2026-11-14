@@ -1476,7 +1476,7 @@ test('list-credit refund formula and dual-approval bank transfer',async()=>{
  assert.equal(refundCashFen({faceFen:10000,cashPaidFen:3000,remainingFen:5000,hasIssuedInvoice:true}).code,'invoice_blocks_refund');
  assert.equal(refundCashFen({faceFen:10000,cashPaidFen:3000,remainingFen:0,hasIssuedInvoice:false}).code,'nothing_to_refund');
  assert.equal(refundCashFen({faceFen:100,cashPaidFen:30,remainingFen:4,hasIssuedInvoice:false}).netFen,1);
- assert.equal(refundCashFen({faceFen:100,cashPaidFen:100,remainingFen:1,hasIssuedInvoice:false}).code,'fee_consumes_refund');
+ assert.equal(refundCashFen({faceFen:100,cashPaidFen:100,remainingFen:1,hasIssuedInvoice:false}).netFen,1);
 
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
  identity={sub:'finance-a',email:'finance-a@example.test',name:'Finance A',staff_approved:true};const fa=jar();await staffLogin(fa);
@@ -1574,4 +1574,53 @@ test('ordinary customer: discounted purchase, signed payment, scoped key, shared
  // Re-running migrations must not recreate refunded credit or restore spent amounts.
  await migrate(pool,service.auth);assert.equal((await wallet()).list_credit_fen,'0');assert.equal((await wallet()).packs.length,1);
  appCfg.customerPaid.enabled=false;pilotFetch=fetch;
+});
+
+
+test('payment rounding, actual channel cost isolation and audited admin waiver',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ const buyer=await user('rounding-buyer');appCfg.alipay.allowedEmails.add(buyer.email);
+ const order=(await buyer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{face_fen:500,idempotency_key:'rounding-order-key-001'}})).data.order;
+ const o=(await pool.query('SELECT out_trade_no,account_id FROM payment_orders WHERE id=$1',[order.id])).rows[0];seedAlipayTrade(o.out_trade_no,'5.00').status='TRADE_SUCCESS';
+ await buyer.j.call('/api/billing/alipay-orders/'+order.id);
+ const pack=(await pool.query('SELECT id FROM credit_packs WHERE source_id=$1',[order.id])).rows[0];
+ // Reproduce the real tiny-call remainder; no per-call penny rounding.
+ await pool.query('UPDATE credit_packs SET remaining_fen=499.9959 WHERE id=$1',[pack.id]);await pool.query('UPDATE billing_accounts SET list_credit_fen=499.9959 WHERE id=$1',[o.account_id]);
+ const wallet=async()=>(await buyer.j.call('/api/billing/personal')).data;
+ assert.equal((await wallet()).list_credit_fen,'500');assert.equal((await wallet()).list_credit_exact_fen,'499.9959000000');
+ const path='/api/staff/payments/orders/'+order.id;
+ const quote=(await admin.call(path+'/refund-quote')).data;assert.equal(quote.net_fen,'425');
+ const fee=body=>admin.call(path+'/channel-fee',{method:'POST',body});
+ assert.equal((await buyer.j.call(path+'/channel-fee',{method:'POST',body:{amount_fen:3,version:0,evidence:'test statement'}})).status,401);
+ assert.equal((await fee({amount_fen:3,version:0,evidence:'test statement row 1'})).status,200);
+ assert.equal((await fee({amount_fen:3,version:0,evidence:'duplicate'})).status,409);
+ assert.equal((await wallet()).cash_balance_fen,'500','channel fee never reduces customer money');
+ const month=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date());
+ const finance=(await admin.call('/api/staff/business/finance?month='+month)).data;
+ assert.ok(finance.current.accrual.channel_cost>=0.03);
+ const listing=(await admin.call('/api/staff/payments/orders')).data;
+ assert.equal(listing.customers.find(c=>c.email===buyer.email).transactions,1);
+ assert.equal(listing.customers.find(c=>c.email===buyer.email).received_fen,'500');
+ assert.equal((await admin.call(path+'/refund-quote?fee_percent=0')).data.net_fen,'500');
+ assert.equal((await admin.call(path+'/refund-quote?fee_percent=-1')).status,400);
+ assert.equal((await admin.call(path+'/refund-quote?fee_percent=5')).data.net_fen,'475');
+ identity={sub:'fee-finance-fixture',email:'fee-finance@example.test',name:'Finance',staff_approved:true};const financeStaff=jar();await staffLogin(financeStaff);
+ await admin.call('/api/staff/members/fee-finance-fixture',{method:'PATCH',body:{role:'operations',status:'active'}});
+ await admin.call('/api/staff/members/fee-finance-fixture/finance-access',{method:'PUT',body:{enabled:true}});await staffLogin(financeStaff);
+ assert.equal((await financeStaff.call(path+'/refund-quote')).status,200);
+ assert.equal((await financeStaff.call(path+'/refund-quote?fee_percent=0')).status,403);
+ assert.equal((await financeStaff.call(path+'/refunds',{method:'POST',body:{amount_fen:500,service_fee_percent:0,waiver_reason:'not authorised',reason:'test',idempotency_key:'not-authorised-waive'}})).status,403);
+
+ assert.equal((await admin.call(path+'/refunds',{method:'POST',body:{amount_fen:500,service_fee_percent:0,reason:'test',idempotency_key:'waiver-missing-reason'}})).status,400);
+ const body={amount_fen:500,service_fee_percent:0,waiver_reason:'acceptance goodwill',reason:'unused funds',idempotency_key:'waiver-rounding-000001'};
+ const result=await admin.call(path+'/refunds',{method:'POST',body});assert.equal(result.data.status,'succeeded',JSON.stringify(result.data));
+ assert.equal((await admin.call(path+'/refunds',{method:'POST',body})).data.refund_id,result.data.refund_id);
+ const record=(await pool.query('SELECT * FROM payment_refunds WHERE id=$1',[result.data.refund_id])).rows[0];assert.equal(record.service_fee_percent,0);assert.equal(record.standard_net_fen,'425');assert.equal(record.waiver_reason,'acceptance goodwill');assert.equal(record.waiver_approved_by,'staff-owner');assert.ok(record.waiver_approved_at);
+ assert.equal((await wallet()).cash_balance_fen,'0');assert.equal((await wallet()).list_credit_fen,'0');
+ assert.equal((await admin.call(path+'/refunds',{method:'POST',body:{...body,service_fee_percent:15,amount_fen:425}})).status,409,'idempotency key cannot change approved terms');
+ assert.equal((await fee({amount_fen:0,version:1,evidence:'statement correction: fee waived by channel'})).status,200);
+ assert.equal((await fee({amount_fen:3,version:1,evidence:'stale correction'})).status,409);
+ assert.equal((await fee({amount_fen:3,version:2,evidence:'corrected actual channel fee'})).status,200);
+
+ assert.equal((await pool.query('SELECT channel_fee_fen FROM payment_orders WHERE id=$1',[order.id])).rows[0].channel_fee_fen,'3','refund does not erase actual channel cost');
 });

@@ -54,10 +54,11 @@ export async function settlePaidCall(pool,callId,amount,usage,source,requestId,l
   await db.query(`UPDATE customer_calls SET status='settled',actual_yuan=$2,charged_yuan=$3::numeric/100,settlement_source=$4,upstream_request_id=coalesce($5,upstream_request_id),input_tokens=$6,cached_input_tokens=$7,output_tokens=$8,latency_ms=coalesce($9,latency_ms),finished_at=coalesce(finished_at,now()),settled_at=now() WHERE id=$1`,[callId,amount,charge,source,requestId,usage?.input??null,usage?.cached??null,usage?.output??null,latency??null]);
  });
 }
-export async function refundQuote(db,packId){
- const p=(await db.query(`SELECT p.*,(cash_fen-consumed_cash_fen)::bigint AS gross_fen,floor(remaining_fen*cash_fen/face_fen*0.85)::bigint AS net_fen FROM credit_packs p WHERE id=$1`,[packId])).rows[0];
+export async function refundQuote(db,packId,feePercent=15){
+ if(!Number.isInteger(feePercent)||feePercent<0||feePercent>15)throw new HttpError(400,'服务费比例须为 0 至 15 的整数');
+ const p=(await db.query(`SELECT p.*,(cash_fen-consumed_cash_fen)::bigint AS gross_fen,remaining_fen*cash_fen/face_fen AS unused_cash_exact_fen,round(remaining_fen*cash_fen/face_fen*0.85)::bigint AS standard_net_fen,round(remaining_fen*cash_fen/face_fen*(100-$2::numeric)/100)::bigint AS net_fen FROM credit_packs p WHERE id=$1`,[packId,feePercent])).rows[0];
  if(!p)throw new HttpError(404,'额度包不存在');
  const block=(await db.query(`SELECT 1 FROM tax_invoices i JOIN customers c ON c.id=i.customer_id JOIN billing_accounts a ON a.owner_id=c.user_id OR a.organization_id=c.organization_id WHERE a.id=$1 AND i.direction='output' AND i.status='issued'`,[p.account_id])).rowCount;
  const busy=(await db.query("SELECT 1 FROM customer_calls WHERE account_id=$1 AND status IN ('pending','awaiting_bill')",[p.account_id])).rowCount;
- return {...p,fee_fen:String(BigInt(p.gross_fen)-BigInt(p.net_fen)),blocked:p.source_kind==='bank'?'对公退款请联系财务人工处理':block?'已开具销项发票，需先作废或红冲':busy?'仍有调用或用量待结算，请结算后退款':p.refund_id?'该包已申请退款':BigInt(p.net_fen)<=0n?'没有可退金额':null};
+ return {...p,service_fee_percent:feePercent,fee_fen:String(BigInt(p.gross_fen)-BigInt(p.net_fen)),blocked:p.source_kind==='bank'?'对公退款请联系财务人工处理':block?'已开具销项发票，需先作废或红冲':busy?'仍有调用或用量待结算，请结算后退款':p.refund_id?'该包已申请退款':BigInt(p.net_fen)<=0n?'没有可退金额':null};
 }
