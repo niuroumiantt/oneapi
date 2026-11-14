@@ -7,10 +7,11 @@ function disabled(account,entries,scope,totalRecharged,channels=[]){
  return {
   scope,currency:'CNY',
   // Panel default: list-price credit. Cash paid is for bills/invoices only.
-  list_credit_fen:String(Math.floor(Number(account?.list_credit_fen||0))),
+  list_credit_fen:String(Math.round(Number(account?.list_credit_fen||0))),
   cash_balance_fen:String(account?.cash_balance_fen||0),
   total_spent_fen:String(account?.total_spent_fen||0),
   total_recharged_fen:String(totalRecharged||0),
+  list_credit_exact_fen:String(account?.list_credit_fen||0),
   entries,usage_by_model:[],
   recharge:{enabled:channels.length>0,minimum_fen:500,maximum_fen:5000000,channels},
   refund:{enabled:true,fee_percent:15,policy:REFUND_POLICY_ZH},
