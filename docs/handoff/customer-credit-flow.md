@@ -39,3 +39,10 @@
 - 代码：`server/src/{pack-ledger,customer-credit,payments}.mjs`、`server/migrations/061_customer_credit.sql`。
 - 验证：独立空数据库 `TEST_DATABASE_URL=postgresql://… npm test`；提交后 `python3 scripts/build_static.py --out /tmp/oneapi.tar.gz`。
 - 本机测试日志 `/tmp/oneapi-credit-tests7.log`；预览截图 `/tmp/oneapi-credit-{keys,billing}.png`。临时测试数据不包含真实客户资金或生产密钥。
+
+## New merchant app handoff (2026-11-14, m5)
+
+- User screenshot confirms new AppID `2021007119672763`, generated name `OpenApp_476099_9zkv`. The preceding screenshot says website payments opened; new app permissions are not API-verified yet. Keep the old app.
+- Generated a separate RSA 2048 key on production only: `/srv/oneapi-config/alipay-2021007119672763/application-private.pem`, directory 0700, file 0600. Runtime still uses the old AppID; no config switch yet. Reuse this new key, never overwrite it during continuation.
+- Application public key exported as single-line SPKI DER Base64 (392 characters): local `/tmp/oneapi-alipay-2021007119672763-public.txt`. DER SHA256: `ad3ab7aa82a344b40670398d502334e7d2d06c1dd853cf1283e5f857158a1743`.
+- Opened public key file for user to paste into the application-public-key form. No browser read/click tool is available in this session. Await user submission, then obtain the new app's Alipay verification public key, verify merchant identity/PID and product permissions before switching runtime. Application public key is NOT the Alipay verification public key.
