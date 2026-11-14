@@ -80,10 +80,12 @@ function openForm({ title, body, submit = '保存', wide = false, onSubmit }) {
  const dialog = $('#dialog'), form = $('#dialogForm');
  dialog.classList.toggle('wide', wide);
  form.innerHTML = `<h2>${title}</h2>${body}<div class="form-error" role="alert"></div><div class="actions"><button type="button" data-close>${onSubmit ? '取消' : '关闭'}</button>${onSubmit ? `<button class="primary" type="submit">${submit}</button>` : ''}</div>`;
+ form.oninput = () => { form.querySelector('.form-error').textContent = ''; };
  form.onsubmit = async e => {
   e.preventDefault();
   if (!onSubmit) return;
   const button = form.querySelector('[type=submit]');
+  form.querySelector('.form-error').textContent = '';
   button.disabled = true;
   try { const done = await onSubmit(Object.fromEntries(new FormData(form))); dialog.close(); await reload(); if (done) notify(done, true); }
   catch (err) { form.querySelector('.form-error').textContent = err.message; }
@@ -344,7 +346,7 @@ const ACTIONS = {
   const q=await api(`payments/orders/${b.dataset.id}/refund-quote`);
   if(q.blocked)return notify(q.blocked);
   const idempotency=crypto.randomUUID().replace(/-/g,'');
-  simple('退回本包剩余额度', `<p>对应未使用实付 ¥${(Number(q.unused_cash_exact_fen)/100).toFixed(6)}；标准服务费 15%，实际退回 <strong>${fen(q.net_fen)}</strong>（四舍五入到分）。</p><p>退款冻结本包全部剩余额度；渠道明确拒绝后恢复。已开发票不可退。</p>${q.can_waive?'<label>服务费比例（默认 15%，特批可减至 0%）<input name="fee_percent" type="number" min="0" max="15" step="1" value="15" required></label><label>特批原因（减免时必填）<input name="waiver_reason" maxlength="200"></label><p id="refund-preview">实际退款 '+fen(q.net_fen)+'</p>':''}<label>退款原因<input name="reason" required maxlength="200"></label><label class="check"><input type="checkbox" required> 我已核对客户申请和退款金额</label>`, async v => {
+  simple('退回本包剩余额度', `<p>对应未使用实付 ¥${(Number(q.unused_cash_exact_fen)/100).toFixed(6)}；标准服务费 15%，标准退款 <strong>${fen(q.net_fen)}</strong>（四舍五入到分）。</p><p>退款冻结本包全部剩余额度；渠道明确拒绝后恢复。已开发票不可退。</p>${q.can_waive?'<label>服务费比例（默认 15%，特批可减至 0%）<input name="fee_percent" type="number" min="0" max="15" step="1" value="15" required></label><label>特批原因（减免时必填）<input name="waiver_reason" maxlength="200"></label><p id="refund-preview">实际退款 '+fen(q.net_fen)+'</p>':''}<label>退款原因<input name="reason" required maxlength="200"></label><label class="check"><input type="checkbox" required> 我已核对客户申请和退款金额</label>`, async v => {
    const percent=q.can_waive?Number(v.fee_percent):15;
    if(percent<15&&!v.waiver_reason?.trim())throw Error('请填写特批原因');
    const latest=await api(`payments/orders/${b.dataset.id}/refund-quote?fee_percent=${percent}`);
