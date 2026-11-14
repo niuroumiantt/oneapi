@@ -13,7 +13,7 @@ export function refundCashFen({ faceFen, cashPaidFen, remainingFen, hasIssuedInv
   if (hasIssuedInvoice) return { ok: false, code: 'invoice_blocks_refund' };
   if (!(faceFen > 0) || remainingFen <= 0 || cashPaidFen <= 0) return { ok: false, code: 'nothing_to_refund' };
   const gross = Math.floor(remainingFen * cashPaidFen / faceFen);
-  const net = Math.floor(gross * 85 / 100);
+  const net = Math.floor(remainingFen * cashPaidFen * 85 / (faceFen * 100));
   if (net <= 0) return { ok: false, code: 'fee_consumes_refund' };
   return { ok: true, grossFen: gross, feeFen: gross - net, netFen: net };
 }

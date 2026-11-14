@@ -5,7 +5,7 @@ ALTER TABLE billing_accounts
   ADD COLUMN IF NOT EXISTS list_credit_fen bigint NOT NULL DEFAULT 0 CHECK (list_credit_fen >= 0);
 
 UPDATE billing_accounts SET list_credit_fen = cash_balance_fen
- WHERE list_credit_fen = 0 AND cash_balance_fen > 0;
+ WHERE list_credit_fen = 0 AND cash_balance_fen > 0 AND to_regclass('public.credit_packs') IS NULL;
 
 -- Dual-approval corporate bank transfer intake: register (pending) then a second person approves.
 CREATE TABLE IF NOT EXISTS bank_transfer_entries (

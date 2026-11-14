@@ -165,8 +165,9 @@ pages.pnl = d => {
 
 pages.payments = p => {
  const rows = p.orders.map(o => {
+  const request=p.requests?.find(r=>r.order_id===o.id);o.refund_request=request;
   const left = Number(o.amount_fen) - Number(o.refunded_fen), pending = o.refunds.find(r => r.status === 'pending'), find = [o.out_trade_no, o.provider_trade_no, o.account_name, o.owner_email, o.payer_email].join(' ').toLowerCase();
-  return `<tr data-find="${att(find)}"><td><b>${esc(o.out_trade_no)}</b><small>${when(o.paid_at || o.created_at)}${' · ' + esc(LABEL.channel[o.provider] || o.provider)}${o.provider_trade_no ? ' ' + esc(o.provider_trade_no) : ''}</small></td><td>${esc(o.account_name)}<small>${o.account_kind === 'organization' ? '企业' : '个人'} · 付款人 ${esc(o.payer_email)} · 实付余额 ${fen(o.account_balance_fen)} · 官价额度 ${fen(o.list_credit_fen)}</small></td>${num(fen(o.amount_fen) + (Number(o.refunded_fen) ? `<small>已退 ${fen(o.refunded_fen)}</small>` : ''), o.amount_fen)}<td>${pill('order', o.status)}${o.refunds.map(r => `<small>退款 ${fen(r.amount_fen)} · ${esc(LABEL.refund[r.status])} · ${esc(r.reason)}${r.status !== 'succeeded' && r.error_code ? ' · ' + esc(r.error_code) : ''}</small>`).join('')}</td><td>${pending ? `<button data-act="refund-retry" data-id="${att(pending.id)}">确认退款结果</button>` : o.status === 'paid' && left > 0 && p.channels?.includes(o.provider) ? `<button data-act="refund" data-id="${att(o.id)}" data-channel="${att(LABEL.channel[o.provider] || '')}" data-left="${left}" data-balance="${att(o.account_balance_fen)}">原路退款</button>` : '—'}</td></tr>`;
+  return `<tr data-find="${att(find)}"><td><b>${esc(o.out_trade_no)}</b><small>${when(o.paid_at || o.created_at)}${' · ' + esc(LABEL.channel[o.provider] || o.provider)}${o.provider_trade_no ? ' ' + esc(o.provider_trade_no) : ''}</small></td><td>${esc(o.account_name)}${request?`<small>客户申请退款：${esc(request.reason)}</small>`:''}<small>${o.account_kind === 'organization' ? '企业' : '个人'} · 付款人 ${esc(o.payer_email)} · 实付余额 ${fen(o.account_balance_fen)} · 官价额度 ${fen(o.list_credit_fen)}</small></td>${num(fen(o.amount_fen) + (Number(o.refunded_fen) ? `<small>已退 ${fen(o.refunded_fen)}</small>` : ''), o.amount_fen)}<td>${pill('order', o.status)}${o.refunds.map(r => `<small>退款 ${fen(r.amount_fen)} · ${esc(LABEL.refund[r.status])} · ${esc(r.reason)}${r.status !== 'succeeded' && r.error_code ? ' · ' + esc(r.error_code) : ''}</small>`).join('')}</td><td>${pending ? `<button data-act="refund-retry" data-id="${att(pending.id)}">确认退款结果</button>` : o.status === 'paid' && left > 0 && p.channels?.includes(o.provider) ? `<button data-act="refund" data-id="${att(o.id)}" data-channel="${att(LABEL.channel[o.provider] || '')}" data-left="${left}" data-balance="${att(o.account_balance_fen)}">原路退款</button>` : '—'}</td></tr>`;
  }).join('');
  return section('在线支付订单与退款', table(['订单', '账户', ['金额'], '状态', '操作'], rows, '还没有付款订单。'), '<input id="find" type="search" placeholder="订单号 / 客户 / 邮箱" aria-label="搜索订单">', (p.refund_policy || '退款按实际付款金额，扣除已使用官价额度对应比例后，再收取 15% 手续费；已开具销项发票的不退款。') + ' 原路退回付款人的支付宝或微信。发起时先从账户扣出；渠道明确拒绝时自动冲回。')
   + '<div class="callout">对公转账请到「对公入账」：财务登记实付与官价面额，另一人复核后入账。</div>';
@@ -225,8 +226,8 @@ pages.products = () => {
 const audienceText = g => g.audience === 'customer' ? `<code>${esc(g.customer_code)}</code> ${esc(g.customer_name)}` : g.audience === 'tag' ? `分群 <span class="pill">${esc(g.tag)}</span>` : '全部客户';
 pages.discounts = d => {
  const models = Object.fromEntries(d.models.map(m => [m.id, m.name]));
- const rows = d.grants.map(g => `<tr><td><b>${esc(g.name)}</b><small>${esc(g.reason)}</small></td><td>${audienceText(g)}</td><td>${g.model_id ? esc(models[g.model_id] || g.model_id) : '全部产品'}</td>${num(discountText(g.customer_price_percent) + (g.cap_fen ? `<small>优惠上限 ${fen(g.cap_fen)}</small>` : ''), g.customer_price_percent)}<td>${dayOf(g.starts_at)} – ${lastDay(g.ends_at)}</td><td>${pill('discount', g.state)}<small>提出 ${esc(g.created_by_name)}${g.decided_by_name && g.decided_by_name !== g.created_by_name ? ' · 处理 ' + esc(g.decided_by_name) : ''}</small>${g.decision_note ? `<small>${esc(g.decision_note)}</small>` : ''}</td><td>${g.status === 'pending' ? (d.can_decide && g.created_by !== d.me ? `<button data-act="discount" data-id="${att(g.id)}" data-action="approve">批准</button> <button data-act="discount" data-id="${att(g.id)}" data-action="reject">驳回</button>` : '<small>等待财务或管理员审批</small>') : g.status === 'active' && g.state !== 'expired' && (d.can_decide || g.created_by === d.me) ? `<button data-act="discount" data-id="${att(g.id)}" data-action="revoke">收回</button>` : '—'}</td></tr>`).join('');
- return '<div class="callout">折扣只在购买官价额度包付款时生效（取最优一条、不叠加）；调用一律按官网价扣官价额度。购包促销码接入前，本台账不改变实付金额。</div>'
+ const rows = d.grants.map(g => `<tr><td><b>${esc(g.name)}</b><small>${g.promo_code?'促销码：'+esc(g.promo_code)+' · ':''}${esc(g.reason)}</small></td><td>${audienceText(g)}</td><td>${g.model_id ? esc(models[g.model_id] || g.model_id) : '全部产品'}</td>${num(discountText(g.customer_price_percent) + (g.cap_fen ? `<small>优惠上限 ${fen(g.cap_fen)}</small>` : ''), g.customer_price_percent)}<td>${dayOf(g.starts_at)} – ${lastDay(g.ends_at)}</td><td>${pill('discount', g.state)}<small>提出 ${esc(g.created_by_name)}${g.decided_by_name && g.decided_by_name !== g.created_by_name ? ' · 处理 ' + esc(g.decided_by_name) : ''}</small>${g.decision_note ? `<small>${esc(g.decision_note)}</small>` : ''}</td><td>${g.status === 'pending' ? (d.can_decide && g.created_by !== d.me ? `<button data-act="discount" data-id="${att(g.id)}" data-action="approve">批准</button> <button data-act="discount" data-id="${att(g.id)}" data-action="reject">驳回</button>` : '<small>等待财务或管理员审批</small>') : g.status === 'active' && g.state !== 'expired' && (d.can_decide || g.created_by === d.me) ? `<button data-act="discount" data-id="${att(g.id)}" data-action="revoke">收回</button>` : '—'}</td></tr>`).join('');
+ return '<div class="callout">折扣只在购买官价额度包付款时生效（取最优一条、不叠加）；调用一律按官网价扣官价额度。无型号限制的有效授权已接入购包；旧的型号专属授权保留为台账，不参与通用额度包。</div>'
   + section('折扣授权', table(['授权', '对象', '适用产品', ['客户实付'], '有效期', '状态', '操作'], rows, '还没有折扣授权。'), '<button class="primary" data-act="discount-new">新建折扣授权</button>', '业务员工提出，财务或平台管理员审批，提出人不能审批自己的申请。平台管理员提出的授权直接生效。')
   + section('促销活动草稿', table(['活动', '商品', ['客户价格'], '期限', ['优惠预算']], d.campaigns.map(c => `<tr><td><b>${esc(c.name)}</b></td><td>${esc(c.product_name)}</td>${num(discountText(c.customer_price_percent), c.customer_price_percent)}<td>${dayOf(c.starts_at)} – ${dayOf(c.ends_at)}</td>${num(fen(c.total_discount_budget_fen), c.total_discount_budget_fen)}</tr>`).join(''), '还没有活动草稿。'), '<a href="/#ops/promotions">设计活动 ↗</a>', '活动草稿不会发放优惠码，也没有开启推广佣金。');
 };
@@ -322,10 +323,10 @@ function answerDialog(answerId) {
 async function discountDialog() {
  const d = cache['business/discounts'], tags = d.tags.map(t => `<option value="${att(t.tag)}">${esc(t.tag)}（${t.customers} 个客户）</option>`).join(''), customers = await customerOptions();
  const start = today(), end = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
- openForm({ title: '新建折扣授权', submit: '提交', body: `<label>授权名称<input name="name" required maxlength="100" placeholder="例如：某某公司年度合作价"></label>
+ openForm({ title: '新建折扣授权', submit: '提交', body: `<label>促销码（留空自动匹配合同折扣）<input name="promo_code" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}"></label><label>授权名称<input name="name" required maxlength="100" placeholder="例如：某某公司年度合作价"></label>
   <label>授权对象<select name="audience" id="audiencePick"><option value="customer">单个客户</option><option value="tag" ${tags ? '' : 'disabled'}>客户分群（按标签）</option><option value="all">全部客户</option></select></label>
   <label data-audience="customer">客户<select name="customer_id">${customers}</select></label><label data-audience="tag" hidden>分群标签<select name="tag">${tags}</select></label>
-  <div class="row2"><label>适用产品<select name="model_id"><option value="">全部产品</option>${d.models.map(m => `<option value="${att(m.id)}">${esc(m.name)}</option>`).join('')}</select></label><label>客户实付比例（%）<input name="customer_price_percent" type="number" min="1" max="99" required value="90"></label></div>
+  <div class="row2"><label>适用产品<select name="model_id"><option value="">全部产品</option></select></label><label>客户实付比例（%）<input name="customer_price_percent" type="number" min="1" max="99" required value="90"></label></div>
   <div class="row2"><label>开始日期<input name="starts_at" type="date" required value="${start}"></label><label>结束日期（含当天）<input name="ends_at" type="date" required value="${end}"></label></div>
   <label>优惠金额上限（元，可不填）<input name="cap_yuan" inputmode="decimal"></label><label>授权理由<textarea name="reason" required rows="3" maxlength="500" placeholder="合同、用量承诺、竞争情况…"></textarea></label><small>85 表示客户按标价的 85% 付费，即 8.5 折。</small>`,
   onSubmit: async v => {
@@ -337,18 +338,13 @@ async function discountDialog() {
 
 const simple = (title, body, onSubmit, submit) => openForm({ title, body, onSubmit, submit });
 const ACTIONS = {
- refund(b) {
-  const max = Math.min(Number(b.dataset.left), Number(b.dataset.balance));
-  if (max <= 0) return notify('账户实付余额为 0，已使用的部分不能退款。');
-  const policy = cache['payments/orders']?.refund_policy || '退款按实际付款金额，扣除已使用官价额度对应比例后，再收取 15% 手续费；已开具销项发票的不退款。';
-  simple('原路退款', `<p>${esc(policy)}</p><p>款项退回付款人的${esc(b.dataset.channel || '支付账户')}，无法撤回。这笔订单最多可退 ${fen(max)}（当前在线退款仍按订单未退金额与实付余额取低，完整按笔公式见后续版本）。</p><label>退款金额（元）<input name="amount" required inputmode="decimal" value="${(max / 100).toFixed(2)}"></label><label>退款原因（客户和审计记录可见）<input name="reason" required maxlength="200"></label><label class="check"><input type="checkbox" required> 我已核对订单和金额，并确认客户未开具销项发票</label>`, async v => {
-   const m = /^(\d{1,9})(?:\.(\d{1,2}))?$/.exec(v.amount.trim());
-   if (!m) throw Error('金额格式不正确');
-   const amount = Number(m[1]) * 100 + Number((m[2] || '').padEnd(2, '0'));
-   if (amount <= 0 || amount > max) throw Error('退款金额超出可退范围');
-   const r = await api(`payments/orders/${b.dataset.id}/refunds`, { amount_fen: amount, reason: v.reason.trim(), idempotency_key: crypto.randomUUID().replace(/-/g, '') });
-   return { succeeded: '退款成功，已原路退回。', failed: '支付渠道拒绝了这笔退款，金额已冲回账户余额。', pending: '退款已提交，渠道尚未确认结果，金额已从余额中扣出。稍后点“确认退款结果”。' }[r.status];
-  }, '确认退款');
+ async refund(b) {
+  const q=await api(`payments/orders/${b.dataset.id}/refund-quote`);
+  if(q.blocked)return notify(q.blocked);
+  simple('退回本包剩余额度', `<p>本包剩余官价额度 ${fen(q.remaining_fen)}；对应实付 ${fen(q.gross_fen)}，手续费 ${fen(q.fee_fen)}，实际原路退回 <strong>${fen(q.net_fen)}</strong>。</p><p>退款冻结本包全部剩余额度。处理中不能消费；渠道明确拒绝后恢复。已开发票不可退。</p><label>退款原因<input name="reason" required maxlength="200"></label><label class="check"><input type="checkbox" required> 我已核对客户申请和退款金额</label>`, async v => {
+   const result=await api(`payments/orders/${b.dataset.id}/refunds`,{amount_fen:Number(q.net_fen),reason:v.reason,idempotency_key:crypto.randomUUID().replace(/-/g,'')});
+   return {succeeded:'退款已成功',failed:'渠道拒绝，额度已恢复',pending:'退款处理中，请稍后确认'}[result.status];
+  },'确认原路退款');
  },
  async 'refund-retry'(b) { const r = await api(`payments/refunds/${b.dataset.id}/retry`, {}); await reload(); notify({ succeeded: '退款已确认成功。', failed: '支付渠道拒绝了这笔退款，金额已冲回。', pending: '渠道仍在处理，请稍后再试。' }[r.status], r.status === 'succeeded'); },
  'invoice-new': () => invoiceDialog(),
