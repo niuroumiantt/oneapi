@@ -1,3 +1,4 @@
+import {addPack} from './pack-ledger.mjs';
 // Business console: the owner's and finance's view of the company (revenue, cost, margin, invoices),
 // supplier and customer codes with a light CRM, discount grants, and first-line support.
 import { HttpError, id, text, transaction, audit, hasBusiness } from './core.mjs';
@@ -70,11 +71,14 @@ const CALLS = `calls AS (
  SELECT e.model_id,e.owner_id AS user_id,a.organization_id,e.status='failed' AS failed,e.settled_at IS NOT NULL AS settled,coalesce(e.charged_yuan,0) AS list_yuan,e.actual_yuan AS fallback,e.upstream_request_id AS rid,coalesce(e.input_tokens,0)+coalesce(e.output_tokens,0) AS tokens
   FROM employee_calls e JOIN employee_credit_accounts a ON a.user_id=e.owner_id,r WHERE e.created_at>=r.a AND e.created_at<r.z
  UNION ALL
+ SELECT e.model_id,e.owner_id,a.organization_id,e.status='failed',e.settled_at IS NOT NULL,0,e.actual_yuan,e.upstream_request_id,coalesce(e.input_tokens,0)+coalesce(e.output_tokens,0)
+  FROM customer_calls e JOIN billing_accounts a ON a.id=e.account_id,r WHERE e.created_at>=r.a AND e.created_at<r.z
+ UNION ALL
  SELECT p.model_id,p.owner_id,NULL::uuid,p.status='failed',p.status='succeeded',0,p.estimated_upstream_yuan,p.upstream_request_id,coalesce(p.input_tokens,0)+coalesce(p.output_tokens,0)
   FROM pilot_calls p,r WHERE p.created_at>=r.a AND p.created_at<r.z)`;
 const COST = 'CASE WHEN c.settled THEN coalesce(u.amt,c.fallback,0) ELSE 0 END';
 // An upstream bill that no customer call accounts for: acceptance tests, load tests, key checks.
-const UNCLAIMED = 'NOT EXISTS (SELECT 1 FROM employee_calls e WHERE e.upstream_request_id=u.request_id) AND NOT EXISTS (SELECT 1 FROM pilot_calls p WHERE p.upstream_request_id=u.request_id)';
+const UNCLAIMED = 'NOT EXISTS (SELECT 1 FROM customer_calls c WHERE c.upstream_request_id=u.request_id) AND NOT EXISTS (SELECT 1 FROM employee_calls e WHERE e.upstream_request_id=u.request_id) AND NOT EXISTS (SELECT 1 FROM pilot_calls p WHERE p.upstream_request_id=u.request_id)';
 
 const CUSTOMER_ROWS = `SELECT c.id,c.code,c.kind,c.stage,c.tags,c.owner_subject,sm.name AS owner_name,c.created_at,c.user_id,c.organization_id,
  coalesce(o.name,u.name) AS name,coalesce(u.email,cu.email) AS email,coalesce(u.disabled,false) AS disabled,
@@ -99,6 +103,12 @@ const DISCOUNT_ROWS = `SELECT d.*,c.code AS customer_code,coalesce(o.name,u.name
  CASE WHEN d.status<>'active' THEN d.status WHEN now()<d.starts_at THEN 'scheduled' WHEN now()>=d.ends_at THEN 'expired' ELSE 'active' END AS state
  FROM discount_grants d LEFT JOIN customers c ON c.id=d.customer_id LEFT JOIN organizations o ON o.id=c.organization_id LEFT JOIN "user" u ON u.id=c.user_id
  LEFT JOIN staff_members a ON a.subject=d.created_by LEFT JOIN staff_members k ON k.subject=d.decided_by`;
+
+// Share the account lock with refunds: a pending refund cannot be overtaken by invoice issue.
+async function lockInvoiceAccount(db,customerId){
+ const a=(await db.query(`SELECT b.id FROM billing_accounts b JOIN customers c ON b.owner_id=c.user_id OR b.organization_id=c.organization_id WHERE c.id=$1 FOR UPDATE OF b`,[customerId])).rows[0];
+ if(a&&(await db.query("SELECT 1 FROM payment_refunds f JOIN payment_orders o ON o.id=f.order_id WHERE o.account_id=$1 AND f.status='pending'",[a.id])).rowCount)throw new HttpError(409,'退款处理中，请完成退款后再申请或开具发票');
+}
 
 /** Money received and already invoiced for one customer. Pending refunds count as refunded, to stay on the safe side. */
 async function invoiceLimit(db, customerId) {
@@ -241,6 +251,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
    const target = direction === 'output' ? id(b.customer_id) : id(b.supplier_id);
    if (direction === 'output') {
     if (!(await db.query('SELECT 1 FROM customers WHERE id=$1 FOR UPDATE', [target])).rowCount) throw new HttpError(404, '客户不存在');
+    await lockInvoiceAccount(db,target);
     const limit = await invoiceLimit(db, target);
     if (amount > limit.available_fen && b.allow_over_limit !== true) throw new HttpError(409, `超出可开票金额 ¥${(limit.available_fen / 100).toFixed(2)}。先票后款请勾选“允许超出实收”。`);
    } else if (!(await db.query('SELECT 1 FROM suppliers WHERE id=$1', [target])).rowCount) throw new HttpError(404, '供应商不存在');
@@ -262,6 +273,11 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
    let next;
    if (action === 'issue') {
     if (current.status !== 'requested') throw new HttpError(409, '只有待开票的申请可以登记开具');
+    if(current.direction==='output'){
+     await lockInvoiceAccount(db,current.customer_id);
+     const limit=await invoiceLimit(db,current.customer_id);
+     if(invoiceable(limit)<0&&b.allow_over_limit!==true)throw new HttpError(409,'退款后实收不足，请重新核对开票金额');
+    }
     const number = text(b.invoice_number, '发票号码', 30);
     if (number.length < 8) throw new HttpError(400, '发票号码至少 8 位');
     next = (await db.query("UPDATE tax_invoices SET status='issued',invoice_number=$2,issued_on=$3,handled_by=$4,updated_at=now() WHERE id=$1 RETURNING id,status", [invoiceId, number, day(b.issued_on, '开票日期'), req.staff.subject])).rows[0];
@@ -368,6 +384,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
    }
    const acct = (await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen+$2,list_credit_fen=list_credit_fen+$3 WHERE id=$1 RETURNING cash_balance_fen,list_credit_fen,organization_id', [cur.account_id, cur.cash_fen, cur.face_fen])).rows[0];
    await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'recharge',$2,$3,'payment',$4)", [cur.account_id, cur.cash_fen, acct.cash_balance_fen, cur.id]);
+   await addPack(db,{accountId:cur.account_id,sourceKind:'bank',sourceId:cur.id,faceFen:cur.face_fen,cashFen:cur.cash_fen});
    const approved = (await db.query(`UPDATE bank_transfer_entries SET status='approved',decided_by=$2,decided_at=now(),decision_note=$3 WHERE id=$1 RETURNING id,status,cash_fen,face_fen`, [entryId, req.staff.subject, decisionNote])).rows[0];
    await audit(db, req.actor, 'bank_transfer.approved', acct.organization_id, entryId, { cash_fen: String(cur.cash_fen), face_fen: String(cur.face_fen) });
    return approved;
@@ -445,7 +462,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
   const [grants, campaigns, tags] = await Promise.all([pool.query(`${DISCOUNT_ROWS} ORDER BY d.status='pending' DESC,d.created_at DESC LIMIT 500`),
    pool.query('SELECT c.id,c.name,c.customer_price_percent,c.starts_at,c.ends_at,c.total_discount_budget_fen,p.display_name AS product_name FROM promotion_campaigns c JOIN model_products p ON p.id=c.model_product_id ORDER BY c.created_at DESC LIMIT 100'),
    pool.query('SELECT t AS tag,count(*)::int AS customers FROM customers,unnest(tags) t GROUP BY 1 ORDER BY 2 DESC,1')]);
-  res.json({ grants: grants.rows, campaigns: campaigns.rows, tags: tags.rows, models: OFFICIAL_MODELS.map(m => ({ id: m.id, name: m.name })), can_decide: hasFinance(req.staff), me: req.staff.subject, billing_connected: false });
+  res.json({ grants: grants.rows, campaigns: campaigns.rows, tags: tags.rows, models: OFFICIAL_MODELS.map(m => ({ id: m.id, name: m.name })), can_decide: hasFinance(req.staff), me: req.staff.subject, billing_connected: true });
  });
  app.post('/api/staff/business/discounts', requireStaff, async (req, res) => {
   requireBusiness(req);
@@ -456,6 +473,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
   if (ends <= starts || ends - starts > 366 * 86400000) throw new HttpError(400, '有效期须在一年以内且结束晚于开始');
   if (ends <= new Date()) throw new HttpError(400, '结束时间须晚于现在');
   const model = b.model_id ? choice(b.model_id, OFFICIAL_MODELS.map(m => m.id), '适用产品') : null, cap = b.cap_yuan === undefined || b.cap_yuan === '' ? null : fen(b.cap_yuan, '优惠上限');
+  const promo=String(b.promo_code||'').trim().toUpperCase();if(!/^[A-Z0-9_-]{0,40}$/.test(promo))throw new HttpError(400,'促销码格式不正确');
   const tag = audience === 'tag' ? tagList([b.tag])[0] : null, customer = audience === 'customer' ? id(b.customer_id) : null;
   // The platform administrator's own grants take effect at once; everyone else's wait for a second person.
   const status = isAdmin(req.staff) ? 'active' : 'pending';
@@ -463,6 +481,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
    if (customer && !(await db.query('SELECT 1 FROM customers WHERE id=$1', [customer])).rowCount) throw new HttpError(404, '客户不存在');
    const created = (await db.query(`INSERT INTO discount_grants(name,audience,customer_id,tag,model_id,customer_price_percent,cap_fen,starts_at,ends_at,reason,status,created_by,decided_by,decided_at)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id,status`, [name, audience, customer, tag, model, percent, cap, starts, ends, reason, status, req.staff.subject, status === 'active' ? req.staff.subject : null, status === 'active' ? new Date() : null])).rows[0];
+   if(promo)await db.query('UPDATE discount_grants SET promo_code=$2 WHERE id=$1',[created.id,promo]);
    await audit(db, req.actor, 'discount_grant.created', null, created.id, { audience, customer_price_percent: percent, status });
    return created;
   });
@@ -571,6 +590,7 @@ export function customerBusinessRoutes(app, pool, requireCustomer) {
   if ((customer.kind === 'enterprise' || type === 'special') && !taxNumber) throw new HttpError(400, '企业抬头须填写纳税人识别号');
   if (taxNumber && !TAX_NUMBER.test(taxNumber)) throw new HttpError(400, '税号须为 15–20 位数字或大写字母');
   if ((await db.query("SELECT count(*)::int AS n FROM tax_invoices WHERE customer_id=$1 AND status='requested'", [customer.id])).rows[0].n >= 5) throw new HttpError(429, '待处理的开票申请过多，请等待财务处理');
+  await lockInvoiceAccount(db,customer.id);
   const limit = await invoiceLimit(db, customer.id);
   if (amount > limit.available_fen) throw new HttpError(409, `可开票金额为 ¥${(limit.available_fen / 100).toFixed(2)}，按实际付款扣除退款和已申请的发票计算`);
   const created = (await db.query(`INSERT INTO tax_invoices(direction,customer_id,invoice_type,title,tax_number,email,amount_fen,status,note,requested_by_user) VALUES('output',$1,$2,$3,$4,$5,$6,'requested',$7,$8) RETURNING id,status,amount_fen,created_at`,

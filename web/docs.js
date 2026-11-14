@@ -51,7 +51,7 @@ console.log(reply.choices[0].message.content, reply.usage);`;
  const ERRORS = [
   ['400', 'invalid_request', '请求格式不对：不是 JSON 对象；messages 为空或超过 500 条；n 不等于 1；max_tokens 不在 1–32768；同时传了 max_tokens 和 max_completion_tokens。', '否', '不要重试。按 message 里的提示修改参数。'],
   ['401', 'invalid_api_key', 'Key 写错、已停用，或者 Key 的主人已离开企业、账号被停用。', '否', '检查 Authorization 是否为 “Bearer ” 加完整 Key；到“密钥”页确认 Key 仍可用，必要时停用后重新生成。'],
-  ['402', 'insufficient_quota', '公司额度不足以覆盖这次调用的预扣上限（输入长度 + max_tokens）。', '否', '调小 max_tokens 或缩短上下文；额度确实不够时，请企业管理者追加额度。'],
+  ['402', 'insufficient_quota', '可用官价额度或 Key 上限不足以覆盖这次调用的预留上限（输入长度 + max_tokens）。', '否', '调小 max_tokens 或缩短上下文；付费账户可购买额度包或调整 Key 上限；内部账户请管理者追加额度。'],
   ['403', 'model_not_allowed', '模型名不在开放列表里。', '否', '用 GET /v1/models 查看可用模型，确认 model 字段拼写。'],
   ['413', 'request_too_large', '单次请求超过 8MB。通常是 Agent 的对话太长、读入了大文件。', '否', '在 Agent 里新开对话，或让它压缩上下文；不要把整个仓库或大文件塞进一次请求。'],
   ['429', 'rate_limit_exceeded', '同一把 Key 一分钟内超过上限（默认 60 次）。响应头带 Retry-After: 60。', '否', '按 Retry-After 等待后重试；批量任务请加间隔，或请企业管理者在“员工”页调高这把 Key 的每分钟上限。'],
@@ -72,11 +72,11 @@ console.log(reply.choices[0].message.content, reply.usage);`;
   { id: 'quickstart', group: '开始', title: '快速开始', body: () => `
 <p class="doc-lead">三步发出第一个请求。semifly 的接口与 OpenAI Chat Completions 兼容，现有的 OpenAI SDK 和大多数 Agent 工具改一下地址和 Key 就能用。</p>
 <h2 id="step-1">1. 拿到 API Key</h2>
-<p>登录工作台，进入企业空间的“密钥”页，填写用途名称后点“生成 API Key”。完整 Key 只显示这一次，请立即保存到密码管理器或环境变量。</p>
-${note('企业员工使用公司额度调用，按模型官网价扣费；个人账号的调用将在供给、计费验收完成后开放。')}
+<p>登录工作台，在“账单”页购买额度包并完成付款后，进入“密钥”页选择已开放模型和消费上限，生成 API Key。企业内部额度用户仍使用企业空间的原有密钥入口。完整 Key 只显示这一次，请立即保存到密码管理器或环境变量。</p>
+${note('客户付费通道按账户开放状态提供服务：购包时优惠、调用按官网价扣额度。内部公司额度与客户实付余额分别记账。')}
 <h2 id="step-2">2. 发出第一个请求</h2>
 ${table(['项目', '值'], [['接口地址（Base URL）', `<code>${esc(BASE())}</code>`], ['鉴权', '<code>Authorization: Bearer 你的 Key</code>'], ['模型', `<code>deepseek-flash</code> 等，见 ${link('models', '可用模型')}`]])}
-<p>先把 Key 放进环境变量：</p>${code('export SEMIFLY_API_KEY="sf_emp_你的Key"', 'Shell')}
+<p>先把 Key 放进环境变量：</p>${code('export SEMIFLY_API_KEY="你的平台Key"', 'Shell')}
 ${code(curl(), 'curl')}${code(python(), 'Python')}${code(node(), 'Node.js')}
 <h2 id="step-3">3. 接入你常用的工具</h2>
 <p>WorkBuddy、Cursor、Cline、Roo Code 等工具的填写位置见 ${link('tools', '接入指南')}。遇到报错先看 ${link('errors', '错误码')}，每个错误都写了能不能重试、怎么处理。</p>` },
@@ -84,7 +84,7 @@ ${code(curl(), 'curl')}${code(python(), 'Python')}${code(node(), 'Node.js')}
   { id: 'keys', group: '基础概念', title: 'API Key 与安全', body: () => `
 <p class="doc-lead">API Key 就是调用接口的密码。谁拿到它，谁就能用你的额度调用模型。</p>
 <h2 id="create">生成与查看</h2>
-<ul><li>每人最多保留 5 把有效 Key，建议按用途分开，例如“WorkBuddy”“周报脚本”。</li><li>完整 Key 只在生成时显示一次；之后列表只显示尾号、创建时间、已接通时长、调用次数、Token 和金额。</li><li>Key 列表里的“最近来源”显示最近一次调用来自哪个工具。</li></ul>
+<ul><li>付费账户最多保留 5 把有效 Key；内部额度按员工限制，建议按用途分开，例如“WorkBuddy”“周报脚本”。</li><li>完整 Key 只在生成时显示一次；之后只显示尾号等摘要。付费用量在“用量”页查看。</li><li>付费 Key 绑定账户、已选择模型和累计官价消费上限；停用不影响历史账单。</li></ul>
 <h2 id="safe">保管建议</h2>
 <ul><li>放在环境变量或密码管理器里，不要写进代码仓库、截图、聊天记录或工单。</li><li>不同工具用不同 Key，出问题时只停用一把。</li><li>怀疑泄露：立即在“密钥”页停用，再生成新的。停用即时生效。</li></ul>
 <h2 id="leave">员工离开企业时</h2>
@@ -103,9 +103,12 @@ ${table(['类型', '含义', '计价'], [['输入（未命中缓存）', '你这
 
   { id: 'billing', group: '基础概念', title: '计费与额度', body: () => `
 <h2 id="price">价格</h2>
+<p>购包面额与实付现金分开：例如 ¥100 官价额度若获得三折优惠，实付 ¥30。系统在购买时选符合条件的最优单条优惠，不叠加；订单固定面额和实付。每次调用按官方 Token 价格消耗面额，不再打折。</p>
+<h2 id="refund">额度包退款</h2>
+<p>在“账单 → 资金记录”选择本包申请退款，由财务核对并原路退回。可退现金分 = floor(剩余官价额度 ÷ 原面额 × 实付现金分 × 85%)。例如上述额度包剩余 ¥80，退款 ¥20.40。已开具且未作废/红冲的销项发票阻止退款；在途请求先结算，退款处理中冻结该包。对公退款请联系财务。</p>
 <ul><li>企业员工按模型<b>官网价</b>从公司额度中扣除，价格见工作台“模型”页或 ${link('models', '可用模型')}。</li><li>DeepSeek 系列在工作日高峰时段（北京时间周一至周五 9–12、14–18）价格为空闲时段的 2 倍；周末及中国法定节假日全天空闲。模型页可以切换查看两个时段的价格。智谱 GLM 无峰谷价。</li></ul>
 <h2 id="hold">预扣与结算</h2>
-<ol><li>请求发出前，按“输入长度 + max_tokens”的上限先预扣一笔额度，保证并发请求不会超支。</li><li>模型返回后，按实际 <code>usage</code> 和官网价结算，多扣的部分立即退回。</li><li>没有返回用量时（例如流式中途断开），先等上游账单，按实际 Token × 官网价结算；若上游账单显示未收费，则按本次提交的输入 Token 收取通道费（¥0.005 / 百万 Token）；若 24 小时仍对不上账单，按当初预扣的上限结算，释放占用的额度。</li></ol>
+<ol><li>请求发出前，按“输入长度 + max_tokens”的上限先预扣一笔额度，保证并发请求不会超支。</li><li>模型返回后，按实际 <code>usage</code> 和官网价结算，多扣的部分立即退回。</li><li>没有返回用量时（例如流式中途断开），先等上游账单，按实际 Token × 官网价结算；客户付费调用 24 小时仍无可靠用量则释放预留，不按预估额扣费。内部公司额度沿用内部规则：上游未收费时按输入 Token 收通道费（¥0.005 / 百万 Token），24 小时未对上账单按预扣上限结算。</li></ol>
 ${note('调用失败（4xx、上游失败）不扣费。逐笔扣费明细在“用量”和“密钥 → 调用历史”里可以看到。', 'ok')}
 <h2 id="quota">公司额度</h2>
 <p>员工加入企业后自动获得公司额度，管理者可以在“员工”页调整。额度用完时接口返回 ${link('errors/insufficient_quota', '402 insufficient_quota')}。</p>` },

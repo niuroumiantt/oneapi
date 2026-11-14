@@ -400,12 +400,14 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
 }
 
 /** Must be mounted before the app-wide 16 KB JSON parser; agent requests carry whole conversations and tool schemas. */
-export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=createGate(),seat=createSeatGate()){
- const isEmployee=req=>keyPattern.test(req.get('authorization')||'');
+export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=createGate(),seat=createSeatGate(),backend=null){
+ const calls=backend?.table||'employee_calls';
+ const isEmployee=req=>backend?backend.matches(req):keyPattern.test(req.get('authorization')||'');
  app.use('/v1',(req,res,next)=>{req.requestId='req_'+token().slice(0,24);res.set('X-Semifly-Request-Id',req.requestId);next();});
  const json=express.json({limit:MAX_BODY});
  const parser=(req,res,next)=>json(req,res,err=>next(err?.type==='entity.too.large'?new HttpError(413,`请求内容超过 ${MAX_BODY.toUpperCase()}，请在智能体中新开对话或压缩上下文后重试`):err));
  async function authenticate(req){
+  if(backend)return backend.authenticate(req);
   if(!enabled(cfg))throw new HttpError(503,'公司额度尚未开放');
   const secret=keyPattern.exec(req.get('authorization'))[1];
   const key=(await pool.query(`SELECT k.id AS key_id,k.owner_id,k.model_ids,k.limit_yuan,k.max_concurrent,k.per_minute,m.organization_id FROM employee_api_keys k JOIN "user" u ON u.id=k.owner_id
@@ -421,26 +423,27 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
   const count=(await pool.query("INSERT INTO request_limits(key,count,expires_at) VALUES($1,1,now()+interval '1 minute') ON CONFLICT(key) DO UPDATE SET count=CASE WHEN request_limits.expires_at<now() THEN 1 ELSE request_limits.count+1 END,expires_at=CASE WHEN request_limits.expires_at<now() THEN now()+interval '1 minute' ELSE request_limits.expires_at END RETURNING count",[hash('employee-v1|'+keyId)])).rows[0].count;
   if(count>perMinute){res.set('Retry-After','60');throw Object.assign(new HttpError(429,`请求过于频繁：这把 Key 每分钟最多 ${perMinute} 次`,'rate_limit_exceeded'),{layer:'key'});}
  }
- const fail=(callId,code,started,detail=null)=>pool.query("UPDATE employee_calls SET status='failed',error_code=$2,latency_ms=$3,error_detail=$4,finished_at=now() WHERE id=$1 AND status='pending'",[callId,code,Math.round(performance.now()-started),detail?String(detail).slice(0,300):null]);
+ const fail=(callId,code,started,detail=null)=>pool.query(`UPDATE ${calls} SET status='failed',error_code=$2,latency_ms=$3,error_detail=$4,finished_at=now() WHERE id=$1 AND status='pending'`,[callId,code,Math.round(performance.now()-started),detail?String(detail).slice(0,300):null]);
  /** Charges the official price as soon as usage is known; without usage the hold stays until a bill arrives. */
  async function answered(call,requestId,usage,started){
   const latency=Math.round(performance.now()-started);
   call.slot?.settle(usage);call.seatSlot?.settle(usage);
+  if(backend)return backend.answered(call,requestId,usage,started);
   // An official standby line has no KerAPI log to settle from later; without usage the call is free (docs/14-gateway-settings.md F5).
-  if(!usage&&call.official){await pool.query("UPDATE employee_calls SET status='settled',upstream_request_id=$2,latency_ms=$3,charged_yuan=0,actual_yuan=NULL,settlement_source='official_unmetered',finished_at=now(),settled_at=now() WHERE id=$1 AND status='pending'",[call.id,requestId,latency]);return;}
-  if(!usage){await pool.query("UPDATE employee_calls SET status='awaiting_bill',upstream_request_id=$2,latency_ms=$3,finished_at=now() WHERE id=$1 AND status='pending'",[call.id,requestId,latency]);return;}
+  if(!usage&&call.official){await pool.query(`UPDATE ${calls} SET status='settled',upstream_request_id=$2,latency_ms=$3,charged_yuan=0,actual_yuan=NULL,settlement_source='official_unmetered',finished_at=now(),settled_at=now() WHERE id=$1 AND status='pending'`,[call.id,requestId,latency]);return;}
+  if(!usage){await pool.query(`UPDATE ${calls} SET status='awaiting_bill',upstream_request_id=$2,latency_ms=$3,finished_at=now() WHERE id=$1 AND status='pending'`,[call.id,requestId,latency]);return;}
   const amount=holdYuan(call.rates,usage,call.multiplier);
   await transaction(pool,async db=>{
    const account=(await db.query('SELECT granted_yuan-spent_yuan AS remaining FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[call.ownerId])).rows[0];
    // Never overdrawn, even when real usage exceeds the pre-call bound; actual_yuan keeps the true price.
-   const charged=(await db.query(`UPDATE employee_calls SET status='settled',upstream_request_id=$2,input_tokens=$3,cached_input_tokens=$4,output_tokens=$5,actual_yuan=$6::numeric,charged_yuan=LEAST($6::numeric,$7::numeric),settlement_source='official_price',latency_ms=$8,finished_at=now(),settled_at=now() WHERE id=$1 AND status='pending' RETURNING charged_yuan`,
+   const charged=(await db.query(`UPDATE ${calls} SET status='settled',upstream_request_id=$2,input_tokens=$3,cached_input_tokens=$4,output_tokens=$5,actual_yuan=$6::numeric,charged_yuan=LEAST($6::numeric,$7::numeric),settlement_source='official_price',latency_ms=$8,finished_at=now(),settled_at=now() WHERE id=$1 AND status='pending' RETURNING charged_yuan`,
     [call.id,requestId,usage.input,usage.cached,usage.output,amount,account.remaining,latency])).rows[0];
    if(charged)await db.query('UPDATE employee_credit_accounts SET spent_yuan=spent_yuan+$2 WHERE user_id=$1',[call.ownerId,charged.charged_yuan]);
   });
  }
  app.get('/v1/models',(req,res,next)=>isEmployee(req)?next():next('route'),async(req,res)=>{
   const key=await authenticate(req);
-  res.json({object:'list',data:(await employeeRoutes(pool,cfg)).filter(r=>!key.model_ids||key.model_ids.includes(r.model.id))
+  res.json({object:'list',data:(await (backend?backend.routes():employeeRoutes(pool,cfg))).filter(r=>!key.model_ids||key.model_ids.includes(r.model.id))
    // name, tags and capabilities are our additions; OpenAI clients ignore fields they do not know.
    .map(r=>({id:r.model.id,object:'model',owned_by:'semifly',name:r.model.name,tags:capabilityTags(r.model),capabilities:publicCapabilities(r.model,MAX_OUTPUT)}))});
  });
@@ -448,11 +451,11 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
   const key=await authenticate(req);
   await limit(key,res);
   const origin=callClient(name=>req.get(name));
-  let shaped;try{shaped=employeeRequest(req.body);}catch(e){if(e instanceof HttpError&&e.status===400){const rejected=recordProfile(pool,origin,req.body,e.message);captureHook?.(key.key_id,rejected,origin,e.message);}throw e;}
+  let shaped;try{shaped=employeeRequest(req.body);}catch(e){if(e instanceof HttpError&&e.status===400){const rejected=recordProfile(pool,origin,req.body,e.message);!backend&&captureHook?.(key.key_id,rejected,origin,e.message);}throw e;}
   const {model,payload,stream,input,output}=shaped,signature=recordProfile(pool,origin,req.body);
-  captureHook?.(key.key_id,signature,origin,null);
+  !backend&&captureHook?.(key.key_id,signature,origin,null);
   if(key.model_ids&&!key.model_ids.includes(model.id))throw new HttpError(403,`这把 Key 只能调用：${key.model_ids.join('、')}`,'model_not_allowed');
-  const route=(await employeeRoutes(pool,cfg)).find(r=>r.model.id===model.id);
+  const route=(await (backend?backend.routes():employeeRoutes(pool,cfg))).find(r=>r.model.id===model.id);
   if(!route)throw new HttpError(503,'这个模型暂时不可用','model_unavailable');
   // Company/org gates (C6/C10) then person seat TPM (items 5–6). Slots free when the response closes.
   const estimate=estimateTokens(input);
@@ -461,26 +464,26 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
   try{seatSlot=seat.admit(key.owner_id,estimate,SEAT_TPM);}catch(e){slot.cancel();if(e.retryAfter)res.set('Retry-After',String(e.retryAfter));throw e;}
   const freeSlots=()=>{seatSlot?.release();slot.release();};
   res.once('close',freeSlots);if(res.destroyed)freeSlots();
-  const multiplier=priceMultiplier(model,new Date(),cfg.employeeCredit.holidays),hold=holdYuan(model.rates,{input,output},multiplier);
-  const summary=await summariesOn(pool,cfg)?callSummary(req.body.messages):null;
-  const callId=await transaction(pool,async db=>{
+  const multiplier=priceMultiplier(model,new Date(),cfg.employeeCredit?.holidays),hold=holdYuan(model.rates,{input,output},multiplier);
+  const summary=!backend&&await summariesOn(pool,cfg)?callSummary(req.body.messages):null;
+  const callId=await (backend?backend.reserve({key,model:{...model,multiplier},route,hold,origin}):transaction(pool,async db=>{
    // The row lock serialises reservations so concurrent calls cannot overspend.
    await db.query('SELECT user_id FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[key.owner_id]);
    const money=await balance(db,key.owner_id);
-   const active=(await db.query(`SELECT count(*)::int AS count FROM employee_calls WHERE owner_id=$1 AND status='pending' AND created_at>now()-interval '${STALE_PENDING}'`,[key.owner_id])).rows[0].count;
+   const active=(await db.query(`SELECT count(*)::int AS count FROM ${calls} WHERE owner_id=$1 AND status='pending' AND created_at>now()-interval '${STALE_PENDING}'`,[key.owner_id])).rows[0].count;
    // Concurrent slots are counted per person across all keys (item 6); this key's setting is the cap while it is in use.
    const concurrent=key.max_concurrent??MAX_CONCURRENT;
    if(active>=concurrent){res.set('Retry-After','5');throw Object.assign(new HttpError(429,`同时最多 ${concurrent} 个请求（你名下所有 Key 合计）`,'concurrency_limit_exceeded'),{layer:'person'});}
    if(units(money.available_yuan<0?0:money.available_yuan)<units(hold))throw new HttpError(402,'公司额度不足以覆盖这次调用的上限，可调小 max_tokens');
-   if(key.limit_yuan!==null){const used=(await db.query(`SELECT ${USED_ON_KEY} AS used FROM employee_calls WHERE key_id=$1`,[key.key_id])).rows[0].used;if(units(used)+units(hold)>units(key.limit_yuan))throw new HttpError(402,`这把 Key 已接近消费上限 ¥${Number(key.limit_yuan)}（已用 ¥${Number(used).toFixed(4)}），可调小 max_tokens 或换一把 Key`,'key_limit_reached');}
+   if(key.limit_yuan!==null){const used=(await db.query(`SELECT ${USED_ON_KEY} AS used FROM ${calls} WHERE key_id=$1`,[key.key_id])).rows[0].used;if(units(used)+units(hold)>units(key.limit_yuan))throw new HttpError(402,`这把 Key 已接近消费上限 ¥${Number(key.limit_yuan)}（已用 ¥${Number(used).toFixed(4)}），可调小 max_tokens 或换一把 Key`,'key_limit_reached');}
    // gateway_instance: a restart releases the calls this process leaves open (gateway-instance.mjs).
    // estimated_input_tokens: used for channel fee when KerAPI's log says it charged nothing (H6 / #15).
-   return (await db.query("INSERT INTO employee_calls(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,estimated_input_tokens,client,client_detail,summary,profile_signature,gateway_instance) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10,$11,$12,$13) RETURNING id",[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold,estimate,origin.client,origin.detail,summary,signature,GATEWAY_INSTANCE])).rows[0].id;
+   return (await db.query(`INSERT INTO ${calls}(key_id,owner_id,model_id,credential_id,upstream,price_snapshot,status,hold_yuan,estimated_input_tokens,client,client_detail,summary,profile_signature,gateway_instance) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10,$11,$12,$13) RETURNING id`,[key.key_id,key.owner_id,model.id,route.credentialId,model.upstream,{...model.rates,multiplier},hold,estimate,origin.client,origin.detail,summary,signature,GATEWAY_INSTANCE])).rows[0].id;
   // Refused here (balance, key cap, this person's own limit): the call never reaches KerAPI, so it uses no tokens.
-  }).catch(e=>{seatSlot.cancel();slot.cancel();throw e;});
+  })).catch(e=>{seatSlot.cancel();slot.cancel();throw e;});
   const call={id:callId,ownerId:key.owner_id,rates:model.rates,multiplier,slot,seatSlot};
   const started=performance.now(),abort=new AbortController();
-  const totalMs=cfg.employeeCredit.timeouts?.total??UPSTREAM_TIMEOUT_MS,idleMs=cfg.employeeCredit.timeouts?.idle??UPSTREAM_IDLE_MS;
+  const totalMs=cfg.employeeCredit?.timeouts?.total??UPSTREAM_TIMEOUT_MS,idleMs=cfg.employeeCredit?.timeouts?.idle??UPSTREAM_IDLE_MS;
   // cut: which of our own limits ended the upstream request ('idle' or 'total'); null while neither has.
   const limitHit=new AbortController();let cut=null,idleTimer=null;
   const stop=kind=>{cut??=kind;limitHit.abort(Object.assign(new Error('upstream '+kind+' timeout'),{name:'TimeoutError'}));};
@@ -512,7 +515,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
   if(!last&&([401,403,429].includes(response.status)||response.status>=500)){await response.body?.cancel().catch(()=>{});console.warn(JSON.stringify({event:'upstream_failover',call:callId,from:candidate.credentialId,reason:'http_'+response.status}));continue;}
   used=candidate;break;
   }
-  if(used!==route)await pool.query('UPDATE employee_calls SET credential_id=$2 WHERE id=$1',[callId,used.credentialId]);
+  if(used!==route)await pool.query(`UPDATE ${calls} SET credential_id=$2 WHERE id=$1`,[callId,used.credentialId]);
   call.official=Boolean(used.official);
   const requestId=String(response.headers.get('x-request-id')||response.headers.get('x-oneapi-request-id')||'').slice(0,120)||null;
   if(!response.ok){
@@ -528,15 +531,15 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
   }
   res.set('X-Semifly-Call-Id',callId);
   // Kept while the answer is still coming: if this process stops midway, the call settles from KerAPI's log (D6).
-  if(requestId)pool.query("UPDATE employee_calls SET upstream_request_id=$2 WHERE id=$1 AND status='pending'",[callId,requestId]).catch(()=>{});
+  if(requestId)pool.query(`UPDATE ${calls} SET upstream_request_id=$2 WHERE id=$1 AND status='pending'`,[callId,requestId]).catch(()=>{});
   if(!stream){
    let result;
    try{result=await response.json();}
    catch{
     await answered(call,requestId,null,started);
     // The upstream had started answering, so it may bill us: the call waits for the supplier's log instead of being free.
-    if(cut){await pool.query('UPDATE employee_calls SET error_code=$2 WHERE id=$1',[call.id,'UPSTREAM_TIMEOUT']);throw new HttpError(504,timeoutText(),'upstream_timeout');}
-    if(abort.signal.aborted){await pool.query('UPDATE employee_calls SET error_code=$2 WHERE id=$1',[call.id,'CLIENT_CLOSED']);throw new HttpError(499,'客户端已断开','client_closed');}
+    if(cut){await pool.query(`UPDATE ${calls} SET error_code=$2 WHERE id=$1`,[call.id,'UPSTREAM_TIMEOUT']);throw new HttpError(504,timeoutText(),'upstream_timeout');}
+    if(abort.signal.aborted){await pool.query(`UPDATE ${calls} SET error_code=$2 WHERE id=$1`,[call.id,'CLIENT_CLOSED']);throw new HttpError(499,'客户端已断开','client_closed');}
     throw new HttpError(502,'上游响应格式异常','upstream_bad_response');
    }
    // A reply the output guard cut short has no reliable usage; billing waits for the supplier's own log.
@@ -562,9 +565,9 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
    await reader.cancel().catch(()=>{});
    await answered(call,requestId,usage,started);
    // The caller hung up midway: it keeps what it received and the call settles from KerAPI's log (docs/14-gateway-settings.md D4).
-   if(!cut&&abort.signal.aborted)await pool.query('UPDATE employee_calls SET error_code=$2 WHERE id=$1',[call.id,'CLIENT_CLOSED']).catch(()=>{});
+   if(!cut&&abort.signal.aborted)await pool.query(`UPDATE ${calls} SET error_code=$2 WHERE id=$1`,[call.id,'CLIENT_CLOSED']).catch(()=>{});
    if(cut){
-    await pool.query('UPDATE employee_calls SET error_code=$2 WHERE id=$1',[call.id,cut==='idle'?'UPSTREAM_IDLE_TIMEOUT':'UPSTREAM_TIMEOUT']).catch(()=>{});
+    await pool.query(`UPDATE ${calls} SET error_code=$2 WHERE id=$1`,[call.id,cut==='idle'?'UPSTREAM_IDLE_TIMEOUT':'UPSTREAM_TIMEOUT']).catch(()=>{});
     // Tell the client why the stream stops; OpenAI SDKs raise an error for a chunk that carries `error`. No [DONE] follows.
     if(!res.destroyed)res.write(`data: ${JSON.stringify({error:{message:timeoutText(),type:'server_error',code:'upstream_timeout',request_id:req.requestId||null}})}\n\n`);
    }

@@ -49,24 +49,14 @@
 - `business-console-redesign.md` 里「现金扣费时折扣取最优一条」**改为**：最优一条用在**购包付款**，不在每次调用。调用不读折扣台账改价。
 - `docs/phase-1/03-payments-and-promotions.md` 曾倾向「付满额、调用期打折」；**本公司现行以本文为准**（付折扣价、额度按官价面额、调用按官价扣）。
 
-## 实现分期
+## 实现状态（2026-11-14 客户付费分支）
 
-| 期 | 内容 |
-|---|---|
-| 1（本分支 · 已实现） | 账户 `list_credit_fen`；对公双人入账（实付+面额）；客户账单展示官价额度；退款文案与校验骨架；已开发票拦截原路退 |
-| 2 | 在线充值支持促销码 → 锁定 C/F；支付宝/微信订单带面额 |
-| 3 | 客户付费调用走官价扣 `list_credit_fen`；写入 `usage` 流水 |
-| 4 | 按笔退款公式上线（含已开发票拦截、15% 手续费） |
+1. 已有对公双人入账和面额/现金展示。
+2. 已实现在线购包报价、最优单条客户/标签/公共优惠和促销码、订单 C/F 快照、支付验签与幂等入账。
+3. 已实现普通客户付费 Key、模型白名单、上限和预占、FIFO 官价批次扣费、实付成本分摊与用量记录。
+4. 已实现在线按包退款、已开发票及在途调用拦截、15% 手续费、处理中冻结和失败恢复。
+5. 对公退款仍需线下人工处理，自动账本流程未实现；企业普通成员付费额度分配、渠道返佣未实现。
 
-## 退款公式（代码用）
+以上是分支代码状态，不代表生产已发布。测试与后续开放步骤见 [客户付费交接](customer-credit-flow.md)。
 
-```js
-export function refundCashFen({ faceFen, cashPaidFen, remainingFen, hasIssuedInvoice }) {
-  if (hasIssuedInvoice) return { ok: false, code: 'invoice_blocks_refund' };
-  if (!(faceFen > 0) || remainingFen <= 0 || cashPaidFen <= 0) return { ok: false, code: 'nothing_to_refund' };
-  const gross = Math.floor(remainingFen * cashPaidFen / faceFen);
-  const net = Math.floor(gross * 85 / 100); // 15% fee
-  if (net <= 0) return { ok: false, code: 'fee_consumes_refund' };
-  return { ok: true, grossFen: gross, feeFen: gross - net, netFen: net };
-}
-```
+金额计算只在最后取整：`floor(R * C * 85 / (F * 100))`，不要先把 `R*C/F` 截成整数分再乘 85%。账户现金按累计消耗取整，退款结清时不足一分的比例尾差归入手续费，以保持整个批次现金守恒。
