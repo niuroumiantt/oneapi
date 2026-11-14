@@ -1,3 +1,4 @@
+import {applyStatement,syncAlipayBill} from '../src/alipay-bills.mjs';
 import test,{before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
@@ -1623,4 +1624,39 @@ test('payment rounding, actual channel cost isolation and audited admin waiver',
  assert.equal((await fee({amount_fen:3,version:2,evidence:'corrected actual channel fee'})).status,200);
 
  assert.equal((await pool.query('SELECT channel_fee_fen FROM payment_orders WHERE id=$1',[order.id])).rows[0].channel_fee_fen,'3','refund does not erase actual channel cost');
+});
+
+test('Alipay statement reconciliation is idempotent, preserves manual corrections and customer credit',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ const buyer=await user('bill-buyer');appCfg.alipay.allowedEmails.add(buyer.email);
+ const order=(await buyer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{face_fen:500,idempotency_key:'bill-order-key-001'}})).data.order;
+ let o=(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[order.id])).rows[0];seedAlipayTrade(o.out_trade_no,'5.00').status='TRADE_SUCCESS';await buyer.j.call('/api/billing/alipay-orders/'+order.id);
+ await pool.query("UPDATE payment_orders SET paid_at='2026-01-02 12:00:00+08' WHERE id=$1",[order.id]);
+ o=(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[order.id])).rows[0];
+ const actor={kind:'system',id:'bill-test'},entry={trade:o.provider_trade_no,order:o.out_trade_no,kind:'交易',amount:500,fee:3,refund:''};
+ const read=async()=>(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[order.id])).rows[0];
+ const balance=async()=>(await pool.query('SELECT cash_balance_fen,list_credit_fen FROM billing_accounts WHERE id=$1',[o.account_id])).rows[0];const before=await balance();
+ const apply=async rows=>{const db=await pool.connect();try{await db.query('BEGIN');const r=await applyStatement(db,'2026-01-02',rows,'a'.repeat(64),actor);await db.query('COMMIT');return r;}catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}};
+ assert.equal((await apply([entry])).matched,1);assert.equal((await read()).channel_fee_fen,'3');const version=(await read()).channel_fee_version;
+ await apply([entry]);assert.equal((await read()).channel_fee_version,version);assert.deepEqual(await balance(),before);
+ assert.equal((await apply([{...entry,trade:'wrong'}])).exceptions,1);assert.equal((await read()).channel_fee_fen,'3');
+ assert.equal((await apply([{...entry,amount:501}])).exceptions,1);
+ assert.equal((await apply([entry,entry])).exceptions,1);
+ await apply([entry]);assert.equal((await read()).channel_fee_issue,null);
+
+ await pool.query("INSERT INTO payment_refunds(order_id,out_request_no,amount_fen,reason,status,requested_by,idempotency_key,completed_at) VALUES($1,'bill-refund-example',425,'fixture','succeeded','test','bill-refund-example',now())",[o.id]);
+ const refund={...entry,kind:'退款',amount:-425,fee:0,refund:'bill-refund-example'};
+ assert.equal((await apply([entry,refund])).exceptions,0);assert.equal((await read()).channel_fee_fen,'3');
+ assert.equal((await apply([entry,{...refund,fee:-1}])).exceptions,1);assert.match((await read()).channel_fee_issue,/退费/);assert.equal((await read()).channel_fee_fen,'3');
+ assert.equal((await apply([entry,refund])).exceptions,0);
+ const path='/api/staff/payments/orders/'+order.id+'/channel-fee';
+ assert.equal((await admin.call(path,{method:'POST',body:{amount_fen:2,version,evidence:'manual statement adjustment'}})).status,200);
+ assert.equal((await apply([entry])).exceptions,1);assert.equal((await read()).channel_fee_fen,'2');assert.equal((await read()).channel_fee_source,'manual');
+ assert.equal((await apply([])).exceptions,1);assert.match((await read()).channel_fee_issue,/缺少/);
+ assert.deepEqual(await balance(),before);
+ assert.equal((await buyer.j.call('/api/staff/payments/alipay-bills/sync',{method:'POST',body:{day:'2026-01-02'}})).status,401);
+ assert.equal((await admin.call('/api/staff/payments/alipay-bills/sync',{method:'POST',body:{day:'2999-01-01'}})).status,400);
+ const missing=await syncAlipayBill(pool,{billDownloadUrl:async()=>({code:'40004',sub_code:'BILL_NOT_EXIST'})},'2026-01-02');assert.equal(missing.status,'pending');assert.equal((await read()).channel_fee_fen,'2');
+ const unsafe=await syncAlipayBill(pool,{billDownloadUrl:async()=>({code:'10000',bill_download_url:'https://localhost/private'})},'2026-01-02');assert.equal(unsafe.error_code,'BILL_DOWNLOAD_HOST_REJECTED');assert.deepEqual(await balance(),before);
+ const view=(await admin.call('/api/staff/payments/orders')).data;assert.ok(view.bill_sync.enabled);assert.equal(view.bill_sync.days.find(d=>d.day==='2026-01-02').status,'pending');
 });

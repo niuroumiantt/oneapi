@@ -127,7 +127,7 @@ async function monthFinance(pool, month) {
     (SELECT coalesce(sum(l.amount_fen),0)/100.0 FROM billing_ledger l,r WHERE l.kind='recharge' AND l.created_at>=r.a AND l.created_at<r.z) AS received,
     (SELECT coalesce(sum(f.amount_fen),0)/100.0 FROM payment_refunds f,r WHERE f.status='succeeded' AND f.completed_at>=r.a AND f.completed_at<r.z) AS refunded,
     (SELECT coalesce(sum(o.channel_fee_fen),0)/100.0 FROM payment_orders o,r WHERE o.status='paid' AND o.paid_at>=r.a AND o.paid_at<r.z) AS channel_cost,
-    (SELECT count(*) FROM payment_orders o,r WHERE o.status='paid' AND o.channel_fee_fen IS NULL AND o.paid_at>=r.a AND o.paid_at<r.z) AS channel_unreconciled,
+    (SELECT count(*) FROM payment_orders o,r WHERE o.status='paid' AND (o.channel_fee_fen IS NULL OR o.channel_fee_issue IS NOT NULL) AND o.paid_at>=r.a AND o.paid_at<r.z) AS channel_unreconciled,
     (SELECT coalesce(sum(p.amount_fen),0)/100.0 FROM supplier_payments p,r WHERE p.voided_at IS NULL AND p.paid_on>=(r.a ${SH})::date AND p.paid_on<(r.z ${SH})::date) AS supplier_paid,
     (SELECT coalesce(sum(i.amount_fen),0)/100.0 FROM tax_invoices i,r WHERE i.direction='output' AND i.status='issued' AND i.issued_on>=(r.a ${SH})::date AND i.issued_on<(r.z ${SH})::date) AS invoiced,
     (SELECT coalesce(sum(u.amt),0) FROM u,r WHERE u.occurred_at>=r.a AND u.occurred_at<r.z AND ${UNCLAIMED}) AS other_cost,
