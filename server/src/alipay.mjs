@@ -60,7 +60,7 @@ export function alipayClient(cfg,fetchImpl=fetch){
   // Gateway-level rejections (e.g. no key configured for the app) come back unsigned: surface
   // their code for the logs, but still only as an error, never as a usable result.
   if(node!=='error_response'&&!body.sign&&data?.code&&data.code!=='10000')throw Error(`ALIPAY_UNSIGNED_${safeCode(data.code)}_${safeCode(data.sub_code)}`);
-  if(node!=='error_response'&&!rsa2Verify(content,body.sign,alipayPublicKey))throw Error('ALIPAY_RESPONSE_SIGNATURE_INVALID');
+  if((node!=='error_response'||data?.code==='10000')&&!rsa2Verify(content,body.sign,alipayPublicKey))throw Error('ALIPAY_RESPONSE_SIGNATURE_INVALID');
   return data;
  }
  return {
@@ -71,6 +71,7 @@ export function alipayClient(cfg,fetchImpl=fetch){
    const params=signedParams('alipay.trade.page.pay',biz,{notify_url:notifyUrl,return_url:returnUrl});
    return gateway+'?'+new URLSearchParams(params).toString();
   },
+  billDownloadUrl:billDate=>call('alipay.data.dataservice.bill.downloadurl.query',{bill_type:'trade',bill_date:billDate,secure:'true'}),
   query:outTradeNo=>call('alipay.trade.query',{out_trade_no:outTradeNo}),
   // Idempotent per out_request_no: resending the same request never refunds twice.
   refund:({outTradeNo,outRequestNo,amountFen,reason})=>call('alipay.trade.refund',{out_trade_no:outTradeNo,out_request_no:outRequestNo,refund_amount:fenToYuan(amountFen),refund_reason:reason}),
