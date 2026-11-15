@@ -2,7 +2,7 @@
 // verifies and decrypts; order state and ledger postings live in payments.mjs.
 // Uses the "微信支付公钥" verification mode (public key id PUB_KEY_ID_…), which is what new
 // merchants get by default; every response and notify must be signed by that key.
-import { createDecipheriv, createPrivateKey, createPublicKey, createSign, createVerify, randomBytes } from 'node:crypto';
+import { createHash, createDecipheriv, createPrivateKey, createPublicKey, createSign, createVerify, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 export const WECHATPAY_GATEWAY='https://api.mch.weixin.qq.com';
@@ -34,12 +34,17 @@ export function wechatpayClient(cfg,fetchImpl=fetch){
  }
 
  // Returns {status, data} only for signed responses; anything unsigned is an error, never a result.
- async function call(method,path,payload){
+ async function call(method,path,payload,download=false){
   const body=payload===undefined?'':JSON.stringify(payload),ts=String(Math.floor(Date.now()/1000)),nonce=randomBytes(16).toString('hex');
   const signature=createSign('RSA-SHA256').update(`${method}\n${path}\n${ts}\n${nonce}\n${body}\n`,'utf8').sign(privateKey,'base64');
   const headers={Accept:'application/json','User-Agent':'oneapi-wechatpay/1','Wechatpay-Serial':cfg.publicKeyId,Authorization:`WECHATPAY2-SHA256-RSA2048 mchid="${cfg.mchId}",nonce_str="${nonce}",signature="${signature}",timestamp="${ts}",serial_no="${cfg.certSerial}"`};
   if(body)headers['Content-Type']='application/json';
-  const response=await fetchImpl(gateway+path,{method,headers,body:body||undefined,signal:AbortSignal.timeout(10000)});
+  const response=await fetchImpl(gateway+path,{method,headers,body:body||undefined,redirect:'error',signal:AbortSignal.timeout(download?30000:10000)});
+  if(download){
+   if(!response.ok)throw Error('WECHATPAY_BILL_DOWNLOAD_FAILED');
+   const chunks=[];let size=0;for await(const chunk of response.body){if((size+=chunk.length)>16*1024*1024)throw Error('WECHATPAY_BILL_TOO_LARGE');chunks.push(chunk);}
+   return Buffer.concat(chunks);
+  }
   const raw=await response.text();
   if(!verifySigned(response.headers,raw)){
    if(response.status>=500)throw Error('WECHATPAY_HTTP_'+response.status);
@@ -52,6 +57,15 @@ export function wechatpayClient(cfg,fetchImpl=fetch){
 
  return {
   appId:cfg.appId,mchId:cfg.mchId,
+  billDownloadUrl:day=>call('GET',`/v3/bill/tradebill?bill_date=${encodeURIComponent(day)}&bill_type=ALL`),
+  async downloadBill(info){
+   const u=new URL(info.download_url);
+   if(u.origin!==WECHATPAY_GATEWAY||u.username||u.password||u.pathname!=='/v3/billdownload/file'||u.hash)throw Error('WECHATPAY_BILL_HOST_REJECTED');
+   if(info.hash_type!=='SHA1'||!(/^[a-f0-9]{40}$/i.test(info.hash_value)))throw Error('WECHATPAY_BILL_HASH_INVALID');
+   const bytes=await call('GET',u.pathname+u.search,undefined,true);
+   if(createHash('sha1').update(bytes).digest('hex')!==info.hash_value.toLowerCase())throw Error('WECHATPAY_BILL_HASH_MISMATCH');
+   return bytes;
+  },
   native:({outTradeNo,amountFen,description,notifyUrl,expiresAt})=>call('POST','/v3/pay/transactions/native',{appid:cfg.appId,mchid:cfg.mchId,description,out_trade_no:outTradeNo,time_expire:beijingRfc3339(expiresAt),notify_url:notifyUrl,amount:{total:Number(amountFen),currency:'CNY'}}),
   query:outTradeNo=>call('GET',`/v3/pay/transactions/out-trade-no/${encodeURIComponent(outTradeNo)}?mchid=${mch}`),
   // Idempotent per out_refund_no: resending the same request never refunds twice.
@@ -74,3 +88,6 @@ export function decryptResource(key,{ciphertext,nonce,associated_data}){
 }
 
 const safeCode=v=>String(v??'NONE').replace(/[^A-Za-z0-9_.-]/g,'').slice(0,64)||'NONE';
+
+// Statement access is independent of the customer payment switch and AppID approval.
+export function wechatBillsConfigured(c){return !!(c?.mchId&&c.certSerial&&(c.privateKey||c.privateKeyFile)&&c.publicKeyId&&(c.publicKey||c.publicKeyFile)&&(c.apiV3Key||c.apiV3KeyFile));}
