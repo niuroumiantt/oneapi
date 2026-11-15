@@ -19,7 +19,7 @@ import { demoJourneyRoutes } from './demo-journey.mjs';
 import { billingRoutes } from './billing.mjs';
 import { paymentRoutes,staffPaymentRoutes } from './payments.mjs';
 import { alipayClient } from './alipay.mjs';
-import { wechatpayClient } from './wechatpay.mjs';
+import { wechatpayClient,wechatBillsConfigured } from './wechatpay.mjs';
 import { supplierLabRoutes } from './supplier-lab.mjs';
 import { pilotInferenceRoutes } from './pilot-inference.mjs';
 import { customerBackofficeRoutes,staffBackofficeRoutes } from './backoffice.mjs';
@@ -38,7 +38,7 @@ import { keyWatchRoutes } from './key-watch.mjs';
 import { officialPriceWatchRoutes } from './official-price-watch.mjs';
 import { businessConsoleRoutes,customerBusinessRoutes,requireFinance } from './business-console.mjs';
 export function createApp(pool,cfg,transport){
- const app=express(),mail=mailService(pool,cfg,transport),auth=customerAuth(pool,cfg,mail),alipay=cfg.alipay?.enabled?alipayClient(cfg.alipay,cfg.alipayFetch||fetch):null,wechat=cfg.wechat?.enabled?wechatpayClient(cfg.wechat,cfg.wechatFetch||fetch):null,payClients={alipay,wechat};
+ const app=express(),mail=mailService(pool,cfg,transport),auth=customerAuth(pool,cfg,mail),alipay=cfg.alipay?.enabled?alipayClient(cfg.alipay,cfg.alipayFetch||fetch):null,wechat=cfg.wechat?.enabled?wechatpayClient(cfg.wechat,cfg.wechatFetch||fetch):null,payClients={alipay,wechat,wechatBills:wechat|| (wechatBillsConfigured(cfg.wechat)?wechatpayClient(cfg.wechat,cfg.wechatFetch||fetch):null)};
  app.disable('x-powered-by');app.set('trust proxy',1);
  app.use('/api',(req,res,next)=>{res.set({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});if(!['GET','HEAD','OPTIONS'].includes(req.method)&&req.headers.origin!==cfg.origin&&!['/payments/alipay/notify','/payments/wechat/notify'].includes(req.path))return res.status(403).json({error:'请求来源不匹配，请从本站重新操作。'});if(Number(req.headers['content-length']||0)>16384)return res.status(413).json({error:'请求内容过大'});next();});
  app.use('/api',async(req,res,next)=>{

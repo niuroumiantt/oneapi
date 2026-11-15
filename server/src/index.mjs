@@ -1,3 +1,5 @@
+import {wechatpayClient,wechatBillsConfigured} from './wechatpay.mjs';
+import {syncDueWechatBills} from './wechat-bills.mjs';
 import {alipayClient} from './alipay.mjs';
 import {syncDueAlipayBills} from './alipay-bills.mjs';
 import {settleCustomerCalls} from './customer-credit.mjs';
@@ -28,8 +30,8 @@ const watchStart=setTimeout(watchOnce,120000),watchWorker=setInterval(watchOnce,
 let priceWatching=false;const priceWatchOnce=async()=>{if(priceWatching)return;priceWatching=true;try{const r=await runOfficialPriceWatch(pool,{trigger:'schedule'});console.log(JSON.stringify({event:'official_price_watch',run_id:r.run_id,match:r.match,price_diff:r.price_diff,fetch_failed:r.fetch_failed,page_changed:r.page_changed}));}catch(e){console.error('official_price_watch_unavailable',String(e?.message||e).slice(0,200));}finally{priceWatching=false;}};
 const priceWatchStart=setTimeout(priceWatchOnce,300000),priceWatchWorker=setInterval(priceWatchOnce,PRICE_WATCH_INTERVAL_MS);
 // Daily statements become available the following morning; retry/backfill every hour.
-const billClient=cfg.alipay?.enabled?alipayClient(cfg.alipay):null;let syncingBills=false;
-const billOnce=async()=>{if(!billClient||syncingBills)return;syncingBills=true;try{await syncDueAlipayBills(pool,billClient);}catch{console.error('alipay_bill_sync_unavailable');}finally{syncingBills=false;}};
+const billClient=cfg.alipay?.enabled?alipayClient(cfg.alipay):null;const wxBillClient=wechatBillsConfigured(cfg.wechat)?wechatpayClient(cfg.wechat):null;let syncingBills=false;
+const billOnce=async()=>{if(syncingBills)return;syncingBills=true;try{if(billClient)await syncDueAlipayBills(pool,billClient);}catch{console.error('alipay_bill_sync_unavailable');}try{await syncDueWechatBills(pool,wxBillClient);}catch{console.error('wechat_bill_sync_unavailable');}finally{syncingBills=false;}};
 const billStart=setTimeout(billOnce,60000),billWorker=setInterval(billOnce,3600000);
 // A stopping process serves its open calls for at most 20 seconds, less than gateway-instance.mjs GONE_AFTER.
 for(const signal of ['SIGTERM' ,'SIGINT'])process.on(signal,()=>{clearTimeout(billStart);clearInterval(billWorker);clearInterval(lifelineWorker);clearInterval(worker);clearInterval(cleanup);clearInterval(usageWorker);clearTimeout(watchStart);clearInterval(watchWorker);clearTimeout(priceWatchStart);clearInterval(priceWatchWorker);server.close(async()=>{await markStopped(pool).catch(()=>{});await pool.end();process.exit(0);});setTimeout(()=>process.exit(1),20000).unref();});

@@ -1667,3 +1667,51 @@ test('Alipay statement reconciliation is idempotent, preserves manual correction
  const unsafe=await syncAlipayBill(pool,{billDownloadUrl:async()=>({code:'10000',bill_download_url:'https://localhost/private'})},'2026-01-02');assert.equal(unsafe.error_code,'BILL_DOWNLOAD_HOST_REJECTED');assert.deepEqual(await balance(),before);
  const view=(await admin.call('/api/staff/payments/orders')).data;assert.ok(view.bill_sync.enabled);assert.equal(view.bill_sync.days.find(d=>d.day==='2026-01-02').status,'pending');
 });
+
+test('WeChat statements reconcile receipt and cross-month refund fees exactly once without customer postings',async()=>{
+ const {applyWechatStatement,syncWechatBill}=await import('../src/wechat-bills.mjs');
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ const buyer=await user('wx-bill-buyer');appCfg.wechat.allowedEmails.add(buyer.email);
+ const order=(await buyer.j.call('/api/billing/personal/wechat-orders',{method:'POST',body:{amount_fen:500,idempotency_key:'wx-bill-order-0001'}})).data.order;
+ let o=(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[order.id])).rows[0];wxTrades.get(o.out_trade_no).state='SUCCESS';await buyer.j.call('/api/billing/payment-orders/'+order.id);
+ await pool.query("UPDATE payment_orders SET paid_at='2026-01-31 12:00:00+08' WHERE id=$1",[order.id]);
+ o=(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[order.id])).rows[0];
+ const entry={trade:o.provider_trade_no,order:o.out_trade_no,kind:'SUCCESS',type:'NATIVE',amount:500,fee:5,refund:'0'};
+ const read=async()=>(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[o.id])).rows[0];
+ const balance=async()=>(await pool.query('SELECT cash_balance_fen,list_credit_fen FROM billing_accounts WHERE id=$1',[o.account_id])).rows[0],before=await balance();
+ const ledgerBefore=(await pool.query('SELECT count(*) FROM billing_ledger')).rows[0].count;
+ const apply=async(day,entries)=>{const db=await pool.connect();try{await db.query('BEGIN');const r=await applyWechatStatement(db,day,entries,'a'.repeat(64),{kind:'system',id:'wx-bill-test'});await db.query('COMMIT');return r;}catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}};
+ assert.equal((await apply('2026-01-31',[entry])).exceptions,0);assert.equal((await read()).channel_fee_fen,'5');
+ for(const bad of [{...entry,fee:-3},{...entry,fee:501},{...entry,amount:499},{...entry,trade:'wrong'}]){assert.equal((await apply('2026-01-31',[bad])).exceptions,1);assert.equal((await read()).channel_fee_fen,'5');}
+ assert.equal((await apply('2026-01-31',[entry,entry])).exceptions,1);
+ await apply('2026-01-31',[entry]);assert.equal((await read()).channel_fee_issue,null);
+ await pool.query("INSERT INTO payment_refunds(order_id,out_request_no,amount_fen,reason,status,requested_by,idempotency_key,created_at,completed_at) VALUES($1,'wx-bill-refund',424,'fixture','succeeded','test','wx-bill-refund','2026-02-01 12:00+08','2026-02-02 12:00+08')",[o.id]);
+ const refund={...entry,kind:'REFUND',amount:424,fee:-4,refund:'wx-bill-refund',refundTrade:'wx-refund-id',refundStatus:'SUCCESS'};
+ assert.equal((await apply('2026-02-01',[refund])).exceptions,0);assert.equal((await read()).channel_fee_fen,'1');
+ const version=(await read()).channel_fee_version;
+ const audits=async()=>(await pool.query("SELECT count(*) FROM audit_events WHERE action='billing.channel_fee.wechat_bill_reconciled' AND subject_id=$1",[o.id])).rows[0].count;
+ const count=await audits();await apply('2026-02-01',[refund]);await apply('2026-01-31',[entry]);assert.equal((await read()).channel_fee_fen,'1');assert.equal((await read()).channel_fee_version,version);assert.equal(await audits(),count);
+ const costs=(await pool.query("SELECT to_char(cost_day,'YYYY-MM-DD') AS day,fee_fen FROM payment_channel_costs WHERE order_id=$1 ORDER BY cost_day",[o.id])).rows;assert.deepEqual(costs,[{day:'2026-01-31',fee_fen:'5'},{day:'2026-02-01',fee_fen:'-4'}]);
+ const feb=(await admin.call('/api/staff/business/finance?month=2026-02')).data;assert.equal(feb.current.accrual.channel_cost,-0.04);assert.equal(feb.current.cash.channel_cost,-0.04);
+ assert.equal((await apply('2026-02-01',[{...refund,fee:4}])).exceptions,1);
+ assert.equal((await apply('2026-02-01',[{...refund,refundStatus:'PROCESSING'}])).exceptions,1);
+ await apply('2026-02-01',[refund]);
+ assert.equal((await apply('2026-02-02',[refund])).exceptions,1,'same refund cannot count on two dates');
+ assert.equal((await buyer.j.call('/api/staff/payments/wechat-bills/sync',{method:'POST',body:{day:'2026-01-31'}})).status,401);
+ assert.equal((await admin.call('/api/staff/payments/wechat-bills/sync',{method:'POST',body:{day:'2999-01-01'}})).status,400);
+ assert.ok((await admin.call('/api/staff/payments/orders')).data.wechat_bill_sync.enabled);
+ assert.equal((await syncWechatBill(pool,{billDownloadUrl:async()=>({status:400,data:{code:'STATEMENT_CREATING'}})},'2026-02-01')).status,'pending');
+ assert.equal((await read()).channel_fee_fen,'1');
+ assert.equal((await admin.call('/api/staff/payments/orders/'+o.id+'/channel-fee',{method:'POST',body:{amount_fen:2,version,evidence:'manual net fee correction'}})).status,200);
+ assert.equal((await apply('2026-02-01',[refund])).exceptions,1);assert.equal((await read()).channel_fee_fen,'2');assert.equal((await read()).channel_fee_source,'manual');
+ assert.equal((await pool.query('SELECT count(*) FROM payment_channel_costs WHERE order_id=$1',[o.id])).rows[0].count,'1');
+ assert.deepEqual(await balance(),before);assert.equal((await pool.query('SELECT count(*) FROM billing_ledger')).rows[0].count,ledgerBefore);
+ const disabled=createApp(pool,{...appCfg,wechat:{...appCfg.wechat,enabled:false}});
+ const disabledServer=disabled.app.listen(0,'127.0.0.1');await new Promise(resolve=>disabledServer.once('listening',resolve));
+ const base='http://127.0.0.1:'+disabledServer.address().port;
+ try{
+  const v=await admin.call(base+'/api/staff/payments/orders');assert.equal(v.status,200);assert.ok(v.data.wechat_bill_sync.enabled);assert.ok(!v.data.channels.includes('wechat_native'));
+  const blocked=await buyer.j.call(base+'/api/billing/personal/wechat-orders',{method:'POST',body:{amount_fen:500,idempotency_key:'disabled-wx-must-not-pay'}});assert.equal(blocked.status,403);assert.match(blocked.data.error,/接入|开通|开放/);
+ }finally{await new Promise(resolve=>disabledServer.close(resolve));}
+
+});
