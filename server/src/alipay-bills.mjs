@@ -73,7 +73,7 @@ export async function applyStatement(db,day,entries,hash,actor){
   else if(rows.some(r=>!['交易','收入','退款'].includes(r.kind)))issue='账单业务类型待核对';
   else if(receipts.length>1)issue='账单有重复收款行';
   else if(receipts.length===1&&(receipts[0].amount!==Number(o.amount_fen)||o.paid_day!==day||receipts[0].refund))issue='收款金额或日期不一致';
-  else if(receipts.some(r=>r.fee<0||r.fee>r.amount))issue='收款服务费符号或金额待核对';
+  else if(receipts.some(r=>r.fee>0||-r.fee>r.amount))issue='收款服务费符号或金额待核对';
   for(const r of rows.filter(r=>r.kind==='退款')){
    const refund=(await db.query("SELECT amount_fen FROM payment_refunds WHERE order_id=$1 AND out_request_no=$2 AND status='succeeded'",[o.id,r.refund])).rows[0];
    if(!refund||Math.abs(r.amount)!==Number(refund.amount_fen))issue='退款流水或金额待核对';
@@ -81,7 +81,10 @@ export async function applyStatement(db,day,entries,hash,actor){
    // Until confirmed against a real merchant sample, never guess the direction.
    else if(r.fee!==0)issue='账单含退费调整，请核对净渠道费';
   }
-  if(!issue&&receipts.length===1){const amount=receipts[0].fee;
+  if(!issue&&receipts.length===1){
+   // Alipay trade CSV records service-fee deductions as negative cash flow.
+   // Convert only validated receipt deductions to positive merchant expenses.
+   const amount=-receipts[0].fee;
    if(o.channel_fee_fen!==null&&o.channel_fee_source!=='alipay_bill'){
     if(Number(o.channel_fee_fen)!==amount)issue='账单费用与手工核对不一致';
    }else if(o.channel_fee_issue&&o.issue_day!==day)issue=o.channel_fee_issue;
