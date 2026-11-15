@@ -1495,8 +1495,8 @@ test('list-credit refund formula and dual-approval bank transfer',async()=>{
  assert.ok(enterprise);
  const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(new Date());
  const post=(j,path,body={})=>j.call(path,{method:'POST',body});
- assert.equal((await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,cash_yuan:'100',face_yuan:'50',received_on:day})).status,400,'face below cash');
- const reg=await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,cash_yuan:'40',face_yuan:'100',received_on:day,reference:'BT-1',note:'合同价'});
+ assert.equal((await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,payer_name:'Bank Xfer Co',cash_yuan:'100',face_yuan:'50',received_on:day})).status,400,'face below cash');
+ const reg=await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,payer_name:'Bank Xfer Co',cash_yuan:'40',face_yuan:'100',received_on:day,reference:'BT-1',note:'合同价'});
  assert.equal(reg.status,201,JSON.stringify(reg.data));assert.equal(reg.data.status,'pending');
  const pending=await fa.call('/api/staff/business/bank-transfers');assert.equal(pending.data.entries[0].id,reg.data.id);assert.match(pending.data.refund_policy,/15%/);
  assert.equal((await admin.call('/api/staff/business/dashboard')).data.counts.bank_transfers_pending>=1,true);
@@ -1509,7 +1509,7 @@ test('list-credit refund formula and dual-approval bank transfer',async()=>{
  const view=await buyer.j.call(`/api/billing/organizations/${org.id}`);
  assert.equal(view.data.cash_balance_fen,'4000');assert.equal(view.data.list_credit_fen,'10000');assert.equal(view.data.total_recharged_fen,'4000');
  assert.equal((await post(fb,`/api/staff/business/bank-transfers/${reg.data.id}/approve`)).status,409);
- const other=await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,cash_yuan:'10',received_on:day,reference:'BT-2'});
+ const other=await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,payer_name:'Bank Xfer Co',cash_yuan:'10',received_on:day,reference:'BT-2'});
  assert.equal(other.status,201);assert.equal(Number(other.data.face_fen),1000,'face defaults to cash');
  assert.equal((await post(fb,`/api/staff/business/bank-transfers/${other.data.id}/reject`,{note:'付款户名不符'})).status,200);
  assert.deepEqual(await bal(),{cash_balance_fen:4000,list_credit_fen:10000},'reject leaves balances');
@@ -1714,4 +1714,43 @@ test('WeChat statements reconcile receipt and cross-month refund fees exactly on
   const blocked=await buyer.j.call(base+'/api/billing/personal/wechat-orders',{method:'POST',body:{amount_fen:500,idempotency_key:'disabled-wx-must-not-pay'}});assert.equal(blocked.status,403);assert.match(blocked.data.error,/接入|开通|开放/);
  }finally{await new Promise(resolve=>disabledServer.close(resolve));}
 
+});
+
+test('corporate transfer notices remain uncredited until independent review, isolated and duplicate-safe',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ identity={sub:'finance-a',email:'finance-a@example.test',name:'Finance A',staff_approved:true};const fa=jar();await staffLogin(fa);
+ const buyer=await user('bank-notice'),stranger=await user('bank-outsider'),org=await organization(buyer,'Notice Enterprise');
+ const path=`/api/billing/organizations/${org.id}`,today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(new Date()),post=(j,path,b)=>j.call(path,{method:'POST',body:b});
+ const claim={cash_yuan:'100.01',paid_on:today,payer_name:'Notice Enterprise',payer_reference:'PAYER-100',note:'contract 1',idempotency_key:'notice-000001'};
+ assert.equal((await post(stranger.j,path+'/bank-transfers',claim)).status,403);
+ for(const bad of [{...claim,paid_on:'2026-02-30'},{...claim,paid_on:'2999-01-01'},{...claim,cash_yuan:'0.001'},{...claim,payer_name:''}])assert.equal((await post(buyer.j,path+'/bank-transfers',bad)).status,400);
+ const first=await post(buyer.j,path+'/bank-transfers',claim);assert.equal(first.status,201,JSON.stringify(first.data));
+ assert.equal((await post(buyer.j,path+'/bank-transfers',claim)).data.id,first.data.id);
+ assert.equal((await post(buyer.j,path+'/bank-transfers',{...claim,cash_yuan:'100'})).status,409);
+ assert.equal((await post(buyer.j,path+'/bank-transfers',{...claim,idempotency_key:'notice-000002',payer_reference:'payer-100 '})).status,409);
+ let view=(await buyer.j.call(path)).data;assert.equal(view.cash_balance_fen,'0');assert.equal(view.bank_transfer.notices.length,1);assert.equal(view.bank_transfer.notices[0].status,'submitted');assert.equal(view.bank_transfer.notices[0].receiving_account.account_number,'0000000000000000');
+ assert.equal((await stranger.j.call(path)).status,403);assert.equal((await buyer.j.call('/api/staff/business/bank-transfers')).status,401);
+ const otherOrg=await organization(stranger,'Other Enterprise');assert.deepEqual((await stranger.j.call('/api/billing/organizations/'+otherOrg.id)).data.bank_transfer.notices,[]);
+ await pool.query('SELECT ensure_customers()');const customer=(await pool.query('SELECT id FROM customers WHERE organization_id=$1',[org.id])).rows[0];
+ const intake={customer_id:customer.id,notice_id:first.data.id,payer_name:claim.payer_name,cash_yuan:'100.01',received_on:today,reference:'BANK-UNIQUE-100',note:'confirmed actual bank receipt'};
+ const list=await admin.call('/api/staff/business/bank-transfers');assert.ok(list.data.notices.some(n=>n.id===first.data.id));assert.equal(list.data.receiving_account.account_number,'0000000000000000');
+ assert.equal((await post(fa,'/api/staff/business/bank-transfers',{...intake,reference:''})).status,400);
+ assert.equal((await post(fa,'/api/staff/business/bank-transfers',{...intake,cash_yuan:'99',note:''})).status,400);
+ const registration=await post(fa,'/api/staff/business/bank-transfers',intake);assert.equal(registration.status,201,JSON.stringify(registration.data));
+ const entry=registration.data.id;
+ assert.equal((await post(fa,`/api/staff/business/bank-transfers/${entry}/approve`,{})).status,403);
+ const direct={...intake,notice_id:undefined,reference:'bank- unique-100'};
+ assert.equal((await post(admin,'/api/staff/business/bank-transfers',direct)).status,409,'normalized receiving-bank reference is reserved');
+ view=(await buyer.j.call(path)).data;assert.equal(view.cash_balance_fen,'0');assert.equal(view.bank_transfer.notices[0].status,'registered');
+ assert.equal((await post(admin,`/api/staff/business/bank-transfer-notices/${first.data.id}/reject`,{note:'too late'})).status,409);
+ const approvals=await Promise.all([post(admin,`/api/staff/business/bank-transfers/${entry}/approve`,{note:'checked'}),post(admin,`/api/staff/business/bank-transfers/${entry}/approve`,{note:'checked'})]);assert.deepEqual(approvals.map(r=>r.status).sort(),[200,409]);
+ view=(await buyer.j.call(path)).data;assert.equal(view.cash_balance_fen,'10001');assert.equal(view.list_credit_fen,'10001');assert.equal(view.bank_transfer.notices[0].status,'approved');assert.equal(view.bank_transfer.notices[0].credited_cash_fen,'10001');
+ assert.equal((await pool.query("SELECT count(*) FROM billing_ledger WHERE reference_id=$1",[entry])).rows[0].count,'1');assert.equal((await pool.query("SELECT count(*) FROM credit_packs WHERE source_kind='bank' AND source_id=$1",[entry])).rows[0].count,'1');
+ const rejected=await post(buyer.j,path+'/bank-transfers',{...claim,idempotency_key:'notice-reject-1',payer_reference:'PAYER-REJECT'});
+ assert.equal((await post(admin,`/api/staff/business/bank-transfer-notices/${rejected.data.id}/reject`,{note:''})).status,400);
+ assert.equal((await post(admin,`/api/staff/business/bank-transfer-notices/${rejected.data.id}/reject`,{note:'请核对流水号'})).status,200);
+ view=(await buyer.j.call(path)).data;assert.equal(view.bank_transfer.notices.find(n=>n.id===rejected.data.id).review_note,'请核对流水号');assert.equal(view.cash_balance_fen,'10001');
+ assert.equal((await post(buyer.j,path+'/bank-transfers',{...claim,idempotency_key:'notice-reject-2',payer_reference:'PAYER-REJECT'})).status,201,'rejected notices may be corrected and submitted again');
+ const duplicateDirect={...intake,notice_id:undefined,reference:'CONCURRENT-REFERENCE'};
+ const regs=await Promise.all([post(admin,'/api/staff/business/bank-transfers',duplicateDirect),post(fa,'/api/staff/business/bank-transfers',duplicateDirect)]);assert.deepEqual(regs.map(r=>r.status).sort(),[201,409]);
 });

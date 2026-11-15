@@ -1,3 +1,4 @@
+import {bankSnapshot,transferDay} from './bank-transfers.mjs';
 import {addPack} from './pack-ledger.mjs';
 // Business console: the owner's and finance's view of the company (revenue, cost, margin, invoices),
 // supplier and customer codes with a light CRM, discount grants, and first-line support.
@@ -181,7 +182,7 @@ async function yearSeries(pool) {
   .map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, k === 'month' ? v : Number(v)])));
 }
 
-export function businessConsoleRoutes(app, pool, requireStaff) {
+export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
  const staffName = async subject => (await pool.query('SELECT name FROM staff_members WHERE subject=$1', [subject])).rows[0]?.name || null;
 
  app.put('/api/staff/members/:subject/finance-access', requireStaff, async (req, res) => {
@@ -212,7 +213,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
     (SELECT count(*) FROM discount_grants WHERE status='active' AND now()>=starts_at AND now()<ends_at)::int AS discounts_active,
     (SELECT count(*) FROM tax_invoices WHERE direction='output' AND status='requested')::int AS invoices_requested,
     (SELECT count(*) FROM payment_refunds WHERE status='pending')::int AS refunds_pending,
-    (SELECT count(*) FROM bank_transfer_entries WHERE status='pending')::int AS bank_transfers_pending,
+    ((SELECT count(*) FROM bank_transfer_entries WHERE status='pending')+(SELECT count(*) FROM bank_transfer_notices WHERE status='submitted'))::int AS bank_transfers_pending,
     (SELECT count(*) FROM channel_states WHERE paused)::int AS models_paused,
     (SELECT count(*) FROM customers WHERE kind='enterprise')::int AS enterprises,
     (SELECT count(*) FROM customers WHERE kind='personal')::int AS individuals,
@@ -330,7 +331,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
 
  // ---- Bank transfer dual approval -------------------------------------------------------------
  const BANK_TRANSFER_ROWS = `SELECT e.id,e.customer_id,e.account_id,e.cash_fen,e.face_fen,to_char(e.received_on,'YYYY-MM-DD') AS received_day,
-  e.reference,e.note,e.status,e.created_by,e.created_at,e.decided_by,e.decided_at,e.decision_note,
+  e.reference,e.payer_name,e.receiving_account,e.note,e.status,e.created_by,e.created_at,e.decided_by,e.decided_at,e.decision_note,
   c.code AS customer_code,coalesce(o.name,u.name) AS customer_name,c.kind AS customer_kind,
   a.name AS created_by_name,k.name AS decided_by_name
   FROM bank_transfer_entries e JOIN customers c ON c.id=e.customer_id
@@ -349,27 +350,40 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
  app.get('/api/staff/business/bank-transfers', requireStaff, async (req, res) => {
   requireFinance(req);
   const entries = (await pool.query(`${BANK_TRANSFER_ROWS} ORDER BY e.status='pending' DESC,e.created_at DESC LIMIT 300`)).rows;
-  res.json({ entries, refund_policy: REFUND_POLICY_ZH });
+  const notices=(await pool.query(`SELECT n.*,to_char(n.paid_on,'YYYY-MM-DD') AS paid_day,o.name AS organization_name,c.id AS customer_id,c.code AS customer_code,u.email AS submitted_email FROM bank_transfer_notices n JOIN organizations o ON o.id=n.organization_id JOIN "user" u ON u.id=n.submitted_by LEFT JOIN customers c ON c.organization_id=n.organization_id WHERE n.status='submitted' ORDER BY n.created_at LIMIT 300`)).rows;
+  res.json({ entries,notices,current_subject:req.staff.subject,receiving_account:cfg.bankTransfer?.enabled?bankSnapshot(cfg):null, refund_policy: REFUND_POLICY_ZH });
  });
  app.post('/api/staff/business/bank-transfers', requireStaff, async (req, res) => {
   requireFinance(req);
-  const b = req.body || {}, customerId = id(b.customer_id), cash = fen(b.cash_yuan, '实付金额'), receivedOn = day(b.received_on, '到账日期');
+  const b = req.body || {}, customerId = id(b.customer_id), cash = fen(b.cash_yuan, '实付金额'), receivedOn = transferDay(b.received_on), reference=text(b.reference,'银行到账流水号',120),payer=text(b.payer_name,'付款户名',160), referenceKey=reference.replace(/\s/g,'').toUpperCase();
+  if(!cfg.bankTransfer?.enabled)throw new HttpError(409,'对公收款账户尚未配置');
   const faceRaw = b.face_yuan === undefined || b.face_yuan === null || b.face_yuan === '' ? null : fen(b.face_yuan, '官价额度面额');
   const face = faceRaw ?? cash;
   if (face < cash) throw new HttpError(400, '官价额度面额不能低于实付金额');
-  if (receivedOn > new Date(Date.now() + 86400000).toISOString().slice(0, 10)) throw new HttpError(400, '到账日期不能晚于今天');
+
   const row = await transaction(pool, async db => {
    const customer = (await db.query('SELECT id,kind,user_id,organization_id FROM customers WHERE id=$1 FOR UPDATE', [customerId])).rows[0];
-   if (!customer) throw new HttpError(404, '客户不存在');
+   if (!customer||!customer.organization_id) throw new HttpError(400, '请选择企业客户');
+   let notice=null;
+   if(b.notice_id){notice=(await db.query('SELECT * FROM bank_transfer_notices WHERE id=$1 FOR UPDATE',[id(b.notice_id)])).rows[0];if(!notice||notice.organization_id!==customer.organization_id||notice.status!=='submitted')throw new HttpError(409,'转账信息已处理或不属于此企业');if((Number(notice.cash_fen)!==cash||notice.payer_name!==payer)&&!b.note?.trim())throw new HttpError(400,'实收金额或付款户名与客户提交不一致，请填写核对说明');}
+   await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,66))',[referenceKey]);
+   const duplicate=(await db.query("SELECT id FROM bank_transfer_entries WHERE status IN ('pending','approved') AND upper(regexp_replace(reference,'\\s','','g'))=$1 LIMIT 1",[referenceKey])).rows[0];
+   if(duplicate)throw new HttpError(409,'该银行到账流水已登记，请查看现有记录，勿重复入账');
    const account = await ensureBillingAccount(db, customer);
-   const created = (await db.query(`INSERT INTO bank_transfer_entries(customer_id,account_id,cash_fen,face_fen,received_on,reference,note,created_by)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,status,cash_fen,face_fen`,
-    [customerId, account.id, cash, face, receivedOn, optional(b.reference, '回单号', 120), optional(b.note, '备注', 500), req.staff.subject])).rows[0];
+   const created = (await db.query(`INSERT INTO bank_transfer_entries(customer_id,account_id,cash_fen,face_fen,received_on,reference,note,created_by,payer_name,reference_key,receiving_account)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,status,cash_fen,face_fen`,
+    [customerId, account.id, cash, face, receivedOn, reference, optional(b.note, '备注', 500), req.staff.subject,payer,referenceKey,bankSnapshot(cfg)])).rows[0];
+   if(notice)await db.query("UPDATE bank_transfer_notices SET status='registered',entry_id=$2,reviewed_by=$3,reviewed_at=now(),review_note=$4 WHERE id=$1",[notice.id,created.id,req.staff.subject,optional(b.note,'核对说明',500)]);
    await audit(db, req.actor, 'bank_transfer.registered', customer.organization_id, created.id, { cash_fen: cash, face_fen: face });
    return created;
   });
   res.status(201).json(row);
  });
+ app.post('/api/staff/business/bank-transfer-notices/:notice/reject',requireStaff,async(req,res)=>{
+  requireFinance(req);const reason=text(req.body?.note,'退回原因',500);
+  await transaction(pool,async db=>{const n=(await db.query("UPDATE bank_transfer_notices SET status='rejected',reviewed_by=$2,reviewed_at=now(),review_note=$3 WHERE id=$1 AND status='submitted' RETURNING organization_id",[id(req.params.notice),req.staff.subject,reason])).rows[0];if(!n)throw new HttpError(409,'这笔转账信息已经处理过');await audit(db,req.actor,'bank_transfer.notice_rejected',n.organization_id,req.params.notice,{reason});});res.json({ok:true});
+ });
+
  app.post('/api/staff/business/bank-transfers/:entry/:action', requireStaff, async (req, res) => {
   requireFinance(req);
   const entryId = id(req.params.entry), action = choice(req.params.action, ['approve', 'reject'], '操作');
@@ -384,6 +398,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
     await audit(db, req.actor, 'bank_transfer.rejected', null, entryId, { note: decisionNote });
     return rejected;
    }
+   if(!cur.reference.trim()||!cur.payer_name.trim())throw new HttpError(409,'这笔旧登记缺少付款户名或银行流水号，请驳回后重新登记');
    const acct = (await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen+$2,list_credit_fen=list_credit_fen+$3 WHERE id=$1 RETURNING cash_balance_fen,list_credit_fen,organization_id', [cur.account_id, cur.cash_fen, cur.face_fen])).rows[0];
    await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'recharge',$2,$3,'payment',$4)", [cur.account_id, cur.cash_fen, acct.cash_balance_fen, cur.id]);
    await addPack(db,{accountId:cur.account_id,sourceKind:'bank',sourceId:cur.id,faceFen:cur.face_fen,cashFen:cur.cash_fen});
