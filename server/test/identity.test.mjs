@@ -1633,22 +1633,29 @@ test('Alipay statement reconciliation is idempotent, preserves manual correction
  let o=(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[order.id])).rows[0];seedAlipayTrade(o.out_trade_no,'5.00').status='TRADE_SUCCESS';await buyer.j.call('/api/billing/alipay-orders/'+order.id);
  await pool.query("UPDATE payment_orders SET paid_at='2026-01-02 12:00:00+08' WHERE id=$1",[order.id]);
  o=(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[order.id])).rows[0];
- const actor={kind:'system',id:'bill-test'},entry={trade:o.provider_trade_no,order:o.out_trade_no,kind:'交易',amount:500,fee:3,refund:''};
+ const actor={kind:'system',id:'bill-test'},entry={trade:o.provider_trade_no,order:o.out_trade_no,kind:'交易',amount:500,fee:-3,refund:''};
  const read=async()=>(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[order.id])).rows[0];
  const balance=async()=>(await pool.query('SELECT cash_balance_fen,list_credit_fen FROM billing_accounts WHERE id=$1',[o.account_id])).rows[0];const before=await balance();
  const apply=async rows=>{const db=await pool.connect();try{await db.query('BEGIN');const r=await applyStatement(db,'2026-01-02',rows,'a'.repeat(64),actor);await db.query('COMMIT');return r;}catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}};
- assert.equal((await apply([entry])).matched,1);assert.equal((await read()).channel_fee_fen,'3');const version=(await read()).channel_fee_version;
+ assert.equal((await apply([entry])).matched,1);assert.equal((await read()).channel_fee_fen,'3');let version=(await read()).channel_fee_version;
  await apply([entry]);assert.equal((await read()).channel_fee_version,version);assert.deepEqual(await balance(),before);
  assert.equal((await apply([{...entry,trade:'wrong'}])).exceptions,1);assert.equal((await read()).channel_fee_fen,'3');
  assert.equal((await apply([{...entry,amount:501}])).exceptions,1);
+ for(const fee of [3,-501]){assert.equal((await apply([{...entry,fee}])).exceptions,1);assert.equal((await read()).channel_fee_fen,'3');}
+ assert.equal((await apply([{...entry,fee:0}])).exceptions,0);assert.equal((await read()).channel_fee_fen,'0');
  assert.equal((await apply([entry,entry])).exceptions,1);
  await apply([entry]);assert.equal((await read()).channel_fee_issue,null);
 
- await pool.query("INSERT INTO payment_refunds(order_id,out_request_no,amount_fen,reason,status,requested_by,idempotency_key,completed_at) VALUES($1,'bill-refund-example',425,'fixture','succeeded','test','bill-refund-example',now())",[o.id]);
- const refund={...entry,kind:'退款',amount:-425,fee:0,refund:'bill-refund-example'};
+ await pool.query("INSERT INTO payment_refunds(order_id,out_request_no,amount_fen,reason,status,requested_by,idempotency_key,completed_at) VALUES($1,'bill-refund-example',424,'fixture','succeeded','test','bill-refund-example',now())",[o.id]);
+ const refund={...entry,kind:'退款',amount:-424,fee:0,refund:'bill-refund-example'};
  assert.equal((await apply([entry,refund])).exceptions,0);assert.equal((await read()).channel_fee_fen,'3');
  assert.equal((await apply([entry,{...refund,fee:-1}])).exceptions,1);assert.match((await read()).channel_fee_issue,/退费/);assert.equal((await read()).channel_fee_fen,'3');
  assert.equal((await apply([entry,refund])).exceptions,0);
+ version=(await read()).channel_fee_version;
+ const auditCount=async()=>Number((await pool.query("SELECT count(*) FROM audit_events WHERE action='billing.channel_fee.bill_reconciled' AND subject_id=$1",[o.id])).rows[0].count);
+ const audits=await auditCount();
+ await apply([entry,refund]);await apply([entry,refund]);
+ assert.equal((await read()).channel_fee_version,version);assert.equal(await auditCount(),audits);assert.deepEqual(await balance(),before);
  const path='/api/staff/payments/orders/'+order.id+'/channel-fee';
  assert.equal((await admin.call(path,{method:'POST',body:{amount_fen:2,version,evidence:'manual statement adjustment'}})).status,200);
  assert.equal((await apply([entry])).exceptions,1);assert.equal((await read()).channel_fee_fen,'2');assert.equal((await read()).channel_fee_source,'manual');
