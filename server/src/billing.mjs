@@ -1,3 +1,4 @@
+import {transferNotices} from './bank-transfers.mjs';
 import {refundQuote} from './pack-ledger.mjs';
 import { HttpError,id } from './core.mjs';
 import { isManager } from './organizations.mjs';
@@ -40,6 +41,7 @@ export function billingRoutes(app,pool,requireCustomer,cfg,payments){
   const account=(await pool.query('SELECT id,cash_balance_fen,list_credit_fen,total_spent_fen FROM billing_accounts WHERE organization_id=$1',[org])).rows[0];
   const bank=cfg.bankTransfer||{enabled:false};
   const bankTransfer=bank.enabled?{enabled:true,account_name:bank.accountName,bank_name:bank.bankName,account_number:bank.accountNumber}:{enabled:false};
+  bankTransfer.notices=await transferNotices(pool,org);
   await view(account,'organization',res,bankTransfer,payments?.channelsFor(req.customer)||[]);
  });
 }

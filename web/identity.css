@@ -870,3 +870,6 @@ td>.live-dot:first-child{margin-right:5px}
 .pc-steps .pc-access-values span{white-space:nowrap}
 .kg-values .key-agent-row{grid-template-columns:calc(var(--kv-label,7) * 12px) minmax(0,1fr) 52px}
 .kg-values .key-agent-row small{white-space:nowrap}
+
+.billing-transfer-submit{margin-top:24px;border-top:1px solid #dce6f1;padding-top:18px}.billing-transfer-submit>summary{cursor:pointer;font-weight:600;color:#24314c}.billing-transfer-submit>summary:focus-visible{outline:2px solid currentColor;outline-offset:4px}.billing-transfer-history{margin-top:28px;font-size:16px}.billing-bank-fields .live-button{align-self:flex-start;margin-top:4px}
+@media(max-width:560px){.pc-topbar-actions{gap:6px;flex:1}.pc-topbar .pc-workspace{min-width:0;flex:1;padding:7px 6px}.pc-topbar .pc-workspace-name,.pc-topbar .pc-workspace select{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis}.pc-topbar .account-menu,.pc-topbar .pc-docs-link{flex-shrink:0}}
