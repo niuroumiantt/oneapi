@@ -1754,3 +1754,33 @@ test('corporate transfer notices remain uncredited until independent review, iso
  const duplicateDirect={...intake,notice_id:undefined,reference:'CONCURRENT-REFERENCE'};
  const regs=await Promise.all([post(admin,'/api/staff/business/bank-transfers',duplicateDirect),post(fa,'/api/staff/business/bank-transfers',duplicateDirect)]);assert.deepEqual(regs.map(r=>r.status).sort(),[201,409]);
 });
+
+test('only platform admins may self-review bank transfers, with durable role and audit evidence',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ identity={sub:'finance-a',email:'finance-a@example.test',name:'Finance A',staff_approved:true};const finance=jar();await staffLogin(finance);
+ const buyer=await user('bank-admin-review'),org=await organization(buyer,'Admin Review Enterprise');
+ const customers=(await admin.call('/api/staff/business/customers')).data.customers,c=customers.find(c=>c.organization_id===org.id);
+ const post=(j,path,body={})=>j.call(path,{method:'POST',body}),path='/api/staff/business/bank-transfers';
+ const payload={customer_id:c.id,payer_name:org.name,cash_yuan:'12.34',received_on:new Date(Date.now()+8*3600000).toISOString().slice(0,10),reference:'SELF-REVIEW-ADMIN',note:'银行已到账'};
+ assert.equal((await admin.call(path)).data.can_self_review,true);assert.equal((await finance.call(path)).data.can_self_review,false);
+ const reg=await post(admin,path,payload);assert.equal(reg.status,201,JSON.stringify(reg.data));
+ const row=async id=>(await pool.query('SELECT * FROM bank_transfer_entries WHERE id=$1',[id])).rows[0];
+ const initial=await row(reg.data.id);assert.equal(initial.status,'pending');assert.equal(initial.decided_by,null);
+ const outcomes=await Promise.all([post(admin,path+'/'+reg.data.id+'/approve',{note:'管理员核对银行回单'}),post(admin,path+'/'+reg.data.id+'/approve',{note:'管理员核对银行回单'})]);assert.deepEqual(outcomes.map(x=>x.status).sort(),[200,409]);
+ const approved=await row(reg.data.id);assert.equal(approved.created_by,'staff-owner');assert.equal(approved.decided_by,'staff-owner');assert.equal(approved.decision_role,'platform_admin');assert.ok(approved.created_at&&approved.decided_at);assert.equal(approved.decision_note,'管理员核对银行回单');
+ const events=(await pool.query('SELECT actor_id,action,detail,created_at FROM audit_events WHERE subject_id=$1 ORDER BY created_at',[reg.data.id])).rows;
+ assert.deepEqual(events.map(e=>e.action),['bank_transfer.registered','bank_transfer.approved']);assert.ok(events.every(e=>e.actor_id==='staff-owner'&&e.created_at));assert.equal(events[1].detail.self_review,true);assert.equal(events[1].detail.decision_role,'platform_admin');assert.equal(events[1].detail.note,approved.decision_note);
+ assert.equal((await pool.query('SELECT count(*)::int n FROM billing_ledger WHERE reference_id=$1',[reg.data.id])).rows[0].n,1);
+ assert.equal((await buyer.j.call('/api/billing/organizations/'+org.id)).data.cash_balance_fen,'1234');
+ const rejected=await post(admin,path,{...payload,reference:'SELF-REJECT-ADMIN'});assert.equal(rejected.status,201);
+ assert.equal((await post(admin,path+'/'+rejected.data.id+'/reject',{note:'回单登记有误'})).status,200);
+ assert.equal((await row(rejected.data.id)).decision_role,'platform_admin');
+ const rejAudit=(await pool.query("SELECT detail FROM audit_events WHERE subject_id=$1 AND action='bank_transfer.rejected'",[rejected.data.id])).rows[0];assert.equal(rejAudit.detail.self_review,true);assert.equal(rejAudit.detail.note,'回单登记有误');
+ const ordinary=await post(finance,path,{...payload,reference:'SELF-REVIEW-FINANCE'});assert.equal(ordinary.status,201);
+ for(const action of ['approve','reject'])assert.equal((await post(finance,path+'/'+ordinary.data.id+'/'+action,{note:'伪造管理员字段',decision_role:'platform_admin',can_self_review:true})).status,403);
+ assert.equal((await row(ordinary.data.id)).status,'pending');
+ await assert.rejects(pool.query("UPDATE bank_transfer_entries SET status='approved',decided_by=created_by,decided_at=now(),decision_role='operations' WHERE id=$1",[ordinary.data.id]),e=>e.code==='23514','database still enforces ordinary finance separation');
+ assert.equal((await post(admin,path+'/'+ordinary.data.id+'/approve',{note:'独立复核'})).status,200);
+ const audit=(await pool.query("SELECT detail FROM audit_events WHERE subject_id=$1 AND action='bank_transfer.approved'",[ordinary.data.id])).rows[0];assert.equal(audit.detail.self_review,false);
+ assert.equal((await buyer.j.call('/api/billing/organizations/'+org.id)).data.cash_balance_fen,'2468');
+});

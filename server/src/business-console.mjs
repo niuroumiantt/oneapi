@@ -331,7 +331,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
 
  // ---- Bank transfer dual approval -------------------------------------------------------------
  const BANK_TRANSFER_ROWS = `SELECT e.id,e.customer_id,e.account_id,e.cash_fen,e.face_fen,to_char(e.received_on,'YYYY-MM-DD') AS received_day,
-  e.reference,e.payer_name,e.receiving_account,e.note,e.status,e.created_by,e.created_at,e.decided_by,e.decided_at,e.decision_note,
+  e.reference,e.payer_name,e.receiving_account,e.note,e.status,e.created_by,e.created_at,e.decided_by,e.decided_at,e.decision_note,e.decision_role,
   c.code AS customer_code,coalesce(o.name,u.name) AS customer_name,c.kind AS customer_kind,
   a.name AS created_by_name,k.name AS decided_by_name
   FROM bank_transfer_entries e JOIN customers c ON c.id=e.customer_id
@@ -351,7 +351,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
   requireFinance(req);
   const entries = (await pool.query(`${BANK_TRANSFER_ROWS} ORDER BY e.status='pending' DESC,e.created_at DESC LIMIT 300`)).rows;
   const notices=(await pool.query(`SELECT n.*,to_char(n.paid_on,'YYYY-MM-DD') AS paid_day,o.name AS organization_name,c.id AS customer_id,c.code AS customer_code,u.email AS submitted_email FROM bank_transfer_notices n JOIN organizations o ON o.id=n.organization_id JOIN "user" u ON u.id=n.submitted_by LEFT JOIN customers c ON c.organization_id=n.organization_id WHERE n.status='submitted' ORDER BY n.created_at LIMIT 300`)).rows;
-  res.json({ entries,notices,current_subject:req.staff.subject,receiving_account:cfg.bankTransfer?.enabled?bankSnapshot(cfg):null, refund_policy: REFUND_POLICY_ZH });
+  res.json({ entries,notices,current_subject:req.staff.subject,can_self_review:isAdmin(req.staff),receiving_account:cfg.bankTransfer?.enabled?bankSnapshot(cfg):null, refund_policy: REFUND_POLICY_ZH });
  });
  app.post('/api/staff/business/bank-transfers', requireStaff, async (req, res) => {
   requireFinance(req);
@@ -392,18 +392,19 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
    const cur = (await db.query('SELECT * FROM bank_transfer_entries WHERE id=$1 FOR UPDATE', [entryId])).rows[0];
    if (!cur) throw new HttpError(404, '登记不存在');
    if (cur.status !== 'pending') throw new HttpError(409, '这笔转账已经处理过');
-   if (cur.created_by === req.staff.subject) throw new HttpError(403, '登记人不能复核自己登记的转账');
+   const selfReview=cur.created_by===req.staff.subject;
+   if (selfReview&&!isAdmin(req.staff)) throw new HttpError(403, '普通财务不能复核自己登记的转账');
    if (action === 'reject') {
-    const rejected = (await db.query(`UPDATE bank_transfer_entries SET status='rejected',decided_by=$2,decided_at=now(),decision_note=$3 WHERE id=$1 RETURNING id,status`, [entryId, req.staff.subject, decisionNote])).rows[0];
-    await audit(db, req.actor, 'bank_transfer.rejected', null, entryId, { note: decisionNote });
+    const rejected = (await db.query(`UPDATE bank_transfer_entries SET status='rejected',decided_by=$2,decided_at=now(),decision_note=$3,decision_role=$4 WHERE id=$1 RETURNING id,status`, [entryId, req.staff.subject, decisionNote, req.staff.role])).rows[0];
+    await audit(db, req.actor, 'bank_transfer.rejected', null, entryId, { note: decisionNote, self_review:selfReview, decision_role:req.staff.role, created_by:cur.created_by });
     return rejected;
    }
    if(!cur.reference.trim()||!cur.payer_name.trim())throw new HttpError(409,'这笔旧登记缺少付款户名或银行流水号，请驳回后重新登记');
    const acct = (await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen+$2,list_credit_fen=list_credit_fen+$3 WHERE id=$1 RETURNING cash_balance_fen,list_credit_fen,organization_id', [cur.account_id, cur.cash_fen, cur.face_fen])).rows[0];
    await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'recharge',$2,$3,'payment',$4)", [cur.account_id, cur.cash_fen, acct.cash_balance_fen, cur.id]);
    await addPack(db,{accountId:cur.account_id,sourceKind:'bank',sourceId:cur.id,faceFen:cur.face_fen,cashFen:cur.cash_fen});
-   const approved = (await db.query(`UPDATE bank_transfer_entries SET status='approved',decided_by=$2,decided_at=now(),decision_note=$3 WHERE id=$1 RETURNING id,status,cash_fen,face_fen`, [entryId, req.staff.subject, decisionNote])).rows[0];
-   await audit(db, req.actor, 'bank_transfer.approved', acct.organization_id, entryId, { cash_fen: String(cur.cash_fen), face_fen: String(cur.face_fen) });
+   const approved = (await db.query(`UPDATE bank_transfer_entries SET status='approved',decided_by=$2,decided_at=now(),decision_note=$3,decision_role=$4 WHERE id=$1 RETURNING id,status,cash_fen,face_fen`, [entryId, req.staff.subject, decisionNote, req.staff.role])).rows[0];
+   await audit(db, req.actor, 'bank_transfer.approved', acct.organization_id, entryId, { cash_fen: String(cur.cash_fen), face_fen: String(cur.face_fen), note:decisionNote, self_review:selfReview, decision_role:req.staff.role, created_by:cur.created_by });
    return approved;
   });
   res.json(row);
