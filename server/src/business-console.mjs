@@ -60,7 +60,7 @@ export function tagList(value) {
 export const invoiceable = ({ recharged_fen, refunded_fen, invoiced_fen }) => Number(recharged_fen) - Number(refunded_fen) - Number(invoiced_fen);
 
 const SH = "AT TIME ZONE 'Asia/Shanghai'";
-const AMOUNT = "CASE WHEN x.evidence->>'amount' ~ '^[0-9]+(\\.[0-9]+)?$' THEN (x.evidence->>'amount')::numeric ELSE 0 END";
+const AMOUNT = 'x.finance_amount_yuan';
 // $1 is the accounting month. Upstream bills can land a little outside the call's own timestamp, so the join window is a day wider.
 const RANGE = `r AS (SELECT ($1||'-01')::timestamp ${SH} AS a,(($1||'-01')::timestamp+interval '1 month') ${SH} AS z)`;
 // The same upstream request can be stored under two credentials that hold one secret: count each request once.
@@ -79,9 +79,14 @@ const CALLS = `calls AS (
   FROM pilot_calls p,r WHERE p.created_at>=r.a AND p.created_at<r.z)`;
 const COST = 'CASE WHEN c.settled THEN coalesce(u.amt,c.fallback,0) ELSE 0 END';
 // An upstream bill that no customer call accounts for: acceptance tests, load tests, key checks.
-const UNCLAIMED = 'NOT EXISTS (SELECT 1 FROM customer_calls c WHERE c.upstream_request_id=u.request_id) AND NOT EXISTS (SELECT 1 FROM employee_calls e WHERE e.upstream_request_id=u.request_id) AND NOT EXISTS (SELECT 1 FROM pilot_calls p WHERE p.upstream_request_id=u.request_id)';
+const CLAIMED = `claimed AS MATERIALIZED (SELECT upstream_request_id AS rid FROM customer_calls WHERE upstream_request_id IS NOT NULL
+ UNION SELECT upstream_request_id FROM employee_calls WHERE upstream_request_id IS NOT NULL
+ UNION SELECT upstream_request_id FROM pilot_calls WHERE upstream_request_id IS NOT NULL)`;
+const UNCLAIMED = 'NOT EXISTS (SELECT 1 FROM claimed WHERE claimed.rid=u.request_id)';
 
-const CUSTOMER_ROWS = `SELECT c.id,c.code,c.kind,c.stage,c.tags,c.owner_subject,sm.name AS owner_name,c.created_at,c.user_id,c.organization_id,
+const CUSTOMER_ROWS = `WITH recent_usage AS MATERIALIZED (SELECT owner_id,count(*)::int AS calls_30d,max(created_at) AS last_call_at
+ FROM employee_calls WHERE created_at>=now()-interval '30 days' GROUP BY owner_id)
+ SELECT c.id,c.code,c.kind,c.stage,c.tags,c.owner_subject,sm.name AS owner_name,c.created_at,c.user_id,c.organization_id,
  coalesce(o.name,u.name) AS name,coalesce(u.email,cu.email) AS email,coalesce(u.disabled,false) AS disabled,
  (SELECT count(*) FROM memberships m WHERE m.organization_id=c.organization_id AND m.status='active')::int AS members,
  (SELECT string_agg(g.name,'、') FROM memberships m JOIN organizations g ON g.id=m.organization_id WHERE m.user_id=c.user_id AND m.status='active') AS orgs,
@@ -94,8 +99,8 @@ const CUSTOMER_ROWS = `SELECT c.id,c.code,c.kind,c.stage,c.tags,c.owner_subject,
  LEFT JOIN staff_members sm ON sm.subject=c.owner_subject
  LEFT JOIN billing_accounts b ON (b.organization_id=c.organization_id OR b.owner_id=c.user_id)
  LEFT JOIN LATERAL (SELECT coalesce(sum(a.granted_yuan),0) AS granted,coalesce(sum(a.spent_yuan),0) AS spent FROM employee_credit_accounts a WHERE a.organization_id=c.organization_id OR a.user_id=c.user_id) credit ON true
- LEFT JOIN LATERAL (SELECT count(*)::int AS calls_30d,max(e.created_at) AS last_call_at FROM employee_calls e WHERE e.created_at>=now()-interval '30 days'
-  AND (e.owner_id=c.user_id OR e.owner_id IN (SELECT a.user_id FROM employee_credit_accounts a WHERE a.organization_id=c.organization_id))) used ON true`;
+ LEFT JOIN LATERAL (SELECT coalesce(sum(e.calls_30d),0)::int AS calls_30d,max(e.last_call_at) AS last_call_at FROM recent_usage e
+  WHERE e.owner_id=c.user_id OR e.owner_id IN (SELECT a.user_id FROM employee_credit_accounts a WHERE a.organization_id=c.organization_id)) used ON true`;
 // Dates are sent as plain YYYY-MM-DD text: a JS Date would shift by the server's time zone.
 const INVOICE_ROWS = `SELECT i.*,to_char(i.issued_on,'YYYY-MM-DD') AS issued_day,c.code AS customer_code,coalesce(o.name,u.name) AS customer_name,s.code AS supplier_code,s.display_name AS supplier_name,h.name AS handled_by_name
  FROM tax_invoices i LEFT JOIN customers c ON c.id=i.customer_id LEFT JOIN organizations o ON o.id=c.organization_id LEFT JOIN "user" u ON u.id=c.user_id
@@ -147,12 +152,12 @@ async function monthFinance(pool, month) {
     (SELECT coalesce(sum(p.amount_fen),0)/100.0 FROM supplier_payments p,r WHERE p.voided_at IS NULL AND p.paid_on>=(r.a ${SH})::date AND p.paid_on<(r.z ${SH})::date) AS supplier_paid,
     (SELECT coalesce(sum(i.amount_fen),0)/100.0 FROM tax_invoices i,r WHERE i.direction='output' AND i.status='issued' AND i.issued_on>=(r.a ${SH})::date AND i.issued_on<(r.z ${SH})::date) AS invoiced,
     (SELECT coalesce(sum(u.amt),0) FROM u,r WHERE u.occurred_at>=r.a AND u.occurred_at<r.z AND ${UNCLAIMED}) AS other_cost,
-    (SELECT json_build_object('calls',count(*),'list_yuan',coalesce(sum(c.list_yuan),0),'cost',coalesce(sum(${COST}),0),'unmatched',count(*) FILTER(WHERE c.settled AND u.request_id IS NULL),'estimated',coalesce(sum(c.fallback) FILTER(WHERE c.settled AND u.request_id IS NULL),0)) FROM calls c LEFT JOIN u ON u.request_id=c.rid) AS sales`,
-  `SELECT c.model_id,count(*)::int AS calls,count(*) FILTER(WHERE c.failed)::int AS failed,coalesce(sum(c.tokens),0)::bigint::text AS tokens,coalesce(sum(c.list_yuan),0)::text AS list_yuan,coalesce(sum(${COST}),0)::text AS cost
-   FROM calls c LEFT JOIN u ON u.request_id=c.rid GROUP BY 1 ORDER BY coalesce(sum(c.list_yuan),0) DESC,count(*) DESC`,
-  `SELECT k.id,k.code,k.kind,coalesce(o.name,w.name) AS name,count(*)::int AS calls,coalesce(sum(c.list_yuan),0)::text AS list_yuan,coalesce(sum(${COST}),0)::text AS cost
-   FROM calls c LEFT JOIN u ON u.request_id=c.rid JOIN customers k ON (k.organization_id=c.organization_id OR (c.organization_id IS NULL AND k.user_id=c.user_id))
-   LEFT JOIN organizations o ON o.id=k.organization_id LEFT JOIN "user" w ON w.id=k.user_id GROUP BY k.id,o.name,w.name ORDER BY coalesce(sum(c.list_yuan),0) DESC,coalesce(sum(${COST}),0) DESC LIMIT 100`,
+    (SELECT json_build_object('calls',count(*),'list_yuan',coalesce(sum(c.list_yuan),0),'cost',coalesce(sum(c.cost),0),'unmatched',count(*) FILTER(WHERE c.settled AND c.unmatched),'estimated',coalesce(sum(c.fallback) FILTER(WHERE c.settled AND c.unmatched),0)) FROM priced_calls c) AS sales`,
+  `SELECT c.model_id,count(*)::int AS calls,count(*) FILTER(WHERE c.failed)::int AS failed,coalesce(sum(c.tokens),0)::bigint::text AS tokens,coalesce(sum(c.list_yuan),0)::text AS list_yuan,coalesce(sum(c.cost),0)::text AS cost
+   FROM priced_calls c GROUP BY 1 ORDER BY coalesce(sum(c.list_yuan),0) DESC,count(*) DESC`,
+  `SELECT k.id,k.code,k.kind,coalesce(o.name,w.name) AS name,sum(c.calls)::int AS calls,coalesce(sum(c.list_yuan),0)::text AS list_yuan,coalesce(sum(c.cost),0)::text AS cost
+   FROM (SELECT organization_id,user_id,count(*) AS calls,sum(list_yuan) AS list_yuan,sum(cost) AS cost FROM priced_calls GROUP BY organization_id,user_id) c JOIN customers k ON (k.organization_id=c.organization_id OR (c.organization_id IS NULL AND k.user_id=c.user_id))
+   LEFT JOIN organizations o ON o.id=k.organization_id LEFT JOIN "user" w ON w.id=k.user_id GROUP BY k.id,o.name,w.name ORDER BY coalesce(sum(c.list_yuan),0) DESC,coalesce(sum(c.cost),0) DESC LIMIT 100`,
   `SELECT p.id,p.code,p.display_name,coalesce(k.requests,0)::int AS requests,coalesce(k.yuan,0)::text AS cost,(coalesce(pay.fen,0)/100.0)::text AS paid
    FROM suppliers p LEFT JOIN (SELECT u.supplier_id,count(*) AS requests,sum(u.amt) AS yuan FROM u,r WHERE u.occurred_at>=r.a AND u.occurred_at<r.z GROUP BY 1) k ON k.supplier_id=p.id
    LEFT JOIN (SELECT sp.supplier_id,sum(sp.amount_fen) AS fen FROM supplier_payments sp,r WHERE sp.voided_at IS NULL AND sp.paid_on>=(r.a ${SH})::date AND sp.paid_on<(r.z ${SH})::date GROUP BY 1) pay ON pay.supplier_id=p.id
@@ -161,7 +166,8 @@ async function monthFinance(pool, month) {
    (SELECT coalesce(sum(granted_yuan-spent_yuan),0) FROM employee_credit_accounts) AS credit_unused,
    (SELECT coalesce(sum(amount_fen),0)/100.0 FROM tax_invoices WHERE direction='output' AND status='requested') AS invoices_requested`];
  // One statement shares the de-duplicated bills and calls across all month breakdowns.
- const result = (await pool.query(`WITH ${RANGE},${BILLS},${CALLS}
+ const result = (await pool.query(`WITH ${RANGE},${BILLS},${CALLS},${CLAIMED},
+  priced_calls AS MATERIALIZED (SELECT c.*,${COST} AS cost,u.request_id IS NULL AS unmatched FROM calls c LEFT JOIN u ON u.request_id=c.rid)
   SELECT (SELECT row_to_json(t) FROM (${queries[0]}) t) AS totals,
    (SELECT coalesce(json_agg(t),'[]'::json) FROM (${queries[1]}) t) AS products,
    (SELECT coalesce(json_agg(t),'[]'::json) FROM (${queries[2]}) t) AS customers,
@@ -185,7 +191,7 @@ async function monthFinance(pool, month) {
 
 async function yearSeries(pool) {
  const first = `date_trunc('month',now() ${SH})-interval '11 months'`, key = column => `to_char(${column} ${SH},'YYYY-MM')`;
- return (await pool.query(`WITH b AS (SELECT (${first}) ${SH} AS t),
+ return (await pool.query(`WITH b AS (SELECT (${first}) ${SH} AS t),${CLAIMED},
   months AS (SELECT to_char(generate_series(${first},date_trunc('month',now() ${SH}),interval '1 month'),'YYYY-MM') AS month),
   u AS (SELECT DISTINCT ON (x.request_id) x.request_id,x.occurred_at,${AMOUNT} AS amt FROM supplier_usage_records x,b WHERE x.occurred_at>=b.t-interval '1 day' ORDER BY x.request_id,x.updated_at DESC),
   calls AS (SELECT e.created_at,e.upstream_request_id AS rid,e.actual_yuan AS fallback FROM employee_calls e,b WHERE e.created_at>=b.t AND e.settled_at IS NOT NULL
