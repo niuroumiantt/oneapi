@@ -1361,6 +1361,7 @@ test('business console: finance switch, codes, CRM, invoices against paid money,
  for(const path of ['/api/staff/business/finance','/api/staff/business/invoices','/api/staff/business/supplier-payments','/api/staff/business/bank-transfers','/api/staff/payments/orders'])assert.equal((await biz.call(path)).status,403,path);
  const plain=(await biz.call('/api/staff/business/dashboard')).data;assert.equal(plain.finance,null);assert.equal(plain.counts.invoices_requested,undefined);assert.equal(plain.counts.bank_transfers_pending,undefined);assert.equal(plain.staff.finance,false);
  assert.equal((await biz.call('/api/staff/members/biz-fixture/finance-access',{method:'PUT',body:{enabled:true}})).status,403);
+ const summary=(await admin.call('/api/staff/business/dashboard?summary=1')).data;assert.equal(summary.staff.finance,true);assert.equal(summary.finance,null);assert.deepEqual(summary.top_customers,[]);assert.equal(typeof summary.counts.bank_transfers_pending,'number');
  const full=(await admin.call('/api/staff/business/dashboard')).data;assert.equal(full.finance.series.length,12);assert.equal(typeof full.counts.invoices_requested,'number');
 
  // Supplier codes: assigned on insert, one serial per year, never reused.

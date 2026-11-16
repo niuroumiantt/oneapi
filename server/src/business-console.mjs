@@ -203,7 +203,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
  // ---- Dashboard -------------------------------------------------------------------------------
  app.get('/api/staff/business/dashboard', requireStaff, async (req, res) => {
   requireBusiness(req);
-  const finance = hasFinance(req.staff);
+  const finance = hasFinance(req.staff), summary = req.query.summary === '1';
   await pool.query('SELECT ensure_customers()');
   const [counts, top] = await Promise.all([
    pool.query(`SELECT (SELECT count(*) FROM account_upgrade_requests WHERE status='pending')::int AS upgrades,
@@ -220,13 +220,13 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
     (SELECT count(*) FROM customers WHERE created_at>=now()-interval '30 days')::int AS customers_new_30d,
     (SELECT count(DISTINCT owner_id) FROM employee_calls WHERE created_at>=now()-interval '30 days')::int AS users_active_30d,
     (SELECT count(*) FROM suppliers)::int AS suppliers`),
-   pool.query(`${CUSTOMER_ROWS} WHERE used.calls_30d>0 ORDER BY used.calls_30d DESC LIMIT 5`)]);
+   summary ? Promise.resolve({ rows: [] }) : pool.query(`${CUSTOMER_ROWS} WHERE used.calls_30d>0 ORDER BY used.calls_30d DESC LIMIT 5`)]);
   const c = counts.rows[0];
   if (!finance) { delete c.invoices_requested; delete c.refunds_pending; delete c.bank_transfers_pending; }
   res.json({
    staff: { name: req.staff.name, finance, technical: req.staff.role === 'platform_admin' || req.staff.technical_access === true, admin: isAdmin(req.staff) },
    counts: c, top_customers: top.rows,
-   finance: finance ? { current: await monthFinance(pool, accountingMonth()), series: await yearSeries(pool) } : null
+   finance: finance && !summary ? { current: await monthFinance(pool, accountingMonth()), series: await yearSeries(pool) } : null
   });
  });
 

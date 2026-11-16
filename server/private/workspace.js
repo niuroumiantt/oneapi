@@ -57,16 +57,16 @@ const lastDay = v => v ? dayOf(new Date(v).getTime() - 1) : '—';
 const today = () => new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
 const discountText = p => `${p}%（${p / 10} 折）`;
 
-let state = null, loadError = '';
+let state = null, loadError = '', generation = 0, drawing = 0;
 const cache = {}, ui = { month: '', customers: { q: '', kind: '', stage: '', tag: '' }, tickets: { status: 'open', tier: '', category: '' }, invoices: 'output' };
 
 async function api(path, body) {
- const r = await fetch('/api/staff/' + path, { credentials: 'same-origin', ...(body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
+ const r = await fetch('/api/staff/' + path, { credentials: 'same-origin', ...(!body ? { signal: AbortSignal.timeout(45000) } : {}), ...(body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
  const d = await r.json().catch(() => ({}));
- if (!r.ok) throw Error(d.error || '读取失败');
+ if (!r.ok) throw Error(d.error || `读取失败（${r.status}）`);
  return d;
 }
-const get = path => cache[path] ? Promise.resolve(cache[path]) : api(path).then(d => (cache[path] = d));
+const get = path => { const started = generation; return cache[path] ? Promise.resolve(cache[path]) : api(path).then(d => { if (started === generation) cache[path] = d; return d; }); };
 function notify(text, ok = false) { const n = $('#notice'); n.textContent = text || ''; n.classList.toggle('ok', ok); }
 const currentPage = () => { let page = ALIASES[location.hash.slice(1)] || location.hash.slice(1) || 'overview'; return PAGES[page] ? page : 'overview'; };
 const options = (map, selected, blank) => (blank === undefined ? '' : `<option value="">${blank}</option>`) + Object.entries(map).map(([k, v]) => `<option value="${att(k)}" ${k === selected ? 'selected' : ''}>${esc(v)}</option>`).join('');
@@ -266,23 +266,37 @@ async function draw() {
  $('#technical').hidden = !state.dash.staff.technical;
  drawNav(page);
  if (PAGES[page].gate && !state.dash.staff[PAGES[page].gate]) { content.innerHTML = '<div class="panel empty">这一页需要财务权限。请平台管理员在“账户与权限”里为你打开财务开关。</div>'; return; }
- const source = SOURCES[page]?.();
- if (source && !cache[source]) {
-  content.innerHTML = '<div class="panel empty">正在读取…</div>';
-  try { await get(source); } catch (e) { content.innerHTML = `<div class="panel empty">${esc(e.message)}</div>`; return; }
-  if (currentPage() !== page) return;
+ const turn = ++drawing, started = generation, source = SOURCES[page]?.();
+ const needsOverview = ['suppliers', 'products'].includes(page);
+ const needsBusiness = ['overview', 'products', 'upgrades'].includes(page);
+ const needsFinance = ['overview', 'products'].includes(page);
+ content.innerHTML = '<div class="panel empty">正在读取…</div>';
+ try {
+  const [overview, biz, dash] = await Promise.all([
+   needsOverview ? get('workspace/overview') : null,
+   needsBusiness ? get('workspace/business') : null,
+   needsFinance ? get('business/dashboard') : null,
+   source ? get(source) : null
+  ]);
+  if (turn !== drawing || started !== generation || currentPage() !== page) return;
+  Object.assign(state, { overview, biz });
+  if (dash) state.dash = dash;
+  content.innerHTML = pages[page](source ? cache[source] : null);
+  if (page === 'customers' && ui.customers.q) filterRows(ui.customers.q);
+ } catch (e) {
+  if (turn === drawing && started === generation && currentPage() === page) content.innerHTML = `<div class="panel empty">${esc(e.message)}，请点击刷新重试。</div>`;
  }
- content.innerHTML = pages[page](source ? cache[source] : null);
- if (page === 'customers' && ui.customers.q) filterRows(ui.customers.q);
 }
 async function load() {
+ const started = generation;
  try {
-  const [overview, biz, dash] = await Promise.all([api('workspace/overview'), api('workspace/business'), api('business/dashboard')]);
-  state = { overview, biz, dash }; loadError = '';
- } catch (e) { loadError = e.message; if (state) notify(e.message); }
+  const dash = await api('business/dashboard?summary=1');
+  if (started !== generation) return;
+  state = { dash }; loadError = '';
+ } catch (e) { if (started !== generation) return; state = null; loadError = e.message + '，请点击刷新重试。'; }
  await draw();
 }
-async function reload() { for (const key of Object.keys(cache)) delete cache[key]; await load(); }
+async function reload() { generation++; drawing++; state = null; for (const key of Object.keys(cache)) delete cache[key]; notify(''); await draw(); await load(); }
 function filterRows(q) { q = q.trim().toLowerCase(); document.querySelectorAll('tr[data-find]').forEach(r => { r.hidden = Boolean(q) && !r.dataset.find.includes(q); }); }
 
 // ---- Actions --------------------------------------------------------------------------------
