@@ -1821,3 +1821,60 @@ test('finance reports use one read-only snapshot and restore JIT after success o
   await q.query(originalJit==='on'?'SET jit=on':'SET jit=off');q.release();
  }
 });
+
+test('finance amount projection preserves decimals and follows every evidence correction atomically',async()=>{
+ const credential=(await pool.query('SELECT id FROM supplier_lab_credentials ORDER BY id LIMIT 1')).rows[0].id;
+ const sync=(await pool.query("INSERT INTO supplier_usage_syncs(credential_id,record_count,response_sha256,created_by) VALUES($1,1,'projection-fixture','test') RETURNING id",[credential])).rows[0].id;
+ const cases=[['0','0'],['0.01','0.01'],['0.000000000001','0.000000000001'],['12345678901234567890.123456789012','12345678901234567890.123456789012'],['001.2300','1.2300'],[null,'0'],['','0'],['-1','0'],['1e-3','0'],['bad','0']];
+ for(const [i,[amount,expected]] of cases.entries()){
+  const r=await pool.query("INSERT INTO supplier_usage_records(credential_id,request_id,model_id,occurred_at,evidence,sync_id) VALUES($1,$2,'projection-test','2001-02-01T00:00:00Z',$3,$4) RETURNING finance_amount_yuan::text AS amount",[credential,'projection-fixture-'+i,{amount},sync]);
+  assert.equal(r.rows[0].amount,expected);
+ }
+ const mismatch=await pool.query(String.raw`SELECT count(*)::int n FROM supplier_usage_records WHERE finance_amount_yuan IS DISTINCT FROM CASE WHEN evidence->>'amount' ~ '^[0-9]+(\.[0-9]+)?$' THEN (evidence->>'amount')::numeric ELSE 0 END`);
+ assert.equal(mismatch.rows[0].n,0,'all fixture amounts equal the old finance expression');
+ const q=await pool.connect();
+ try{
+  await q.query('BEGIN');
+  await q.query("UPDATE supplier_usage_records SET evidence=$1 WHERE credential_id=$2 AND request_id='projection-fixture-1'",[{amount:'0.02'},credential]);
+  assert.equal((await q.query("SELECT finance_amount_yuan::text AS amount FROM supplier_usage_records WHERE credential_id=$1 AND request_id='projection-fixture-1'",[credential])).rows[0].amount,'0.02');
+  await q.query('ROLLBACK');
+  assert.equal((await q.query("SELECT finance_amount_yuan::text AS amount FROM supplier_usage_records WHERE credential_id=$1 AND request_id='projection-fixture-1'",[credential])).rows[0].amount,'0.01');
+  await q.query("UPDATE supplier_usage_records SET evidence=$1 WHERE credential_id=$2 AND request_id='projection-fixture-1'",[{amount:'0.03'},credential]);
+  assert.equal((await q.query("SELECT finance_amount_yuan::text AS amount FROM supplier_usage_records WHERE credential_id=$1 AND request_id='projection-fixture-1'",[credential])).rows[0].amount,'0.03');
+  await assert.rejects(q.query("UPDATE supplier_usage_records SET finance_amount_yuan=99 WHERE credential_id=$1 AND request_id='projection-fixture-1'",[credential]),e=>e.code==='428C9');
+ }finally{q.release();}
+});
+
+test('shared finance matching preserves duplicate bills, cross-month matches and customer totals',async()=>{
+ const {financeReport}=await import('../src/business-console.mjs');
+ const key=(await pool.query('SELECT key_id,owner_id,credential_id FROM employee_calls ORDER BY created_at LIMIT 1')).rows[0];
+ const other=(await pool.query('SELECT id FROM supplier_lab_credentials WHERE id<>$1 ORDER BY id LIMIT 1',[key.credential_id])).rows[0].id;
+ const sync=(await pool.query("INSERT INTO supplier_usage_syncs(credential_id,record_count,response_sha256,created_by) VALUES($1,4,'group-fixture','test') RETURNING id",[key.credential_id])).rows[0].id;
+ await pool.query('SELECT ensure_customers()');
+ for(const [rid,amount,credential,occurred,updated] of [
+  ['group-billed','0.01',key.credential_id,'2002-03-31T15:00:00Z','2002-04-01T00:00:00Z'],
+  ['group-billed','0.02',other,'2002-03-31T16:30:00Z','2002-04-02T00:00:00Z'],
+  ['group-open','0.04',key.credential_id,'2002-03-31T15:00:00Z','2002-04-01T00:00:00Z'],
+  ['group-other','0.05',key.credential_id,'2002-03-31T15:00:00Z','2002-04-01T00:00:00Z']
+ ])await pool.query("INSERT INTO supplier_usage_records(credential_id,request_id,model_id,occurred_at,evidence,sync_id,updated_at) VALUES($1,$2,'group-model',$3,$4,$5,$6)",[credential,rid,occurred,{amount},sync,updated]);
+ for(const [rid,status,actual,charged] of [['group-billed','settled','0.99','0.1'],['group-missing','settled','0.03','0.2'],['group-open','awaiting_bill',null,null]])
+  await pool.query("INSERT INTO employee_calls(key_id,owner_id,credential_id,model_id,status,hold_yuan,actual_yuan,charged_yuan,upstream_request_id,input_tokens,output_tokens,created_at,settled_at) VALUES($1,$2,$3,'group-model',$4,1,$5,$6,$7,1,2,'2002-03-31T15:30:00Z',CASE WHEN $4='settled' THEN '2002-04-01T00:00:00Z'::timestamptz ELSE NULL END)",[key.key_id,key.owner_id,key.credential_id,status,actual,charged,rid]);
+ const d=(await financeReport(pool,'2002-03')).current;
+ assert.equal(d.accrual.calls,3);assert.equal(d.accrual.credit_list,0.3);assert.equal(d.accrual.sales_cost,0.05);assert.equal(d.accrual.other_cost,0.05);assert.equal(d.accrual.upstream_cost,0.1);assert.equal(d.accrual.estimated_cost,0.03);assert.equal(d.accrual.unmatched_calls,1);
+ assert.equal(d.by_product.length,1);assert.equal(d.by_product[0].tokens,'9');assert.equal(Number(d.by_product[0].cost),0.05);
+ assert.equal(d.by_customer.length,1);assert.equal(d.by_customer[0].calls,3);assert.equal(Number(d.by_customer[0].list_yuan),0.3);assert.equal(Number(d.by_customer[0].cost),0.05);
+ const before=(await pool.query('SELECT request_id,credential_id,finance_amount_yuan::text AS amount FROM supplier_usage_records ORDER BY request_id,credential_id')).rows;
+ // Exercise migration backfill against existing evidence, not only fresh inserts.
+ await pool.query('ALTER TABLE supplier_usage_records DROP COLUMN finance_amount_yuan');
+ const migration=await readFile(new URL('../migrations/068_finance_usage_amount.sql',import.meta.url),'utf8');await pool.query(migration);await pool.query(migration);
+ const after=(await pool.query('SELECT request_id,credential_id,finance_amount_yuan::text AS amount FROM supplier_usage_records ORDER BY request_id,credential_id')).rows;assert.deepEqual(after,before);
+});
+
+test('customer usage preaggregation matches direct call counts for personal and enterprise customers',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ const response=await admin.call('/api/staff/business/customers');assert.equal(response.status,200);
+ for(const c of response.data.customers){
+  const expected=(await pool.query("SELECT count(*)::int AS calls,max(e.created_at) AS latest FROM employee_calls e WHERE e.created_at>=now()-interval '30 days' AND (e.owner_id=$1 OR e.owner_id IN (SELECT a.user_id FROM employee_credit_accounts a WHERE a.organization_id=$2))",[c.user_id,c.organization_id])).rows[0];
+  assert.equal(c.calls_30d,expected.calls,c.code);assert.equal(c.last_call_at,expected.latest?.toISOString()??null,c.code);
+ }
+});
