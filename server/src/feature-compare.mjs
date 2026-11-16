@@ -1,3 +1,4 @@
+import {costSafeFetch} from './output-guard.mjs';
 // 功能对比: the same feature probes sent to the official API (reference key, no gateway) and to our API
 // (gateway → supplier, exactly what employees get). The official result is the baseline; a cell is a gap
 // only when the official API does something ours does not.
@@ -123,6 +124,7 @@ export function compareLinks(pool, cfg, upstreamFetch = fetch) {
 }
 
 export function featureCompareRoutes(app, pool, cfg, requireStaff, upstreamFetch = fetch) {
+ upstreamFetch=costSafeFetch(pool,upstreamFetch);
  const { box, pairs, send } = compareLinks(pool, cfg, upstreamFetch);
  let active = null;
  async function probe(side, target, testId) {

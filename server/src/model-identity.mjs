@@ -1,3 +1,4 @@
+import {costSafeFetch} from './output-guard.mjs';
 // 身份检测: is the model behind our API really the official model, at full strength?
 // Four checks, each sent to the official API (baseline) and to our API (gateway → supplier, exactly what employees get):
 //  分词指纹  the same texts must cost the same prompt tokens; a different tokenizer means a different model family,
@@ -146,6 +147,7 @@ const brief = s => ({ verdict: s.verdict, tokenizer: s.tokenizer?.status || null
 export function periodOf(at) { const d = new Date(new Date(at).getTime() + 8 * 3600e3), h = d.getUTCHours(), w = d.getUTCDay(); return w >= 1 && w <= 5 && h >= 9 && h < 18 ? 'peak' : 'off'; }
 
 export function modelIdentityRoutes(app, pool, cfg, requireStaff, upstreamFetch = fetch) {
+ upstreamFetch=costSafeFetch(pool,upstreamFetch);
  const { box, pairs, send } = compareLinks(pool, cfg, upstreamFetch);
  let active = null;
 

@@ -10,12 +10,12 @@ import { requireTechnical } from './workspaces.mjs';
 import { validateLabBaseUrl } from './supplier-lab.mjs';
 import { syncSupplierModels } from './upstream.mjs';
 import { OFFICIAL_MODELS } from './official-models.mjs';
-import { IGNORES_MAX_TOKENS, forgetGuardCache } from './output-guard.mjs';
+import { IGNORES_MAX_TOKENS, forgetGuardCache, guardedModels, COST_BLOCK_MESSAGE } from './output-guard.mjs';
 
 export const WATCH_INTERVAL_MS = 30 * 60 * 1000;
 const LEVEL = { ignores_max_tokens: 'warning', auto_launched: 'info', needs_manual_launch: 'warning', upstream_removed: 'critical', key_missing_model: 'critical', key_check_failed: 'critical', key_list_failed: 'warning', duplicate_key: 'warning', catalog_not_upstream: 'info' };
 const TITLE = {
- ignores_max_tokens: e => `上游 ${e.subject} 不遵守 max_tokens（要 1 个给了 ${e.detail.got} 个），网关已代为截断`,
+ ignores_max_tokens: e => `上游 ${e.subject} 不遵守 max_tokens${e.detail.got?`（要 1 个给了 ${e.detail.got} 个）`:''}，已暂停调用以避免额外费用`,
  auto_launched: e => `上游新增 ${e.subject}，目录里有定价，已自动上线`,
  needs_manual_launch: e => `上游新增 ${e.subject}，目录里没有定价，需要人工上线`,
  upstream_removed: e => `上游不再提供 ${e.subject}，员工调用会失败`,
@@ -42,7 +42,7 @@ export function runKeyWatch(pool, options) {
 }
 async function runKeyWatchOnce(pool, { box, fetchImpl = fetch, mail = null, trigger = 'schedule' }) {
  if (!box) return { skipped: 'no-secret' };
- const started = new Date(), found = [];
+ const started = new Date(), found = [], blocked = await guardedModels(pool);
  const add = (supplierId, kind, subject, detail = {}) => found.push({ supplier_id: supplierId, kind, subject: String(subject).slice(0, 200), level: LEVEL[kind], detail });
  const suppliers = (await pool.query(`SELECT s.id AS lab_id,s.canonical_supplier_id AS supplier_id,coalesce(p.display_name,s.name) AS name FROM supplier_lab_suppliers s LEFT JOIN suppliers p ON p.id=s.canonical_supplier_id
   WHERE s.kind='supplier' AND s.disabled_at IS NULL AND (p.id IS NULL OR p.status<>'blocked') AND EXISTS(SELECT 1 FROM supplier_lab_credentials c WHERE c.supplier_id=s.id AND c.disabled_at IS NULL)`)).rows;
@@ -69,6 +69,7 @@ async function runKeyWatchOnce(pool, { box, fetchImpl = fetch, mail = null, trig
    const allModels = [...new Set([...(list || []), ...registered])], pending = allModels.slice(0,200), results = [];
    const checkOne = async model => {
     const t0 = performance.now();
+    if(blocked.has(model))return {model,ok:false,blocked:true,status:null,ms:0,checked_at:new Date().toISOString(),error:COST_BLOCK_MESSAGE};
     try {
      const r = await fetchImpl(`${k.base_url}/chat/completions`, { method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1, stream: false }), signal: AbortSignal.timeout(30000) });
      const j = await readJson(r); const ok = r.ok && Array.isArray(j?.choices) && j.choices.some(c => c?.message && (typeof c.message.content === 'string' || typeof c.message.reasoning_content === 'string' || Array.isArray(c.message.tool_calls)));
@@ -81,11 +82,12 @@ async function runKeyWatchOnce(pool, { box, fetchImpl = fetch, mail = null, trig
    keyResults.push({credential_id:k.id,label:k.label,shared_credential_ids:twins,checked_at:new Date().toISOString(),
     listed_models:list,list_status:listStatus,list_error:listError,list_ms:listMs,model_count:list?.length??null,
     added:list?list.filter(m=>!(prev?.listed_models||registered).includes(m)):[],removed:list?(prev?.listed_models||registered).filter(m=>!list.includes(m)):[],
-    tested:results.length,success:results.filter(r=>r.ok).length,failed:results.filter(r=>!r.ok).length,untested:Math.max(0,allModels.length-results.length),results});
-   for (const r of results.filter(r => !r.ok)) add(s.supplier_id, 'key_check_failed', r.model, { key: k.label, credential_id: k.id, error: r.error, status: r.status });
-   // max_tokens=1 answered with more than 1 output token: the upstream ignores the limit, so the gateway's output guard takes over.
+    tested:results.filter(r=>!r.blocked).length,blocked:results.filter(r=>r.blocked).length,success:results.filter(r=>r.ok).length,failed:results.filter(r=>!r.ok&&!r.blocked).length,untested:Math.max(0,allModels.length-results.length),results});
+   for (const r of results.filter(r => !r.ok && !r.blocked)) add(s.supplier_id, 'key_check_failed', r.model, { key: k.label, credential_id: k.id, error: r.error, status: r.status });
+   for(const r of results.filter(r=>r.blocked&&!found.some(e=>e.kind==='ignores_max_tokens'&&e.subject===r.model)))add(s.supplier_id,'ignores_max_tokens',r.model,{key:k.label,blocked:true});
+   // A proven overrun quarantines further billable requests; no automatic paid retry or automatic recovery.
    for (const r of results.filter(r => r.ok && r.output_tokens != null)) {
-    if (r.output_tokens > 1) { await pool.query(`INSERT INTO upstream_model_flags(model_id,flag,detail) VALUES($1,$2,$3) ON CONFLICT(model_id,flag) DO UPDATE SET last_seen=now(),detail=EXCLUDED.detail,cleared_at=NULL,since=CASE WHEN upstream_model_flags.cleared_at IS NULL THEN upstream_model_flags.since ELSE now() END`, [r.model, IGNORES_MAX_TOKENS, { asked: 1, got: r.output_tokens, key: k.label }]); add(s.supplier_id, 'ignores_max_tokens', r.model, { key: k.label, got: r.output_tokens }); }
+    if (r.output_tokens > 1) { blocked.add(r.model); await pool.query(`INSERT INTO upstream_model_flags(model_id,flag,detail) VALUES($1,$2,$3) ON CONFLICT(model_id,flag) DO UPDATE SET last_seen=now(),detail=EXCLUDED.detail,cleared_at=NULL,since=CASE WHEN upstream_model_flags.cleared_at IS NULL THEN upstream_model_flags.since ELSE now() END`, [r.model, IGNORES_MAX_TOKENS, { asked: 1, got: r.output_tokens, key: k.label }]); add(s.supplier_id, 'ignores_max_tokens', r.model, { key: k.label, got: r.output_tokens }); }
     else await pool.query('UPDATE upstream_model_flags SET cleared_at=now() WHERE model_id=$1 AND flag=$2 AND cleared_at IS NULL', [r.model, IGNORES_MAX_TOKENS]);
    }
    forgetGuardCache();

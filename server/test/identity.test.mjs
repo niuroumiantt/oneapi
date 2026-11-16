@@ -96,7 +96,7 @@ before(async()=>{
  cfg.alipay={...cfg.alipay,enabled:true,appId:'2021000000000001',sellerId:'2088000000000001',privateKey:pem(appKeys.privateKey),publicKey:pem(alipayKeys.publicKey),allowedEmails:new Set(['nobody@example.test'])};cfg.alipayFetch=fakeAlipay;
  cfg.wechat={...cfg.wechat,enabled:true,mchId:WX.mchId,appId:WX.appId,certSerial:WX.certSerial,privateKey:pem(wxMerchant.privateKey),publicKeyId:WX.publicKeyId,publicKey:pem(wxPlatform.publicKey),apiV3Key:wxApiV3Key,allowedEmails:new Set(['nobody@example.test'])};cfg.wechatFetch=fakeWechat;
  appCfg=cfg;cfg.pilotFetch=(...args)=>pilotFetch(...args);
- service=createApp(pool,cfg,{sendMail:async m=>{sent.push(m);return {};},verify:async()=>true});await migrate(pool,service.auth);await pool.query('TRUNCATE "user",staff_members,staff_oidc_states,mail_outbox,request_limits,"rateLimit",channel_states,acceptance_profiles,agents,published_reports,identity_check_runs,identity_check_items CASCADE');appServer.on('request',service.app);
+ service=createApp(pool,cfg,{sendMail:async m=>{sent.push(m);return {};},verify:async()=>true});await migrate(pool,service.auth);await pool.query('TRUNCATE "user",staff_members,staff_oidc_states,mail_outbox,request_limits,"rateLimit",channel_states,upstream_model_flags,upstream_watch_runs,upstream_watch_events,acceptance_profiles,agents,published_reports,identity_check_runs,identity_check_items CASCADE');appServer.on('request',service.app);
 });
 after(async()=>{appServer?.close();idpServer?.close();await pool?.end();if(pilotDir)await rm(pilotDir,{recursive:true,force:true});});
 test('email must be verified; unknown identity cannot read workspace; CSRF is rejected',async()=>{
@@ -689,7 +689,7 @@ test('employee credit is one-time, company-only, reserved before calling and cha
       const matrix=await ops.call('/api/staff/lab/acceptance');assert.equal(matrix.status,200,JSON.stringify(matrix.data));assert.equal(matrix.data.features.length,16);assert.ok(matrix.data.profiles.some(p=>p.synthetic)&&matrix.data.profiles.some(p=>p.client==='WorkBuddy'));
       assert.equal((await staffer.j.call('/api/staff/lab/acceptance')).status,401);
       const started=await ops.call('/api/staff/lab/acceptance/replay',{method:'POST',body:{model_id:'deepseek-flash'}});assert.equal(started.status,202,JSON.stringify(started.data));
-      let run;for(let i=0;i<50;i++){run=(await ops.call('/api/staff/lab/acceptance')).data;if(run.run.finished_at)break;await new Promise(r=>setTimeout(r,40));}
+      let run;for(let i=0;i<50;i++){run=(await ops.call('/api/staff/lab/acceptance')).data;if(run.run.id===started.data.run.id&&run.run.finished_at&&['basic','out_32k','thinking_on'].every(f=>run.profiles.find(p=>p.signature==='synthetic:'+f)?.results?.['deepseek-flash']))break;await new Promise(r=>setTimeout(r,40));}
       assert.ok(run.run.finished_at,'replay finishes');const cell=f=>run.profiles.find(p=>p.signature==='synthetic:'+f).results['deepseek-flash'];
       assert.equal(cell('basic').status,'pass');assert.equal(cell('out_32k').status,'pass','32K output now passes through');assert.equal(cell('thinking_on').status,'partial');
       const detail=await ops.call('/api/staff/lab/acceptance/profiles/synthetic:basic');assert.equal(detail.status,200);assert.ok(detail.data.history.length>=1);}
@@ -1009,7 +1009,7 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
 
    let w=(await admin.call('/api/staff/lab/key-watch')).data;const mine=w.events.filter(e=>e.supplier_id===sid),kinds=mine.map(e=>e.kind+':'+e.subject);
    assert.ok(kinds.includes('auto_launched:GLM-5.3-Flash'),'catalog model the upstream now offers goes live');assert.ok(kinds.includes('needs_manual_launch:up-model-new'),'unknown model needs a manual launch');
-   assert.ok(mine.some(e=>e.kind==='duplicate_key'&&e.detail.same_as==='主 Key'));assert.ok(mine.some(e=>e.kind==='key_check_failed'&&e.detail.key==='备 Key'));assert.ok(mine.some(e=>e.kind==='key_list_failed'&&e.detail.key==='备 Key'));
+   assert.ok(mine.some(e=>e.kind==='duplicate_key'&&e.detail.same_as==='主 Key'));assert.ok(sum.key_results.find(k=>k.label==='备 Key').results.some(r=>r.model==='up-model-a'&&r.blocked),'once overrun is found, later keys in this run do not repeat the billable probe');assert.ok(mine.some(e=>e.kind==='key_list_failed'&&e.detail.key==='备 Key'));
    assert.ok(!JSON.stringify(w).includes('sk-up-bad'),'key never echoed');
    assert.ok(mine.some(e=>e.kind==='ignores_max_tokens'&&e.subject==='up-model-a'&&e.detail.got===5),'a 1-token check answered with 5 tokens is flagged');assert.equal((await pool.query("SELECT count(*)::int AS n FROM upstream_model_flags WHERE model_id='up-model-a' AND flag='ignores_max_tokens' AND cleared_at IS NULL")).rows[0].n,1);
    assert.equal((await pool.query("SELECT count(DISTINCT credential_id)::int AS n FROM supplier_lab_endpoints WHERE supplier_id=$1 AND model_id='GLM-5.3-Flash' AND disabled_at IS NULL",[lab])).rows[0].n,3,'auto-launched model reaches every key');
@@ -1019,6 +1019,7 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
    assert.equal((await admin.call('/api/staff/lab/key-watch/run',{method:'POST',body:{}})).status,200);
    w=(await admin.call('/api/staff/lab/key-watch')).data;const after=w.events.filter(e=>e.supplier_id===sid).map(e=>e.kind+':'+e.subject);
    assert.ok(w.history[0].summary.suppliers.find(x=>x.supplier_id===sid).key_results.find(k=>k.credential_id===good.id).removed.includes('up-model-a'));assert.ok(w.history[0].summary.suppliers.find(x=>x.supplier_id===sid).key_results.find(k=>k.credential_id===good.id).results.every(r=>!r.ok),'HTTP 200 with invalid completion schema must fail');
+   assert.ok(w.history[0].summary.suppliers.find(x=>x.supplier_id===sid).key_results.find(k=>k.credential_id===good.id).results.find(r=>r.model==='up-model-a').blocked,'known violation is blocked on the next watch');
    assert.ok(after.includes('upstream_removed:up-model-a'),'model the upstream dropped is critical');assert.ok(!after.includes('needs_manual_launch:up-model-new'),'resolved when no longer seen');
    const ov=(await admin.call('/api/staff/lab/overview')).data;assert.ok(ov.risks.some(r=>r.area==='watch'&&r.title.includes('上游不再提供 up-model-a')));
    const card=ov.suppliers.find(x=>x.id===sid);assert.equal(card.duplicate_keys,1);assert.equal(card.distinct_keys,2);

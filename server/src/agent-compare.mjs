@@ -1,3 +1,4 @@
+import {costSafeFetch} from './output-guard.mjs';
 // Agent 对比: the same agent does the same tasks down two paths and the outputs are compared.
 // Path A is always our route (gateway → KerAPI). Path B is either the official API (gateway test key routed to an
 // official reference model, so the transcript is captured just like A) or the agent's built-in model (nothing passes
@@ -102,6 +103,7 @@ export function agentCompareGateway(app, pool, cfg, upstreamFetch = fetch) {
 }
 
 export function agentCompareRoutes(app, pool, cfg, requireStaff, upstreamFetch = fetch) {
+ upstreamFetch=costSafeFetch(pool,upstreamFetch);
  const box = labBox();
  const sideFromCalls = calls => { if (!calls.length) return null; const withText = [...calls].reverse().find(c => c.content) || calls.at(-1);
   return { source: 'gateway', output: withText.content || '', turns: calls.length, tool_calls: calls.reduce((n, c) => n + c.tool_calls, 0), input_tokens: calls.reduce((n, c) => n + (c.usage?.prompt_tokens || 0), 0), output_tokens: calls.reduce((n, c) => n + (c.usage?.completion_tokens || 0), 0), latency_ms: calls.reduce((n, c) => n + c.latency_ms, 0), errors: calls.filter(c => c.error).length, models: [...new Set(calls.map(c => c.upstream_model))], finished_at: new Date().toISOString() }; };
