@@ -41,7 +41,7 @@ test('a live protocol probe records one upstream attempt with usage, cost and ev
   try {
     const box = vault('local-test-secret-that-is-over-32-characters');
     const endpoint = { id: 'endpoint-1', base_url: 'https://api.deepseek.com', model_id: 'deepseek-chat', credential_ciphertext: null, active_ciphertext: box.seal({ key: 'local-test-key' }), input_yuan_per_m: '2.000000', cached_input_yuan_per_m: '0.500000', output_yuan_per_m: '8.000000' };
-    await runSupplierProbe(endpoint, { id: 'arithmetic', prompt: '17 x 23', maxTokens: 32, grade: output => output === '391' }, box, 'run-1', { query: async (sql, params) => calls.push({ sql, params }) });
+    await runSupplierProbe(endpoint, { id: 'arithmetic', prompt: '17 x 23', maxTokens: 32, grade: output => output === '391' }, box, 'run-1', { query: async (sql, params) => sql.includes('SELECT model_id FROM upstream_model_flags')?{rows:[]}:calls.push({ sql, params }) });
     assert.equal(calls.length, 1);
     assert.match(calls[0].sql, /INSERT INTO supplier_lab_transactions/);
     assert.equal(calls[0].params[6], 200);
@@ -71,7 +71,7 @@ test('missing model, mismatched model or inconsistent cache counts cannot be acc
     ]) {
       global.fetch = async () => new Response(JSON.stringify({ model: responseModel, choices: [{ message: { content: '391' } }], usage: { prompt_tokens: 20, prompt_cache_hit_tokens: cacheHit, prompt_cache_miss_tokens: cacheMiss, completion_tokens: 2, total_tokens: 22 } }), { status: 200 });
       let params;
-      await runSupplierProbe(endpoint, candidate, box, 'run-1', { query: async (_sql, values) => { params = values; } });
+      await runSupplierProbe(endpoint, candidate, box, 'run-1', { query: async (_sql, values) => { if(_sql.includes('SELECT model_id FROM upstream_model_flags'))return {rows:[]};params = values; } });
       assert.equal(params[7], expectedCode);
       assert.equal(params[14], null);
       assert.equal(JSON.parse(params[16]).cost_status, 'unavailable');

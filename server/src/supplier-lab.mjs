@@ -1,3 +1,4 @@
+import {routeFetch} from './output-guard.mjs';
 import {usageRoutes} from './usage-reconciliation.mjs';
 import { requireTechnical } from './workspaces.mjs';
 import { HttpError, audit, hash, id, text, transaction, vault } from './core.mjs';
@@ -51,7 +52,7 @@ export async function runSupplierProbe(endpoint, caseDef, box, runId, pool) {
     const key = box.open(endpoint.active_ciphertext ?? endpoint.credential_ciphertext).key;
     const request = { model: endpoint.model_id, messages: [{ role: 'user', content: caseDef.prompt }], temperature: 0, max_tokens: caseDef.maxTokens, stream: false };
     if (new URL(endpoint.base_url).hostname === 'api.deepseek.com') request.thinking = { type: 'disabled' };
-    const response = await fetch(`${endpoint.base_url}/chat/completions`, { method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(request), signal: AbortSignal.timeout(25000) });
+    const response = await routeFetch(pool,fetch,endpoint.model_id,`${endpoint.base_url}/chat/completions`, { method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(request), signal: AbortSignal.timeout(25000) });
     httpStatus = response.status; upstreamRequestId = bounded(response.headers.get('x-request-id') || response.headers.get('x-oneapi-request-id'), 120);
     if (response.ok) {
       const data = await readLimited(response);

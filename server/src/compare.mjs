@@ -1,3 +1,4 @@
+import {costSafeFetch} from './output-guard.mjs';
 // Official-vs-supplier comparison. Both sides answer the same questions with the same parameters;
 // answers are graded three ways: deterministic rules, a blind third-model judge (run twice with A/B swapped),
 // and staff spot checks that see the two answers without knowing which side wrote which.
@@ -121,6 +122,7 @@ export function summarize(caseIds, items, reviews) {
 }
 
 export function compareRoutes(app, pool, cfg, requireStaff, fetchImpl = fetch) {
+ fetchImpl=costSafeFetch(pool,fetchImpl);
  const secret = process.env.SUPPLIER_LAB_SECRET, box = secret?.length >= 32 ? vault(secret) : null;
  let active = null;
  const endpointSql = `SELECT e.id,e.kind,e.label,e.model_id,e.base_url,e.input_yuan_per_m,e.cached_input_yuan_per_m,e.output_yuan_per_m,c.credential_ciphertext AS active_ciphertext,c.label AS credential_label,s.name AS supplier_name

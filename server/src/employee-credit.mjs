@@ -334,7 +334,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
    const started=performance.now();
    try{
     const secret=await upstreamSecret(route,cfg);
-    const response=await upstreamFetch(`${route.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+secret,'Content-Type':'application/json'},body:JSON.stringify({model:model.upstreamModel,messages:[{role:'user',content:'ping'}],max_tokens:1,stream:false}),redirect:'error',signal:AbortSignal.timeout(HEALTH_TIMEOUT_MS)});
+    const response=await routeFetch(pool,upstreamFetch,model.upstreamModel,`${route.baseUrl}/chat/completions`,{method:'POST',headers:{Authorization:'Bearer '+secret,'Content-Type':'application/json'},body:JSON.stringify({model:model.upstreamModel,messages:[{role:'user',content:'ping'}],max_tokens:1,stream:false}),redirect:'error',signal:AbortSignal.timeout(HEALTH_TIMEOUT_MS)});
     const latency_ms=Math.round(performance.now()-started);await response.body?.cancel().catch(()=>{});
     return {...base,status:response.ok?'ok':'failed',latency_ms,checked_at};
    }catch(error){return {...base,status:'failed',latency_ms:null,error:error.name==='TimeoutError'?'timeout':'network',checked_at};}
