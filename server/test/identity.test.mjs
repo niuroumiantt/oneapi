@@ -1003,6 +1003,10 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
   try{
    const run=await admin.call('/api/staff/lab/key-watch/run',{method:'POST',body:{}});assert.equal(run.status,200,JSON.stringify(run.data));
    const sum=run.data.suppliers.find(x=>x.supplier_id===sid);assert.equal(sum.keys,3);assert.equal(sum.distinct_keys,2,'the duplicate is checked once');assert.equal(sum.upstream,3);
+   const kr=sum.key_results.find(k=>k.credential_id===good.id);assert.equal(kr.model_count,3);assert.equal(kr.tested,3);assert.equal(kr.success,3);assert.equal(kr.failed,0);assert.equal(kr.shared_credential_ids.length,2);
+   assert.ok(kr.results.some(r=>r.model==='up-model-new'&&r.ok),'new discovered models are tested before registration');assert.ok(kr.added.includes('up-model-new'));assert.ok(kr.checked_at);assert.ok(kr.results.every(r=>Number.isInteger(r.ms)));
+   const history=(await admin.call('/api/staff/lab/key-watch')).data.history;assert.ok(history.length);assert.deepEqual(history[0].summary.suppliers.find(x=>x.supplier_id===sid).key_results,sum.key_results,'history survives a separate read');
+
    let w=(await admin.call('/api/staff/lab/key-watch')).data;const mine=w.events.filter(e=>e.supplier_id===sid),kinds=mine.map(e=>e.kind+':'+e.subject);
    assert.ok(kinds.includes('auto_launched:GLM-5.3-Flash'),'catalog model the upstream now offers goes live');assert.ok(kinds.includes('needs_manual_launch:up-model-new'),'unknown model needs a manual launch');
    assert.ok(mine.some(e=>e.kind==='duplicate_key'&&e.detail.same_as==='主 Key'));assert.ok(mine.some(e=>e.kind==='key_check_failed'&&e.detail.key==='备 Key'));assert.ok(mine.some(e=>e.kind==='key_list_failed'&&e.detail.key==='备 Key'));
@@ -1011,9 +1015,10 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
    assert.equal((await pool.query("SELECT count(DISTINCT credential_id)::int AS n FROM supplier_lab_endpoints WHERE supplier_id=$1 AND model_id='GLM-5.3-Flash' AND disabled_at IS NULL",[lab])).rows[0].n,3,'auto-launched model reaches every key');
    const good2=(await pool.query("SELECT last_check_ok,last_check_model FROM supplier_lab_credentials WHERE supplier_id=$1 AND credential_fingerprint=$2",[lab,good.credential_fingerprint])).rows;assert.equal(good2.length,2);assert.ok(good2.every(r=>r.last_check_ok===true),'result written to both rows of the same secret');
    // upstream drops a model: critical event; the earlier one resolves when the run no longer sees it
-   pilotFetch=async(url,options)=>{const auth=options?.headers?.Authorization;if(String(url).endsWith('/models'))return auth==='Bearer sk-up-good'?new Response(JSON.stringify({data:[{id:'GLM-5.3-Flash'}]}),{status:200}):new Response('{"data":[]}',{status:auth==='Bearer sk-up-bad'?401:200});return new Response(JSON.stringify({choices:[{message:{content:'p'}}]}),{status:auth==='Bearer sk-up-bad'?401:200});};
+   pilotFetch=async(url,options)=>{const auth=options?.headers?.Authorization;if(String(url).endsWith('/models'))return auth==='Bearer sk-up-good'?new Response(JSON.stringify({data:[{id:'GLM-5.3-Flash'}]}),{status:200}):new Response('{"data":[]}',{status:auth==='Bearer sk-up-bad'?401:200});return new Response(JSON.stringify({message:'not a completion'}),{status:auth==='Bearer sk-up-bad'?401:200});};
    assert.equal((await admin.call('/api/staff/lab/key-watch/run',{method:'POST',body:{}})).status,200);
    w=(await admin.call('/api/staff/lab/key-watch')).data;const after=w.events.filter(e=>e.supplier_id===sid).map(e=>e.kind+':'+e.subject);
+   assert.ok(w.history[0].summary.suppliers.find(x=>x.supplier_id===sid).key_results.find(k=>k.credential_id===good.id).removed.includes('up-model-a'));assert.ok(w.history[0].summary.suppliers.find(x=>x.supplier_id===sid).key_results.find(k=>k.credential_id===good.id).results.every(r=>!r.ok),'HTTP 200 with invalid completion schema must fail');
    assert.ok(after.includes('upstream_removed:up-model-a'),'model the upstream dropped is critical');assert.ok(!after.includes('needs_manual_launch:up-model-new'),'resolved when no longer seen');
    const ov=(await admin.call('/api/staff/lab/overview')).data;assert.ok(ov.risks.some(r=>r.area==='watch'&&r.title.includes('上游不再提供 up-model-a')));
    const card=ov.suppliers.find(x=>x.id===sid);assert.equal(card.duplicate_keys,1);assert.equal(card.distinct_keys,2);
