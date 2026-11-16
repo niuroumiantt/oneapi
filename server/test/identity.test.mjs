@@ -1786,3 +1786,38 @@ test('only platform admins may self-review bank transfers, with durable role and
  const audit=(await pool.query("SELECT detail FROM audit_events WHERE subject_id=$1 AND action='bank_transfer.approved'",[ordinary.data.id])).rows[0];assert.equal(audit.detail.self_review,false);
  assert.equal((await buyer.j.call('/api/billing/organizations/'+org.id)).data.cash_balance_fen,'2468');
 });
+
+test('finance reports use one read-only snapshot and restore JIT after success or failure',async()=>{
+ const {financeReport,accountingMonth}=await import('../src/business-console.mjs');
+ const month=accountingMonth(),baseline=await financeReport(pool,month),q=await pool.connect();
+ const originalJit=(await q.query('SHOW jit')).rows[0].jit;
+ const account=(await pool.query('SELECT id FROM billing_accounts ORDER BY id LIMIT 1')).rows[0].id;
+ let changed=false,checked=false,ledgerId;
+ const connection={query:async(sql,args)=>{
+  if(sql.startsWith('WITH ')){
+   assert.equal((await q.query('SHOW jit')).rows[0].jit,'off');
+   assert.equal((await q.query('SHOW transaction_read_only')).rows[0].transaction_read_only,'on');
+   checked=true;
+  }
+  if(sql.startsWith('WITH b AS')&&!changed){
+   // A concurrent committed balance change must not leak into this report halfway through.
+   await pool.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen+1 WHERE id=$1',[account]);changed=true;
+   ledgerId=(await pool.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'recharge',1,1,'payment','snapshot-fixture') RETURNING id",[account])).rows[0].id;
+  }
+  return q.query(sql,args);
+ },release(){}};
+ try{
+  await q.query('SET jit=on');
+  const result=await financeReport({connect:async()=>connection},month);
+  assert.ok(checked);assert.equal(result.current.balances.customer_cash,baseline.current.balances.customer_cash);
+  assert.deepEqual(result.current.cash,baseline.current.cash);assert.deepEqual(result.series,baseline.series);
+  assert.equal((await q.query('SHOW jit')).rows[0].jit,'on');
+  const fresh=await financeReport(pool,month);assert.ok(Math.abs(fresh.series.find(r=>r.month===month).received-baseline.series.find(r=>r.month===month).received-0.01)<1e-8);assert.ok(Math.abs(fresh.current.balances.customer_cash-baseline.current.balances.customer_cash-0.01)<1e-8);
+  await assert.rejects(financeReport({connect:async()=>connection},'invalid-month'));
+  assert.equal((await q.query('SHOW jit')).rows[0].jit,'on');
+  assert.equal((await q.query('SHOW transaction_read_only')).rows[0].transaction_read_only,'off');
+ }finally{
+  // Keep the synthetic recharge: the ledger is append-only, even in tests.
+  await q.query(originalJit==='on'?'SET jit=on':'SET jit=off');q.release();
+ }
+});

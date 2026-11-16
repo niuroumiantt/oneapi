@@ -121,10 +121,25 @@ async function invoiceLimit(db, customerId) {
  return { ...row, available_fen: Math.max(0, invoiceable(row)) };
 }
 
+// These interactive aggregates are too short to amortize PostgreSQL JIT compilation.
+// Keep the setting local to one read-only snapshot; never change pooled/session defaults.
+export async function financeReport(pool, month) {
+ const q = await pool.connect();
+ try {
+  await q.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+  await q.query('SET LOCAL jit = off');
+  const current = await monthFinance(q, month), series = await yearSeries(q);
+  await q.query('COMMIT');
+  return { current, series };
+ } catch (error) {
+  await q.query('ROLLBACK');
+  throw error;
+ } finally { q.release(); }
+}
+
 async function monthFinance(pool, month) {
- const [totals, byProduct, byCustomer, bySupplier, balances] = await Promise.all([
-  pool.query(`WITH ${RANGE},${BILLS},${CALLS}
-   SELECT (SELECT coalesce(-sum(l.amount_fen),0)/100.0 FROM billing_ledger l,r WHERE l.kind='usage' AND l.created_at>=r.a AND l.created_at<r.z) AS cash_revenue,
+ const queries = [
+  `SELECT (SELECT coalesce(-sum(l.amount_fen),0)/100.0 FROM billing_ledger l,r WHERE l.kind='usage' AND l.created_at>=r.a AND l.created_at<r.z) AS cash_revenue,
     (SELECT coalesce(sum(l.amount_fen),0)/100.0 FROM billing_ledger l,r WHERE l.kind='recharge' AND l.created_at>=r.a AND l.created_at<r.z) AS received,
     (SELECT coalesce(sum(f.amount_fen),0)/100.0 FROM payment_refunds f,r WHERE f.status='succeeded' AND f.completed_at>=r.a AND f.completed_at<r.z) AS refunded,
     (SELECT coalesce(sum(o.fee_fen),0)/100.0 FROM payment_channel_costs o,r WHERE o.cost_day>=(r.a AT TIME ZONE 'Asia/Shanghai')::date AND o.cost_day<(r.z AT TIME ZONE 'Asia/Shanghai')::date) AS channel_cost,
@@ -132,23 +147,28 @@ async function monthFinance(pool, month) {
     (SELECT coalesce(sum(p.amount_fen),0)/100.0 FROM supplier_payments p,r WHERE p.voided_at IS NULL AND p.paid_on>=(r.a ${SH})::date AND p.paid_on<(r.z ${SH})::date) AS supplier_paid,
     (SELECT coalesce(sum(i.amount_fen),0)/100.0 FROM tax_invoices i,r WHERE i.direction='output' AND i.status='issued' AND i.issued_on>=(r.a ${SH})::date AND i.issued_on<(r.z ${SH})::date) AS invoiced,
     (SELECT coalesce(sum(u.amt),0) FROM u,r WHERE u.occurred_at>=r.a AND u.occurred_at<r.z AND ${UNCLAIMED}) AS other_cost,
-    (SELECT json_build_object('calls',count(*),'list_yuan',coalesce(sum(c.list_yuan),0),'cost',coalesce(sum(${COST}),0),'unmatched',count(*) FILTER(WHERE c.settled AND u.request_id IS NULL),'estimated',coalesce(sum(c.fallback) FILTER(WHERE c.settled AND u.request_id IS NULL),0)) FROM calls c LEFT JOIN u ON u.request_id=c.rid) AS sales`, [month]),
-  pool.query(`WITH ${RANGE},${BILLS},${CALLS}
-   SELECT c.model_id,count(*)::int AS calls,count(*) FILTER(WHERE c.failed)::int AS failed,coalesce(sum(c.tokens),0)::bigint AS tokens,coalesce(sum(c.list_yuan),0) AS list_yuan,coalesce(sum(${COST}),0) AS cost
-   FROM calls c LEFT JOIN u ON u.request_id=c.rid GROUP BY 1 ORDER BY 5 DESC,2 DESC`, [month]),
-  pool.query(`WITH ${RANGE},${BILLS},${CALLS}
-   SELECT k.id,k.code,k.kind,coalesce(o.name,w.name) AS name,count(*)::int AS calls,coalesce(sum(c.list_yuan),0) AS list_yuan,coalesce(sum(${COST}),0) AS cost
+    (SELECT json_build_object('calls',count(*),'list_yuan',coalesce(sum(c.list_yuan),0),'cost',coalesce(sum(${COST}),0),'unmatched',count(*) FILTER(WHERE c.settled AND u.request_id IS NULL),'estimated',coalesce(sum(c.fallback) FILTER(WHERE c.settled AND u.request_id IS NULL),0)) FROM calls c LEFT JOIN u ON u.request_id=c.rid) AS sales`,
+  `SELECT c.model_id,count(*)::int AS calls,count(*) FILTER(WHERE c.failed)::int AS failed,coalesce(sum(c.tokens),0)::bigint::text AS tokens,coalesce(sum(c.list_yuan),0)::text AS list_yuan,coalesce(sum(${COST}),0)::text AS cost
+   FROM calls c LEFT JOIN u ON u.request_id=c.rid GROUP BY 1 ORDER BY coalesce(sum(c.list_yuan),0) DESC,count(*) DESC`,
+  `SELECT k.id,k.code,k.kind,coalesce(o.name,w.name) AS name,count(*)::int AS calls,coalesce(sum(c.list_yuan),0)::text AS list_yuan,coalesce(sum(${COST}),0)::text AS cost
    FROM calls c LEFT JOIN u ON u.request_id=c.rid JOIN customers k ON (k.organization_id=c.organization_id OR (c.organization_id IS NULL AND k.user_id=c.user_id))
-   LEFT JOIN organizations o ON o.id=k.organization_id LEFT JOIN "user" w ON w.id=k.user_id GROUP BY k.id,o.name,w.name ORDER BY 6 DESC,7 DESC LIMIT 100`, [month]),
-  pool.query(`WITH ${RANGE},${BILLS}
-   SELECT p.id,p.code,p.display_name,coalesce(k.requests,0)::int AS requests,coalesce(k.yuan,0) AS cost,coalesce(pay.fen,0)/100.0 AS paid
+   LEFT JOIN organizations o ON o.id=k.organization_id LEFT JOIN "user" w ON w.id=k.user_id GROUP BY k.id,o.name,w.name ORDER BY coalesce(sum(c.list_yuan),0) DESC,coalesce(sum(${COST}),0) DESC LIMIT 100`,
+  `SELECT p.id,p.code,p.display_name,coalesce(k.requests,0)::int AS requests,coalesce(k.yuan,0)::text AS cost,(coalesce(pay.fen,0)/100.0)::text AS paid
    FROM suppliers p LEFT JOIN (SELECT u.supplier_id,count(*) AS requests,sum(u.amt) AS yuan FROM u,r WHERE u.occurred_at>=r.a AND u.occurred_at<r.z GROUP BY 1) k ON k.supplier_id=p.id
    LEFT JOIN (SELECT sp.supplier_id,sum(sp.amount_fen) AS fen FROM supplier_payments sp,r WHERE sp.voided_at IS NULL AND sp.paid_on>=(r.a ${SH})::date AND sp.paid_on<(r.z ${SH})::date GROUP BY 1) pay ON pay.supplier_id=p.id
-   ORDER BY p.code`, [month]),
-  pool.query(`SELECT (SELECT coalesce(sum(cash_balance_fen),0)/100.0 FROM billing_accounts) AS customer_cash,
+   ORDER BY p.code`,
+  `SELECT (SELECT coalesce(sum(cash_balance_fen),0)/100.0 FROM billing_accounts) AS customer_cash,
    (SELECT coalesce(sum(granted_yuan-spent_yuan),0) FROM employee_credit_accounts) AS credit_unused,
-   (SELECT coalesce(sum(amount_fen),0)/100.0 FROM tax_invoices WHERE direction='output' AND status='requested') AS invoices_requested`)]);
- const t = totals.rows[0], n = v => Number(v || 0), sales = t.sales, names = new Map(OFFICIAL_MODELS.map(m => [m.id, m.name]));
+   (SELECT coalesce(sum(amount_fen),0)/100.0 FROM tax_invoices WHERE direction='output' AND status='requested') AS invoices_requested`];
+ // One statement shares the de-duplicated bills and calls across all month breakdowns.
+ const result = (await pool.query(`WITH ${RANGE},${BILLS},${CALLS}
+  SELECT (SELECT row_to_json(t) FROM (${queries[0]}) t) AS totals,
+   (SELECT coalesce(json_agg(t),'[]'::json) FROM (${queries[1]}) t) AS products,
+   (SELECT coalesce(json_agg(t),'[]'::json) FROM (${queries[2]}) t) AS customers,
+   (SELECT coalesce(json_agg(t),'[]'::json) FROM (${queries[3]}) t) AS suppliers,
+   (SELECT row_to_json(t) FROM (${queries[4]}) t) AS balances`, [month])).rows[0];
+ const { totals: t, products, customers, suppliers, balances } = result;
+ const n = v => Number(v || 0), sales = t.sales, names = new Map(OFFICIAL_MODELS.map(m => [m.id, m.name]));
  // Upstream cost = what customer calls cost us (their bill, or list price when the upstream sends none) + bills nobody's call explains.
  const revenue = n(t.cash_revenue), salesCost = n(sales.cost), otherCost = n(t.other_cost), cost = salesCost + otherCost, list = n(sales.list_yuan);
  return {
@@ -156,10 +176,10 @@ async function monthFinance(pool, month) {
   // Recognised revenue is cash actually charged for usage. Internal credit is shown at list price but is not revenue.
   accrual: { revenue, channel_cost:n(t.channel_cost),channel_unreconciled:n(t.channel_unreconciled),operating_profit:revenue-cost-n(t.channel_cost), credit_list: list, upstream_cost: cost, sales_cost: salesCost, other_cost: otherCost, estimated_cost: n(sales.estimated), gross_profit: revenue - cost, list_margin: list + revenue > 0 ? (list + revenue - salesCost) / (list + revenue) : null, calls: n(sales.calls), unmatched_calls: n(sales.unmatched) },
   cash: { received: n(t.received), refunded: n(t.refunded), supplier_paid: n(t.supplier_paid),channel_cost:n(t.channel_cost), net: n(t.received) - n(t.refunded) - n(t.supplier_paid) - n(t.channel_cost), invoiced: n(t.invoiced) },
-  balances: { customer_cash: n(balances.rows[0].customer_cash), credit_unused: n(balances.rows[0].credit_unused), invoices_requested: n(balances.rows[0].invoices_requested) },
-  by_product: byProduct.rows.map(p => ({ ...p, name: names.get(p.model_id) || p.model_id })),
-  by_customer: byCustomer.rows,
-  by_supplier: bySupplier.rows
+  balances: { customer_cash: n(balances.customer_cash), credit_unused: n(balances.credit_unused), invoices_requested: n(balances.invoices_requested) },
+  by_product: products.map(p => ({ ...p, name: names.get(p.model_id) || p.model_id })),
+  by_customer: customers,
+  by_supplier: suppliers
  };
 }
 
@@ -226,14 +246,14 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
   res.json({
    staff: { name: req.staff.name, finance, technical: req.staff.role === 'platform_admin' || req.staff.technical_access === true, admin: isAdmin(req.staff) },
    counts: c, top_customers: top.rows,
-   finance: finance && !summary ? { current: await monthFinance(pool, accountingMonth()), series: await yearSeries(pool) } : null
+   finance: finance && !summary ? await financeReport(pool, accountingMonth()) : null
   });
  });
 
  // ---- Finance ---------------------------------------------------------------------------------
  app.get('/api/staff/business/finance', requireStaff, async (req, res) => {
   requireFinance(req);
-  res.json({ current: await monthFinance(pool, accountingMonth(req.query.month)), series: await yearSeries(pool) });
+  res.json(await financeReport(pool, accountingMonth(req.query.month)));
  });
 
  app.get('/api/staff/business/invoices', requireStaff, async (req, res) => {
