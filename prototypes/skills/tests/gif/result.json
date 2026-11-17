@@ -1,0 +1,225 @@
+{
+  "python": "/private/tmp/oneapi-skill-tests-20261117/gif/.venv/bin/python",
+  "requested": {
+    "dimensions": [
+      128,
+      128
+    ],
+    "frames": 20,
+    "fps": 10,
+    "duration_ms": 2000,
+    "colors": 48,
+    "background": "light cream",
+    "loop": 0
+  },
+  "skill_sources_sha256": {
+    ".agents/skills/slack-gif-creator/SKILL.md": "2efca615ce55a3edd8fc05c779068a8085816617991987e446606403cd3abb22",
+    ".agents/skills/slack-gif-creator/core/gif_builder.py": "b6f50d738c491ee0438a2e86e897f71cdab9792494ba4605f140befb0bddbf89",
+    ".agents/skills/slack-gif-creator/core/validators.py": "56bd19e3aae05f8387d78ec8185d6098b3dc909d1fa041211753da37212528a3"
+  },
+  "workarounds": [],
+  "status": "passed",
+  "limitations": [
+    "Upstream validator checks dimensions for pass/fail; it does not enforce palette, duration, file size or seamless motion."
+  ],
+  "builder_options": {
+    "num_colors": 48,
+    "optimize_for_emoji": false,
+    "remove_duplicates": false
+  },
+  "builder_result": {
+    "path": "/private/tmp/oneapi-skill-tests-20261117/gif/cat-wave.gif",
+    "size_kb": 18.748046875,
+    "size_mb": 0.018308639526367188,
+    "dimensions": "128x128",
+    "frame_count": 20,
+    "fps": 10,
+    "duration_seconds": 2.0,
+    "colors": 48
+  },
+  "skill_validation": {
+    "passes": true,
+    "details": {
+      "file": "/private/tmp/oneapi-skill-tests-20261117/gif/cat-wave.gif",
+      "passes": true,
+      "width": 128,
+      "height": 128,
+      "size_kb": 18.748046875,
+      "size_mb": 0.018308639526367188,
+      "frame_count": 20,
+      "duration_seconds": 2.0,
+      "fps": 10.0,
+      "is_emoji": true,
+      "optimal": true
+    },
+    "is_slack_ready": true
+  },
+  "independent_pillow": {
+    "actual_frames": 20,
+    "duration_per_frame_ms": [
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100
+    ],
+    "total_duration_ms": 2000,
+    "dimensions_per_frame": [
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        128,
+        128
+      ]
+    ],
+    "bytes": 19198,
+    "loop": 0,
+    "colors_per_frame": [
+      47,
+      47,
+      47,
+      47,
+      47,
+      47,
+      47,
+      47,
+      47,
+      47,
+      47,
+      47,
+      47,
+      47,
+      47,
+      47,
+      47,
+      47,
+      47,
+      47
+    ],
+    "unique_colors_across_animation": 47,
+    "cyclic_adjacent_mean_absolute_pixel_difference": [
+      1.4391682942708333,
+      1.5190633138020833,
+      1.655517578125,
+      1.3800048828125,
+      0.66802978515625,
+      0.66802978515625,
+      1.3800048828125,
+      1.655517578125,
+      1.5190633138020833,
+      1.4391682942708333,
+      1.22601318359375,
+      0.9994710286458334,
+      0.55029296875,
+      0.248291015625,
+      0.1968994140625,
+      0.1968994140625,
+      0.248291015625,
+      0.55029296875,
+      0.9994710286458334,
+      1.22601318359375
+    ]
+  },
+  "motion": {
+    "method": "Periodic sine, t=2*pi*i/20, excluding duplicate endpoint",
+    "period_endpoint_matches_start": true
+  },
+  "acceptance_checks": {
+    "frames": true,
+    "durations": true,
+    "dimensions": true,
+    "loop": true,
+    "palette_limit": true,
+    "skill_validator": true,
+    "periodic_motion": true
+  }
+}

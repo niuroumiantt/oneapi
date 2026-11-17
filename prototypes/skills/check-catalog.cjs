@@ -21,6 +21,6 @@ for(const r of rows){
  for(const field of ['summary','input','output','audience','dependencies','limitations','prompt','result','recommended']) assert.ok(r[field]?.length>10,r.id+' '+field);
  assert.ok(r.features.length>=3);
  assert.ok(r.scene>=0&&r.scene<=5);
- assert.equal(evidence.taskTest,'Not run');
+ assert.ok(evidence.taskTest === 'Not run' || evidence.executionEvidence, r.id+' execution evidence required');
 }
 console.log('PASS: 15 unique Skills, 5 entertainment entries, source commits, actual upstream names, license evidence and editorial fields.');

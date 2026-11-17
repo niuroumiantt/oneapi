@@ -1,0 +1,398 @@
+{
+  "date": "2026-11-17",
+  "environment": {
+    "os": "macOS-27.3-arm64-arm-64bit",
+    "agent": "Codex CLI 0.160.0",
+    "model": "CLI default; exact served model ID not recorded",
+    "cli": "skills@1.9.0",
+    "node": "22.23.3",
+    "python": "3.12.14",
+    "scope": "temporary project only; no global skill installation",
+    "billing": "Uses existing Codex account. No monetary bill collected. OneAPI model combination not specifically validated."
+  },
+  "cases": {
+    "dungeon": {
+      "installed": true,
+      "lock": {
+        "version": 2,
+        "skills": {
+          "agent-dungeon-master": {
+            "source": "NylasDev/nylas-dungeon-master-skills",
+            "ref": "36da6d7770d97bc9ed4613df21019fb4c219c6b7",
+            "commit": "36da6d7770d97bc9ed4613df21019fb4c219c6b7",
+            "sourceType": "github",
+            "skillPath": "skills/tabletop-rpg/agent-dungeon-master/SKILL.md",
+            "computedHash": "45606c7b1ed62e7ff909883c8872e07d5149ec0806f593da575a7494da5a0255",
+            "installMode": "copy"
+          }
+        }
+      },
+      "runs": [
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 66615,
+            "cached_input_tokens": 29568,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 674,
+            "reasoning_output_tokens": 0
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/agent-dungeon-master/SKILL.md'",
+            "/bin/zsh -lc 'cat .agents/skills/agent-dungeon-master/references/player-facing-design-patterns.md .agents/skills/agent-dungeon-master/references/campaign-craft-patterns.md .agents/skills/agent-dungeon-master/references/sourcebook-hygiene.md'"
+          ]
+        },
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 37557,
+            "cached_input_tokens": 28544,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 412,
+            "reasoning_output_tokens": 0
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/agent-dungeon-master/SKILL.md'"
+          ]
+        },
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 38347,
+            "cached_input_tokens": 28928,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 570,
+            "reasoning_output_tokens": 0
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/agent-dungeon-master/SKILL.md'"
+          ]
+        }
+      ],
+      "artifacts": {
+        "prompt-1.txt": "a0fca397ac15ad2461b64e59e26d762fd73b5beaded4e0ec516f8506f26f0fad",
+        "prompt-2.txt": "4379f0e9eb949e757f5dbd840342eb17150d4ed930f31f6461632e9543b111fb",
+        "prompt-3.txt": "5e5c82909c6825455b1bc089fb0183b0f692541094778b956117db5568c6eee2",
+        "turn-1.md": "454ccd28092bb37cd874ace2dfcf55b5ad57d1a8c0e8db5b5eef1715a0bfb886",
+        "turn-2.md": "74866b054c8369f3eb441aec25a8679b1d915d3fb16158cbfe1689a7127d7c22",
+        "turn-3.md": "3aeedf7628444e3427df9c14b46038b736ce1cc89b2bcf7dc8ed604431985757"
+      },
+      "result": "sample passed",
+      "method": "3 fresh ephemeral runs with actual previous turns supplied as context; not a persistent-session memory test",
+      "checks": [
+        "player choice preserved",
+        "explicit no-turn/no-stairs respected",
+        "role and inventory retained",
+        "recap does not solve puzzle"
+      ],
+      "limits": [
+        "No long campaign or cross-session save test",
+        "No OneAPI model compatibility claim"
+      ]
+    },
+    "gif": {
+      "installed": true,
+      "lock": {
+        "version": 2,
+        "skills": {
+          "slack-gif-creator": {
+            "source": "anthropics/skills",
+            "ref": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+            "commit": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+            "sourceType": "github",
+            "skillPath": "skills/slack-gif-creator/SKILL.md",
+            "computedHash": "25581243f719e75121f9051ec671e810e53375fe648a6362d673d6bfbbe9d479",
+            "installMode": "copy"
+          }
+        }
+      },
+      "runs": [
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 241728,
+            "cached_input_tokens": 222592,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 3327,
+            "reasoning_output_tokens": 263
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/slack-gif-creator/SKILL.md'",
+            "/bin/zsh -lc 'cat .agents/skills/slack-gif-creator/core/gif_builder.py .agents/skills/slack-gif-creator/core/validators.py'",
+            "/bin/zsh -lc \"cat > make_gif.py <<'PY'\n\\\"\\\"\\\"Real acceptance test; never substitutes GIFBuilder or installs dependencies.\\\"\\\"\\\"\nimport os\nos.environ['PYTHONDONTWRITEBYTECODE'] = '1'\nimport sys\nsys.dont_write_bytecode = True\nimport json, math, traceback, hashlib\nfrom pathlib import Path\n\nROOT = Path(__file__).resolve().parent\nSKILL = ROOT / '.agents/skills/slack-gif-creator'\nsys.path.insert(0, str(SKILL))\nreport = {\n    'python': sys.executable,\n    'requested': {'dimensions': [128,128], 'frames':20, 'fps':10,\n                  'duration_ms':2000, 'colors':48, 'background':'light cream', 'loop':0},\n    'skill_sources_sha256': {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()\n        for p in [SKILL/'SKILL.md', SKILL/'core/gif_builder.py', SKILL/'core/validators.py']},\n    'workarounds': [], 'status':'started',\n    'limitations': ['Upstream validator checks dimensions for pass/fail; it does not enforce palette, duration, file size or seamless motion.'],\n}\n\ndef draw_frame(i):\n    from PIL import Image, ImageDraw\n    s=4\n    im=Image.new('RGB',(128*s,128*s),(255,247,230))\n    d=ImageDraw.Draw(im)\n    ink=(91,49,29); orange=(241,147,48); light=(255,204,120)\n    def box(b): return tuple(round(v*s) for v in b)\n    def oval(b, fill, outline=ink, width=2): d.ellipse(box(b),fill=fill,outline=outline,width=width*s)\n    def line(p,fill=ink,width=2): d.line([(round(x*s),round(y*s)) for x,y in p],fill=fill,width=width*s,joint='curve')\n    def poly(p,fill): d.polygon([(round(x*s),round(y*s)) for x,y in p], fill=fill,outline=ink,width=2*s)\n    t=2*math.pi*i/20\n    oval((28,115,104,121),(232,215,188),None)\n    # Curled tail behind the body.\n    d.arc(box((74,78,112,116)),230,560,fill=ink,width=13*s)\n    d.arc(box((74,78,112,116)),230,560,fill=orange,width=9*s)\n    oval((36,69,86,117),orange)\n    oval((47,82,76,114),light,None)\n    oval((34,107,57,120),orange); oval((68,107,90,120),orange)\n    # Raised arm and paw follow a periodic angle, with no duplicated endpoint.\n    a=math.radians(-77+24*math.sin(t))\n    elbow=(87,88); paw=(elbow[0]+27*math.cos(a),elbow[1]+27*math.sin(a))\n    line([(77,93),elbow,paw],ink,15)\n    line([(77,93),elbow,paw],orange,11)\n    oval((paw[0]-8,paw[1]-9,paw[0]+8,paw[1]+9),orange)\n    oval((paw[0]-3,paw[1]-1,paw[0]+3,paw[1]+4),(226,119,103),None)\n    for dx in (-4,0,4): oval((paw[0]+dx-1.3,paw[1]-5,paw[0]+dx+1.3,paw[1]-2),(226,119,103),None)\n    # Ears and broad smiling face.\n    poly([(32,49),(29,20),(52,33)],orange)\n    poly([(68,33),(88,20),(88,51)],orange)\n    poly([(35,39),(34,28),(46,35)],(242,173,146))\n    poly([(75,35),(84,28),(83,41)],(242,173,146))\n    oval((27,31,94,83),orange)\n    oval((39,57,82,79),light,None)\n    for x in (48,73):\n        d.arc(box((x-6,48,x+5,59)),190,350,fill=ink,width=3*s)\n    poly([(56,61),(65,61),(60.5,66)],(166,79,63))\n    line([(60.5,65),(60.5,69),(56,72),(52,70)])\n    line([(60.5,69),(65,72),(69,70)])\n    for x,y in [(48,39),(59,37),(70,39)]: line([(x,y),(x+1,y+7)],(191,99,35),3)\n    for side in (-1,1):\n        for dy in (-3,3): line([(60+side*20,65+dy),(60+side*31,63+dy)])\n    return im.resize((128,128),Image.Resampling.LANCZOS)\n\ntry:\n    # This import executes the installed helper's real dependency import.\n    from core.gif_builder import GIFBuilder\n    from core.validators import validate_gif, is_slack_ready\n    import numpy as np\n    from PIL import Image\n    builder=GIFBuilder(width=128,height=128,fps=10)\n    for i in range(20): builder.add_frame(draw_frame(i))\n    # Disable optional frame reduction to retain the requested exact frame count.\n    report['builder_options']={'num_colors':48,'optimize_for_emoji':False,'remove_duplicates':False}\n    report['builder_result']=builder.save(ROOT/'cat-wave.gif',**report['builder_options'])\n    passed, details=validate_gif(ROOT/'cat-wave.gif',is_emoji=True,verbose=True)\n    report['skill_validation']={'passes':passed,'details':details,\n        'is_slack_ready':is_slack_ready(ROOT/'cat-wave.gif',is_emoji=True,verbose=False)}\n    durations=[]; sizes=[]; colors=[]; arrays=[]\n    with Image.open(ROOT/'cat-wave.gif') as gif:\n        loop=gif.info.get('loop')\n        for i in range(gif.n_frames):\n            gif.seek(i)\n            durations.append(gif.info.get('duration'))\n            sizes.append(list(gif.size))\n            rgb=gif.convert('RGB')\n            colors.append(len(rgb.getcolors(128*128)))\n            arrays.append(np.array(rgb))\n    all_colors=len(np.unique(np.concatenate([a.reshape(-1,3) for a in arrays]),axis=0))\n    diffs=[float(np.abs(arrays[(i+1)%len(arrays)].astype(float)-arrays[i]).mean()) for i in range(len(arrays))]\n    report['independent_pillow']={'actual_frames':len(arrays),'duration_per_frame_ms':durations,\n        'total_duration_ms':sum(durations),'dimensions_per_frame':sizes,\n        'bytes':(ROOT/'cat-wave.gif').stat().st_size,'loop':loop,\n        'colors_per_frame':colors,'unique_colors_across_animation':all_colors,\n        'cyclic_adjacent_mean_absolute_pixel_difference':diffs}\n    report['motion']={'method':'Periodic sine, t=2*pi*i/20, excluding duplicate endpoint',\n        'period_endpoint_matches_start':np.array_equal(np.array(draw_frame(0)),np.array(draw_frame(20)))}\n    checks={'frames':len(arrays)==20,'durations':durations==[100]*20,\n        'dimensions':all(x==[128,128] for x in sizes),'loop':loop==0,\n        'palette_limit':all_colors<=48,'skill_validator':passed,\n        'periodic_motion':report['motion']['period_endpoint_matches_start']}\n    report['acceptance_checks']=checks\n    report['status']='passed' if all(checks.values()) else 'failed'\nexcept Exception as e:\n    report['status']='blocked'\n    report['original_error']={'type':type(e).__name__,'message':str(e),'traceback':traceback.format_exc()}\n    report['limitations'].append('No substitute renderer used; GIF generation and validation could not execute because the actual installed helper failed to import.')\nfinally:\n    (ROOT/'result.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\\\\n')\n    print(json.dumps({'status':report['status'],'original_error':report.get('original_error',{}).get('message')},ensure_ascii=False))\n    if report['status']\"'!='\"'passed': sys.exit(1)\nPY\n/Users/m5/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 make_gif.py\""
+          ]
+        }
+      ],
+      "artifacts": {
+        "prompt.txt": "05f433a72b1f4b265736c48f7f906ae02eeed727e992f4a0523ecc6938c452f2",
+        "make_gif.py": "3684e2636888c1fd2740f7324f231117113ab8caa92b4c7aebf7c1c4b0e5b081",
+        "cat-wave.gif": "142ac59b6ece5cf2c0be745313c80806fe48b612b0f6a48be3bd6107c3aa5685",
+        "result.json": "7cb43a5c1af126f9f81d542614f631cc27ee9be98b5422736848adce6453e48c",
+        "result-first-attempt.json": "9aa2bef0efa7a42db4e825a921a68d15026181189268237d262dff50a91a7d98",
+        "dependency-install.log": "33e1d64fbb17eb5f4075195feb16ab754c55b9e39453056db8dcdb39f806622a",
+        "generation.log": "b1732d02b9e40c452616de33ec1537adf27ff57fdfd8b46534bc9e087f6dcbf8"
+      },
+      "result": "passed after dependency setup",
+      "firstFailure": "ModuleNotFoundError: imageio",
+      "recovery": "Installed original requirements.txt into isolated .venv; reran the model-written script with unchanged upstream GIFBuilder and validator",
+      "actual": {
+        "actual_frames": 20,
+        "duration_per_frame_ms": [
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100
+        ],
+        "total_duration_ms": 2000,
+        "dimensions_per_frame": [
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ]
+        ],
+        "bytes": 19198,
+        "loop": 0,
+        "colors_per_frame": [
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47
+        ],
+        "unique_colors_across_animation": 47,
+        "cyclic_adjacent_mean_absolute_pixel_difference": [
+          1.4391682942708333,
+          1.5190633138020833,
+          1.655517578125,
+          1.3800048828125,
+          0.66802978515625,
+          0.66802978515625,
+          1.3800048828125,
+          1.655517578125,
+          1.5190633138020833,
+          1.4391682942708333,
+          1.22601318359375,
+          0.9994710286458334,
+          0.55029296875,
+          0.248291015625,
+          0.1968994140625,
+          0.1968994140625,
+          0.248291015625,
+          0.55029296875,
+          0.9994710286458334,
+          1.22601318359375
+        ]
+      },
+      "limits": [
+        "No Slack upload tested",
+        "Original upstream validator alone checks dimensions; independent acceptance checks verify actual timing, frame count and palette"
+      ]
+    },
+    "pdf": {
+      "installed": true,
+      "lock": {
+        "version": 2,
+        "skills": {
+          "pdf": {
+            "source": "anthropics/skills",
+            "ref": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+            "commit": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+            "sourceType": "github",
+            "skillPath": "skills/pdf/SKILL.md",
+            "computedHash": "c9c58ce1e1c334d4beb50dfe97aee27aee1d074aed17b3aa1df03b8982028200",
+            "installMode": "copy"
+          }
+        }
+      },
+      "runs": [
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 80374,
+            "cached_input_tokens": 71552,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 1440,
+            "reasoning_output_tokens": 0
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/pdf/SKILL.md'"
+          ]
+        }
+      ],
+      "artifacts": {
+        "prompt.txt": "4266aa21306e8a2e8abfafb4d2f3953d14109f9d8f3dac6ab44454215538f4bb",
+        "fixture.pdf": "e5fd3affe0e9935babb8d87fdf8f17cdc09ec69a0ce14920f9c0127186d4a7f6",
+        "input-page-1.png": "339c2772ca32bd95e15ead9ada5630fc1fd876e64f8b76b45027adc40cf0cc0b",
+        "make_fixture.py": "b378e8026d359cd5dbacd7e0782982a5a8821931c1a08b71af00a954aed4a553",
+        "expected.json": "1c4f79e597c766eaf11e011328c7ad76a67734dc42eff087e80de3f7856dc518",
+        "extract.py": "e295b7d061960e4c0caf2cdee985eeb8fda8ef463b6cbb2312009976bb30d757",
+        "extracted.json": "d6254691598c22ecdc1e78e999f5a2943760804e55d226776ec44a8cdff5c090",
+        "extracted.csv": "dd6afdbe49cd493cd7ac8bb9e57dd33a33e760764fda80dab8814637a3690764",
+        "report.md": "1902860f8f940fd142e153c309e1c3c43f70c8d27039a054afa451de91507fbf"
+      },
+      "result": "sample passed",
+      "recordsMatched": 3,
+      "fieldsMatched": 12,
+      "missingDatePreserved": true,
+      "method": "Agent wrote extraction script; local rerun after removing unsupported separator glyph from synthetic PDF title. Data and expected values unchanged. Current report and SHA reflect rerun.",
+      "limits": [
+        "Text PDF only; no scanned OCR, complex table or encrypted document test"
+      ]
+    },
+    "react": {
+      "installed": true,
+      "lock": {
+        "version": 2,
+        "skills": {
+          "vercel-react-best-practices": {
+            "source": "vercel-labs/agent-skills",
+            "ref": "1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62",
+            "commit": "1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62",
+            "sourceType": "github",
+            "skillPath": "skills/react-best-practices/SKILL.md",
+            "computedHash": "7991ed4fbecdac23f47c1a40c243e00a212a9e7f3604db93959b3ae11dffe299",
+            "installMode": "copy"
+          }
+        }
+      },
+      "runs": [
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 82603,
+            "cached_input_tokens": 72832,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 1381,
+            "reasoning_output_tokens": 95
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/vercel-react-best-practices/SKILL.md; nl -ba ReviewFixture.tsx'",
+            "/bin/zsh -lc 'cat .agents/skills/vercel-react-best-practices/rules/async-parallel.md .agents/skills/vercel-react-best-practices/rules/bundle-barrel-imports.md .agents/skills/vercel-react-best-practices/rules/client-swr-dedup.md .agents/skills/vercel-react-best-practices/rules/rerender-memo.md'"
+          ]
+        }
+      ],
+      "artifacts": {
+        "prompt.txt": "c067f8aeb6812d30a2d033d65cb191ba6cfad51cebe0351613cfeaa6498bc0a7",
+        "ReviewFixture.tsx": "9c8dab214ea48983aeab4f81506efcb7dd9cfafe43140494001dc42a9be1922b",
+        "expected.json": "6ea2504c75d2a6c3fe8f162692f0374fc1d1deb82b3ec04756a7e9959d5859c8",
+        "report.md": "5230072ba7b30947f64541794050fba12e8c8ff5e7185e5ff8e47c4934c209df",
+        "findings.json": "ae63e1c2c3e6b313946803630af3b9ae7dfb6f87471865b56d73194a771935ee"
+      },
+      "result": "sample passed",
+      "seededIssuesFound": 3,
+      "seededIssues": 3,
+      "falsePositiveOnNegativeControl": false,
+      "reviewerNote": "Three findings manually matched to held-out fixture; race diagnosis is valid but client-swr-dedup is a broader rule reference, not a dedicated race-condition rule.",
+      "limits": [
+        "Static review only; no build, runtime exploit test or measured performance gain"
+      ]
+    }
+  }
+}

@@ -1,0 +1,25 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>代码审查实测记录</title><style>*{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#1c2541;font:15px/1.8 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}main{max-width:1120px;margin:auto;padding:35px}header{border-bottom:1px solid #dce2ec;padding-bottom:20px;margin-bottom:26px}h1{font-size:30px;margin:5px 0}h2{font-size:20px;margin:0 0 14px}p{margin:8px 0}small,.muted{color:#627087}a{color:#315d9e}section{background:white;border:1px solid #e3e7ee;border-radius:12px;padding:25px;margin:18px 0}.columns{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}.columns section{margin:0}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.9 ui-monospace,Menlo,monospace;margin:0}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:10px;text-align:left;border-bottom:1px solid #e3e7ee}.badge{display:inline-block;background:#e5f1ea;color:#286245;padding:4px 12px;border-radius:6px}.note{background:#fff3e8;padding:14px;border-radius:8px;color:#80512e}.pdf{width:100%;border:1px solid #e0e4eb}.gifstage{display:flex;justify-content:center;background:#fff7e6;padding:36px;border-radius:10px}.gifstage img{width:256px;height:256px;image-rendering:auto}.original{font-family:inherit}.links{display:flex;gap:16px;flex-wrap:wrap;margin:20px 0}@media(max-width:700px){main{padding:20px}.columns{grid-template-columns:1fr}h1{font-size:25px}section{padding:18px}table{font-size:11px}}</style></head><body><main><header><a href="../../#skill/react">返回 Skill 详情</a><h1>代码审查：预植入问题对照</h1><span class="badge">3 / 3 项问题识别</span><p class="muted">2026-11-17 · macOS · Codex CLI 0.160.0 · 固定版本安装</p><small>真实试运行产物的本站排版；不是原生聊天客户端截图。未验证 OneAPI 模型组合。</small></header><div class="columns"><section><h2>实际输入 · React 样本</h2><pre> 1  &#x27;use client&#x27;;
+ 2  import {useEffect, useState} from &#x27;react&#x27;;
+ 3  import _ from &#x27;lodash&#x27;;
+ 4  
+ 5  type User = {id:string; name:string};
+ 6  type Order = {id:string; title:string};
+ 7  export async function loadDashboard(userId:string) {
+ 8    const userResponse = await fetch(`/api/users/${userId}`);
+ 9    const user:User = await userResponse.json();
+10    const ordersResponse = await fetch(`/api/orders?user=${userId}`);
+11    const orders:Order[] = await ordersResponse.json();
+12    return {user, orders};
+13  }
+14  export function SearchBox({query}:{query:string}) {
+15    const [results,setResults] = useState&lt;Order[]&gt;([]);
+16    useEffect(()=&gt;{
+17      fetch(`/api/search?q=${encodeURIComponent(query)}`)
+18        .then(r=&gt;r.json()).then(setResults);
+19    },[query]);
+20    const ordered = _.sortBy(results, [&#x27;title&#x27;]);
+21    return &lt;ul&gt;{ordered.map(item=&gt;&lt;li key={item.id}&gt;{item.title}&lt;/li&gt;)}&lt;/ul&gt;;
+22  }
+23  export function Greeting({user}:{user:User}) {
+24    return &lt;p&gt;Hello, {user.name}&lt;/p&gt;;
+25  }</pre></section><section><h2>真实审查发现</h2><h2>独立的用户与订单请求被串行等待</h2><p class="muted">行 8, 9, 10, 11 · async-parallel</p><p>订单请求仅使用入参 userId，不依赖用户响应；但代码等待用户请求及其 JSON 解析完成后才发起订单请求，形成可避免的请求瀑布。</p><h2>只使用 sortBy 却从 lodash 根入口导入整个对象</h2><p class="muted">行 3, 20 · bundle-barrel-imports</p><p>该文件声明为客户端模块，lodash 的唯一用途是 _.sortBy。根入口默认导入引入了不必要的库级依赖，不利于按方法限制客户端依赖范围；具体产物大小需由实际构建确认。</p><h2>搜索请求缺少隔离，旧查询响应可覆盖新结果</h2><p class="muted">行 16, 17, 18, 19 · client-swr-dedup</p><p>query 变化会启动新请求，而所有请求都直接调用同一个 setResults，没有清理或当前查询校验。若较早查询的响应较晚到达，它就会覆盖较新查询的结果。该 Effect 也没有按查询键共享缓存或去重机制，但代码未展示多个实例，不能断言已产生重复请求。</p></section></div><section><h2>验收边界</h2><p>三个发现与预先植入的问题逐项对应；未将 Greeting 的正常文本插值误报为 XSS。没有修改输入代码。</p><p class="note">静态审查样本通过，不代表性能已经改善。未构建、测速，也未测试大型真实项目。</p><p>复核备注：旧响应覆盖的判断成立；client-swr-dedup 是相关的上位规则，不能当成专门竞态规则的准确引用。</p></section><div class="links"><a href="ReviewFixture.tsx">输入源码</a><a href="report.md">完整模型报告</a><a href="findings.json">原始发现 JSON</a></div><div class="links"><a href="install.log">安装日志</a><a href="skills-lock.json">版本锁定记录</a><a href="../verification.json">完整核验记录</a></div></main></body></html>

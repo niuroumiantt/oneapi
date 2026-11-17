@@ -1,0 +1,4 @@
+# Sanitized, intentional evidence artifacts; do not ignore as runtime logs.
+!*/install.log
+!gif/dependency-install.log
+!gif/generation.log

@@ -34,9 +34,10 @@
     "sourceRead": true,
     "sourceExcerpt": "---\nname: slack-gif-creator\ndescription: Knowledge and utilities for creating animated GIFs optimized for Slack. Provides constraints, validation tools, and animation concepts. Use when users request animated GIFs for Slack like \"make me a GIF of X doing Y for Slack.\"\nlicense: Complete terms in LICENSE.txt\n---\n\n# Slack GIF Creator\n\nA toolkit providing utilities and knowledge for creating animated GIFs optimized for Slack.\n\n## Slack Requirements\n\n**Dimensions:**\n- Emoji GIFs: 128x128 (recommended)\n- Message GIFs: 480x480\n\n**Parameters:**\n- FPS: 10-30 (lower is smaller file size)\n- Colors: 48-128 (fewer = smaller file size)\n- Duration: Keep under 3 seconds for emoji GIFs\n\n## Core Workflow\n\n```python\nfrom core.gif_builder import GIFBuilder\nfrom PIL import Image, ImageDraw\n\n# 1. Create builder\nbuilder = GIFBuilder(width=128, height=128, fps=10)\n\n# 2. Generate frames\nfor i in range(12):\n    frame = Image.new('RGB', (128, 128), (240, 248, 255))\n    draw = ImageDraw.Draw(frame)\n\n    # Draw your animation using PIL primitives\n    # (circles, polygons, lines, etc.)\n\n    builder.add_frame(frame)\n\n# 3. Save with optimization\nbuilder.save('output.gif', num_colors=48, optimize_for_emoji=True)\n```\n\n## Drawing Graphics\n\n### Working with User-Uploaded Images\nIf a user uploads an image, consider whether they want to:\n- **Use it directly** (e.g., \"animate this\", \"split this into frames\")\n- **Use it as inspiration** (e.g., \"make something like this\")\n\nLoad and work with images using PIL:\n```python\nfrom PIL import Image\n\nuploaded = Image.open('file.png')\n# Use directly, or just as reference for colors/style\n```\n\n### Drawing from Scratch\nWhen drawing graphics from scratch, use PIL ImageDraw primitives:\n\n```python\nfrom PIL import ImageDraw\n\ndraw = ImageDraw.Draw(frame)\n\n# Circles/ovals\ndraw.",
     "licenseEvidence": "\n                                 Apache License\n                           Version 2.0, January 2004\n                        http://www.apache.org/licenses/\n\n   TERMS AND CONDITIONS FOR USE, REPRODUC",
-    "installation": "Instructions reviewed; not executed",
-    "taskTest": "Not run",
-    "oneapiCompatibility": "Not tested"
+    "installation": "Installed successfully in isolated local project via skills@1.9.0",
+    "taskTest": "Passed representative sample after dependency setup",
+    "oneapiCompatibility": "Not tested",
+    "executionEvidence": "tests/gif/index.html"
   },
   {
     "repo": "anthropics/skills",
@@ -47,9 +48,10 @@
     "sourceRead": true,
     "sourceExcerpt": "---\nname: pdf\ndescription: Use this skill whenever the user wants to do anything with PDF files. This includes reading or extracting text/tables from PDFs, combining or merging multiple PDFs into one, splitting PDFs apart, rotating pages, adding watermarks, creating new PDFs, filling PDF forms, encrypting/decrypting PDFs, extracting images, and OCR on scanned PDFs to make them searchable. If the user mentions a .pdf file or asks to produce one, use this skill.\nlicense: Complete terms in LICENSE.txt\n---\n\n# PDF Processing Guide\n\n## Overview\n\nThis guide covers essential PDF processing operations using Python libraries and command-line tools. For advanced features, JavaScript libraries, and detailed examples, see REFERENCE.md. If you need to fill out a PDF form, read FORMS.md and follow its instructions.\n\n## Quick Start\n\n```python\nfrom pypdf import PdfReader, PdfWriter\n\n# Read a PDF\nreader = PdfReader(\"document.pdf\")\nprint(f\"Pages: {len(reader.pages)}\")\n\n# Extract text\ntext = \"\"\nfor page in reader.pages:\n    text += page.extract_text()\n```\n\n## Python Libraries\n\n### pypdf - Basic Operations\n\n#### Merge PDFs\n```python\nfrom pypdf import PdfWriter, PdfReader\n\nwriter = PdfWriter()\nfor pdf_file in [\"doc1.pdf\", \"doc2.pdf\", \"doc3.pdf\"]:\n    reader = PdfReader(pdf_file)\n    for page in reader.pages:\n        writer.add_page(page)\n\nwith open(\"merged.pdf\", \"wb\") as output:\n    writer.write(output)\n```\n\n#### Split PDF\n```python\nreader = PdfReader(\"input.pdf\")\nfor i, page in enumerate(reader.pages):\n    writer = PdfWriter()\n    writer.add_page(page)\n    with open(f\"page_{i+1}.pdf\", \"wb\") as output:\n        writer.write(output)\n```\n\n#### Extract Metadata\n```python\nreader = PdfReader(\"document.pdf\")\nmeta = reader.metadata\nprint(f\"Title: {meta.title}\")\nprint(f\"Author: {meta.author}\")\nprint(",
     "licenseEvidence": "\n                                 Apache License\n                           Version 2.0, January 2004\n                        http://www.apache.org/licenses/\n\n   TERMS AND CONDITIONS FOR USE, REPRODUC",
-    "installation": "Instructions reviewed; not executed",
-    "taskTest": "Not run",
-    "oneapiCompatibility": "Not tested"
+    "installation": "Installed successfully in isolated local project via skills@1.9.0",
+    "taskTest": "Passed representative sample",
+    "oneapiCompatibility": "Not tested",
+    "executionEvidence": "tests/pdf/index.html"
   },
   {
     "repo": "anthropics/skills",
@@ -138,9 +140,10 @@
     "sourceRead": true,
     "sourceExcerpt": "---\nname: vercel-react-best-practices\ndescription: React and Next.js performance optimization guidelines from Vercel Engineering. This skill should be used when writing, reviewing, or refactoring React/Next.js code to ensure optimal performance patterns. Triggers on tasks involving React components, Next.js pages, data fetching, bundle optimization, or performance improvements.\nlicense: MIT\nmetadata:\n  author: vercel\n  version: \"1.0.0\"\n---\n\n# Vercel React Best Practices\n\nComprehensive performance optimization guide for React and Next.js applications, maintained by Vercel. Contains 70 rules across 8 categories, prioritized by impact to guide automated refactoring and code generation.\n\n## When to Apply\n\nReference these guidelines when:\n- Writing new React components or Next.js pages\n- Implementing data fetching (client or server-side)\n- Reviewing code for performance issues\n- Refactoring existing React/Next.js code\n- Optimizing bundle size or load times\n\n## Rule Categories by Priority\n\n| Priority | Category | Impact | Prefix |\n|----------|----------|--------|--------|\n| 1 | Eliminating Waterfalls | CRITICAL | `async-` |\n| 2 | Bundle Size Optimization | CRITICAL | `bundle-` |\n| 3 | Server-Side Performance | HIGH | `server-` |\n| 4 | Client-Side Data Fetching | MEDIUM-HIGH | `client-` |\n| 5 | Re-render Optimization | MEDIUM | `rerender-` |\n| 6 | Rendering Performance | MEDIUM | `rendering-` |\n| 7 | JavaScript Performance | LOW-MEDIUM | `js-` |\n| 8 | Advanced Patterns | LOW | `advanced-` |\n\n## Quick Reference\n\n### 1. Eliminating Waterfalls (CRITICAL)\n\n- `async-cheap-condition-before-await` - Check cheap sync conditions before awaiting flags or remote values\n- `async-defer-await` - Move await into branches where actually used\n- `async-parallel` - Use Promise.all() for independ",
     "licenseEvidence": "README states MIT; react-best-practices also has license: MIT in frontmatter.",
-    "installation": "Instructions reviewed; not executed",
-    "taskTest": "Not run",
-    "oneapiCompatibility": "Not tested"
+    "installation": "Installed successfully in isolated local project via skills@1.9.0",
+    "taskTest": "Passed representative sample",
+    "oneapiCompatibility": "Not tested",
+    "executionEvidence": "tests/react/index.html"
   },
   {
     "repo": "vercel-labs/agent-skills",
@@ -164,9 +167,10 @@
     "sourceRead": true,
     "sourceExcerpt": "---\nname: agent-dungeon-master\ndescription: \"Use when an agent should DM a tabletop RPG or solo D&D-style campaign: scenes, rulings, hidden info, spotlight, safety, and consequences.\"\nversion: 1.1.0\nauthor: Sergiu Vataman (Nylas)\nlicense: MIT\nplatforms: [linux, macos, windows]\ncompatibility: \"Portable Agent Skills format; no external tools required.\"\nhomepage: https://github.com/NylasDev/nylas-dungeon-master-skills\nuser-invocable: true\nmetadata:\n  hermes:\n    tags: [tabletop-rpg, dungeon-master, solo-rpg, campaign, dnd, player-characters, improvisation]\n    category: tabletop-rpg\n    related_skills: [dungeon-master-assistant]\n  agentskills:\n    category: games\n    audience: [players, forever-dms, tabletop-rpg-facilitators]\n  openclaw:\n    always: true\n    category: tabletop-rpg\n    userInvocable: true\n---\n\n# Agent Dungeon Master\n\n## Overview\n\nThis skill teaches an agent to act as the Dungeon Master for a tabletop roleplaying game. It is built for players and forever-DMs who want to be the hero for once while an agent runs the world with real DM craft.\n\nThe agent may assist a human DM, but that is not the main job. The main job is to run a campaign: premise, scenes, NPCs, villains, factions, locations, consequences, hidden information, rulings, session flow, and character-focused spotlight.\n\nThe player characters are the heroes. The world should revolve around their choices without handing them victory in a velvet box. Risk matters. Consequences matter. Fun matters most.\n\n## Non-negotiables\n\n- The player characters are the heroes; the world reacts to them without guaranteeing victory.\n- Run a game, not a lore lecture: frame scenes, ask for choices, adjudicate, narrate consequences, update state.\n- Never decide a player character's feelings, choices, or secret motives unl",
     "licenseEvidence": "Repository LICENSE: MIT; both skill frontmatters declare MIT.",
-    "installation": "Instructions reviewed; not executed",
-    "taskTest": "Not run",
-    "oneapiCompatibility": "Not tested"
+    "installation": "Installed successfully in isolated local project via skills@1.9.0",
+    "taskTest": "Passed representative sample",
+    "oneapiCompatibility": "Not tested",
+    "executionEvidence": "tests/dungeon/index.html"
   },
   {
     "repo": "NylasDev/nylas-dungeon-master-skills",

@@ -1,0 +1,14 @@
+
+✓ GIF created successfully!
+  Path: /private/tmp/oneapi-skill-tests-20261117/gif/cat-wave.gif
+  Size: 18.7 KB (0.02 MB)
+  Dimensions: 128x128
+  Frames: 20 @ 10 fps
+  Duration: 2.0s
+  Colors: 48
+
+Validating cat-wave.gif:
+  Dimensions: 128x128 (optimal)
+  Size: 18.7 KB
+  Frames: 20 @ 10.0 fps (2.0s)
+{"status": "passed", "original_error": null}
