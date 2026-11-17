@@ -20,3 +20,6 @@
 
 /* Logo masters keep their original fills; only the tagline highlights A and I. */
 .brand-ai{font-style:normal;color:#E43C2F}
+
+/* Public footer type and spacing shared by the landing and comparison pages. */
+.m-footer,.compare-footer{font-size:12px;line-height:1.7;gap:12px;padding-block:16px;flex-wrap:wrap}

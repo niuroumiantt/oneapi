@@ -19,3 +19,13 @@ body.console-active>*:not(#console-view):not(.toast):not(dialog):not(script){dis
 .cs-panes iframe[hidden]{display:none}
 .cs-message{padding:32px;font-size:14px}.cs-message a{margin-left:6px;color:#7a26d9;font-weight:700}
 @media(max-width:700px){.cs-top{gap:8px;padding:0 10px}.cs-brand img{width:84px}.cs-divider,.cs-live{display:none}.cs-tabs a{padding:6px 8px}.cs-link:last-child{display:none}}
+
+.cs-message{position:absolute;z-index:1;inset:0;background:#f4f6f8}
+#console-view.technical .cs-message{background:#172b20;color:#e2f5e4}
+@media(max-width:560px){
+ .cs-top{gap:4px;padding-inline:8px}
+ .cs-brand img{width:64px}
+ .cs-tabs{margin-left:0;padding:2px}
+ .cs-tabs a,.cs-link{padding:6px 4px;font-size:11px}
+ .cs-link:last-child{display:block}
+}

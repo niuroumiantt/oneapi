@@ -60,6 +60,10 @@
    const frame = document.createElement('iframe');
    frame.title = workspace === 'technical' ? '技术运维工作台' : '业务运营工作台';
    frame.src = '/api/staff/' + (workspace === 'technical' ? 'lab' : 'workspace') + '/view' + (workspace === 'technical' && supplier ? '?supplier=' + encodeURIComponent(supplier) : '') + '#' + section;
+   frame.addEventListener('load', () => {
+    frame.dataset.loaded = 'true';
+    if (current === workspace) message().hidden = true;
+   });
    frames[workspace] = frame;
    panes().append(frame);
   }
@@ -67,7 +71,9 @@
    frame.hidden = name !== workspace;
    if (name === workspace) frame.contentWindow?.postMessage({ type: 'workspace-navigate', section }, location.origin);
   }
-  message().hidden = true;
+  const loading = !frames[workspace].dataset.loaded;
+  message().textContent = '正在打开' + titles[workspace] + '…';
+  message().hidden = !loading;
   if (host.querySelector('.cs-live').textContent.startsWith('正在验证')) live('切换面板会保留各自位置');
   document.title = 'semifly.ai · ' + titles[workspace];
   const target = hashFor(workspace, section);
