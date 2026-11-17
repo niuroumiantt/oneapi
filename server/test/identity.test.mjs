@@ -3,7 +3,7 @@ import test,{before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
 import { createServer } from 'node:http';
-import { randomBytes,createHash,generateKeyPairSync,createSign,createVerify,createCipheriv } from 'node:crypto';
+import { randomBytes,randomUUID,createHash,generateKeyPairSync,createSign,createVerify,createCipheriv } from 'node:crypto';
 import { signContent,responseNode } from '../src/alipay.mjs';
 import { mkdtemp, writeFile, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { generateKeyPair,exportJWK,SignJWT } from 'jose';
 import { createApp } from '../src/app.mjs';
 import { GRANT_YUAN,holdYuan,channelFeeYuan,employeeRequest,usageFrom,settleEmployeeCalls,callClient,callSummary } from '../src/employee-credit.mjs';
-import { vault,hasBusiness,hash } from '../src/core.mjs';
+import { vault,hasBusiness,hash,token } from '../src/core.mjs';
 import { findOfficialModel,officialPeak } from '../src/official-models.mjs';
 import { migrate } from '../src/migrate.mjs';
 import { config } from '../src/core.mjs';
@@ -62,7 +62,7 @@ function wxNotify(event_type,resource,signOpts){
  const body=JSON.stringify({id:randomBytes(8).toString('hex'),create_time:'2026-11-12T10:00:00+08:00',resource_type:'encrypt-resource',event_type,summary:'通知',resource:{original_type:ad,algorithm:'AEAD_AES_256_GCM',ciphertext,associated_data:ad,nonce}});
  return fetch(origin+'/api/payments/wechat/notify',{method:'POST',headers:{'Content-Type':'application/json',...wxSign(body,signOpts)},body});
 }
-let pool,appServer,idpServer,service,origin,idpOrigin,appCfg,pilotDir,pilotFetch=fetch,identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true},revoked=false;
+let pool,appServer,idpServer,service,origin,idpOrigin,appCfg,pilotDir,pilotFetch=fetch,compareFetch=fetch,identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true},revoked=false;
 const sent=[],codes=new Map(),access=new Map();let serial=1;
 const password='Local-only!Testing-1842';
 function jar(ip='192.0.2.'+(serial++)){const cookies=new Map();return {cookies,async call(path,{method='GET',body,headers={}}={}){
@@ -95,7 +95,7 @@ before(async()=>{
  const cfg=config({APP_ORIGIN:origin,DATABASE_URL:databaseURL,BETTER_AUTH_SECRET:'test-only-strong-secret-932847239847293847',STAFF_OIDC_ISSUER:idpOrigin,STAFF_OIDC_CLIENT_ID:'oneapi-test-staff',STAFF_OIDC_CLIENT_SECRET:'test-client-secret',STAFF_BOOTSTRAP_SUB:'staff-owner',BANK_TRANSFER_VERIFIED:'true',BANK_TRANSFER_ACCOUNT_NAME:'Company Test',BANK_TRANSFER_BANK_NAME:'Test Bank Branch',BANK_TRANSFER_ACCOUNT_NUMBER:'0000000000000000'});
  cfg.alipay={...cfg.alipay,enabled:true,appId:'2021000000000001',sellerId:'2088000000000001',privateKey:pem(appKeys.privateKey),publicKey:pem(alipayKeys.publicKey),allowedEmails:new Set(['nobody@example.test'])};cfg.alipayFetch=fakeAlipay;
  cfg.wechat={...cfg.wechat,enabled:true,mchId:WX.mchId,appId:WX.appId,certSerial:WX.certSerial,privateKey:pem(wxMerchant.privateKey),publicKeyId:WX.publicKeyId,publicKey:pem(wxPlatform.publicKey),apiV3Key:wxApiV3Key,allowedEmails:new Set(['nobody@example.test'])};cfg.wechatFetch=fakeWechat;
- appCfg=cfg;cfg.pilotFetch=(...args)=>pilotFetch(...args);
+ appCfg=cfg;cfg.pilotFetch=(...args)=>pilotFetch(...args);cfg.compareReferenceFetch=(...args)=>compareFetch(...args);
  service=createApp(pool,cfg,{sendMail:async m=>{sent.push(m);return {};},verify:async()=>true});await migrate(pool,service.auth);await pool.query('TRUNCATE "user",staff_members,staff_oidc_states,mail_outbox,request_limits,"rateLimit",channel_states,upstream_model_flags,upstream_watch_runs,upstream_watch_events,acceptance_profiles,agents,published_reports,identity_check_runs,identity_check_items CASCADE');appServer.on('request',service.app);
 });
 after(async()=>{appServer?.close();idpServer?.close();await pool?.end();if(pilotDir)await rm(pilotDir,{recursive:true,force:true});});
@@ -1549,6 +1549,7 @@ test('ordinary customer: discounted purchase, signed payment, scoped key, shared
  await Promise.all([creditPaidOrder(pool,order.out_trade_no,confirm,'test'),creditPaidOrder(pool,order.out_trade_no,confirm,'test')]);
  const wallet=async()=>(await buyer.j.call('/api/billing/personal')).data;
  assert.equal((await wallet()).list_credit_fen,'10000');assert.equal((await wallet()).cash_balance_fen,'3000');assert.equal((await wallet()).packs.length,1);
+ const options=await buyer.j.call('/api/compare/config');assert.equal(options.status,200);assert.equal(options.data.products[0].account_id,order.account_id);assert.ok(options.data.models.some(m=>m.id==='deepseek-flash'));assert.equal((await pool.query('SELECT 1 FROM customer_api_keys WHERE owner_id=$1',[buyer.user.id])).rowCount,0,'products load without creating or entering a Key');
  const made=await post(buyer.j,'/api/customer-credit/keys',{label:'my agent',models:['deepseek-flash'],limit_yuan:'100'});assert.equal(made.status,201,JSON.stringify(made.data));assert.match(made.data.secret,/^sf_paid_/);
  assert.equal((await post(other.j,'/api/customer-credit/keys/'+made.data.key.id+'/revoke')).status,404);
  const secret=made.data.secret,call=body=>buyer.j.call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+secret},body});
@@ -1561,6 +1562,61 @@ test('ordinary customer: discounted purchase, signed payment, scoped key, shared
  // Stream uses exactly the same forwarding handler and price snapshot.
  pilotFetch=async()=>new Response('data: '+JSON.stringify({choices:[{delta:{content:'hi'}}]})+'\n\ndata: '+JSON.stringify({choices:[],usage:{prompt_tokens:10,completion_tokens:1}})+'\n\ndata: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream','x-request-id':'paid-request-2'}});
  assert.equal((await call({model:'deepseek-flash',stream:true,messages:[{role:'user',content:'hi'}],max_tokens:10})).status,200);
+ // Real customer session -> compare -> existing /v1 gateway -> real PostgreSQL ledger.
+ const compareBody={ours:{account_id:order.account_id,model:'deepseek-flash'},reference:{provider:'deepseek',key:'official-fixture-secret',model:'deepseek-flash'},prompt:'same task '+ 'x'.repeat(20000),parameters:{max_tokens:128}};
+ let referenceCalls=0;
+ compareFetch=async()=>{referenceCalls++;return new Response('data: '+JSON.stringify({model:'official-returned',choices:[{delta:{content:'reference'},finish_reason:'stop'}],usage:{prompt_tokens:10,completion_tokens:1}})+'\n\ndata: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream'}});};
+ const ccBefore=(await pool.query('SELECT count(*)::int AS n FROM customer_calls WHERE account_id=$1',[order.account_id])).rows[0].n;
+ assert.equal((await post(other.j,'/api/compare/run',compareBody)).status,402);
+ assert.equal((await other.j.call('/api/compare/config')).status,402);
+ assert.equal((await post(other.j,'/api/compare/attachment',{name:'a.txt',data:'YWJj'})).status,402);
+ assert.equal((await post(other.j,'/api/compare/models',{side:'reference',key:'official-fixture-secret',reference:{provider:'deepseek'}})).status,402);
+ assert.equal(referenceCalls,0);
+ assert.equal((await post(buyer.j,'/api/compare/run',{...compareBody,ours:{account_id:randomUUID(),model:'deepseek-flash'}})).status,403);
+ assert.equal((await post(buyer.j,'/api/compare/run',{...compareBody,ours:{account_id:order.account_id,model:'not-purchased'}})).status,403);
+ assert.equal((await buyer.j.call('/api/compare/run',{method:'POST',body:compareBody,headers:{Origin:'https://foreign.example'}})).status,403);
+ const compared=await post(buyer.j,'/api/compare/run',compareBody);assert.equal(compared.status,200,String(compared.data));
+ const compareEvents=compared.data.split('\n\n').filter(x=>x.includes('data: ')).map(x=>({event:x.match(/event: (.*)/)?.[1],data:JSON.parse(x.split('data: ')[1])}));
+ const left=compareEvents.find(x=>x.event==='result'&&x.data.side==='a').data;
+ assert.equal(left.status,'complete');assert.equal(left.billing.status,'settled');assert.equal(left.usage.total_tokens,11);assert.ok(Number(left.billing.charged_yuan)>0);assert.equal(referenceCalls,1);
+ assert.equal((await pool.query('SELECT count(*)::int AS n FROM customer_calls WHERE account_id=$1',[order.account_id])).rows[0].n,ccBefore+1,'exactly one platform call billed');
+ const temp=(await pool.query('SELECT k.* FROM customer_api_keys k JOIN customer_calls c ON c.key_id=k.id WHERE c.id=$1',[left.platform_call_id])).rows[0];assert.equal(temp.purpose,'compare');assert.ok(temp.revoked_at);assert.ok(temp.expires_at);
+ assert.equal((await buyer.j.call('/api/customer-credit/status')).data.keys.length,1,'internal comparison key is not a customer-managed Key');
+ const expired='sf_paid_'+token();await pool.query("INSERT INTO customer_api_keys(account_id,owner_id,label,secret_hash,key_hint,model_ids,limit_yuan,purpose,expires_at) VALUES($1,$2,'expired fixture',$3,'test',ARRAY['deepseek-flash'],1,'compare',now()-interval '1 second')",[order.account_id,buyer.user.id,hash(expired)]);
+ assert.equal((await buyer.j.call('/v1/models',{headers:{Authorization:'Bearer '+expired}})).status,401,'expired comparison credentials never authenticate');
+ // Expenses use the purchased pack ratio, not a misleading full-price cash claim.
+ assert.ok(Math.abs(Number(left.billing.paid_equivalent_yuan)-Number(left.billing.charged_yuan)*0.3)<1e-12);
+ assert.equal(left.billing.calculation.items.length,3);assert.equal(left.billing.usage.input_tokens,10);
+ assert.equal(compareEvents.find(x=>x.event==='result'&&x.data.side==='b').data.estimate.status,'estimated');
+ assert.equal(Number(left.billing.cash_booked_yuan),0,'sub-cent cash is accumulated, never rounded up per call');
+ const openModels=['deepseek-flash','deepseek-flash-0910','glm-5.3','glm-5.3-flash'];
+ appCfg.customerPaid.models=openModels;
+ for(const model of openModels.slice(1)){
+  const m=findOfficialModel(model);
+  await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES('Paid extra','supplier','https://kerapi.cn/v1',$1,'paid-unique','staff-owner',$2,$3)",[m.upstreamModel,supplier,cred]);
+  await pool.query("INSERT INTO channel_states(model_id,paused,updated_by) VALUES($1,false,'test') ON CONFLICT(model_id) DO UPDATE SET paused=false",[model]);
+ }
+ assert.deepEqual((await buyer.j.call('/api/compare/config')).data.models.map(m=>m.id),openModels);
+ await pool.query("UPDATE channel_states SET paused=true WHERE model_id='deepseek-flash-0910'");
+ assert.ok(!(await buyer.j.call('/api/compare/config')).data.models.some(m=>m.id==='deepseek-flash-0910'));
+ assert.equal((await post(buyer.j,'/api/compare/run',{...compareBody,ours:{...compareBody.ours,model:'deepseek-flash-0910'}})).status,403);
+ await pool.query("UPDATE channel_states SET paused=false WHERE model_id='deepseek-flash-0910'");
+ await pool.query("INSERT INTO upstream_model_flags(model_id,flag) VALUES('GLM-5.3-Flash','ignores_max_tokens') ON CONFLICT(model_id,flag) DO UPDATE SET cleared_at=NULL");
+ assert.ok(!(await buyer.j.call('/api/compare/config')).data.models.some(m=>m.id==='glm-5.3-flash'));
+ await pool.query("UPDATE upstream_model_flags SET cleared_at=now() WHERE model_id='GLM-5.3-Flash'");
+ for(const model of openModels.slice(1)){
+  const m=findOfficialModel(model),beforeCount=referenceCalls;
+  const response=await post(buyer.j,'/api/compare/run',{...compareBody,prompt:'paid models billing test',ours:{...compareBody.ours,model},reference:{...compareBody.reference,provider:m.family,model:m.family==='deepseek'?'deepseek-flash':m.upstreamModel},parameters:{max_tokens:128,reasoning_effort:'low'}});
+  assert.equal(response.status,200,String(response.data));
+  const events=response.data.split('\n\n').filter(s=>s.startsWith('event: result')).map(s=>JSON.parse(s.split('data: ')[1]));
+  const a=events.find(e=>e.side==='a'),b=events.find(e=>e.side==='b');
+  assert.equal(a.status,'complete',JSON.stringify(a));assert.equal(a.billing.status,'settled');
+  assert.equal(a.billing.price_snapshot.input,m.rates.input);assert.equal(b.estimate.status,'estimated');
+  assert.ok(Math.abs(Number(a.billing.paid_equivalent_yuan)-Number(a.billing.charged_yuan)*0.3)<1e-12);
+  assert.equal(referenceCalls,beforeCount+1);
+ }
+
+ assert.ok(!compared.data.includes(secret));assert.ok(!compared.data.includes('official-fixture-secret'));compareFetch=fetch;
  // Unexpected supplier usage cannot exceed even a small key's remaining lifetime cap.
  const capped=await post(buyer.j,'/api/customer-credit/keys',{label:'small cap',models:['deepseek-flash'],limit_yuan:'1'});
  const excess=(await pool.query("INSERT INTO customer_calls(account_id,key_id,owner_id,model_id,price_snapshot,status,hold_yuan) VALUES($1,$2,$3,'deepseek-flash','{}','pending',0.01) RETURNING id",[order.account_id,capped.data.key.id,buyer.user.id])).rows[0].id;
@@ -1883,4 +1939,101 @@ test('customer usage preaggregation matches direct call counts for personal and 
   const expected=(await pool.query("SELECT count(*)::int AS calls,max(e.created_at) AS latest FROM employee_calls e WHERE e.created_at>=now()-interval '30 days' AND (e.owner_id=$1 OR e.owner_id IN (SELECT a.user_id FROM employee_credit_accounts a WHERE a.organization_id=$2))",[c.user_id,c.organization_id])).rows[0];
   assert.equal(c.calls_30d,expected.calls,c.code);assert.equal(c.last_call_at,expected.latest?.toISOString()??null,c.code);
  }
+});
+
+test('comparison keeps spendable purchased packs and existing enterprise billing permissions',async()=>{
+ const {comparisonAccounts}=await import('../src/compare-access.mjs');
+ const owner=await user('compare-access'),member=await user('compare-member');
+ const account=(await pool.query('INSERT INTO billing_accounts(owner_id,list_credit_fen) VALUES($1,1000) RETURNING id',[owner.user.id])).rows[0].id;
+ const eligible=()=>comparisonAccounts(pool,owner.user.id);
+ assert.equal((await eligible()).length,0,'unbacked display balances cannot be spent by the ordinary API either');
+ const pack=(await pool.query("INSERT INTO credit_packs(account_id,source_kind,source_id,face_fen,cash_fen,remaining_fen) VALUES($1,'bank',$2,1000,1000,1000) RETURNING id",[account,randomUUID()])).rows[0].id;
+ assert.equal((await eligible()).length,1);
+ await assert.rejects(pool.query('UPDATE credit_packs SET cash_fen=0 WHERE id=$1',[pack]),{code:'23514'},'free credits cannot be stored as paid packs');
+ await pool.query('UPDATE credit_packs SET refund_id=$2 WHERE id=$1',[pack,randomUUID()]);assert.equal((await eligible()).length,0,'refunded packs do not qualify');
+ await pool.query('UPDATE credit_packs SET refund_id=NULL,remaining_fen=0 WHERE id=$1',[pack]);assert.equal((await eligible()).length,0,'spent packs do not qualify');
+ const org=await organization(owner,'Compare paid enterprise');
+ const orgAccount=(await pool.query('INSERT INTO billing_accounts(organization_id,list_credit_fen) VALUES($1,1000) RETURNING id',[org.id])).rows[0].id;
+ await pool.query("INSERT INTO credit_packs(account_id,source_kind,source_id,face_fen,cash_fen,remaining_fen) VALUES($1,'bank',$2,1000,1000,1000)",[orgAccount,randomUUID()]);
+ assert.equal((await eligible())[0].account_id,orgAccount);
+ await pool.query("INSERT INTO memberships(organization_id,user_id,role) VALUES($1,$2,'member')",[org.id,member.user.id]);
+ assert.equal((await comparisonAccounts(pool,member.user.id)).length,0);
+ await pool.query("UPDATE memberships SET role='billing' WHERE organization_id=$1 AND user_id=$2",[org.id,member.user.id]);
+ assert.equal((await comparisonAccounts(pool,member.user.id))[0].account_id,orgAccount);
+ await pool.query("UPDATE memberships SET status='suspended' WHERE organization_id=$1 AND user_id=$2",[org.id,member.user.id]);
+ assert.equal((await comparisonAccounts(pool,member.user.id)).length,0,'suspended membership cannot spend company credits');
+});
+
+test('comparison cash display uses the exact mix of purchased packs and cumulative cent ledger',async()=>{
+ const {settlePaidCall}=await import('../src/pack-ledger.mjs'),{platformBilling}=await import('../src/compare-pricing.mjs');
+ const u=await user('compare-mixed-packs');
+ const a=(await pool.query('INSERT INTO billing_accounts(owner_id,list_credit_fen,cash_balance_fen) VALUES($1,300,125) RETURNING id',[u.user.id])).rows[0].id;
+ const first=(await pool.query("INSERT INTO credit_packs(account_id,source_kind,source_id,face_fen,cash_fen,remaining_fen,created_at) VALUES($1,'bank',$2,100,25,100,now()-interval '1 hour') RETURNING id",[a,randomUUID()])).rows[0].id;
+ await pool.query("INSERT INTO credit_packs(account_id,source_kind,source_id,face_fen,cash_fen,remaining_fen) VALUES($1,'bank',$2,200,100,200)",[a,randomUUID()]);
+ const k=(await pool.query("INSERT INTO customer_api_keys(account_id,owner_id,label,secret_hash,key_hint,model_ids,limit_yuan,purpose) VALUES($1,$2,'mixed fixture',$3,'fixture',ARRAY['deepseek-flash'],10,'compare') RETURNING id",[a,u.user.id,hash(token())])).rows[0].id;
+ const c=(await pool.query("INSERT INTO customer_calls(account_id,key_id,owner_id,model_id,price_snapshot,status,hold_yuan) VALUES($1,$2,$3,'deepseek-flash','{\"input\":\"1\",\"cached\":\"0.02\",\"output\":\"4\",\"multiplier\":1}','pending',1.501) RETURNING id",[a,k,u.user.id])).rows[0].id;
+ await settlePaidCall(pool,c,'1.501',{input:1501000,cached:0,output:0},'test',null,1);
+ const b=await platformBilling(pool,c,k);
+ assert.equal(b.status,'settled');assert.equal(Number(b.charged_yuan),1.501);
+ assert.equal(Number(b.paid_equivalent_yuan),0.5005,'first yuan at 25%, remaining .501 at 50%');
+ assert.equal(Number(b.cash_booked_yuan),0.5,'fraction of cent remains accumulated in pack ledger');
+ assert.equal(Number(b.calculation.total_yuan),1.501);
+ assert.equal(await platformBilling(pool,c,randomUUID()),null,'call billing remains scoped to the current credential');
+ assert.equal(Number((await pool.query('SELECT remaining_fen FROM credit_packs WHERE id=$1',[first])).rows[0].remaining_fen),0);
+});
+
+
+test('allocated employees can compare without purchases and use their ordinary ledger and permissions',async()=>{
+ const {comparisonAccounts,comparisonCredential,retireComparisonCredential}=await import('../src/compare-access.mjs');
+ const {allocatedBilling}=await import('../src/compare-pricing.mjs');
+ const owner=await user('allocated-owner'),employee=await user('allocated-member'),outsider=await user('allocated-outsider');
+ const org=await organization(owner,'Allocated comparison');
+ await pool.query("INSERT INTO memberships(organization_id,user_id,role) VALUES($1,$2,'member')",[org.id,employee.user.id]);
+ const oldOrg=appCfg.employeeCredit.organizationId,oldPaid=appCfg.customerPaid.enabled,oldPilot=pilotFetch,oldReference=compareFetch;
+ appCfg.employeeCredit.organizationId=org.id;appCfg.customerPaid.enabled=false;
+ let upstreamCalls=0,referenceCalls=0;
+ try{
+  assert.equal((await employee.j.call('/api/compare/config')).status,402,'comparison does not fabricate a grant');
+  await pool.query('INSERT INTO employee_credit_accounts(user_id,organization_id,granted_yuan) VALUES($1,$2,10)',[employee.user.id,org.id]);
+  await pool.query("INSERT INTO staff_members(subject,email,name) VALUES('allocated-fixture','allocated@example.test','QA') ON CONFLICT DO NOTHING");
+  const supplier=(await pool.query("INSERT INTO supplier_lab_suppliers(name,kind,created_by) VALUES('Allocated fixture','supplier','allocated-fixture') RETURNING id")).rows[0].id;
+  const credential=(await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,'allocated','https://kerapi.cn/v1',$2,'allocated-fixture','allocated-fixture') RETURNING id",[supplier,vault(process.env.SUPPLIER_LAB_SECRET).seal({key:'allocated-synthetic-only'})])).rows[0].id;
+  await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES('allocated','supplier','https://kerapi.cn/v1','deepseek-v4.1-flash','allocated-fixture','allocated-fixture',$1,$2)",[supplier,credential]);
+  await pool.query("INSERT INTO channel_states(model_id,paused,updated_by) VALUES('deepseek-flash',false,'allocated-fixture') ON CONFLICT(model_id) DO UPDATE SET paused=false");
+  const options=await employee.j.call('/api/compare/config');assert.equal(options.status,200,JSON.stringify(options.data));
+  const product=options.data.products.find(p=>p.kind==='allocated');assert.ok(product);assert.ok(product.model_ids.includes('deepseek-flash'));
+  assert.equal((await pool.query('SELECT 1 FROM billing_accounts WHERE owner_id=$1',[employee.user.id])).rowCount,0,'no purchased account is created');
+  assert.equal((await outsider.j.call('/api/compare/config')).status,402);
+  const reply=()=>new Response('data: '+JSON.stringify({model:'deepseek-flash',choices:[{delta:{content:'ok'},finish_reason:'stop'}],usage:{prompt_tokens:100,completion_tokens:35,prompt_tokens_details:{cached_tokens:20}}})+'\n\ndata: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream','x-request-id':'allocated-fixture-id'}});
+  pilotFetch=async()=>{upstreamCalls++;return reply()};compareFetch=async()=>{referenceCalls++;return reply()};
+  const body={ours:{account_id:product.account_id,model:'deepseek-flash'},reference:{provider:'deepseek',key:'allocated-reference-test-key',model:'deepseek-flash'},prompt:'Only say ok',parameters:{max_tokens:128,thinking:'disabled'}};
+  const before=(await pool.query('SELECT spent_yuan FROM employee_credit_accounts WHERE user_id=$1',[employee.user.id])).rows[0];
+  const response=await employee.j.call('/api/compare/run',{method:'POST',body});assert.equal(response.status,200,String(response.data));
+  const events=response.data.split('\n\n').filter(x=>x.includes('data: ')).map(x=>({event:x.match(/event: (.*)/)?.[1],data:JSON.parse(x.split('data: ')[1])}));
+  const left=events.find(x=>x.event==='result'&&x.data.side==='a').data;
+  assert.equal(left.status,'complete');assert.equal(left.billing.status,'settled');assert.equal(left.billing.funding_kind,'allocated');assert.equal(left.billing.paid_equivalent_yuan,null);assert.equal(left.billing.actual_consumption_yuan,left.billing.charged_yuan);
+  const delta=(await pool.query('SELECT spent_yuan-$2::numeric AS n FROM employee_credit_accounts WHERE user_id=$1',[employee.user.id,before.spent_yuan])).rows[0].n;
+  assert.equal(Number(delta),Number(left.billing.actual_consumption_yuan));assert.ok(Number(delta)>0);assert.equal(upstreamCalls,1);assert.equal(referenceCalls,1);
+  const call=(await pool.query('SELECT c.*,k.revoked_at,k.expires_at,k.purpose FROM employee_calls c JOIN employee_api_keys k ON k.id=c.key_id WHERE c.id=$1',[left.platform_call_id])).rows[0];
+  assert.equal(call.purpose,'compare');assert.ok(call.revoked_at);assert.ok(call.expires_at);assert.equal(call.summary,null);assert.equal(await allocatedBilling(pool,call.id,randomUUID()),null);
+  assert.equal((await employee.j.call('/api/employee-credit/status')).data.keys.length,0,'temporary comparison credentials stay out of ordinary key list');
+  const key=await comparisonCredential(pool,employee.user.id,product.account_id,'deepseek-flash',appCfg);
+  assert.equal((await employee.j.call('/v1/models',{headers:{Authorization:'Bearer '+key.secret}})).status,200);
+  await pool.query("UPDATE employee_api_keys SET expires_at=now()-interval '1 second' WHERE id=$1",[key.id]);
+  assert.equal((await employee.j.call('/v1/models',{headers:{Authorization:'Bearer '+key.secret}})).status,401);
+  await retireComparisonCredential(pool,key);
+  const revokedMembership=await comparisonCredential(pool,employee.user.id,product.account_id,'deepseek-flash',appCfg);
+  await pool.query("UPDATE memberships SET status='suspended' WHERE organization_id=$1 AND user_id=$2",[org.id,employee.user.id]);
+  assert.equal((await employee.j.call('/api/compare/config')).status,402);
+  assert.equal((await employee.j.call('/v1/models',{headers:{Authorization:'Bearer '+revokedMembership.secret}})).status,401);
+  await assert.rejects(comparisonCredential(pool,employee.user.id,product.account_id,'deepseek-flash',appCfg),{status:403});await retireComparisonCredential(pool,revokedMembership);
+  await pool.query("UPDATE memberships SET status='active' WHERE organization_id=$1 AND user_id=$2",[org.id,employee.user.id]);
+  await pool.query("UPDATE channel_states SET paused=true WHERE model_id='deepseek-flash'");
+  const paused=await employee.j.call('/api/compare/config');assert.ok(!paused.data.products.find(p=>p.kind==='allocated').model_ids.includes('deepseek-flash'));
+  assert.equal((await employee.j.call('/api/compare/run',{method:'POST',body})).status,403);
+  await pool.query("UPDATE channel_states SET paused=false WHERE model_id='deepseek-flash'");
+  await pool.query('UPDATE employee_credit_accounts SET spent_yuan=granted_yuan WHERE user_id=$1',[employee.user.id]);
+  assert.equal((await comparisonAccounts(pool,employee.user.id,appCfg)).length,0);
+  assert.equal((await employee.j.call('/api/compare/run',{method:'POST',body})).status,402);assert.equal(upstreamCalls,1);assert.equal(referenceCalls,1);
+ }finally{appCfg.employeeCredit.organizationId=oldOrg;appCfg.customerPaid.enabled=oldPaid;pilotFetch=oldPilot;compareFetch=oldReference;}
 });

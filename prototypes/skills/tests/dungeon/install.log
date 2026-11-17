@@ -1,0 +1,33 @@
+
+│
+●   codex  Agent detected — installing non-interactively
+│
+◇  Source: https://github.com/NylasDev/nylas-dungeon-master-skills.git @ 36da6d7770d97bc9ed4613df21019fb4c219c6b7
+│
+◒  Cloning repository…◐  Cloning repository…◓  Cloning repository…◑  Cloning repository…◒  Cloning repository…◐  Cloning repository…◓  Cloning repository…◑  Cloning repository…◒  Cloning repository….◐  Cloning repository….◓  Cloning repository….◑  Cloning repository….◒  Cloning repository….◐  Cloning repository….◓  Cloning repository….◑  Cloning repository….◒  Cloning repository…..◐  Cloning repository…..◓  Cloning repository…..◑  Cloning repository…..◒  Cloning repository…..◐  Cloning repository…..◓  Cloning repository…..◑  Cloning repository…..◒  Cloning repository…...◐  Cloning repository…...◓  Cloning repository…...◑  Cloning repository…...◒  Cloning repository…...◐  Cloning repository…...◓  Cloning repository…...◑  Cloning repository…...◒  Cloning repository…...◐  Cloning repository…◓  Cloning repository…◑  Cloning repository…◒  Cloning repository…◐  Cloning repository…◓  Cloning repository…◇  Repository cloned
+│
+◇  Found 2 skills
+│
+●  Selected 1 skill: agent-dungeon-master
+
+│
+◇  Installation Summary ──────────────────╮
+│                                         │
+│  ./.agents/skills/agent-dungeon-master  │
+│    universal: Codex                     │
+│                                         │
+├─────────────────────────────────────────╯
+│
+◇  Installation complete
+
+│
+◇  Installed 1 skill ─────────────────────────╮
+│                                             │
+│  ✓ agent-dungeon-master (copied)            │
+│    → ./.agents/skills/agent-dungeon-master  │
+│                                             │
+├─────────────────────────────────────────────╯
+
+│
+└  Done!  Review skills before use; they run with full agent permissions.
+

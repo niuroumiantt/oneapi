@@ -1,0 +1,18 @@
+[Unit]
+Description=Refresh semifly Skills public market snapshot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+WorkingDirectory=/srv/oneapi-skills/current
+ExecStart=/usr/bin/python3 /srv/oneapi-skills/current/scripts/update-market.py --output /srv/sites/oneapi-skills-data/market-data.json
+TimeoutStartSec=10min
+UMask=0022
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/sites/oneapi-skills-data

@@ -1,0 +1,496 @@
+{
+  "schemaVersion": 1,
+  "github": {
+    "sourceUrl": "https://github.com/trending?since=daily",
+    "updatedAt": "2026-11-17T04:51:16+00:00",
+    "status": "ok",
+    "scope": "all languages / daily",
+    "metric": "GitHub official order; stars today are not downloads",
+    "sourceSha256": "15cac37e435db2460a95ad3052d7d960d92237882a66edba429ca87053390d64",
+    "items": [
+      {
+        "rank": 1,
+        "repo": "ag-ui-protocol/ag-ui",
+        "url": "https://github.com/ag-ui-protocol/ag-ui",
+        "description": "AG-UI: the Agent-User Interaction Protocol. Bring Agents into Frontend Applications.",
+        "stars": 19289,
+        "starsToday": 791,
+        "language": "TypeScript"
+      },
+      {
+        "rank": 2,
+        "repo": "backnotprop/plannotator",
+        "url": "https://github.com/backnotprop/plannotator",
+        "description": "The workspace to stay in the loop and on top of agents - shape, decide, plan, annotate, review code, share with team, and send all feedback to agents with one click.",
+        "stars": 12701,
+        "starsToday": 696,
+        "language": "TypeScript"
+      },
+      {
+        "rank": 3,
+        "repo": "dream-num/univer",
+        "url": "https://github.com/dream-num/univer",
+        "description": "Build your own AI office with Univer Office SDK. Bring editing, calculation, collaboration, and file processing into your product for people and AI agents. Built on an extensible open-source core.",
+        "stars": 27942,
+        "starsToday": 1828,
+        "language": "TypeScript"
+      },
+      {
+        "rank": 4,
+        "repo": "tradermonty/claude-trading-skills",
+        "url": "https://github.com/tradermonty/claude-trading-skills",
+        "description": "Claude Code skills for equity investors and traders — market analysis, technical charting, economic calendars, screeners, and trading strategy development.",
+        "stars": 6467,
+        "starsToday": 837,
+        "language": "Python"
+      },
+      {
+        "rank": 5,
+        "repo": "elementalsouls/Claude-BugHunter",
+        "url": "https://github.com/elementalsouls/Claude-BugHunter",
+        "description": "A Claude Code skill bundle for bug hunting and external red-team work - 82 skills, 15 slash commands, 681 disclosed-report patterns curated across 24 core vulnerability classes, plus enterprise identity + infrastructure attack matrices.",
+        "stars": 7615,
+        "starsToday": 1094,
+        "language": "Python"
+      },
+      {
+        "rank": 6,
+        "repo": "getarcaneapp/arcane",
+        "url": "https://github.com/getarcaneapp/arcane",
+        "description": "Modern Docker Management, Designed for Everyone",
+        "stars": 8861,
+        "starsToday": 46,
+        "language": "Go"
+      },
+      {
+        "rank": 7,
+        "repo": "DeanChensj/jiangshan-map",
+        "url": "https://github.com/DeanChensj/jiangshan-map",
+        "description": "江山时序 · 中国历史交互地图时间轴 (403 BCE – Present) | Interactive Historical Atlas of China across 18 dynasties, 198 territory snapshots, ancient-to-modern place genealogy & classical poetry routes",
+        "stars": 7102,
+        "starsToday": 288,
+        "language": "JavaScript"
+      },
+      {
+        "rank": 8,
+        "repo": "google-labs-code/stitch-skills",
+        "url": "https://github.com/google-labs-code/stitch-skills",
+        "description": "A library of Agent Skills designed to work with the Stitch MCP server. Each skill follows the Agent Skills open standard, for compatibility with coding agents such as Antigravity, Gemini CLI, Claude Code, Cursor.",
+        "stars": 9804,
+        "starsToday": 529,
+        "language": "TypeScript"
+      },
+      {
+        "rank": 9,
+        "repo": "mvanhorn/last30days-skill",
+        "url": "https://github.com/mvanhorn/last30days-skill",
+        "description": "AI agent skill that researches any topic across Reddit, X, YouTube, HN, Polymarket, and the web - then synthesizes a grounded summary",
+        "stars": 68281,
+        "starsToday": 135,
+        "language": "Python"
+      },
+      {
+        "rank": 10,
+        "repo": "NVIDIA/SkillEvaluator",
+        "url": "https://github.com/NVIDIA/SkillEvaluator",
+        "description": "Multi-tier framework for evaluating AI agent skills and plugins with quality gates, semantic overlap detection, synthetic evaluation dataset generation, and live agent evaluation that measures how skills affect agent behavior.",
+        "stars": 2888,
+        "starsToday": 873,
+        "language": "Python"
+      }
+    ]
+  },
+  "popularity": {
+    "nylasdev/nylas-dungeon-master-skills/agent-dungeon-master": {
+      "display": "21",
+      "countApprox": 21,
+      "rank": null,
+      "sourceSha256": "1143c650581253071df1d2b40f86b01c2413df2e0a4a3bdb381a1038c6a33271",
+      "sourceUrl": "https://skills.sh/nylasdev/nylas-dungeon-master-skills/agent-dungeon-master",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "vercel-labs/agent-skills/vercel-react-best-practices": {
+      "rank": 57,
+      "display": "906.1K",
+      "countApprox": 906100,
+      "sourceUrl": "https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "anthropics/skills/pdf": {
+      "display": "231.1K",
+      "countApprox": 231100,
+      "rank": null,
+      "sourceSha256": "522dfc18da7788eac8b5b1e260ab2d45531977e42c444741e3e52d4fefe23b93",
+      "sourceUrl": "https://skills.sh/anthropics/skills/pdf",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "anthropics/skills/slack-gif-creator": {
+      "display": "81.7K",
+      "countApprox": 81700,
+      "rank": null,
+      "sourceSha256": "5a4265486e68c351d95410c315f8d70ab7d718d6f00d87166d3afbd3af65fb46",
+      "sourceUrl": "https://skills.sh/anthropics/skills/slack-gif-creator",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "anthropics/skills/algorithmic-art": {
+      "display": "96.7K",
+      "countApprox": 96700,
+      "rank": null,
+      "sourceSha256": "d280f628e92cbd52bf5e72037ea6dc9b93e0f9afa6501485a5659bef705a55ca",
+      "sourceUrl": "https://skills.sh/anthropics/skills/algorithmic-art",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "anthropics/skills/xlsx": {
+      "display": "200.4K",
+      "countApprox": 200400,
+      "rank": null,
+      "sourceSha256": "855a4ff096d7051f203db0c5aa47775911d0bb5c7831b428cdd9f06d62d213f9",
+      "sourceUrl": "https://skills.sh/anthropics/skills/xlsx",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "nylasdev/nylas-dungeon-master-skills/dungeon-master-assistant": {
+      "display": "23",
+      "countApprox": 23,
+      "rank": null,
+      "sourceSha256": "96f396ac9ace8017dbb16c83a6b802c0991feef1c8d87c7b87b2ce3aae485fe3",
+      "sourceUrl": "https://skills.sh/nylasdev/nylas-dungeon-master-skills/dungeon-master-assistant",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "anthropics/skills/canvas-design": {
+      "display": "134.2K",
+      "countApprox": 134200,
+      "rank": null,
+      "sourceSha256": "fc0008f0cc490aefe4d68d48943b9b9c74b538fa44edc8b717c5c40ae9479cfa",
+      "sourceUrl": "https://skills.sh/anthropics/skills/canvas-design",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "vercel-labs/agent-skills/web-design-guidelines": {
+      "rank": 62,
+      "display": "871.3K",
+      "countApprox": 871300,
+      "sourceUrl": "https://skills.sh/vercel-labs/agent-skills/web-design-guidelines",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "anthropics/skills/frontend-design": {
+      "rank": 15,
+      "display": "1.1M",
+      "countApprox": 1100000,
+      "sourceUrl": "https://skills.sh/anthropics/skills/frontend-design",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "anthropics/skills/docx": {
+      "display": "220.1K",
+      "countApprox": 220100,
+      "rank": null,
+      "sourceSha256": "f1da206ac4f1c680804bdf98db5b6b55db174ff876b3f05bf40be6de3bc87cc0",
+      "sourceUrl": "https://skills.sh/anthropics/skills/docx",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "anthropics/skills/pptx": {
+      "display": "257.1K",
+      "countApprox": 257100,
+      "rank": null,
+      "sourceSha256": "80ea9ccba0c131f6a9aad6601379cb9bbb17cc22c66088985bfe13cd727d050f",
+      "sourceUrl": "https://skills.sh/anthropics/skills/pptx",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "k-dense-ai/scientific-agent-skills/scientific-critical-thinking": {
+      "display": "2.6K",
+      "countApprox": 2600,
+      "rank": null,
+      "sourceSha256": "95563be5540c20f77d8a0d174a2c1b6d60a163c6d2376dc83b94ad7ec64b9883",
+      "sourceUrl": "https://skills.sh/k-dense-ai/scientific-agent-skills/scientific-critical-thinking",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "anthropics/skills/internal-comms": {
+      "display": "87.2K",
+      "countApprox": 87200,
+      "rank": null,
+      "sourceSha256": "d37cce13172c8fcb5d88e895637ad4d72412c54de44ac06264209664accb58c9",
+      "sourceUrl": "https://skills.sh/anthropics/skills/internal-comms",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "anthropics/skills/webapp-testing": {
+      "display": "207.2K",
+      "countApprox": 207200,
+      "rank": null,
+      "sourceSha256": "49b4cd305423f5749a2b870dcd69de823213dccf8ff8a590f6086714f1fd5b34",
+      "sourceUrl": "https://skills.sh/anthropics/skills/webapp-testing",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "anthropics/skills/theme-factory": {
+      "display": "103.7K",
+      "countApprox": 103700,
+      "rank": null,
+      "sourceSha256": "fffa225e3659f7526531249604bd40b968cb6ea715aed87a8c191955ba4ae2a1",
+      "sourceUrl": "https://skills.sh/anthropics/skills/theme-factory",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "anthropics/skills/brand-guidelines": {
+      "display": "120.7K",
+      "countApprox": 120700,
+      "rank": null,
+      "sourceSha256": "513e60481b853b07df40c6670d7605ed89ad833366364384ec2f5248f3b622a6",
+      "sourceUrl": "https://skills.sh/anthropics/skills/brand-guidelines",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "anthropics/skills/web-artifacts-builder": {
+      "display": "120.6K",
+      "countApprox": 120600,
+      "rank": null,
+      "sourceSha256": "daf283335684e043a69dd727c920a06f7e26441fa821b64e18cc295bdd40fc34",
+      "sourceUrl": "https://skills.sh/anthropics/skills/web-artifacts-builder",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "larksuite/cli/lark-doc": {
+      "rank": 149,
+      "display": "496.8K",
+      "countApprox": 496800,
+      "sourceUrl": "https://skills.sh/larksuite/cli/lark-doc",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "larksuite/cli/lark-sheets": {
+      "display": "489.9K",
+      "countApprox": 489900,
+      "rank": null,
+      "sourceSha256": "3601b6f4f77aa85646091780b9ee3547efa9f20da1e017eaec7d9ee18388cf5e",
+      "sourceUrl": "https://skills.sh/larksuite/cli/lark-sheets",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "larksuite/cli/lark-base": {
+      "display": "493.8K",
+      "countApprox": 493800,
+      "rank": null,
+      "sourceSha256": "2f29eaeea6ae9ee6648e9ac36434fcdf55a487dc546a56f8c6e1e3c65a0a20aa",
+      "sourceUrl": "https://skills.sh/larksuite/cli/lark-base",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "larksuite/cli/lark-slides": {
+      "rank": 194,
+      "display": "438.6K",
+      "countApprox": 438600,
+      "sourceUrl": "https://skills.sh/larksuite/cli/lark-slides",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "larksuite/cli/lark-markdown": {
+      "rank": 219,
+      "display": "403.3K",
+      "countApprox": 403300,
+      "sourceUrl": "https://skills.sh/larksuite/cli/lark-markdown",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "larksuite/cli/lark-calendar": {
+      "rank": 160,
+      "display": "486.7K",
+      "countApprox": 486700,
+      "sourceUrl": "https://skills.sh/larksuite/cli/lark-calendar",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "larksuite/cli/lark-task": {
+      "rank": 158,
+      "display": "487.8K",
+      "countApprox": 487800,
+      "sourceUrl": "https://skills.sh/larksuite/cli/lark-task",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "larksuite/cli/lark-wiki": {
+      "display": "489.4K",
+      "countApprox": 489400,
+      "rank": null,
+      "sourceSha256": "1af96a35c7192fe4dfd6d0e4d5788dcba37666d5951f374f8026d496d9952b7b",
+      "sourceUrl": "https://skills.sh/larksuite/cli/lark-wiki",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "larksuite/cli/lark-drive": {
+      "display": "490.6K",
+      "countApprox": 490600,
+      "rank": null,
+      "sourceSha256": "141851f36e6b8901b58ab6a756df218846d736ac69304a3975433d97ab4065dd",
+      "sourceUrl": "https://skills.sh/larksuite/cli/lark-drive",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "larksuite/cli/lark-workflow-meeting-summary": {
+      "rank": 165,
+      "display": "483.3K",
+      "countApprox": 483300,
+      "sourceUrl": "https://skills.sh/larksuite/cli/lark-workflow-meeting-summary",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "larksuite/cli/lark-workflow-standup-report": {
+      "display": "482.3K",
+      "countApprox": 482300,
+      "rank": null,
+      "sourceSha256": "03e88efe6ce885ca90f8cde3258a51d64ea210f93827f044d5b5e6b968c7074c",
+      "sourceUrl": "https://skills.sh/larksuite/cli/lark-workflow-standup-report",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "jimliu/baoyu-skills/baoyu-format-markdown": {
+      "display": "28.7K",
+      "countApprox": 28700,
+      "rank": null,
+      "sourceSha256": "96e5784bb034b2ffccc127fd955b7550b05fa464492bf782bae50ba2537261f2",
+      "sourceUrl": "https://skills.sh/jimliu/baoyu-skills/baoyu-format-markdown",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "jimliu/baoyu-skills/baoyu-markdown-to-html": {
+      "display": "32.8K",
+      "countApprox": 32800,
+      "rank": null,
+      "sourceSha256": "67a0f68f4ed1a451955349302f0692082ce9c110f902f0b664af8343714a701e",
+      "sourceUrl": "https://skills.sh/jimliu/baoyu-skills/baoyu-markdown-to-html",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "jimliu/baoyu-skills/baoyu-slide-deck": {
+      "display": "31.9K",
+      "countApprox": 31900,
+      "rank": null,
+      "sourceSha256": "0ce46803668f32a591dcc0863fc61aaf9467a281e81ac6cab9decca7bf6bbf72",
+      "sourceUrl": "https://skills.sh/jimliu/baoyu-skills/baoyu-slide-deck",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "jimliu/baoyu-skills/baoyu-infographic": {
+      "display": "33.6K",
+      "countApprox": 33600,
+      "rank": null,
+      "sourceSha256": "fe4e62cb45a2ed0335a16a1e7f832fb1ad91ff25d644aa6dfd99d86eed771cc1",
+      "sourceUrl": "https://skills.sh/jimliu/baoyu-skills/baoyu-infographic",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "jimliu/baoyu-skills/baoyu-cover-image": {
+      "display": "32.7K",
+      "countApprox": 32700,
+      "rank": null,
+      "sourceSha256": "10d44c9594ef42b968a74c01d33697f0495af718545d8b6a124a6b9fc5bcdbd4",
+      "sourceUrl": "https://skills.sh/jimliu/baoyu-skills/baoyu-cover-image",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "jimliu/baoyu-skills/baoyu-article-illustrator": {
+      "display": "32.6K",
+      "countApprox": 32600,
+      "rank": null,
+      "sourceSha256": "4992f287599012508409ec1d051c72f5d7df32cfe96e7bb44f30c5e699fb7c15",
+      "sourceUrl": "https://skills.sh/jimliu/baoyu-skills/baoyu-article-illustrator",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "jimliu/baoyu-skills/baoyu-compress-image": {
+      "display": "28.7K",
+      "countApprox": 28700,
+      "rank": null,
+      "sourceSha256": "e8bb18b95049881f8659697090fe1e01cb7d8be048c09130c0eba5301a79b483",
+      "sourceUrl": "https://skills.sh/jimliu/baoyu-skills/baoyu-compress-image",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "jimliu/baoyu-skills/baoyu-translate": {
+      "display": "26.2K",
+      "countApprox": 26200,
+      "rank": null,
+      "sourceSha256": "bae9b6ba688d00e6038219119bcb80b1e24bd4ca8e0333338e1961073512d2cd",
+      "sourceUrl": "https://skills.sh/jimliu/baoyu-skills/baoyu-translate",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "jimliu/baoyu-skills/baoyu-url-to-markdown": {
+      "display": "30.9K",
+      "countApprox": 30900,
+      "rank": null,
+      "sourceSha256": "8fabf478a64fcaf700579054293b426e7742eea0b77400844cda94fd49544af6",
+      "sourceUrl": "https://skills.sh/jimliu/baoyu-skills/baoyu-url-to-markdown",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "pbakaus/impeccable/impeccable": {
+      "rank": 214,
+      "display": "413.5K",
+      "countApprox": 413500,
+      "sourceUrl": "https://skills.sh/pbakaus/impeccable/impeccable",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    },
+    "leonxlnx/taste-skill/design-taste-frontend": {
+      "rank": 75,
+      "display": "788.7K",
+      "countApprox": 788700,
+      "sourceUrl": "https://skills.sh/leonxlnx/taste-skill/design-taste-frontend",
+      "checkedAt": "2026-11-17T04:51:16+00:00",
+      "status": "ok",
+      "metric": "skills.sh recorded installs; rounded public display; not unique users or all GitHub downloads"
+    }
+  },
+  "lastAttemptAt": "2026-11-17T04:51:16+00:00",
+  "errors": []
+}

@@ -17,7 +17,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
-    if git('status', '--porcelain', '--', 'web', 'scripts/build_static.py').strip():
+    if git('status', '--porcelain', '--', 'web', 'prototypes/skills', 'scripts/build_static.py').strip():
         raise SystemExit('Commit web and builder changes before packaging.')
     sha = git('rev-parse', 'HEAD').decode().strip()
     html = git('show', 'HEAD:web/index.html').decode()
@@ -29,8 +29,32 @@ def main():
         html = html.replace(f'"{name}"', f'"{target}"')
         assets[target] = content
     assets['index.html'] = html.encode()
+    compare_html = git('show', 'HEAD:web/compare.html').decode()
+    for name in ('compare.css', 'compare-savings.js', 'compare.js'):
+        content = git('show', f'HEAD:web/{name}')
+        stem, extension = name.rsplit('.', 1)
+        target = f'{stem}.{hashlib.sha256(content).hexdigest()[:12]}.{extension}'
+        compare_html = compare_html.replace(f'"{name}"', f'"{target}"')
+        assets[target] = content
+    assets['compare.html'] = compare_html.encode()
+
     for name in ('pinapi-mark.svg', 'pinapi-wordmark.svg', 'semifly-email-logo.png', 'universe-speed-knob.png', 'favicon.svg', 'semifly-wordmark.svg', 'semifly-lockup.svg', 'THIRD-PARTY-LICENSES.txt'):
         assets[name] = git('show', f'HEAD:web/{name}')
+    # Explicit publication manifest: no arbitrary repository/runtime files.
+    skill_files = json.loads(git('show', 'HEAD:prototypes/skills/public-files.json'))
+    for name in skill_files:
+        if name.startswith('/') or '..' in Path(name).parts:
+            raise ValueError('Invalid Skills publication path')
+        content = git('show', f'HEAD:prototypes/skills/{name}')
+        if name == 'index.html':
+            text = content.decode().replace('../../web/', '../').replace('../index.html#market', '../#market')
+            text = text.replace('semifly.ai 本地原型', 'semifly.ai')
+            text = text.replace('<body>', '<body data-market-url="market-live.json">')
+            text = text.replace('本地交互原型', 'Skills 广场').replace('本地验证 ·', '来源与许可已核对 ·')
+            content = text.encode()
+        elif name == 'skills.js':
+            content = content.decode().replace('semifly.ai 本地目录', 'semifly.ai').replace('每天 09:00 本地更新（需本机与 Codex 运行）', '每天 09:00 更新（北京时间）').encode()
+        assets['skills/' + name] = content
     release = {
         'app': 'oneapi', 'source_sha': sha, 'stage': 'identity-live',
         'domain': 'oneapi.glocalstorage.cn', 'transactions_enabled': False,

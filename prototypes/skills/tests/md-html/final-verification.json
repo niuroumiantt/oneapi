@@ -1,0 +1,34 @@
+{
+  "status": "HTML 转换与预览通过",
+  "checks": [
+    "原脚本成功输出 HTML，9 项结构检查通过",
+    "真实浏览器桌面与 390px 移动宽度均可阅读，无横向溢出",
+    "保留 Markdown 来源链接、表格金额和“待确认”"
+  ],
+  "limits": "本地 HTML 转换与浏览器预览已通过。2026-11-17 尝试访问公众号编辑器，被浏览器站点安全策略阻止；没有完成微信粘贴验收，也未发布。需人工粘贴核对后补证。",
+  "environment": {
+    "python": "3.12.14",
+    "node": "24.22.1",
+    "officeRenderer": "bundled LibreOffice headless, isolated profiles",
+    "fontRecovery": "temporary Fontconfig mapping to system Heiti SC; no global font changes"
+  },
+  "visualReview": "All rendered pages inspected; HTML desktop and 390px mobile inspected",
+  "originalChecks": {
+    "first_heading": true,
+    "chinese": true,
+    "amounts": true,
+    "table": true,
+    "code": true,
+    "bottom_original_url": true,
+    "citation_marker": true,
+    "red": true,
+    "font_size": true
+  },
+  "wechatEditor": {
+    "status": "blocked_not_tested",
+    "date": "2026-11-17",
+    "reason": "Browser site-safety policy blocked access; no workaround attempted",
+    "pastePerformed": false,
+    "published": false
+  }
+}

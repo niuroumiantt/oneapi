@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "skills": {
+    "xlsx": {
+      "source": "anthropics/skills",
+      "ref": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+      "commit": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+      "sourceType": "github",
+      "skillPath": "skills/xlsx/SKILL.md",
+      "computedHash": "5100b54957a73ce2cb55933b224a483793f5f71555a181f287f43f94a9c1e149",
+      "installMode": "copy"
+    }
+  }
+}

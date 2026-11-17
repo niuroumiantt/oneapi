@@ -1,0 +1,759 @@
+{
+  "date": "2026-11-17",
+  "environment": {
+    "os": "macOS-27.3-arm64-arm-64bit",
+    "agent": "Codex CLI 0.160.0",
+    "model": "CLI default; exact served model ID not recorded",
+    "cli": "skills@1.9.0",
+    "node": "22.23.3",
+    "python": "3.12.14",
+    "scope": "temporary project only; no global skill installation",
+    "billing": "Uses existing Codex account. No monetary bill collected. OneAPI model combination not specifically validated."
+  },
+  "cases": {
+    "dungeon": {
+      "installed": true,
+      "lock": {
+        "version": 2,
+        "skills": {
+          "agent-dungeon-master": {
+            "source": "NylasDev/nylas-dungeon-master-skills",
+            "ref": "36da6d7770d97bc9ed4613df21019fb4c219c6b7",
+            "commit": "36da6d7770d97bc9ed4613df21019fb4c219c6b7",
+            "sourceType": "github",
+            "skillPath": "skills/tabletop-rpg/agent-dungeon-master/SKILL.md",
+            "computedHash": "45606c7b1ed62e7ff909883c8872e07d5149ec0806f593da575a7494da5a0255",
+            "installMode": "copy"
+          }
+        }
+      },
+      "runs": [
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 66615,
+            "cached_input_tokens": 29568,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 674,
+            "reasoning_output_tokens": 0
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/agent-dungeon-master/SKILL.md'",
+            "/bin/zsh -lc 'cat .agents/skills/agent-dungeon-master/references/player-facing-design-patterns.md .agents/skills/agent-dungeon-master/references/campaign-craft-patterns.md .agents/skills/agent-dungeon-master/references/sourcebook-hygiene.md'"
+          ]
+        },
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 37557,
+            "cached_input_tokens": 28544,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 412,
+            "reasoning_output_tokens": 0
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/agent-dungeon-master/SKILL.md'"
+          ]
+        },
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 38347,
+            "cached_input_tokens": 28928,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 570,
+            "reasoning_output_tokens": 0
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/agent-dungeon-master/SKILL.md'"
+          ]
+        }
+      ],
+      "artifacts": {
+        "prompt-1.txt": "a0fca397ac15ad2461b64e59e26d762fd73b5beaded4e0ec516f8506f26f0fad",
+        "prompt-2.txt": "4379f0e9eb949e757f5dbd840342eb17150d4ed930f31f6461632e9543b111fb",
+        "prompt-3.txt": "5e5c82909c6825455b1bc089fb0183b0f692541094778b956117db5568c6eee2",
+        "turn-1.md": "454ccd28092bb37cd874ace2dfcf55b5ad57d1a8c0e8db5b5eef1715a0bfb886",
+        "turn-2.md": "74866b054c8369f3eb441aec25a8679b1d915d3fb16158cbfe1689a7127d7c22",
+        "turn-3.md": "3aeedf7628444e3427df9c14b46038b736ce1cc89b2bcf7dc8ed604431985757"
+      },
+      "result": "sample passed",
+      "method": "3 fresh ephemeral runs with actual previous turns supplied as context; not a persistent-session memory test",
+      "checks": [
+        "player choice preserved",
+        "explicit no-turn/no-stairs respected",
+        "role and inventory retained",
+        "recap does not solve puzzle"
+      ],
+      "limits": [
+        "No long campaign or cross-session save test",
+        "No OneAPI model compatibility claim"
+      ]
+    },
+    "gif": {
+      "installed": true,
+      "lock": {
+        "version": 2,
+        "skills": {
+          "slack-gif-creator": {
+            "source": "anthropics/skills",
+            "ref": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+            "commit": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+            "sourceType": "github",
+            "skillPath": "skills/slack-gif-creator/SKILL.md",
+            "computedHash": "25581243f719e75121f9051ec671e810e53375fe648a6362d673d6bfbbe9d479",
+            "installMode": "copy"
+          }
+        }
+      },
+      "runs": [
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 241728,
+            "cached_input_tokens": 222592,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 3327,
+            "reasoning_output_tokens": 263
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/slack-gif-creator/SKILL.md'",
+            "/bin/zsh -lc 'cat .agents/skills/slack-gif-creator/core/gif_builder.py .agents/skills/slack-gif-creator/core/validators.py'",
+            "/bin/zsh -lc \"cat > make_gif.py <<'PY'\n\\\"\\\"\\\"Real acceptance test; never substitutes GIFBuilder or installs dependencies.\\\"\\\"\\\"\nimport os\nos.environ['PYTHONDONTWRITEBYTECODE'] = '1'\nimport sys\nsys.dont_write_bytecode = True\nimport json, math, traceback, hashlib\nfrom pathlib import Path\n\nROOT = Path(__file__).resolve().parent\nSKILL = ROOT / '.agents/skills/slack-gif-creator'\nsys.path.insert(0, str(SKILL))\nreport = {\n    'python': sys.executable,\n    'requested': {'dimensions': [128,128], 'frames':20, 'fps':10,\n                  'duration_ms':2000, 'colors':48, 'background':'light cream', 'loop':0},\n    'skill_sources_sha256': {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()\n        for p in [SKILL/'SKILL.md', SKILL/'core/gif_builder.py', SKILL/'core/validators.py']},\n    'workarounds': [], 'status':'started',\n    'limitations': ['Upstream validator checks dimensions for pass/fail; it does not enforce palette, duration, file size or seamless motion.'],\n}\n\ndef draw_frame(i):\n    from PIL import Image, ImageDraw\n    s=4\n    im=Image.new('RGB',(128*s,128*s),(255,247,230))\n    d=ImageDraw.Draw(im)\n    ink=(91,49,29); orange=(241,147,48); light=(255,204,120)\n    def box(b): return tuple(round(v*s) for v in b)\n    def oval(b, fill, outline=ink, width=2): d.ellipse(box(b),fill=fill,outline=outline,width=width*s)\n    def line(p,fill=ink,width=2): d.line([(round(x*s),round(y*s)) for x,y in p],fill=fill,width=width*s,joint='curve')\n    def poly(p,fill): d.polygon([(round(x*s),round(y*s)) for x,y in p], fill=fill,outline=ink,width=2*s)\n    t=2*math.pi*i/20\n    oval((28,115,104,121),(232,215,188),None)\n    # Curled tail behind the body.\n    d.arc(box((74,78,112,116)),230,560,fill=ink,width=13*s)\n    d.arc(box((74,78,112,116)),230,560,fill=orange,width=9*s)\n    oval((36,69,86,117),orange)\n    oval((47,82,76,114),light,None)\n    oval((34,107,57,120),orange); oval((68,107,90,120),orange)\n    # Raised arm and paw follow a periodic angle, with no duplicated endpoint.\n    a=math.radians(-77+24*math.sin(t))\n    elbow=(87,88); paw=(elbow[0]+27*math.cos(a),elbow[1]+27*math.sin(a))\n    line([(77,93),elbow,paw],ink,15)\n    line([(77,93),elbow,paw],orange,11)\n    oval((paw[0]-8,paw[1]-9,paw[0]+8,paw[1]+9),orange)\n    oval((paw[0]-3,paw[1]-1,paw[0]+3,paw[1]+4),(226,119,103),None)\n    for dx in (-4,0,4): oval((paw[0]+dx-1.3,paw[1]-5,paw[0]+dx+1.3,paw[1]-2),(226,119,103),None)\n    # Ears and broad smiling face.\n    poly([(32,49),(29,20),(52,33)],orange)\n    poly([(68,33),(88,20),(88,51)],orange)\n    poly([(35,39),(34,28),(46,35)],(242,173,146))\n    poly([(75,35),(84,28),(83,41)],(242,173,146))\n    oval((27,31,94,83),orange)\n    oval((39,57,82,79),light,None)\n    for x in (48,73):\n        d.arc(box((x-6,48,x+5,59)),190,350,fill=ink,width=3*s)\n    poly([(56,61),(65,61),(60.5,66)],(166,79,63))\n    line([(60.5,65),(60.5,69),(56,72),(52,70)])\n    line([(60.5,69),(65,72),(69,70)])\n    for x,y in [(48,39),(59,37),(70,39)]: line([(x,y),(x+1,y+7)],(191,99,35),3)\n    for side in (-1,1):\n        for dy in (-3,3): line([(60+side*20,65+dy),(60+side*31,63+dy)])\n    return im.resize((128,128),Image.Resampling.LANCZOS)\n\ntry:\n    # This import executes the installed helper's real dependency import.\n    from core.gif_builder import GIFBuilder\n    from core.validators import validate_gif, is_slack_ready\n    import numpy as np\n    from PIL import Image\n    builder=GIFBuilder(width=128,height=128,fps=10)\n    for i in range(20): builder.add_frame(draw_frame(i))\n    # Disable optional frame reduction to retain the requested exact frame count.\n    report['builder_options']={'num_colors':48,'optimize_for_emoji':False,'remove_duplicates':False}\n    report['builder_result']=builder.save(ROOT/'cat-wave.gif',**report['builder_options'])\n    passed, details=validate_gif(ROOT/'cat-wave.gif',is_emoji=True,verbose=True)\n    report['skill_validation']={'passes':passed,'details':details,\n        'is_slack_ready':is_slack_ready(ROOT/'cat-wave.gif',is_emoji=True,verbose=False)}\n    durations=[]; sizes=[]; colors=[]; arrays=[]\n    with Image.open(ROOT/'cat-wave.gif') as gif:\n        loop=gif.info.get('loop')\n        for i in range(gif.n_frames):\n            gif.seek(i)\n            durations.append(gif.info.get('duration'))\n            sizes.append(list(gif.size))\n            rgb=gif.convert('RGB')\n            colors.append(len(rgb.getcolors(128*128)))\n            arrays.append(np.array(rgb))\n    all_colors=len(np.unique(np.concatenate([a.reshape(-1,3) for a in arrays]),axis=0))\n    diffs=[float(np.abs(arrays[(i+1)%len(arrays)].astype(float)-arrays[i]).mean()) for i in range(len(arrays))]\n    report['independent_pillow']={'actual_frames':len(arrays),'duration_per_frame_ms':durations,\n        'total_duration_ms':sum(durations),'dimensions_per_frame':sizes,\n        'bytes':(ROOT/'cat-wave.gif').stat().st_size,'loop':loop,\n        'colors_per_frame':colors,'unique_colors_across_animation':all_colors,\n        'cyclic_adjacent_mean_absolute_pixel_difference':diffs}\n    report['motion']={'method':'Periodic sine, t=2*pi*i/20, excluding duplicate endpoint',\n        'period_endpoint_matches_start':np.array_equal(np.array(draw_frame(0)),np.array(draw_frame(20)))}\n    checks={'frames':len(arrays)==20,'durations':durations==[100]*20,\n        'dimensions':all(x==[128,128] for x in sizes),'loop':loop==0,\n        'palette_limit':all_colors<=48,'skill_validator':passed,\n        'periodic_motion':report['motion']['period_endpoint_matches_start']}\n    report['acceptance_checks']=checks\n    report['status']='passed' if all(checks.values()) else 'failed'\nexcept Exception as e:\n    report['status']='blocked'\n    report['original_error']={'type':type(e).__name__,'message':str(e),'traceback':traceback.format_exc()}\n    report['limitations'].append('No substitute renderer used; GIF generation and validation could not execute because the actual installed helper failed to import.')\nfinally:\n    (ROOT/'result.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\\\\n')\n    print(json.dumps({'status':report['status'],'original_error':report.get('original_error',{}).get('message')},ensure_ascii=False))\n    if report['status']\"'!='\"'passed': sys.exit(1)\nPY\n/Users/m5/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 make_gif.py\""
+          ]
+        }
+      ],
+      "artifacts": {
+        "prompt.txt": "05f433a72b1f4b265736c48f7f906ae02eeed727e992f4a0523ecc6938c452f2",
+        "make_gif.py": "3684e2636888c1fd2740f7324f231117113ab8caa92b4c7aebf7c1c4b0e5b081",
+        "cat-wave.gif": "142ac59b6ece5cf2c0be745313c80806fe48b612b0f6a48be3bd6107c3aa5685",
+        "result.json": "7cb43a5c1af126f9f81d542614f631cc27ee9be98b5422736848adce6453e48c",
+        "result-first-attempt.json": "9aa2bef0efa7a42db4e825a921a68d15026181189268237d262dff50a91a7d98",
+        "dependency-install.log": "33e1d64fbb17eb5f4075195feb16ab754c55b9e39453056db8dcdb39f806622a",
+        "generation.log": "b1732d02b9e40c452616de33ec1537adf27ff57fdfd8b46534bc9e087f6dcbf8"
+      },
+      "result": "passed after dependency setup",
+      "firstFailure": "ModuleNotFoundError: imageio",
+      "recovery": "Installed original requirements.txt into isolated .venv; reran the model-written script with unchanged upstream GIFBuilder and validator",
+      "actual": {
+        "actual_frames": 20,
+        "duration_per_frame_ms": [
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100
+        ],
+        "total_duration_ms": 2000,
+        "dimensions_per_frame": [
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ],
+          [
+            128,
+            128
+          ]
+        ],
+        "bytes": 19198,
+        "loop": 0,
+        "colors_per_frame": [
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47,
+          47
+        ],
+        "unique_colors_across_animation": 47,
+        "cyclic_adjacent_mean_absolute_pixel_difference": [
+          1.4391682942708333,
+          1.5190633138020833,
+          1.655517578125,
+          1.3800048828125,
+          0.66802978515625,
+          0.66802978515625,
+          1.3800048828125,
+          1.655517578125,
+          1.5190633138020833,
+          1.4391682942708333,
+          1.22601318359375,
+          0.9994710286458334,
+          0.55029296875,
+          0.248291015625,
+          0.1968994140625,
+          0.1968994140625,
+          0.248291015625,
+          0.55029296875,
+          0.9994710286458334,
+          1.22601318359375
+        ]
+      },
+      "limits": [
+        "No Slack upload tested",
+        "Original upstream validator alone checks dimensions; independent acceptance checks verify actual timing, frame count and palette"
+      ]
+    },
+    "pdf": {
+      "installed": true,
+      "lock": {
+        "version": 2,
+        "skills": {
+          "pdf": {
+            "source": "anthropics/skills",
+            "ref": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+            "commit": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+            "sourceType": "github",
+            "skillPath": "skills/pdf/SKILL.md",
+            "computedHash": "c9c58ce1e1c334d4beb50dfe97aee27aee1d074aed17b3aa1df03b8982028200",
+            "installMode": "copy"
+          }
+        }
+      },
+      "runs": [
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 80374,
+            "cached_input_tokens": 71552,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 1440,
+            "reasoning_output_tokens": 0
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/pdf/SKILL.md'"
+          ]
+        }
+      ],
+      "artifacts": {
+        "prompt.txt": "4266aa21306e8a2e8abfafb4d2f3953d14109f9d8f3dac6ab44454215538f4bb",
+        "fixture.pdf": "e5fd3affe0e9935babb8d87fdf8f17cdc09ec69a0ce14920f9c0127186d4a7f6",
+        "input-page-1.png": "339c2772ca32bd95e15ead9ada5630fc1fd876e64f8b76b45027adc40cf0cc0b",
+        "make_fixture.py": "b378e8026d359cd5dbacd7e0782982a5a8821931c1a08b71af00a954aed4a553",
+        "expected.json": "1c4f79e597c766eaf11e011328c7ad76a67734dc42eff087e80de3f7856dc518",
+        "extract.py": "e295b7d061960e4c0caf2cdee985eeb8fda8ef463b6cbb2312009976bb30d757",
+        "extracted.json": "d6254691598c22ecdc1e78e999f5a2943760804e55d226776ec44a8cdff5c090",
+        "extracted.csv": "dd6afdbe49cd493cd7ac8bb9e57dd33a33e760764fda80dab8814637a3690764",
+        "report.md": "1902860f8f940fd142e153c309e1c3c43f70c8d27039a054afa451de91507fbf"
+      },
+      "result": "sample passed",
+      "recordsMatched": 3,
+      "fieldsMatched": 12,
+      "missingDatePreserved": true,
+      "method": "Agent wrote extraction script; local rerun after removing unsupported separator glyph from synthetic PDF title. Data and expected values unchanged. Current report and SHA reflect rerun.",
+      "limits": [
+        "Text PDF only; no scanned OCR, complex table or encrypted document test"
+      ]
+    },
+    "react": {
+      "installed": true,
+      "lock": {
+        "version": 2,
+        "skills": {
+          "vercel-react-best-practices": {
+            "source": "vercel-labs/agent-skills",
+            "ref": "1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62",
+            "commit": "1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62",
+            "sourceType": "github",
+            "skillPath": "skills/react-best-practices/SKILL.md",
+            "computedHash": "7991ed4fbecdac23f47c1a40c243e00a212a9e7f3604db93959b3ae11dffe299",
+            "installMode": "copy"
+          }
+        }
+      },
+      "runs": [
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 82603,
+            "cached_input_tokens": 72832,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 1381,
+            "reasoning_output_tokens": 95
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/vercel-react-best-practices/SKILL.md; nl -ba ReviewFixture.tsx'",
+            "/bin/zsh -lc 'cat .agents/skills/vercel-react-best-practices/rules/async-parallel.md .agents/skills/vercel-react-best-practices/rules/bundle-barrel-imports.md .agents/skills/vercel-react-best-practices/rules/client-swr-dedup.md .agents/skills/vercel-react-best-practices/rules/rerender-memo.md'"
+          ]
+        }
+      ],
+      "artifacts": {
+        "prompt.txt": "c067f8aeb6812d30a2d033d65cb191ba6cfad51cebe0351613cfeaa6498bc0a7",
+        "ReviewFixture.tsx": "9c8dab214ea48983aeab4f81506efcb7dd9cfafe43140494001dc42a9be1922b",
+        "expected.json": "6ea2504c75d2a6c3fe8f162692f0374fc1d1deb82b3ec04756a7e9959d5859c8",
+        "report.md": "5230072ba7b30947f64541794050fba12e8c8ff5e7185e5ff8e47c4934c209df",
+        "findings.json": "ae63e1c2c3e6b313946803630af3b9ae7dfb6f87471865b56d73194a771935ee"
+      },
+      "result": "sample passed",
+      "seededIssuesFound": 3,
+      "seededIssues": 3,
+      "falsePositiveOnNegativeControl": false,
+      "reviewerNote": "Three findings manually matched to held-out fixture; race diagnosis is valid but client-swr-dedup is a broader rule reference, not a dedicated race-condition rule.",
+      "limits": [
+        "Static review only; no build, runtime exploit test or measured performance gain"
+      ]
+    },
+    "docx": {
+      "installed": true,
+      "lock": {
+        "version": 2,
+        "skills": {
+          "docx": {
+            "source": "anthropics/skills",
+            "ref": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+            "commit": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+            "sourceType": "github",
+            "skillPath": "skills/docx/SKILL.md",
+            "computedHash": "20881307726dc87b9a1b0b2f9770ae869c2753081faedb5f89249d89a94e30a2",
+            "installMode": "copy"
+          }
+        }
+      },
+      "runs": [
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 310375,
+            "cached_input_tokens": 282624,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 3373,
+            "reasoning_output_tokens": 226
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/docx/SKILL.md'",
+            "/bin/zsh -lc \"/Users/m5/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 - <<'PY'\nimport zipfile,xml.etree.ElementTree as E\nz=zipfile.ZipFile('output.docx'); root=E.fromstring(z.read('word/document.xml')); ns={'w':'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}\ntext=''.join(root.itertext())\nassert len(root.findall('.//w:tbl',ns))==2\nfor s in ['132','118','18,000','16,420','1,580','6,000','5,200','3,220','2,000','陈晨','林悦','周宁','待确认','儿童专场','额外桌椅','不得声称满意度提升']:\n assert s in text,s\nassert not root.findall('.//w:drawing',ns)\nprint('Content checks passed: 2 native tables, key facts and 待确认 present, no drawing elements.')\nPY\ncat > report.md <<'EOF'\n# DOCX Skill 实际运行报告\n\n本次仅在当前临时测试目录操作，读取了 \"'`.agents/skills/docx/SKILL.md` 与 `input.md`，没有读取 expected.json、父目录或其他测试目录，没有修改原 Skill、安装依赖、使用子代理或操作线上服务。\n\n## 实际执行\n\n1. 按 Skill 的创建路径，使用预装 `docx` npm 包与指定 Node 编写并执行 `build.cjs`，生成 `output.docx`。脚本初次运行出现括号 SyntaxError，修正后成功生成；修正前的 zip 命令因文件不存在失败，修正后重跑成功。\n2. 使用 `zip -d output.docx '\"'*/'\"'` 删除 ZIP 目录条目，成功。\n3. 使用指定 Python 运行原 Skill 的 `scripts/office/validate.py output.docx`，退出码 0，输出 `Paragraphs: 36` 和 `All validations PASSED!`。原始输出保存在 `validation.log`。\n4. 使用指定 Python 运行原 Skill 的 `scripts/office/soffice.py --headless --convert-to pdf output.docx`，实际调用 PATH 中的 bundled soffice，退出码 0，生成 `output.pdf`。原始输出保存在 `conversion.log`。\n5. 使用 `pdfinfo` 确认 PDF 为 1 页 A4（595.304 × 841.89 pt），使用 Skill 指定的 `pdftoppm -jpeg -r 100 output.pdf page` 生成 `page-1.jpg`，并实际查看该图。\n6. 读取生成文件的 XML 检查：两张原生 Word 表格，关键数值、三位负责人、“待确认”、两项未决问题均存在，无 drawing 元素；表格与正文均为可编辑文档内容。\n\n## 成功与限制\n\nDOCX 已生成，文件结构校验通过。设置了 A4、黑色标题、段落留白，包含简要结论、4 项支出及合计、三项行动表、下月决策和未决事项，保留虚构材料声明与满意度结论限制。\n\nPDF 转换命令成功，但视觉验收失败：预览图中的中文出现空白或方框，数字和表格边框可见，不能把这个 PDF 认定为合格中文呈现。转换日志保留了 Fontconfig 的 `No writable cache directories` 错误及缓存配置警告；具体字体缺失或字体配置原因未能在本次运行中确证。未更换渲染工具或修改运行库来绕过问题。保留 PDF 和预览图作为实际失败证据。\n\n没有在 Microsoft Office 或微信编辑器中打开或验收。原 Skill 校验通过仅说明其校验范围内的文件结构检查通过，不代表中文渲染或跨编辑器兼容性通过。\n\n## 交付物\n\n- `build.cjs`：可重跑的 docx-js 生成脚本。\n- `output.docx`：可编辑 Word 文档。\n- `output.pdf`：实际转换结果，中文渲染不合格。\n- `page-1.jpg`：实际渲染预览。\n- `validation.log`、`conversion.log`：原始校验与转换日志。\nEOF'"
+          ]
+        }
+      ],
+      "result": "补齐字体后通过",
+      "checks": [
+        "A4 单页，费用表与行动表均为 Word 原生表格",
+        "预算 18,000、支出 16,420、余额 1,580 与输入一致",
+        "保留“待确认”和满意度数据缺失，没有编造结论"
+      ],
+      "limits": [
+        "基于虚构业务材料；使用 LibreOffice 渲染并逐页目检，未在 Microsoft Word 中打开验收。"
+      ],
+      "artifacts": {
+        "card.jpg": "e3fbe38c78f4f7706d524f67a252e6b792ef021f39dc6120dcc347023d90d6aa",
+        "input.md": "d4699e22ae4b20855f818fda3145c94bb07f9a78d401629765c5636f522acc23",
+        "validation.log": "1219d8a5285822c6a33c917ebf6a16164f440f87460a74f276f00565d4662ce2",
+        "skills-lock.json": "d25aec53569933d8f82b5a1efc4fe5505b32bf3c74f8a48317cae592df822a98",
+        "output.docx": "e92b46f879af81a1aa4fc6170e1ebd65ac1861a884066d6dac0ed99917431659",
+        "index.html": "6aa5e32ca38de3974ef56e75fa0a1ef44be16db06b15f0d5c28ad708020fcc18",
+        "preview-1.png": "d6ebd8d8c66d0ee252f9dd18f2cb1f3ce22062d926bd3405583647b70961d7b3",
+        "font-recovery.log": "73ea50092c00e10392ba73a2298e2f7af1f8215fab173e087bc19a83bd884f87",
+        "report.md": "b9961f4551d8df0d3c195b9fd6fc36ea3beb782e7f0d193dc640d8400a5f4020",
+        "screenshot.jpg": "ceb4aa167e4e52e7a8ad2310930e4e78d4b9091937f99d0c1f983a4021190b8b",
+        "prompt.txt": "177f404dc9fe128e05a787662de7cbea341cf531f48e085c386821bd8535e4be",
+        "final-verification.json": "0dc0ef5e682e5ac2c99c5abc64fdfef2f0817d00fec032a79f6af64a33c6838f",
+        "first-render.pdf": "15124e8ac765d87f998a37252cc39d159a25b80d71978ed51da5cf2d8299ecd9",
+        "first-render.jpg": "d326286d09994233633b18c6d80cd671478d68f9b295be362872ef93557df4b0",
+        "output.pdf": "20901240d798c8a406bbaea9c615df195308a8b5f83cdd4028630a1314c48690",
+        "build.cjs": "9495108cc90c3321d53ba2816fea8d638d1de48d251f8f66b34948815ba70836",
+        "install.log": "e1c0e92a8cacd93b5d232e7438e451d9585b2bf0cbdb5e7f2d45fb7c28b904ea"
+      }
+    },
+    "sheet": {
+      "installed": true,
+      "lock": {
+        "version": 2,
+        "skills": {
+          "xlsx": {
+            "source": "anthropics/skills",
+            "ref": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+            "commit": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+            "sourceType": "github",
+            "skillPath": "skills/xlsx/SKILL.md",
+            "computedHash": "5100b54957a73ce2cb55933b224a483793f5f71555a181f287f43f94a9c1e149",
+            "installMode": "copy"
+          }
+        }
+      },
+      "runs": [
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 794465,
+            "cached_input_tokens": 755712,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 6492,
+            "reasoning_output_tokens": 209
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/xlsx/SKILL.md'",
+            "/bin/zsh -lc \"cat > report.md <<'MD'\n# 实际运行报告\n\n结论：已生成 output.xlsx、output.pdf 和 build.py；结构检查通过，但本次原始 Skill 重算验收失败，不能声称已确认零公式错误。\n\n## 执行范围与流程\n\n- 读取当前目录 \"'`.agents/skills/xlsx/SKILL.md`，采用其 openpyxl 流程；未修改 Skill 文件，未读取 expected.json、父目录材料或其他测试目录。\n- 使用指定 Python：`/Users/m5/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3`。未安装依赖，未使用子代理、浏览器、线上文档、上传或外部发布。\n- `build.py` 读取 input.csv，生成三张表和原生柱状图；生成前后核对输入 SHA-256，输入未改变。来源行号和去重规则记录于单元格批注及重复记录 H 列。\n- 首次执行：`python .agents/skills/xlsx/scripts/recalc.py output.xlsx 60 > recalc.json`，随后将首次结果保留为 recalc-first.json。\n- 重试执行：`python .agents/skills/xlsx/scripts/recalc.py output.xlsx 120 > recalc.json`。\n- 使用 PATH 中隔离的 bundled soffice 导出 PDF，命令：`soffice -env:UserInstallation=file:///private/tmp/oneapi-office-tests-20261117/sheet/pdf-profile --headless --convert-to pdf --outdir . output.xlsx`。实际日志保留于 pdf-export.log。\n- 执行 verify.py，检查公式文本、源数据逐行对应、去重顺序、退货、日期类型、金额格式、图表位置、筛选和打印设置；结果保留于 verification.json。pypdf 检查结果保存于 pdf-check.json。\n\n## 已完成与验证\n\n- 工作表依次为“汇总”“明细”“重复记录”，指定标题、表头和单元格结构一致。\n- 明细按原顺序保留 7 个 id 首条记录，T006 的 quantity=-2 得到保留。T004 的第二条源记录完整保存在重复页，H 列注明保留源第 5 行、剔除源第 9 行。\n- 8 条记录的 amount 均为本行 quantity*unit_price 公式；汇总为两条 SUMIFS 和一条 SUM，共 11 个公式。\n- 原生柱状图从 D3 开始，仅引用两个月度汇总，不覆盖 A/B 列。\n- 两个数据页冻结首行，日期为日期单元格，金额两位小数，筛选覆盖实际数据范围。\n- 三页均设置打印区域、A4 横向和一页宽一页高。导出的 PDF 确认为 3 页，每页约 841.89 × 595.30 pt。\n- 独立从源数据核算：2026-09 为 1,516 元，2026-10 为 2,824 元，合计 4,340 元；PDF 提取的数字与之吻合。这些核算值没有替代工作簿公式。\n\n## 实际失败与限制\n\n- 首次 recalc.py 返回 error：`LibreOffice timed out after 57s; formulas were NOT recalculated. Re-run with a longer timeout.`\n- 延长超时重试后仍返回 error：`LibreOffice timed out after 119s; formulas were NOT recalculated. Re-run with a longer timeout.`\n- 已检查 JSON 内容，并未用退出码冒充成功。最终 recalc.json 没有 success 状态，工作簿汇总公式缓存仍为 null。因此“原 Skill 重算成功、确认无公式错误”这一要求未达到。保留含公式的工作簿供复查，没有用其他工具重算或写入硬编码缓存来伪装通过。\n- PDF 导出成功，但 stderr 存在 Fontconfig 无可写缓存目录警告。中文文本提取出现重复/异常字符，尚不能判断属于字体显示还是 PDF 文本映射问题。\n- 尝试导入 fitz 做 PDF 页面渲染时实际报错：`No module named '\"'fitz'\"'`。未安装或改换工具伪装视觉验收，未完成 PDF 视觉可读性检查。\n- 未在 Microsoft Office 或微信编辑器中验收。工作簿结构通过不代表原 Skill 全流程通过；本次总体结果为未完全通过。\n\n## 保留文件\n\nbuild.py、verify.py、output.xlsx、output.pdf、recalc.json、recalc-first.json、verification.json、build-info.json、pdf-check.json、pdf-export.log 和本报告。\nMD'"
+          ]
+        }
+      ],
+      "result": "本地适配后重算通过",
+      "checks": [
+        "11 个公式、0 错误；9 月 1,516、10 月 2,824、合计 4,340",
+        "保留旧缓存改价 68→70 后，9 月 1,540、合计 4,364",
+        "公式文本及图表、样式等非工作表部件未改变；重复重算无变化",
+        "除零错误如实报告；强制超时返回失败且输入文件不变"
+      ],
+      "limits": [
+        "这是固定版本的本站本地适配，原作者脚本本身未修改，直接运行原脚本仍可能超时。只验证所列 XLSX 样本与故障分支，未在微软 Excel 客户端验收。"
+      ],
+      "artifacts": {
+        "card.jpg": "608b2967fd515212f13eab0d16c6abb8bdeb5bb550969bc123aee25a3c03bebd",
+        "build.py": "a6a45259b0017052485758cd4807aba9b45c8c2139663c0fef8fec7dc591284e",
+        "skills-lock.json": "cbb3ac5398e7aa80b4f6f2d4a5a7e9a7155e19ed2bac646b105b1e6ae356db30",
+        "recalc-local.py": "602194aa9700ec3916e8d7809e6d627b76bf222c563626711b8ba74cdccfcd93",
+        "mutation.xlsx": "1823fabaec406cb2fc859debe0172b24066157a2003365b1de5d99e3b8f7793e",
+        "input.csv": "490a44addd26f62a9e987041a5f95a7408cc886e5fdbae8dc380bab2d57c78b5",
+        "recalc.json": "276473a3968812b4165603239df3cdc2799a027c5b9e1c5ddb8f95cacfa3c811",
+        "index.html": "21c395416cdda48ed2f8560817b2f01a57b94ac2b05b97723b7f3fb19e9e8d3a",
+        "font-recovery.log": "39924ad71bf11523f236032c428f73b2d4ccf7a2c1321db1a4bc426790b321fa",
+        "test-recalc-local.py": "f272ec812fccdb0211a5ac9ae18b76ba6ba39f14515b22167e9c3c77f3380f2f",
+        "report.md": "497dbf7eb304a334de5316f3323faaee1c6a587ab4f3b71e41363cc1600cd85c",
+        "page-1.jpg": "4549749adff14c9cc314ad6106287b007f1adbfbd9d02221056c4879f77d8f24",
+        "page-3.jpg": "ecef18461b910a7b479f9d99eb8a72af865400f642ada6280940355da79f8bea",
+        "page-2.jpg": "8b0fd938e0731546615c959a91f714229b9fdc691b17939df484eea9a7471c2c",
+        "screenshot.jpg": "acc9b45d18f525fd253561feb1a3f41f7fcc0178882b690140f2ea87f3a96057",
+        "prompt.txt": "833bf78f7c984c1108e7a9b5acc76a94559fd894d1656b67d84efdd477aa3908",
+        "final-verification.json": "accb573ef75e4b1cf1d18d1faefd7b0b909db315cefdb8f2b7e08cd92ed330c6",
+        "recalc-fixed-result.json": "b5b548b1ed7285eb0b21c5f9394c5c53fd89d7c6d176bacf70d5c2eac991e50e",
+        "fixed-mutation.xlsx": "c55acb4503f85a59107c3553012920eb6f29a0b42f9a11b652ad6c914b5cc0a1",
+        "output.xlsx": "673115a0258e157f14e8926c1ad2e675a2c571fb10e7b56370f4696d7b618295",
+        "fixed.xlsx": "6314b024374360c0dcaad0d0db0e14c891b19c025d0ed13471a4fae32168d3b8",
+        "independent-recalc.py": "e1a478736380df6c3d3a0a935a19a8459b325e9478b932043aa34753d744d531",
+        "output.pdf": "2489207e782c015ca7c1a93007a7ee62247a6a4ff1edf4aa0e1ed8b1fa2a0a0c",
+        "fix-report.md": "5da4b6102adb82e4c57dc7dbc9d8bc5bb7b58d64f6ea546ae2b3dd607450ea61",
+        "verification.json": "a6b66e12f85deb48332130f7b37dd02c1eadd5d2fbc1a6b6028ba649399b03bf",
+        "recalc-first.json": "62a7837c927666e58e1481a1f093ec8655037e4828a9adb195fa87c7ae06082f",
+        "recalc-fix.jpg": "34820530e13805522a7094565dab9ce7a620e4964b87a1dde023ce2f836d6c29",
+        "diagnosis-macro-uri.json": "be0f2cf89eacbcb7426e77df837dcd17a79baf05968dacf5d176bb423100cb56",
+        "install.log": "ecd194ea94c526ec0673e4ddc6e37f462cb5a825420792ae7457e08f94e0e0a9",
+        "diagnosis.json": "181a0e4d31c34ff9d36ae5f52d8ec688e9817cc5f5d58cc1c1e8e61a3321fc45",
+        "recalculated.xlsx": "1f842aa36c0d6becf631461ba1e6ac7c92e99e82897f2a28943afc99b8b90d02"
+      },
+      "followupVerification": {
+        "baseline": {
+          "status": "success",
+          "total_errors": 0,
+          "error_summary": {},
+          "total_formulas": 11,
+          "local_adapter": {
+            "engine": "LibreOffice conversion + upstream cache-only writer",
+            "upstream_sha256": "7265aa4a41f5273596ee5694ce8a4d881c18adafb6203fece769107d08403263",
+            "elapsed_seconds": 1.426
+          },
+          "exit_code": 0,
+          "changedParts": [
+            "xl/worksheets/sheet1.xml",
+            "xl/worksheets/sheet2.xml",
+            "xl/worksheets/sheet3.xml"
+          ],
+          "nonWorksheetPartsIdentical": true,
+          "actual": [
+            1516,
+            2824,
+            4340
+          ],
+          "formulaTextsIdentical": true
+        },
+        "staleCacheMutation": {
+          "status": "success",
+          "total_errors": 0,
+          "error_summary": {},
+          "total_formulas": 11,
+          "local_adapter": {
+            "engine": "LibreOffice conversion + upstream cache-only writer",
+            "upstream_sha256": "7265aa4a41f5273596ee5694ce8a4d881c18adafb6203fece769107d08403263",
+            "elapsed_seconds": 1.401
+          },
+          "exit_code": 0,
+          "changedParts": [
+            "xl/worksheets/sheet1.xml",
+            "xl/worksheets/sheet2.xml"
+          ],
+          "nonWorksheetPartsIdentical": true,
+          "actual": [
+            1540,
+            2824,
+            4364
+          ]
+        },
+        "repeat": {
+          "status": "success",
+          "total_errors": 0,
+          "error_summary": {},
+          "total_formulas": 11,
+          "local_adapter": {
+            "engine": "LibreOffice conversion + upstream cache-only writer",
+            "upstream_sha256": "7265aa4a41f5273596ee5694ce8a4d881c18adafb6203fece769107d08403263",
+            "elapsed_seconds": 1.44
+          },
+          "exit_code": 0,
+          "changedParts": [],
+          "nonWorksheetPartsIdentical": true
+        },
+        "divisionByZero": {
+          "status": "errors_found",
+          "total_errors": 1,
+          "error_summary": {
+            "#DIV/0!": {
+              "count": 1,
+              "locations": [
+                "Sheet!A1"
+              ]
+            }
+          },
+          "total_formulas": 1,
+          "local_adapter": {
+            "engine": "LibreOffice conversion + upstream cache-only writer",
+            "upstream_sha256": "7265aa4a41f5273596ee5694ce8a4d881c18adafb6203fece769107d08403263",
+            "elapsed_seconds": 1.322
+          },
+          "exit_code": 1,
+          "changedParts": [
+            "xl/worksheets/sheet1.xml"
+          ],
+          "nonWorksheetPartsIdentical": true
+        },
+        "timeoutDoesNotModifyInput": {
+          "error": "Local conversion exceeded 1s; workbook unchanged",
+          "local_adapter": {
+            "engine": "LibreOffice conversion + upstream cache-only writer",
+            "upstream_sha256": "7265aa4a41f5273596ee5694ce8a4d881c18adafb6203fece769107d08403263",
+            "elapsed_seconds": 1.01
+          }
+        }
+      }
+    },
+    "slides": {
+      "installed": true,
+      "lock": {
+        "version": 2,
+        "skills": {
+          "pptx": {
+            "source": "anthropics/skills",
+            "ref": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+            "commit": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+            "sourceType": "github",
+            "skillPath": "skills/pptx/SKILL.md",
+            "computedHash": "e3c37c284de3a271a7e135d0cea5ead7cfaf002b83719d72e958963ccc5dd52f",
+            "installMode": "copy"
+          }
+        }
+      },
+      "runs": [
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 601302,
+            "cached_input_tokens": 569984,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 5529,
+            "reasoning_output_tokens": 131
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/pptx/SKILL.md'",
+            "/bin/zsh -lc \"/Users/m5/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 - <<'PY' > structure.log\nimport zipfile\nfrom lxml import etree\nns={'p':'http://schemas.openxmlformats.org/presentationml/2006/main','a':'http://schemas.openxmlformats.org/drawingml/2006/main'}\nwith zipfile.ZipFile('output.pptx') as z:\n for folder in ['slides/slide','slideLayouts/slideLayout','notesSlides/notesSlide','charts/chart']:\n  names=[n for n in z.namelist() if n.startswith('ppt/'+folder) and n.endswith('.xml')]\n  print(folder,len(names))\n print('native tables',sum(len(etree.fromstring(z.read(f'ppt/slides/slide{i}.xml')).findall('.//a:tbl',ns)) for i in range(1,5)))\n print('embedded workbooks',len([n for n in z.namelist() if n.endswith('.xlsx')]))\n print('raster media',len([n for n in z.namelist() if n.startswith('ppt/media/')]))\n print('slide size',etree.fromstring(z.read('ppt/presentation.xml')).find('p:sldSz',ns).attrib)\nPY\ncat structure.log\ncat > report.md <<'EOF'\n# PPTX Skill 实际运行报告\n\n已先读取 \"'`.agents/skills/pptx/SKILL.md`，使用原 Skill 指定的 pptxgenjs 创建路径完成生成。内容仅取自 `input.md` 的虚构材料。未读取 expected.json、父目录或其他测试目录，未修改 `.agents/skills`，未使用子代理、网络发布、上传、浏览器自动化或线上文档。\n\n## 实际执行与产物\n\n- `build.cjs`：保留完整生成脚本。使用指定 Node，调用预装 pptxgenjs；设定 LAYOUT_WIDE（16:9）、中文主题字体 Heiti SC、深蓝/暖灰/少量红色。主体字号为18–64pt；页脚及页码11pt。\n- 使用主题、4个具名版式、具名标题占位符、4个章节；页脚和页码放在版式。写入后调用原 `scripts/apply_theme.js` 应用主题颜色。\n- `output.pptx`：4页；包含原生可编辑柱状图及嵌入工作簿、原生可编辑表格、每页讲者备注。未插入外部图片，未将整页栅格化。\n- 运行原 `scripts/slide_text.py` 输出 `content.md`，逐项核对人数、金额、三项事项、负责人、日期、“待确认”、决策、未决问题及备注。\n- 使用指定 Python 运行原 `scripts/office/validate.py output.pptx`，最终 `validation.log` 为 `All validations PASSED!`。\n- 使用原 `scripts/office/soffice.py` 调用 PATH 中隔离的 bundled LibreOffice 导出 `output.pdf`，日志为 `conversion.log`。\n- 使用 pdftoppm 将PDF渲染为 `slide-1.jpg` 至 `slide-4.jpg`，逐页实际查看，最终未见文字裁切、重叠或缺字。\n- `structure.log` 保存OOXML结构核查：4页、4版式、4备注页、1原生图表、1原生表格、1嵌入工作簿、0媒体图像。\n\n## 发现的问题及修复\n\n1. 首次PDF导出虽成功，但出现字体缓存不可写警告，渲染中中文缺失，视觉检查失败。改用系统已有 Heiti SC；新增当前目录内的 `fonts.conf` 和 `font-cache/`，让 bundled LibreOffice 使用系统字体和可写的本地缓存。没有安装依赖或修改运行库。最终导出日志不再出现字体缓存错误。\n2. 初版错误使用 text 对象声明占位符，标题没有继承版式，落在页面左上角。已在生成脚本中改为 pptxgenjs 的 placeholder 对象及 name/type 选项，重新构建、验证、导出和逐页检查；最终标题位置和36pt字号正常。\n3. 未遇到缺失依赖或最终结构验证失败；以上生成和渲染问题均已实际修复。\n\n## 剩余限制\n\n验收范围为原脚本结构检查、文本核对、bundled LibreOffice PDF导出及逐页图像检查。未在 Microsoft Office 或微信编辑器中验收，也未实际交互编辑图表或表格；其可编辑性依据原生OOXML图表、嵌入工作簿及表格结构确认。字体未嵌入，其他机器的字体替换可能影响版面。原验证脚本通过不代表所有Office兼容性问题均被排除。\nEOF'"
+          ]
+        }
+      ],
+      "result": "修正并渲染后通过",
+      "checks": [
+        "4 页幻灯片，每页都有备注讲稿",
+        "1 张原生柱状图、1 张原生表格、1 个内嵌数据工作簿",
+        "无整页栅格图片；金额、负责人和待确认日期均与输入一致"
+      ],
+      "limits": [
+        "可编辑性依据 OOXML 原生对象结构检查，未在 Microsoft PowerPoint 中交互编辑。仅测试这份 4 页虚构材料。"
+      ],
+      "artifacts": {
+        "card.jpg": "8054ddbe8c90cfe1c372fd19da8b0bd8026912082c391a879a9893d0734984af",
+        "input.md": "d4699e22ae4b20855f818fda3145c94bb07f9a78d401629765c5636f522acc23",
+        "validation.log": "bc7d617e77eb04a8facd47d98ca7fb47966bc800853f67a6c2f85ff82bbcba34",
+        "skills-lock.json": "0b5e682b3cc754f22d817918b6be5b28a81d20c463e97056fe66ab3f61f5d7bb",
+        "index.html": "8c609dc84c56caa990075e92c5ec59130ed8a8629fb750f5b509a661250faee3",
+        "report.md": "affff05384848f647f22f482ebce1528b870bc7e3ab529218db75f6f3422e587",
+        "structure.log": "4c0c71fd0a9e72227b479f7cfb4ba129ae0149677dff98453fed65fb4f9fe4c3",
+        "screenshot.jpg": "de8b7b1a3c50521e771d925bfc9dcfe95967beaeb09d39760e951c617fac24ca",
+        "prompt.txt": "8519532afe33c6b99433c0c75ffc7e6358de186af3e4978553a4d3cc69ed8f29",
+        "output.pptx": "6907688122c58264c70ef3d0ac64dc80630572e9d832d4cdebc9e1598a3645c4",
+        "final-verification.json": "b34350e0253b8b13133c92ccec5ceb82e00a1f7cedc35a3c026623445d903195",
+        "output.pdf": "5ebe9fe65772c3a3e5025cd768fdddec5589ffbffdfb7693ab9180c7b6510cb1",
+        "build.cjs": "9311786e750eb741f0d6ba8a40e53113ffd25bc7dc6d2560fe8e88d17ae348fa",
+        "slide-2.jpg": "0353685f36bb194770e9b6af585be09a05e9acfbad7bad6d1f3d5b4a40459f63",
+        "slide-3.jpg": "9bc0df4b59950f38f455b7a66ed9fdaa76c759ebb91676c1ea2975fc02baf404",
+        "slide-1.jpg": "e4ffa98d3db070cc9a4696d2c7d5444801a170e3a1514b78789616bcf0f94c07",
+        "slide-4.jpg": "8638b97700b866fcc5b11031a4eb5f3469431a53a9ed0b0fc55e80a58b489a8d",
+        "install.log": "63b2ea61efb74558e5c7e8b1492c9a94980e7f6e63b9b314ec982be05f0e5dbe"
+      }
+    },
+    "md-html": {
+      "installed": true,
+      "lock": {
+        "version": 2,
+        "skills": {
+          "baoyu-markdown-to-html": {
+            "source": "JimLiu/baoyu-skills",
+            "ref": "ca703c2d7c2c4399a1dc0cf82224f8551e05a96d",
+            "commit": "ca703c2d7c2c4399a1dc0cf82224f8551e05a96d",
+            "sourceType": "github",
+            "skillPath": "skills/baoyu-markdown-to-html/SKILL.md",
+            "computedHash": "610092cf2db41b89574827d50e131bb261015e946086d643ffbf1e24104dc077",
+            "installMode": "copy"
+          }
+        }
+      },
+      "runs": [
+        {
+          "finished": true,
+          "usage": {
+            "input_tokens": 158518,
+            "cached_input_tokens": 128256,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 1970,
+            "reasoning_output_tokens": 90
+          },
+          "skillReadCommands": [
+            "/bin/zsh -lc 'cat .agents/skills/baoyu-markdown-to-html/SKILL.md'"
+          ]
+        }
+      ],
+      "result": "HTML 转换与预览通过",
+      "checks": [
+        "原脚本成功输出 HTML，9 项结构检查通过",
+        "真实浏览器桌面与 390px 移动宽度均可阅读，无横向溢出",
+        "保留 Markdown 来源链接、表格金额和“待确认”"
+      ],
+      "limits": [
+        "本地 HTML 转换与浏览器预览已通过。2026-11-17 尝试访问公众号编辑器，被浏览器站点安全策略阻止；没有完成微信粘贴验收，也未发布。需人工粘贴核对后补证。"
+      ],
+      "artifacts": {
+        "card.jpg": "27ea48f33c86c88ac765d7f0f2f8b3d170f2965fcc6f9a2fc3762ab1db8d3445",
+        "input.md": "fc5d675c5f0bf9bba4c6b45cc74b181d6a815d6ea9523d4cf5f9c592c3681f87",
+        "dependency-install.log": "0695ee6191cf18a52c03e43b0a155da6f3edf411f0dbff61316eeb389b9a3f6d",
+        "skills-lock.json": "ccee248788cbca581da63377fb6a03e4583929d26c1eacabde6452b5ce218f88",
+        "index.html": "c33a060c0f80dfe7ef3adcfb136165456be73218f7b5e5dec917b38bc15c5ff3",
+        "verify-output.py": "a421cad4ccceb66a88cda6c3c4fd34955229e748cac18e1ed52780c38269b70d",
+        "report.md": "9e9b8e67a12e4b85add4fd2bcac62f117f611273b47fd0423f4f7675b5108e49",
+        "screenshot.jpg": "577eccf357af595e00cff4102639995a695c3724236c3505da0e208208260a94",
+        "prompt.txt": "c21c922789140a313177f7d1a6003042ce0e3187ccf92de8b22e9da9365febb1",
+        "final-verification.json": "49003e3dcc705b89a71fda3f45ecc5fede2d93222b6c890a095fab59a369768e",
+        "run-conversion.sh": "eca5e39c6678590ffd25e20d5d356acc2947890ccb623d789efcf3300a755919",
+        "input.html": "924377d0a7052fd29761b9fc68f7fac40f1bdde6c93f9f23af9131d03221553a",
+        "mobile.jpg": "868a8fb58e270e0886da90911dec42b36e7cc38e6f4f4675d73c0bfa8f1528ef",
+        "verification.json": "67cbdd5cea8e06e9d3e743e97737d8ddfe7caf1e1f81799d5a43afb2438c4930",
+        "conversion.stderr.log": "f26ac60114868d944d728bf9dd62d9059fd9cab61d93feab27aa38598b6ece94",
+        "install.log": "3fc3d0345081b8600b5c24afdaae4e1be1ba0e8d94c42c9d811b355d2888d9cd",
+        "wechat-check.html": "21b03af368d00287d22c94ba598697927fd15ae54a6755b7369380eee45aa3b5",
+        "bun-version.txt": "d03d8b268b4171328ac2458ce8ca82d69a1fde38469d4e4faae4f8fa8d8a5e35",
+        "conversion.json": "cdcd420eaec36ba228009b10b52db1026f27701180c3664ead4c536023d92856"
+      },
+      "followupVerification": {
+        "status": "blocked_not_tested",
+        "date": "2026-11-17",
+        "reason": "Browser site-safety policy blocked access; no workaround attempted",
+        "pastePerformed": false,
+        "published": false
+      }
+    }
+  }
+}

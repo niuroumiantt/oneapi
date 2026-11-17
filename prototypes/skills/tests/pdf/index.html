@@ -1,0 +1,18 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PDF 实测记录</title><style>*{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#1c2541;font:15px/1.8 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}main{max-width:1120px;margin:auto;padding:35px}header{border-bottom:1px solid #dce2ec;padding-bottom:20px;margin-bottom:26px}h1{font-size:30px;margin:5px 0}h2{font-size:20px;margin:0 0 14px}p{margin:8px 0}small,.muted{color:#627087}a{color:#315d9e}section{background:white;border:1px solid #e3e7ee;border-radius:12px;padding:25px;margin:18px 0}.columns{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}.columns section{margin:0}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.9 ui-monospace,Menlo,monospace;margin:0}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:10px;text-align:left;border-bottom:1px solid #e3e7ee}.badge{display:inline-block;background:#e5f1ea;color:#286245;padding:4px 12px;border-radius:6px}.note{background:#fff3e8;padding:14px;border-radius:8px;color:#80512e}.pdf{width:100%;border:1px solid #e0e4eb}.gifstage{display:flex;justify-content:center;background:#fff7e6;padding:36px;border-radius:10px}.gifstage img{width:256px;height:256px;image-rendering:auto}.original{font-family:inherit}.links{display:flex;gap:16px;flex-wrap:wrap;margin:20px 0}@media(max-width:700px){main{padding:20px}.columns{grid-template-columns:1fr}h1{font-size:25px}section{padding:18px}table{font-size:11px}}</style></head><body><main><header><a href="../../#skill/pdf">返回 Skill 详情</a><h1>PDF：3 页资料提取与核对</h1><span class="badge">12 / 12 个字段一致</span><p class="muted">2026-11-17 · macOS · Codex CLI 0.160.0 · 固定版本安装</p><small>真实试运行产物的本站排版；不是原生聊天客户端截图。未验证 OneAPI 模型组合。</small></header><div class="columns"><section><h2>测试输入 · 第 1 页</h2><img class="pdf" src="input-page-1.png" alt="实际测试 PDF 的第 1 页渲染"></section><section><h2>实际提取结果</h2><table><tr><th>项目</th><th>日期</th><th>预算 / 元</th><th>页码</th></tr><tr><td>海港照明改造</td><td>2026-11-01</td><td>128000.50</td><td>1</td></tr><tr><td>图书馆网络升级</td><td>2026-11-08</td><td>45600.00</td><td>2</td></tr><tr><td>社区展厅布置</td><td>未知</td><td>9800.00</td><td>3</td></tr></table><p>三条记录、12 个字段，与预先保留的标准答案逐项相等；第 3 项日期保留为 null，没有推测。</p><p class="note">本次输入是人工构造的文字 PDF；不涵盖 OCR、复杂表格、加密文件。</p><p>本地重跑前只修正了测试页标题的缺字分隔符，数据不变；提取脚本由 Agent 生成。</p></section></div><section><h2>原始执行报告</h2><pre class="original"># PDF 项目提取报告
+
+输入仅为 `fixture.pdf`；未读取 make_fixture.py 或 expected.json，未修改原 PDF。
+
+使用 pdfplumber 0.11.9 逐页提取文本，以字段标签定位项目名称、签订日期和人民币元预算；使用 pypdf 6.21.4 独立核对 PDF 页数。无需 OCR。
+预算使用 Python Decimal 解析并输出十进制字符串，避免浮点误差。日期“待确认”转为 JSON null；CSV 对应为空字段。page 保留原始 1 起始页码。
+
+实际读取 3 页，提取 3 个项目，日期未知 1 个；预算合计 183400.50 元。
+
+| 名称 | 日期 | 预算（元） | 原页码 |
+| --- | --- | --- | --- |
+| 海港照明改造 | 2026-11-01 | 128000.50 | 1 |
+| 图书馆网络升级 | 2026-11-08 | 45600.00 | 2 |
+| 社区展厅布置 | 未知 | 9800.00 | 3 |
+
+输出为 extracted.json、extracted.csv；可通过 extract.py 重复运行。运行前后 SHA-256 一致，确认输入未变。
+输入 SHA-256：`e5fd3affe0e9935babb8d87fdf8f17cdc09ec69a0ce14920f9c0127186d4a7f6`。
+</pre></section><div class="links"><a href="fixture.pdf">输入 PDF</a><a href="extracted.csv">提取 CSV</a><a href="extracted.json">提取 JSON</a><a href="extract.py">执行脚本</a></div><div class="links"><a href="install.log">安装日志</a><a href="skills-lock.json">版本锁定记录</a><a href="../verification.json">完整核验记录</a></div></main></body></html>

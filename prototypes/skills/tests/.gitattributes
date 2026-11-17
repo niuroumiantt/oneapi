@@ -1,0 +1,8 @@
+# Preserve original evidence bytes, including Markdown hard breaks and log endings.
+*.pdf binary
+*/*.md -whitespace
+*/*.txt -whitespace
+*/*.log -whitespace
+*/*.html -whitespace
+
+*/*.csv -whitespace
