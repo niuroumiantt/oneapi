@@ -1161,9 +1161,24 @@ test('two workspaces share credentials, actual acceptance and fail-closed catalo
   const synced=await tech.call('/api/staff/lab/credentials/'+key.data.id+'/sync-usage',{method:'POST',body:{}});assert.equal(synced.status,200,JSON.stringify(synced.data));assert.equal(synced.data.record_count,4);
   const checked=await tech.call('/api/staff/lab/usage-reconciliation?supplier_id='+supplier.data.id);assert.equal(checked.status,200);assert.equal(checked.data.rows.length,4);assert.ok(checked.data.rows.every(r=>r.status==='matched'));assert.ok(!JSON.stringify(checked.data).includes('redact-me'));assert.ok(!JSON.stringify(checked.data).includes('fake-key-only-for-tests'));
   assert.equal((await tech.call('/api/staff/lab/credentials/'+key.data.id+'/sync-usage',{method:'POST',body:{}})).data.cached,true);
+  await pool.query('DELETE FROM cloud_cost_allocations');await pool.query("DELETE FROM cloud_readonly_connections WHERE provider='aliyun'");
   assert.equal((await tech.call('/api/staff/observability/aliyun')).data.configured,false);
   assert.equal((await tech.call('/api/staff/observability/aliyun/configure',{method:'POST',body:{}})).status,403);
   assert.equal((await admin.call('/api/staff/observability/aliyun/configure',{method:'POST',body:{}})).status,400);
+  assert.equal((await tech.call('/api/staff/observability/aliyun/allocation',{method:'POST',body:{}})).status,403);
+  assert.equal((await admin.call('/api/staff/observability/aliyun/allocation',{method:'POST',body:{}})).status,400);
+  const allocationRow={id:'fixture-resource',product_code:'ecs',owner_id:'fixture-owner',billing_item_code:'NetworkOut',currency:'CNY',pretax_amount:'10'};
+  await pool.query("INSERT INTO cloud_readonly_connections(provider,region,product,credential_ciphertext,snapshot) VALUES('aliyun','cn-qingdao','ecs','unused-fixture',$1)",[{billing_details:{status:'ok',period:'2026-11',items:[allocationRow]}}]);
+  const allocationRule={resource_id:allocationRow.id,product_code:'ecs',owner_id:allocationRow.owner_id,billing_item_code:'NetworkOut',period:'2026-11',basis_points:3000,basis:'Synthetic approved monthly share'};
+  try{
+   assert.equal((await admin.call('/api/staff/observability/aliyun/allocation',{method:'POST',body:{...allocationRule,resource_id:'different-resource'}})).status,409);
+   assert.equal((await admin.call('/api/staff/observability/aliyun/allocation',{method:'POST',body:allocationRule})).status,200);
+   assert.equal((await tech.call('/api/staff/observability/aliyun')).data.snapshot.oneapi_cost.totals[0].amount,'3');
+   assert.equal((await admin.call('/api/staff/observability/aliyun/allocation',{method:'POST',body:allocationRule})).status,200);
+   assert.equal((await pool.query("SELECT count(*)::int n FROM cloud_cost_allocations")).rows[0].n,1);
+   assert.equal((await pool.query("SELECT count(*)::int n FROM audit_events WHERE action='cloud.cost_allocation_updated'")).rows[0].n,2);
+  }finally{await pool.query('DELETE FROM cloud_cost_allocations');await pool.query("DELETE FROM cloud_readonly_connections WHERE provider='aliyun'")}
+
  }finally{global.fetch=savedFetch;await pool.query("UPDATE supplier_lab_credentials SET base_url='https://api.deepseek.com' WHERE id=$1",[key.data.id])}
  const bill=await tech.call('/api/staff/lab/reconciliations',{method:'POST',body:{endpoint_id:endpoint.data.id,period_start:new Date(Date.now()-11*60000).toISOString(),period_end:new Date(Date.now()-8*60000).toISOString(),supplier_billed_yuan:'0.000056',note:'upstream-statement-fixture'}});assert.equal(bill.status,201,JSON.stringify(bill.data));
  assert.equal((await tech.call('/api/staff/lab/endpoints/'+endpoint.data.id+'/rates',{method:'POST',body:{input_yuan_per_m:'2'}})).status,409);

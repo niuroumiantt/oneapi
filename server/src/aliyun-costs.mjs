@@ -1,0 +1,22 @@
+// Decimal accounting: retain provider precision, including refunds and WipeZero.
+const scale=10n**18n;
+export function decimal(s){if(!/^-?\d+(\.\d{1,18})?$/.test(String(s??'')))throw Error('INVALID_AMOUNT');const [w,f='']=String(s).replace('-','').split('.');return (BigInt(w)*scale+BigInt(f.padEnd(18,'0')))*(String(s).startsWith('-')?-1n:1n)}
+export function money(n){const sign=n<0n?'-':'';n=n<0n?-n:n;return sign+(n/scale)+((n%scale)?'.'+String(n%scale).padStart(18,'0').replace(/0+$/,''):'')}
+const fresh=x=>x?.status==='ok'&&!x.stale;
+export function billComparison(account,summary,detail){
+ if(![account,summary,detail].every(fresh)||account.period!==summary.period||account.period!==detail.period)return {status:'unavailable',rows:[]};
+ try{const groups=new Map();for(const [source,bill] of [['account',account],['summary',summary],['detail',detail]])for(const x of bill.items){if(!x.currency||!x.product_code)throw Error();const key=JSON.stringify([x.product_code,x.currency]);const g=groups.get(key)||{product:x.product,product_code:x.product_code,currency:x.currency,account:0n,summary:0n,detail:0n};g[source]+=decimal(x.pretax_amount);groups.set(key,g)}
+ const rows=[...groups.values()].map(g=>{const delta=g.account-g.detail,lag=g.detail-g.summary;return {product:g.product,product_code:g.product_code,currency:g.currency,account:money(g.account),summary:money(g.summary),detail:money(g.detail),difference:money(delta),summary_difference:money(g.account-g.summary),detail_summary_difference:money(lag),status:delta===0n?'matched':delta<scale/100n&&delta> -scale/100n?'subcent_difference':'different'}});
+ return {status:rows.length?(rows.every(x=>x.status==='matched')?'matched':'different'):'unavailable',rows};}catch{return {status:'unavailable',rows:[]}}
+}
+// Rules are explicit per resource and billing item. No account-wide or implicit percentage.
+export function allocateBills(detail,rules=[]){
+ if(!fresh(detail))return {status:'unavailable',totals:[],items:[]};
+ try{const totals=new Map();const items=detail.items.map(x=>{const amount=decimal(x.pretax_amount);if(!x.currency)throw Error();const matches=rules.filter(r=>r.resource_id===x.id&&r.product_code===x.product_code&&r.billing_item_code===x.billing_item_code&&r.owner_id===x.owner_id&&r.period===detail.period);if(matches.length!==1)return {...x,allocation:'unallocated',oneapi_amount:null};const r=matches[0];if(!Number.isInteger(r.basis_points)||r.basis_points<0||r.basis_points>10000||!r.basis?.trim())throw Error();const allocated=amount*BigInt(r.basis_points)/10000n;totals.set(x.currency,(totals.get(x.currency)||0n)+allocated);return {...x,allocation:r.basis_points===0?'excluded':r.basis_points===10000?'exclusive':'shared',basis:r.basis,basis_points:r.basis_points,oneapi_amount:money(allocated),other_amount:money(amount-allocated)}});
+ return {status:items.length&&items.every(x=>x.allocation!=='unallocated')?'complete':'partial',totals:[...totals].map(([currency,amount])=>({currency,amount:money(amount)})),items};}catch{return {status:'unavailable',totals:[],items:[]}}
+}
+export function estimateForecast(daily,period,cutoff){
+ if(!daily.length||daily.some(x=>!fresh(x)||!x.items?.length))return {status:'unavailable',reason:'DAILY_BILLS_INCOMPLETE',official_status:'not_connected'};
+ try{const days=Number(cutoff.slice(-2)),monthDays=new Date(Date.UTC(Number(period.slice(0,4)),Number(period.slice(5)),0)).getUTCDate();if(days<7||daily.length!==days||daily.some((x,i)=>x.date!==period+'-'+String(i+1).padStart(2,'0')))throw Error();const totals=new Map();for(const day of daily)for(const x of day.items){if(!x.currency||!['PayAsYouGo','Subscription'].includes(x.subscription_type))throw Error();const t=totals.get(x.currency)||{actual:0n,recent:0n};const a=decimal(x.pretax_amount);t.actual+=a;if(Number(day.date.slice(-2))>days-7&&x.subscription_type==='PayAsYouGo')t.recent+=a;totals.set(x.currency,t)}
+ if(!totals.size)throw Error();return {status:'estimated',source:'platform_daily_bill_trend',scope:'aliyun_account_all_projects',official_status:'not_connected',period,cutoff,sample_days:7,remaining_days:monthDays-days,items:[...totals].map(([currency,t])=>({currency,closed_actual:money(t.actual),daily_average:money((t.recent>0n?t.recent:0n)/7n),forecast:money(t.actual+(t.recent>0n?t.recent:0n)*BigInt(monthDays-days)/7n)}))};}catch{return {status:'unavailable',reason:'INSUFFICIENT_DAILY_HISTORY',official_status:'not_connected'}}
+}

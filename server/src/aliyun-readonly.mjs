@@ -1,3 +1,4 @@
+import {billComparison,allocateBills,estimateForecast} from './aliyun-costs.mjs';
 import {createHmac,randomUUID} from 'node:crypto';
 import {HttpError,vault,audit,transaction} from './core.mjs';
 import {requireTechnical} from './workspaces.mjs';
@@ -12,6 +13,8 @@ async function rpc(auth,service,action,parameters){
  const reader=r.body.getReader();let chunks=[],size=0;try{while(true){const x=await reader.read();if(x.done)break;size+=x.value.length;if(size>1048576)throw Error('RESPONSE_TOO_LARGE');chunks.push(x.value)}}finally{await reader.cancel().catch(()=>{})}
  const d=JSON.parse(Buffer.concat(chunks).toString());if(!r.ok||d.Success===false||d.Code&&d.Code!=='Success'){const e=Error('CLOUD_READ_FAILED');e.code=typeof d.Code==='string'?d.Code.slice(0,80):'HTTP_'+r.status;throw e}return d;
 }
+const billRow=x=>({product:value(x.ProductName||x.ProductCode),product_code:value(x.ProductCode),owner_id:value(x.OwnerID??x.BillOwnerId??''),currency:value(x.Currency),pretax_amount:value(x.PretaxAmount),subscription_type:value(x.SubscriptionType),bill_type:value(x.Item)});
+const instanceRow=x=>({...billRow(x),id:value(x.InstanceID),name:value(x.NickName),region:value(x.Region),billing_item:value(x.BillingItem),billing_item_code:value(x.BillingItemCode??''),usage:value(x.Usage),usage_unit:value(x.UsageUnit),service_period:value(x.ServicePeriod),service_period_unit:value(x.ServicePeriodUnit),allocation:'unallocated'});
 const value=v=>v==null?null:String(v).slice(0,120);
 export const CLOUD_SYNC_INTERVAL_MS=6*60*60*1000;
 // Reject incomplete pagination instead of presenting a partial bill as the account total.
@@ -30,12 +33,18 @@ export async function readAliyun(auth,fetcher=rpc){
  const results=await Promise.allSettled([
   pages(auth,fetcher,auth.product,auth.product==='ecs'?'DescribeInstances':'ListInstances',{RegionId:auth.region},d=>auth.product==='ecs'?d.Instances?.Instance:d.Instances),
   pages(auth,fetcher,'bss','QueryAccountBill',{BillingCycle:period,IsGroupByProduct:true,Granularity:'MONTHLY'},d=>d.Data?.Items?.Item),
-  pages(auth,fetcher,'bss','DescribeInstanceBill',{BillingCycle:period,Granularity:'MONTHLY',IsBillingItem:false},d=>d.Data?.Items,true)]);
+  pages(auth,fetcher,'bss','DescribeInstanceBill',{BillingCycle:period,Granularity:'MONTHLY',IsBillingItem:false},d=>d.Data?.Items,true),
+  pages(auth,fetcher,'bss','DescribeInstanceBill',{BillingCycle:period,Granularity:'MONTHLY',IsBillingItem:true},d=>d.Data?.Items,true)]);
  const error=e=>({status:'unavailable',error_code:/^[\w.-]{1,80}$/.test(e.reason?.code||'')?e.reason.code:'NETWORK_OR_PROTOCOL_ERROR'});
  const resources=results[0].status==='fulfilled'?{status:'ok',total:results[0].value.length,truncated:false,items:results[0].value.map(x=>({id:value(x.InstanceId),name:value(x.InstanceName),status:value(x.Status),region:value(x.RegionId||auth.region),cpu:x.Cpu??null,memory_mb:x.Memory??null,bandwidth_out_mbps:x.InternetMaxBandwidthOut??x.Plan?.Bandwidth??null,bandwidth_in_mbps:x.InternetMaxBandwidthIn??null,charge_type:value(x.InstanceChargeType||x.ChargeType),expires_at:value(x.ExpiredTime),public_ips:x.PublicIpAddress?.IpAddress||[x.PublicIpAddress].filter(x=>typeof x==='string')}))}:error(results[0]);
- const billing=results[1].status==='fulfilled'?{status:'ok',scope:'aliyun_account_all_projects',period,total:results[1].value.length,truncated:false,items:results[1].value.map(x=>({product:value(x.ProductName||x.ProductCode),currency:value(x.Currency),pretax_amount:value(x.PretaxAmount),payment_amount:value(x.PaymentAmount),outstanding_amount:value(x.OutstandingAmount)}))}:error(results[1]);
- const instance_billing=results[2].status==='fulfilled'?{status:'ok',period,items:results[2].value.map(x=>({id:value(x.InstanceID),product:value(x.ProductName||x.ProductCode),name:value(x.NickName),region:value(x.Region),currency:value(x.Currency),pretax_amount:value(x.PretaxAmount),bill_type:value(x.Item),allocation:'unallocated'}))}:error(results[2]);
- return {provider:'aliyun',collected_at:collected,region:auth.region,product:auth.product,resources,billing,instance_billing,forecast:{status:'unavailable',reason:'NOT_CONNECTED'},oneapi_cost:{status:'unallocated',amount:null}};
+ const billing=results[1].status==='fulfilled'?{status:'ok',scope:'aliyun_account_all_projects',period,total:results[1].value.length,truncated:false,items:results[1].value.map(x=>({...billRow(x),payment_amount:value(x.CashAmount),outstanding_amount:value(x.OutstandingAmount)}))}:error(results[1]);
+ const instance_billing=results[2].status==='fulfilled'?{status:'ok',period,items:results[2].value.map(instanceRow)}:error(results[2]);
+ const billing_details=results[3].status==='fulfilled'?{status:'ok',period,items:results[3].value.map(instanceRow)}:error(results[3]);
+ const cutoff=new Date(Date.now()+28800000-2*86400000).toISOString().slice(0,10),daily=[];
+ // Closed days only; do not extrapolate partial current-day bills. Sequential reads stay below the billing API rate limit.
+ if(cutoff.startsWith(period))for(let day=1;day<=Number(cutoff.slice(-2));day++){const date=period+'-'+String(day).padStart(2,'0');try{const items=await pages(auth,fetcher,'bss','QueryAccountBill',{BillingCycle:period,BillingDate:date,Granularity:'DAILY',IsGroupByProduct:true},d=>d.Data?.Items?.Item);daily.push({status:'ok',date,items:items.map(billRow)});}catch{daily.push({status:'unavailable',date});break}if(fetcher===rpc)await new Promise(r=>setTimeout(r,125));}
+ const forecast=estimateForecast(daily,period,cutoff);
+ return {provider:'aliyun',collected_at:collected,region:auth.region,product:auth.product,resources,billing,instance_billing,billing_details,forecast,oneapi_cost:{status:'unallocated',amount:null}};
 }
 export function reconcileCloudBills(billing,instances){
  if(!billing||!instances||billing.status!=='ok'||instances.status!=='ok'||billing.stale||instances.stale||billing.period!==instances.period)return {status:'unavailable'};
@@ -44,9 +53,10 @@ export function reconcileCloudBills(billing,instances){
  return {status:a.size===b.size&&[...a].every(([currency,amount])=>b.get(currency)===amount)?'matched':'different'};
 }
 export function retainSuccessfulSnapshot(previous,result){
- const snapshot={...result};for(const key of ['resources','billing','instance_billing']){
-  const current=result[key];snapshot[key]=current.status==='ok'?{...current,last_success_at:result.collected_at}:previous?.[key]?.status==='ok'?{...previous[key],stale:true,last_error:current.error_code,last_attempt_at:result.collected_at}:current;
+ const snapshot={...result};for(const key of ['resources','billing','instance_billing','billing_details']){
+  const current=result[key]||{status:'unavailable',error_code:'NOT_COLLECTED'};snapshot[key]=current.status==='ok'?{...current,last_success_at:result.collected_at}:previous?.[key]?.status==='ok'?{...previous[key],stale:true,last_error:current.error_code,last_attempt_at:result.collected_at}:current;
  }
+ snapshot.cost_comparison=billComparison(snapshot.billing,snapshot.instance_billing,snapshot.billing_details);snapshot.oneapi_cost=allocateBills(snapshot.billing_details);
  snapshot.bill_reconciliation=reconcileCloudBills(snapshot.billing,snapshot.instance_billing);snapshot.last_attempt_at=result.collected_at;snapshot.next_sync_at=new Date(Date.parse(result.collected_at)+CLOUD_SYNC_INTERVAL_MS).toISOString();return snapshot;
 }
 export async function syncAliyun(pool,box,{scheduled=false,actor={kind:'system',id:'aliyun-bill-sync'},reader=readAliyun}={}){
@@ -57,8 +67,9 @@ export async function syncAliyun(pool,box,{scheduled=false,actor={kind:'system',
   const c=(await db.query("SELECT * FROM cloud_readonly_connections WHERE provider='aliyun'")).rows[0];
   if(!c){if(scheduled)return {skipped:'not_configured'};throw new HttpError(409,'请先配置阿里云只读连接')}
   const last=c.snapshot?.last_attempt_at||c.snapshot?.collected_at;
-  if(last&&Date.now()-Date.parse(last)<(scheduled?CLOUD_SYNC_INTERVAL_MS:300000))return {...c.snapshot,cached:true};
+  if(last&&c.snapshot?.billing_details&&Date.now()-Date.parse(last)<(scheduled?CLOUD_SYNC_INTERVAL_MS:300000))return {...c.snapshot,cached:true};
   const result=retainSuccessfulSnapshot(c.snapshot,await reader({...box.open(c.credential_ciphertext),region:c.region,product:c.product}));
+  const rules=(await db.query("SELECT rule FROM cloud_cost_allocations WHERE provider='aliyun'")).rows.map(x=>x.rule);result.oneapi_cost=allocateBills(result.billing_details,rules);
   await transaction(pool,async tx=>{await tx.query("UPDATE cloud_readonly_connections SET snapshot=$1,updated_at=now() WHERE provider='aliyun'",[result]);await audit(tx,actor,'cloud.readonly_synced',null,'aliyun',{trigger:scheduled?'schedule':'manual',resources:result.resources.stale?'stale':result.resources.status,billing:result.billing.stale?'stale':result.billing.status,instance_billing:result.instance_billing.stale?'stale':result.instance_billing.status})});
   return result;
  }finally{if(locked)await db.query('SELECT pg_advisory_unlock(148921,11)');db.release()}
@@ -66,6 +77,17 @@ export async function syncAliyun(pool,box,{scheduled=false,actor={kind:'system',
 export function aliyunRoutes(app,pool,requireStaff){
  const secret=process.env.SUPPLIER_LAB_SECRET,box=secret?.length>=32?vault(secret):null;
  app.get('/api/staff/observability/aliyun',requireStaff,async(req,res)=>{requireTechnical(req);const d=(await pool.query("SELECT region,product,snapshot,updated_at FROM cloud_readonly_connections WHERE provider='aliyun'")).rows[0];res.json(d?{configured:true,...d,stale:!d.snapshot?.collected_at||Date.now()-Date.parse(d.snapshot.collected_at)>21600000}:{configured:false})});
+ app.post('/api/staff/observability/aliyun/allocation',requireStaff,async(req,res)=>{
+  requireTechnical(req);if(req.staff.role!=='platform_admin')throw new HttpError(403,'仅平台管理员可确认费用归属');
+  const b=req.body||{},fields=['resource_id','product_code','billing_item_code','owner_id'];
+  if(fields.some(k=>typeof b[k]!=='string'||b[k].length>120)||!b.resource_id||!b.product_code||!/^\d{4}-(0[1-9]|1[0-2])$/.test(b.period||'')||!Number.isInteger(b.basis_points)||b.basis_points<0||b.basis_points>10000||typeof b.basis!=='string'||!b.basis.trim()||b.basis.length>500)throw new HttpError(400,'请选择具体资源计费项，并填写账期、比例及分摊依据');
+  const rule=Object.fromEntries([...fields,'period','basis_points','basis'].map(k=>[k,b[k]]));
+  await transaction(pool,async db=>{await db.query('SELECT pg_advisory_xact_lock(148921,11)');const c=(await db.query("SELECT snapshot FROM cloud_readonly_connections WHERE provider='aliyun' FOR UPDATE")).rows[0];const detail=c?.snapshot?.billing_details;
+   if(detail?.status!=='ok'||detail.stale||detail.period!==b.period||!detail.items.some(x=>x.id===b.resource_id&&x.product_code===b.product_code&&x.billing_item_code===b.billing_item_code&&x.owner_id===b.owner_id))throw new HttpError(409,'请先同步本账期的计费项明细');
+   await db.query(`INSERT INTO cloud_cost_allocations(provider,resource_id,product_code,billing_item_code,owner_id,period,rule) VALUES('aliyun',$1,$2,$3,$4,$5,$6) ON CONFLICT(provider,resource_id,product_code,billing_item_code,owner_id,period) DO UPDATE SET rule=EXCLUDED.rule,updated_at=now()`,[...fields.map(k=>b[k]),b.period,rule]);
+   const rules=(await db.query("SELECT rule FROM cloud_cost_allocations WHERE provider='aliyun'")).rows.map(x=>x.rule);const snapshot={...c.snapshot,oneapi_cost:allocateBills(detail,rules)};await db.query("UPDATE cloud_readonly_connections SET snapshot=$1 WHERE provider='aliyun'",[snapshot]);await audit(db,req.actor,'cloud.cost_allocation_updated',null,'aliyun',rule);
+  });res.json({saved:true});
+ });
  app.post('/api/staff/observability/aliyun/configure',requireStaff,async(req,res)=>{
   requireTechnical(req);if(req.staff.role!=='platform_admin')throw new HttpError(403,'仅平台管理员可配置云连接');if(!box)throw new HttpError(503,'加密服务尚未配置');
   const b=req.body||{};if(!REGIONS.includes(b.region)||!['ecs','swas'].includes(b.product)||!/^LTAI[\w]{10,40}$/.test(b.access_key_id||'')||!/^\S{20,100}$/.test(b.access_key_secret||''))throw new HttpError(400,'请填写有效的 RAM AccessKey、实例类型与地域');
