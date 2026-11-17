@@ -23,9 +23,9 @@ body.console-active>*:not(#console-view):not(.toast):not(dialog):not(script){dis
 .cs-message{position:absolute;z-index:1;inset:0;background:#f4f6f8}
 #console-view.technical .cs-message{background:#172b20;color:#e2f5e4}
 @media(max-width:560px){
- .cs-top{gap:4px;padding-inline:8px}
- .cs-brand img{width:64px}
- .cs-tabs{margin-left:0;padding:2px}
+ .cs-top{height:auto;display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px;padding:6px 8px}
+ #console-view .cs-brand img{width:84px}
+ .cs-tabs{grid-area:2 / 1 / auto / -1;margin:0;justify-content:center;padding:2px}
  .cs-tabs a,.cs-link{padding:6px 4px;font-size:11px}
  .cs-link:last-child{display:block}
 }
