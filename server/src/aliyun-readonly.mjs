@@ -37,11 +37,17 @@ export async function readAliyun(auth,fetcher=rpc){
  const instance_billing=results[2].status==='fulfilled'?{status:'ok',period,items:results[2].value.map(x=>({id:value(x.InstanceID),product:value(x.ProductName||x.ProductCode),name:value(x.NickName),region:value(x.Region),currency:value(x.Currency),pretax_amount:value(x.PretaxAmount),bill_type:value(x.Item),allocation:'unallocated'}))}:error(results[2]);
  return {provider:'aliyun',collected_at:collected,region:auth.region,product:auth.product,resources,billing,instance_billing,forecast:{status:'unavailable',reason:'NOT_CONNECTED'},oneapi_cost:{status:'unallocated',amount:null}};
 }
+export function reconcileCloudBills(billing,instances){
+ if(!billing||!instances||billing.status!=='ok'||instances.status!=='ok'||billing.stale||instances.stale||billing.period!==instances.period)return {status:'unavailable'};
+ const totals=rows=>{if(!rows?.length)return null;const sums=new Map();for(const x of rows){if(!x.currency||!/^[-]?\d+(\.\d{1,18})?$/.test(x.pretax_amount||''))return null;const [whole,fraction='']=x.pretax_amount.replace('-','').split('.'),amount=(BigInt(whole)*10n**18n+BigInt(fraction.padEnd(18,'0')))*(x.pretax_amount.startsWith('-')?-1n:1n);sums.set(x.currency,(sums.get(x.currency)||0n)+amount)}return sums};
+ const a=totals(billing.items),b=totals(instances.items);if(!a||!b)return {status:'unavailable'};
+ return {status:a.size===b.size&&[...a].every(([currency,amount])=>b.get(currency)===amount)?'matched':'different'};
+}
 export function retainSuccessfulSnapshot(previous,result){
  const snapshot={...result};for(const key of ['resources','billing','instance_billing']){
   const current=result[key];snapshot[key]=current.status==='ok'?{...current,last_success_at:result.collected_at}:previous?.[key]?.status==='ok'?{...previous[key],stale:true,last_error:current.error_code,last_attempt_at:result.collected_at}:current;
  }
- snapshot.last_attempt_at=result.collected_at;snapshot.next_sync_at=new Date(Date.parse(result.collected_at)+CLOUD_SYNC_INTERVAL_MS).toISOString();return snapshot;
+ snapshot.bill_reconciliation=reconcileCloudBills(snapshot.billing,snapshot.instance_billing);snapshot.last_attempt_at=result.collected_at;snapshot.next_sync_at=new Date(Date.parse(result.collected_at)+CLOUD_SYNC_INTERVAL_MS).toISOString();return snapshot;
 }
 export async function syncAliyun(pool,box,{scheduled=false,actor={kind:'system',id:'aliyun-bill-sync'},reader=readAliyun}={}){
  const db=await pool.connect();let locked=false;
