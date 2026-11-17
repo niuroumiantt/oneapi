@@ -51,7 +51,7 @@ $('ref-model').addEventListener('input',()=>{refAutomatic=false});
 document.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>{$('prompt').value=presets[b.dataset.preset];changed()});
 $('attach-btn').onclick=()=>$('file-input').click();$('file-input').onchange=e=>{addFiles(Array.from(e.target.files));e.target.value=''};const composer=document.querySelector('.composer');composer.ondragover=e=>e.preventDefault();composer.ondrop=e=>{e.preventDefault();addFiles(Array.from(e.dataTransfer.files))};
 $('run').onclick=run;$('stop').onclick=()=>controller?.abort();$('clear').onclick=clear;$('export-btn').onclick=exportReport;$('replay').onclick=replay;
-window.addEventListener('pagehide',()=>{controller?.abort();$('our-key').value='';$('ref-key').value='';files=[];reportSecrets=[];});
+window.addEventListener('pagehide',()=>{controller?.abort();$('our-key').value='';$('ref-key').value='';files=[];});
 window.addEventListener('pageshow',e=>{if(e.persisted){models=[];renderFiles();changed();}});
 ['a','b'].forEach(s=>stats(s,null));table();
 api('config').then(c=>{config=c;$('account-state').textContent='已登录 · 密钥仅用于会话';updateProvider()}).catch(e=>{$('account-state').textContent='尚未验证登录';const box=$('auth-error');box.hidden=false;box.textContent=e.message+'。';const a=document.createElement('a');a.href='/#personal';a.textContent='前往登录 / 工作台';box.append(a);document.querySelectorAll('main input,main select,main textarea,main button').forEach(e=>e.disabled=true)});
