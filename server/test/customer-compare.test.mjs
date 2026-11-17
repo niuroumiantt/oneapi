@@ -8,6 +8,8 @@ import {normalizeUsage,consumeCompletion} from '../src/compare-stream.mjs';
 import {extractAttachment,sharedMessages} from '../src/compare-files.mjs';
 import {docxText} from '../src/compare-docx.mjs';
 import {customerCompareRoutes} from '../src/customer-compare.mjs';
+import {findOfficialModel} from '../src/official-models.mjs';
+process.env.SUPPLIER_LAB_SECRET='test-compare-only-secret-1234567890123456';
 import {hash,HttpError} from '../src/core.mjs';
 
 const ownKey='sf_paid_'+'a'.repeat(43),refKey='sk-reference-test-secret',enc=new TextEncoder();
@@ -51,18 +53,26 @@ test('attachments preserve shared text and reject unsupported, oversized and dec
 });
 function events(raw){return raw.split('\n\n').filter(b=>b.includes('data: ')).map(b=>({event:b.match(/event: (.*)/)?.[1],data:JSON.parse(b.split('data: ')[1])}));}
 async function fixture(t,opts={}){
- const seen=[],pool={async query(sql,args){if(sql.includes('request_limits'))return {rows:[{count:1}]};if(sql.includes('SELECT id FROM customer_api_keys'))return {rows:args[0]===hash(ownKey)&&args[1]==='user-a'?[{id:'key-a'}]:[]};if(sql.includes('upstream_model_flags'))return {rows:opts.blocked?[{model_id:'reference-model'}]:[]};if(sql.includes('SELECT status'))return {rows:[]};throw Error('Unexpected fixture SQL');}};
- const app=express();customerCompareRoutes(app,pool,{compareTimeoutMs:opts.timeout||2000,comparePlatformFetch:async(url,init)=>{if(url.endsWith('/models'))return Response.json({data:[{id:'deepseek-flash',capabilities:{input:['text','image']}}]});seen.push({side:'a',body:JSON.parse(init.body)});return sse([chunk('A','stop'),{usage:{prompt_tokens:12,completion_tokens:1}},'[DONE]'])},compareReferenceFetch:async(url,init)=>{seen.push({side:'b',body:init.body&&JSON.parse(init.body)});if(opts.hang){opts.started?.();if(opts.release)await opts.release;else await new Promise((_,reject)=>init.signal.addEventListener('abort',()=>reject(init.signal.reason),{once:true}));}return opts.fail?new Response(JSON.stringify({error:{message:'bad '+refKey}}),{status:401}):sse([chunk('B','stop'),'[DONE]'])}},(req,res,next)=>{if(req.get('x-test-user')==='anonymous')return res.status(401).json({error:'请先登录'});req.customer={id:req.get('x-test-user')||'user-a'};next()});
+ const seen=[],retired=[],issued=[],pool={async connect(){return {...this,release(){}}},async query(sql,args){
+  if(['BEGIN','COMMIT','ROLLBACK'].includes(sql))return {rows:[]};
+  if(sql.includes('request_limits'))return {rows:[{count:1}]};
+  if(sql.includes('AS available_yuan'))return {rows:args[0]==='user-a'?[{id:'account-a',organization_id:null,available_yuan:10}]:[]};
+  if(sql.includes('account_upgrade_requests'))return {rows:[],rowCount:0};
+  if(sql.includes('FROM billing_accounts'))return {rows:[{id:'account-a',owner_id:'user-a',list_credit_fen:1000}]};
+  if(sql.includes('INSERT INTO customer_api_keys')){issued.push(args);return {rows:[{id:'key-a'}]};}
+  if(sql.includes('UPDATE customer_api_keys')){retired.push(args[0]);return {rows:[]};}
+  if(sql.includes('upstream_model_flags'))return {rows:opts.blocked?[{model_id:'reference-model'}]:[]};if(sql.includes('SELECT status'))return {rows:[]};throw Error('Unexpected fixture SQL: '+sql.slice(0,80));}};
+ const app=express();customerCompareRoutes(app,pool,{customerPaid:{enabled:true,models:['deepseek-flash']},comparePaidRoutes:async()=>[{model:findOfficialModel('deepseek-flash')}],compareTimeoutMs:opts.timeout||2000,comparePlatformFetch:async(url,init)=>{if(url.endsWith('/models'))return Response.json({data:[{id:'deepseek-flash',capabilities:{input:['text','image']}}]});seen.push({side:'a',body:JSON.parse(init.body)});return sse([chunk('A','stop'),{usage:{prompt_tokens:12,completion_tokens:1}},'[DONE]'])},compareReferenceFetch:async(url,init)=>{seen.push({side:'b',body:init.body&&JSON.parse(init.body)});if(opts.hang){opts.started?.();if(opts.release)await opts.release;else await new Promise((_,reject)=>init.signal.addEventListener('abort',()=>reject(init.signal.reason),{once:true}));}return opts.fail?new Response(JSON.stringify({error:{message:'bad '+refKey}}),{status:401}):sse([chunk('B','stop'),'[DONE]'])}},(req,res,next)=>{if(req.get('x-test-user')==='anonymous')return res.status(401).json({error:'请先登录'});req.customer={id:req.get('x-test-user')||'user-a'};next()});
  app.use((e,_req,res,_next)=>res.status(e.status||500).json({error:e.message}));const server=createServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>{server.closeAllConnections();server.close()});const origin='http://127.0.0.1:'+server.address().port;
- const request={ours:{key:ownKey,model:'deepseek-flash'},reference:{provider:'custom',base_url:'https://reference.example/v1',model:'reference-model',key:refKey},prompt:'同一任务',system:'系统',attachments:[{name:'a.txt',kind:'text',text:'相同文件内容'}],parameters:{max_tokens:128,temperature:0}};
- const call=async(body=request,user='user-a')=>{const r=await fetch(origin+'/api/compare/run',{method:'POST',headers:{'content-type':'application/json','x-test-user':user},body:JSON.stringify(body)});return {status:r.status,text:await r.text()}};return {seen,request,call,origin};
+ const request={ours:{account_id:'account-a',model:'deepseek-flash'},reference:{provider:'custom',base_url:'https://reference.example/v1',model:'reference-model',key:refKey},prompt:'同一任务',system:'系统',attachments:[{name:'a.txt',kind:'text',text:'相同文件内容'}],parameters:{max_tokens:128,temperature:0}};
+ const call=async(body=request,user='user-a')=>{const r=await fetch(origin+'/api/compare/run',{method:'POST',headers:{'content-type':'application/json','x-test-user':user},body:JSON.stringify(body)});return {status:r.status,text:await r.text()}};return {seen,retired,issued,request,call,origin};
 }
 test('comparison forwards equal frozen inputs, permits different names and retains both results',async t=>{
- const f=await fixture(t),r=await f.call();assert.equal(r.status,200,r.text);const es=events(r.text);assert.equal(es.filter(e=>e.event==='result').length,2);assert.equal(es.at(-1).event,'end');assert.equal(f.seen.length,2);
+ const f=await fixture(t),r=await f.call();assert.equal(r.status,200,r.text);const es=events(r.text);assert.equal(es.filter(e=>e.event==='result').length,2);assert.equal(es.at(-1).event,'end');assert.equal(f.seen.length,2);assert.equal(f.issued.length,1);assert.deepEqual(f.retired,['key-a']);
  const {model:a,...ap}=f.seen[0].body,{model:b,...bp}=f.seen[1].body;assert.notEqual(a,b);assert.deepEqual(ap,bp);assert.equal(es.find(e=>e.event==='result'&&e.data.side==='b').data.usage,null);assert.ok(!r.text.includes(ownKey));assert.ok(!r.text.includes(refKey));
 });
 test('anonymous, cross-owner, invalid images and invalid params cannot make paid requests',async t=>{
- const f=await fixture(t);assert.equal((await f.call(f.request,'anonymous')).status,401);assert.equal((await f.call(f.request,'other')).status,403);assert.equal((await f.call({...f.request,parameters:{max_tokens:999999}})).status,400);assert.equal((await f.call({...f.request,prompt:''})).status,400);assert.equal(f.seen.length,0);
+ const f=await fixture(t);assert.equal((await f.call(f.request,'anonymous')).status,401);assert.equal((await f.call(f.request,'other')).status,402);assert.equal((await f.call({...f.request,ours:{account_id:'account-other',model:'deepseek-flash'}})).status,403);assert.equal((await f.call({...f.request,parameters:{max_tokens:999999}})).status,400);assert.equal((await f.call({...f.request,prompt:''})).status,400);assert.equal(f.seen.length,0);
 });
 test('single-side HTTP failure keeps other result and strips credentials from errors',async t=>{
  const f=await fixture(t,{fail:true}),r=await f.call(),results=events(r.text).filter(e=>e.event==='result').map(e=>e.data);assert.equal(results.find(r=>r.side==='a').status,'complete');assert.equal(results.find(r=>r.side==='b').status,'failed');assert.ok(!r.text.includes(refKey));

@@ -3,7 +3,7 @@ import test,{before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
 import { createServer } from 'node:http';
-import { randomBytes,createHash,generateKeyPairSync,createSign,createVerify,createCipheriv } from 'node:crypto';
+import { randomBytes,randomUUID,createHash,generateKeyPairSync,createSign,createVerify,createCipheriv } from 'node:crypto';
 import { signContent,responseNode } from '../src/alipay.mjs';
 import { mkdtemp, writeFile, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { generateKeyPair,exportJWK,SignJWT } from 'jose';
 import { createApp } from '../src/app.mjs';
 import { GRANT_YUAN,holdYuan,channelFeeYuan,employeeRequest,usageFrom,settleEmployeeCalls,callClient,callSummary } from '../src/employee-credit.mjs';
-import { vault,hasBusiness,hash } from '../src/core.mjs';
+import { vault,hasBusiness,hash,token } from '../src/core.mjs';
 import { findOfficialModel,officialPeak } from '../src/official-models.mjs';
 import { migrate } from '../src/migrate.mjs';
 import { config } from '../src/core.mjs';
@@ -1549,6 +1549,7 @@ test('ordinary customer: discounted purchase, signed payment, scoped key, shared
  await Promise.all([creditPaidOrder(pool,order.out_trade_no,confirm,'test'),creditPaidOrder(pool,order.out_trade_no,confirm,'test')]);
  const wallet=async()=>(await buyer.j.call('/api/billing/personal')).data;
  assert.equal((await wallet()).list_credit_fen,'10000');assert.equal((await wallet()).cash_balance_fen,'3000');assert.equal((await wallet()).packs.length,1);
+ const options=await buyer.j.call('/api/compare/config');assert.equal(options.status,200);assert.equal(options.data.products[0].account_id,order.account_id);assert.ok(options.data.models.some(m=>m.id==='deepseek-flash'));assert.equal((await pool.query('SELECT 1 FROM customer_api_keys WHERE owner_id=$1',[buyer.user.id])).rowCount,0,'products load without creating or entering a Key');
  const made=await post(buyer.j,'/api/customer-credit/keys',{label:'my agent',models:['deepseek-flash'],limit_yuan:'100'});assert.equal(made.status,201,JSON.stringify(made.data));assert.match(made.data.secret,/^sf_paid_/);
  assert.equal((await post(other.j,'/api/customer-credit/keys/'+made.data.key.id+'/revoke')).status,404);
  const secret=made.data.secret,call=body=>buyer.j.call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+secret},body});
@@ -1562,17 +1563,27 @@ test('ordinary customer: discounted purchase, signed payment, scoped key, shared
  pilotFetch=async()=>new Response('data: '+JSON.stringify({choices:[{delta:{content:'hi'}}]})+'\n\ndata: '+JSON.stringify({choices:[],usage:{prompt_tokens:10,completion_tokens:1}})+'\n\ndata: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream','x-request-id':'paid-request-2'}});
  assert.equal((await call({model:'deepseek-flash',stream:true,messages:[{role:'user',content:'hi'}],max_tokens:10})).status,200);
  // Real customer session -> compare -> existing /v1 gateway -> real PostgreSQL ledger.
- const compareBody={ours:{key:secret,model:'deepseek-flash'},reference:{provider:'deepseek',key:'official-fixture-secret',model:'deepseek-flash'},prompt:'same task '+ 'x'.repeat(20000),parameters:{max_tokens:128}};
+ const compareBody={ours:{account_id:order.account_id,model:'deepseek-flash'},reference:{provider:'deepseek',key:'official-fixture-secret',model:'deepseek-flash'},prompt:'same task '+ 'x'.repeat(20000),parameters:{max_tokens:128}};
  let referenceCalls=0;
  compareFetch=async()=>{referenceCalls++;return new Response('data: '+JSON.stringify({model:'official-returned',choices:[{delta:{content:'reference'},finish_reason:'stop'}],usage:{prompt_tokens:10,completion_tokens:1}})+'\n\ndata: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream'}});};
- const ccBefore=(await pool.query('SELECT count(*)::int AS n FROM customer_calls WHERE key_id=$1',[made.data.key.id])).rows[0].n;
- assert.equal((await post(other.j,'/api/compare/run',compareBody)).status,403);
+ const ccBefore=(await pool.query('SELECT count(*)::int AS n FROM customer_calls WHERE account_id=$1',[order.account_id])).rows[0].n;
+ assert.equal((await post(other.j,'/api/compare/run',compareBody)).status,402);
+ assert.equal((await other.j.call('/api/compare/config')).status,402);
+ assert.equal((await post(other.j,'/api/compare/attachment',{name:'a.txt',data:'YWJj'})).status,402);
+ assert.equal((await post(other.j,'/api/compare/models',{side:'reference',key:'official-fixture-secret',reference:{provider:'deepseek'}})).status,402);
+ assert.equal(referenceCalls,0);
+ assert.equal((await post(buyer.j,'/api/compare/run',{...compareBody,ours:{account_id:randomUUID(),model:'deepseek-flash'}})).status,403);
+ assert.equal((await post(buyer.j,'/api/compare/run',{...compareBody,ours:{account_id:order.account_id,model:'not-purchased'}})).status,403);
  assert.equal((await buyer.j.call('/api/compare/run',{method:'POST',body:compareBody,headers:{Origin:'https://foreign.example'}})).status,403);
  const compared=await post(buyer.j,'/api/compare/run',compareBody);assert.equal(compared.status,200,String(compared.data));
  const compareEvents=compared.data.split('\n\n').filter(x=>x.includes('data: ')).map(x=>({event:x.match(/event: (.*)/)?.[1],data:JSON.parse(x.split('data: ')[1])}));
  const left=compareEvents.find(x=>x.event==='result'&&x.data.side==='a').data;
  assert.equal(left.status,'complete');assert.equal(left.billing.status,'settled');assert.equal(left.usage.total_tokens,11);assert.ok(Number(left.billing.charged_yuan)>0);assert.equal(referenceCalls,1);
- assert.equal((await pool.query('SELECT count(*)::int AS n FROM customer_calls WHERE key_id=$1',[made.data.key.id])).rows[0].n,ccBefore+1,'exactly one platform call billed');
+ assert.equal((await pool.query('SELECT count(*)::int AS n FROM customer_calls WHERE account_id=$1',[order.account_id])).rows[0].n,ccBefore+1,'exactly one platform call billed');
+ const temp=(await pool.query('SELECT k.* FROM customer_api_keys k JOIN customer_calls c ON c.key_id=k.id WHERE c.id=$1',[left.platform_call_id])).rows[0];assert.equal(temp.purpose,'compare');assert.ok(temp.revoked_at);assert.ok(temp.expires_at);
+ assert.equal((await buyer.j.call('/api/customer-credit/status')).data.keys.length,1,'internal comparison key is not a customer-managed Key');
+ const expired='sf_paid_'+token();await pool.query("INSERT INTO customer_api_keys(account_id,owner_id,label,secret_hash,key_hint,model_ids,limit_yuan,purpose,expires_at) VALUES($1,$2,'expired fixture',$3,'test',ARRAY['deepseek-flash'],1,'compare',now()-interval '1 second')",[order.account_id,buyer.user.id,hash(expired)]);
+ assert.equal((await buyer.j.call('/v1/models',{headers:{Authorization:'Bearer '+expired}})).status,401,'expired comparison credentials never authenticate');
  assert.ok(!compared.data.includes(secret));assert.ok(!compared.data.includes('official-fixture-secret'));compareFetch=fetch;
  // Unexpected supplier usage cannot exceed even a small key's remaining lifetime cap.
  const capped=await post(buyer.j,'/api/customer-credit/keys',{label:'small cap',models:['deepseek-flash'],limit_yuan:'1'});
@@ -1896,4 +1907,27 @@ test('customer usage preaggregation matches direct call counts for personal and 
   const expected=(await pool.query("SELECT count(*)::int AS calls,max(e.created_at) AS latest FROM employee_calls e WHERE e.created_at>=now()-interval '30 days' AND (e.owner_id=$1 OR e.owner_id IN (SELECT a.user_id FROM employee_credit_accounts a WHERE a.organization_id=$2))",[c.user_id,c.organization_id])).rows[0];
   assert.equal(c.calls_30d,expected.calls,c.code);assert.equal(c.last_call_at,expected.latest?.toISOString()??null,c.code);
  }
+});
+
+test('comparison requires purchased remaining credits and current enterprise billing permission',async()=>{
+ const {comparisonAccounts}=await import('../src/compare-access.mjs');
+ const owner=await user('compare-access'),member=await user('compare-member');
+ const account=(await pool.query('INSERT INTO billing_accounts(owner_id,list_credit_fen) VALUES($1,1000) RETURNING id',[owner.user.id])).rows[0].id;
+ const eligible=()=>comparisonAccounts(pool,owner.user.id);
+ assert.equal((await eligible()).length,0,'a balance alone is not proof of payment');
+ const pack=(await pool.query("INSERT INTO credit_packs(account_id,source_kind,source_id,face_fen,cash_fen,remaining_fen) VALUES($1,'bank',$2,1000,1000,1000) RETURNING id",[account,randomUUID()])).rows[0].id;
+ assert.equal((await eligible()).length,1);
+ await assert.rejects(pool.query('UPDATE credit_packs SET cash_fen=0 WHERE id=$1',[pack]),{code:'23514'},'free credits cannot be stored as paid packs');
+ await pool.query('UPDATE credit_packs SET refund_id=$2 WHERE id=$1',[pack,randomUUID()]);assert.equal((await eligible()).length,0,'refunded packs do not qualify');
+ await pool.query('UPDATE credit_packs SET refund_id=NULL,remaining_fen=0 WHERE id=$1',[pack]);assert.equal((await eligible()).length,0,'spent packs do not qualify');
+ const org=await organization(owner,'Compare paid enterprise');
+ const orgAccount=(await pool.query('INSERT INTO billing_accounts(organization_id,list_credit_fen) VALUES($1,1000) RETURNING id',[org.id])).rows[0].id;
+ await pool.query("INSERT INTO credit_packs(account_id,source_kind,source_id,face_fen,cash_fen,remaining_fen) VALUES($1,'bank',$2,1000,1000,1000)",[orgAccount,randomUUID()]);
+ assert.equal((await eligible())[0].account_id,orgAccount);
+ await pool.query("INSERT INTO memberships(organization_id,user_id,role) VALUES($1,$2,'member')",[org.id,member.user.id]);
+ assert.equal((await comparisonAccounts(pool,member.user.id)).length,0);
+ await pool.query("UPDATE memberships SET role='billing' WHERE organization_id=$1 AND user_id=$2",[org.id,member.user.id]);
+ assert.equal((await comparisonAccounts(pool,member.user.id))[0].account_id,orgAccount);
+ await pool.query("UPDATE memberships SET status='suspended' WHERE organization_id=$1 AND user_id=$2",[org.id,member.user.id]);
+ assert.equal((await comparisonAccounts(pool,member.user.id)).length,0,'suspended membership cannot spend company credits');
 });
