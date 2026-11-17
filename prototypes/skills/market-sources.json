@@ -1,0 +1,202 @@
+[
+  {
+    "id": "dungeon",
+    "repo": "NylasDev/nylas-dungeon-master-skills",
+    "slug": "agent-dungeon-master"
+  },
+  {
+    "id": "react",
+    "repo": "vercel-labs/agent-skills",
+    "slug": "vercel-react-best-practices"
+  },
+  {
+    "id": "pdf",
+    "repo": "anthropics/skills",
+    "slug": "pdf"
+  },
+  {
+    "id": "gif",
+    "repo": "anthropics/skills",
+    "slug": "slack-gif-creator"
+  },
+  {
+    "id": "art",
+    "repo": "anthropics/skills",
+    "slug": "algorithmic-art"
+  },
+  {
+    "id": "sheet",
+    "repo": "anthropics/skills",
+    "slug": "xlsx"
+  },
+  {
+    "id": "dm-prep",
+    "repo": "NylasDev/nylas-dungeon-master-skills",
+    "slug": "dungeon-master-assistant"
+  },
+  {
+    "id": "canvas",
+    "repo": "anthropics/skills",
+    "slug": "canvas-design"
+  },
+  {
+    "id": "design",
+    "repo": "vercel-labs/agent-skills",
+    "slug": "web-design-guidelines"
+  },
+  {
+    "id": "frontend",
+    "repo": "anthropics/skills",
+    "slug": "frontend-design"
+  },
+  {
+    "id": "docx",
+    "repo": "anthropics/skills",
+    "slug": "docx"
+  },
+  {
+    "id": "slides",
+    "repo": "anthropics/skills",
+    "slug": "pptx"
+  },
+  {
+    "id": "research",
+    "repo": "K-Dense-AI/scientific-agent-skills",
+    "slug": "scientific-critical-thinking"
+  },
+  {
+    "id": "writing",
+    "repo": "anthropics/skills",
+    "slug": "internal-comms"
+  },
+  {
+    "id": "test",
+    "repo": "anthropics/skills",
+    "slug": "webapp-testing"
+  },
+  {
+    "id": "themes",
+    "repo": "anthropics/skills",
+    "slug": "theme-factory"
+  },
+  {
+    "id": "brand",
+    "repo": "anthropics/skills",
+    "slug": "brand-guidelines"
+  },
+  {
+    "id": "artifact",
+    "repo": "anthropics/skills",
+    "slug": "web-artifacts-builder"
+  },
+  {
+    "id": "lark-doc",
+    "repo": "larksuite/cli",
+    "slug": "lark-doc"
+  },
+  {
+    "id": "lark-sheets",
+    "repo": "larksuite/cli",
+    "slug": "lark-sheets"
+  },
+  {
+    "id": "lark-base",
+    "repo": "larksuite/cli",
+    "slug": "lark-base"
+  },
+  {
+    "id": "lark-slides",
+    "repo": "larksuite/cli",
+    "slug": "lark-slides"
+  },
+  {
+    "id": "lark-markdown",
+    "repo": "larksuite/cli",
+    "slug": "lark-markdown"
+  },
+  {
+    "id": "lark-calendar",
+    "repo": "larksuite/cli",
+    "slug": "lark-calendar"
+  },
+  {
+    "id": "lark-task",
+    "repo": "larksuite/cli",
+    "slug": "lark-task"
+  },
+  {
+    "id": "lark-wiki",
+    "repo": "larksuite/cli",
+    "slug": "lark-wiki"
+  },
+  {
+    "id": "lark-drive",
+    "repo": "larksuite/cli",
+    "slug": "lark-drive"
+  },
+  {
+    "id": "lark-workflow-meeting-summary",
+    "repo": "larksuite/cli",
+    "slug": "lark-workflow-meeting-summary"
+  },
+  {
+    "id": "lark-workflow-standup-report",
+    "repo": "larksuite/cli",
+    "slug": "lark-workflow-standup-report"
+  },
+  {
+    "id": "md-format",
+    "repo": "jimliu/baoyu-skills",
+    "slug": "baoyu-format-markdown"
+  },
+  {
+    "id": "md-html",
+    "repo": "jimliu/baoyu-skills",
+    "slug": "baoyu-markdown-to-html"
+  },
+  {
+    "id": "visual-slides",
+    "repo": "jimliu/baoyu-skills",
+    "slug": "baoyu-slide-deck"
+  },
+  {
+    "id": "infographic",
+    "repo": "jimliu/baoyu-skills",
+    "slug": "baoyu-infographic"
+  },
+  {
+    "id": "cover",
+    "repo": "jimliu/baoyu-skills",
+    "slug": "baoyu-cover-image"
+  },
+  {
+    "id": "illustrations",
+    "repo": "jimliu/baoyu-skills",
+    "slug": "baoyu-article-illustrator"
+  },
+  {
+    "id": "compress",
+    "repo": "jimliu/baoyu-skills",
+    "slug": "baoyu-compress-image"
+  },
+  {
+    "id": "translate",
+    "repo": "jimliu/baoyu-skills",
+    "slug": "baoyu-translate"
+  },
+  {
+    "id": "web-clip",
+    "repo": "jimliu/baoyu-skills",
+    "slug": "baoyu-url-to-markdown"
+  },
+  {
+    "id": "impeccable",
+    "repo": "pbakaus/impeccable",
+    "slug": "impeccable"
+  },
+  {
+    "id": "taste",
+    "repo": "leonxlnx/taste-skill",
+    "slug": "design-taste-frontend"
+  }
+]

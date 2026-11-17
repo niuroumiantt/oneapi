@@ -75,3 +75,40 @@ K-Dense 条目核心证据分析不需网络；可选科学绘图依赖 OpenRout
 环境：macOS M5，Python 3.12.14，Node 22.23.3，现有 Codex 登录。未记录确切服务端模型 ID，未取得金额账单；未验证 OneAPI 具体模型组合。临时项目 `/private/tmp/oneapi-skill-tests-20261117`；复现细节见 tests/README.md。
 
 验收：4 项报告人工视觉检查；详情页截图正常加载；GIF 详情 390px 无溢出；广场费用说明与状态正确；浏览器未捕获 error/warn。`check-evidence.py` 核对 27 个产物哈希、4 张截图、PDF 标准答案；目录检查与 JS 语法通过。仍仅本地，未推送或部署。
+
+## 2026-11-17 扩充目录与双榜
+
+用户确认双榜为 **semifly 精选** + **GitHub Top 10**，不是 skills.sh Trending 第三榜。继续仅本地，未部署或推送。
+
+### 目录与来源
+
+- 从 15 增至 40 项：新增 25，来自 Anthropic（3）、Lark / 飞书（11）、宝玉（9）、Impeccable（1）、Taste（1）。
+- 当前分类：文档与办公 13、设计与排版 11、数据与分析 3、网站与设计 4，其他保留。编辑精选 10 项优先 Word、Excel、PPT、PDF、会议纪要、Markdown 与 HTML 排版、信息图、界面精修和品牌网页。
+- 新数据在 catalog-extra.js；source-refs.js 和 source-audit.json 包含每项固定 commit、真实 Skill 名称、许可路径、来源片段和内容哈希。
+- 新增候选 doc-coauthoring 在所查提交没有单独许可证，未收录；换为有明确许可的 web-artifacts-builder。brand-guidelines 明确是 Anthropic 自有品牌参考。
+- 当前固定版本许可为 14 Apache-2.0 + 26 MIT。图像服务、飞书账号与 API 配额费用另计。新增条目均未安装/运行；原四项实测证据不变。
+- Lark 安装命令加入 lark-shared 和对应工作流依赖，仍需配置 lark-cli 及资源权限。
+
+### 安装量与榜单
+
+- market-data.json 保存真实公开采集数据，40 项均取得 skills.sh Installs 数值；K/M 是来源展示的约数，仅用于近似排序。不是 GitHub 下载量、独立用户、固定 commit 安装数或本站统计。详情显示来源与采集时间。
+- 排名只取 skills.sh 公开全时榜明确显示的名次，不给未出现在榜页中的条目编造名次。目录新增安装量排序、分批加载（每批 12 项），搜索时隐藏顶部榜单，避免结果被长榜单挤到下方。
+- semifly 精选为人工编辑顺序；GitHub Top 10 来自官方全语言 daily 页面并保留原始次序。不是“GitHub 官方 Skill 榜”，不自动把上榜仓库收入已核验免费目录。
+- 首次更新已实际成功：2026-11-17T04:51:16+00:00（上海 12:51）。当天首位 ag-ui-protocol/ag-ui；以后以实时快照为准，不把交接文字当当前榜单。
+
+### 每日调度
+
+- 新增 Python 标准库更新器 prototypes/skills/scripts/update-market.py，输入 market-sources.json，原子写 market-data.json；公开页面读取，无 token、无安装、无部署。
+- 网络、解析或不足 10 条失败，保留上次成功榜单及日期；超过 36 小时或失败时页面显示旧快照提示。缺失安装量展示“—”，不写 0。
+- 已通过 Codex app automation_update 创建并查看任务 `semifly-skills`（ACTIVE）：每天本地时间 09:00，当前 Asia/Shanghai。附着本对话，只更新本地 JSON 和校验，不 commit / push / deploy。
+- 需要本机、Codex 运行与网络可达；未设置生产常驻调度。未来上线需另行明确授权。完整说明见 prototypes/skills/scripts/README.md。
+
+### 验收
+
+- 40 项来源/许可/元数据及统计请求清单一致性检查通过；原 27 个实测产物哈希仍一致。
+- update-market.py 真实抓取成功；6 个离线回归覆盖解析、数量不足、单位转换、失败保留日期、未知值和原子写入。
+- 浏览器逐一打开 40 个详情页，均具来源/目录/许可链接和安装命令；PDF 的 lazy 图片在加载完成后复核正常。
+- 双榜切换、按安装量排序、11 项排版分类、13 项办公分类、搜索/空状态、分批展示全部 40 项、Codex 命令切换与复制通过。
+- 桌面、390px 手机视觉检查；768px 与390px 宽度检查无横向溢出；console 无 error/warn。手机截图接口需显式 clip 才正常返回缩放比例，已用对应截图验证，不是页面缩放问题。
+- Impeccable detector 返回 []；没有更改其项目配置。
+- 截图：本会话 visualizations 目录的 skills-featured-board.jpg、skills-github-board.jpg、skills-github-mobile.jpg。本地地址仍为 http://127.0.0.1:4175/prototypes/skills/ 。
