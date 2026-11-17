@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readAliyun,retainSuccessfulSnapshot,syncAliyun,CLOUD_SYNC_INTERVAL_MS} from '../src/aliyun-readonly.mjs';
+import {readAliyun,reconcileCloudBills,retainSuccessfulSnapshot,syncAliyun,CLOUD_SYNC_INTERVAL_MS} from '../src/aliyun-readonly.mjs';
 const auth={region:'cn-qingdao',product:'ecs'};
 const fetcher=async(a,s,op,p)=>op==='DescribeInstances'?{TotalCount:0,Instances:{Instance:[]}}:op==='QueryAccountBill'?{Data:{TotalCount:1,Items:{Item:[{ProductName:'ECS',Currency:'CNY',PretaxAmount:'22.590001',PaymentAmount:'20',OutstandingAmount:'2.590001'}]}}}:{Data:{Items:[{InstanceID:'shared-host',Currency:'CNY',PretaxAmount:'22.590001'}]}};
 test('actual bills retain precision; forecast and OneAPI allocations never inferred from account costs',async()=>{
@@ -32,4 +32,14 @@ test('cloud UI shows failed refresh and keeps forecast and allocation visibly se
  const snapshot=retainSuccessfulSnapshot(null,await readAliyun(auth,fetcher));snapshot.billing.stale=true;snapshot.billing.last_error='Forbidden';
  const ctx=vm.createContext({cloudData:{configured:true,snapshot},esc:String,when:String,stat:(...x)=>x.join(' ')});vm.runInContext(source.slice(source.indexOf('function cloudView('),source.indexOf('function configureCloud(')),ctx);
  const html=ctx.cloudView();assert.match(html,/每 6 小时自动同步/);assert.match(html,/预测费用 未接入/);assert.match(html,/OneAPI 已归属成本 待确认/);assert.match(html,/本次同步失败：Forbidden/);assert.match(html,/22.590001/);assert.match(html,/资源账单 · 待分配/);
+});
+
+test('account and instance bills reconcile exactly across currencies without assuming matching timestamps imply matching totals',()=>{
+ const bill=items=>({status:'ok',period:'2026-11',items}),row=(amount,currency='CNY')=>({pretax_amount:amount,currency});
+ assert.equal(reconcileCloudBills(bill([row('0.3')]),bill([row('0.1'),row('0.2')])).status,'matched');
+ assert.equal(reconcileCloudBills(bill([row('0.3000000001')]),bill([row('0.3')])).status,'different');
+ assert.equal(reconcileCloudBills(bill([row('1','CNY')]),bill([row('1','USD')])).status,'different');
+ assert.equal(reconcileCloudBills({...bill([row('1')]),stale:true},bill([row('1')])).status,'unavailable');
+ assert.equal(reconcileCloudBills(bill([]),bill([])).status,'unavailable');
+ assert.equal(reconcileCloudBills(bill([row(null)]),bill([row('0')])).status,'unavailable');
 });
