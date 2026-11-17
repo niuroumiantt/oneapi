@@ -11,7 +11,7 @@ export function paidBackend(pool,cfg){return {
  async authenticate(req){
   if(!paidEnabled(cfg))throw new HttpError(503,'客户付费调用尚未开放');
   const k=(await pool.query(`SELECT k.id AS key_id,k.*,a.organization_id,a.owner_id AS account_owner FROM customer_api_keys k JOIN billing_accounts a ON a.id=k.account_id JOIN "user" u ON u.id=k.owner_id
-   WHERE k.secret_hash=$1 AND k.revoked_at IS NULL AND u."emailVerified" AND NOT coalesce(u.disabled,false)`,[hash(pattern.exec(req.get('authorization'))[1])])).rows[0];
+   WHERE k.secret_hash=$1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND u."emailVerified" AND NOT coalesce(u.disabled,false)`,[hash(pattern.exec(req.get('authorization'))[1])])).rows[0];
   if(!k)throw new HttpError(401,'平台 Key 无效或已停用');
   // Revalidate membership on every request; a key never carries permanent company authority.
   if(!(await accountFor(pool,k.owner_id,k.organization_id))?.id||(!k.organization_id&&k.account_owner!==k.owner_id))throw new HttpError(401,'账户权限已失效');
@@ -36,6 +36,7 @@ export function paidBackend(pool,cfg){return {
  }
 };}
 export async function settleCustomerCalls(pool){
+ await pool.query("UPDATE customer_api_keys SET revoked_at=now() WHERE purpose='compare' AND revoked_at IS NULL AND expires_at<=now()");
  // No estimated charges for customer calls without usable usage evidence. Release after 24h.
  await pool.query(`UPDATE customer_calls c SET status=CASE WHEN upstream_request_id IS NULL THEN 'failed' ELSE 'awaiting_bill' END,error_code='GATEWAY_INTERRUPTED',finished_at=now() WHERE status='pending' AND
  (created_at<now()-interval '20 minutes' OR gateway_instance<>$1 AND NOT EXISTS(SELECT 1 FROM gateway_instances g WHERE g.id=c.gateway_instance AND stopped_at IS NULL AND seen_at>now()-interval '30 seconds'))`,[GATEWAY_INSTANCE]);
@@ -47,7 +48,7 @@ export function customerCreditRoutes(app,pool,cfg,requireCustomer){
  const account=async req=>accountFor(pool,req.customer.id,req.query.org? id(req.query.org):null,{create:true});
  app.get('/api/customer-credit/status',requireCustomer,async(req,res)=>{
   const a=await account(req),routes=paidEnabled(cfg)?await paidRoutes(pool,cfg):[];
-  const keys=(await pool.query('SELECT id,label,key_hint,model_ids,limit_yuan,created_at,revoked_at FROM customer_api_keys WHERE account_id=$1 ORDER BY created_at DESC',[a.id])).rows;
+  const keys=(await pool.query("SELECT id,label,key_hint,model_ids,limit_yuan,created_at,revoked_at FROM customer_api_keys WHERE account_id=$1 AND purpose='api' ORDER BY created_at DESC",[a.id])).rows;
   const calls=(await pool.query('SELECT id,model_id,status,charged_yuan,input_tokens,cached_input_tokens,output_tokens,latency_ms,error_code,created_at FROM customer_calls WHERE account_id=$1 ORDER BY created_at DESC LIMIT 100',[a.id])).rows;
   const held=(await pool.query("SELECT coalesce(sum(hold_yuan)*100,0) AS n FROM customer_calls WHERE account_id=$1 AND status IN ('pending','awaiting_bill')",[a.id])).rows[0].n;
   res.json({enabled:paidEnabled(cfg),account_id:a.id,base_url:cfg.origin+'/v1',models:routes.map(r=>({id:r.model.id,name:r.model.name})),keys,calls,list_credit_fen:a.list_credit_fen,held_fen:held});
@@ -61,7 +62,7 @@ export function customerCreditRoutes(app,pool,cfg,requireCustomer){
   const key=await transaction(pool,async db=>{
    const row=(await db.query('SELECT list_credit_fen FROM billing_accounts WHERE id=$1 FOR UPDATE',[a.id])).rows[0];
    if(Number(row.list_credit_fen)<=0)throw new HttpError(402,'请先购买额度包');
-   if((await db.query('SELECT 1 FROM customer_api_keys WHERE account_id=$1 AND revoked_at IS NULL',[a.id])).rowCount>=5)throw new HttpError(409,'每个付费账户最多保留 5 把有效 Key');
+   if((await db.query("SELECT 1 FROM customer_api_keys WHERE account_id=$1 AND purpose='api' AND revoked_at IS NULL",[a.id])).rowCount>=5)throw new HttpError(409,'每个付费账户最多保留 5 把有效 Key');
    const k=(await db.query('INSERT INTO customer_api_keys(account_id,owner_id,label,secret_hash,key_hint,model_ids,limit_yuan) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,label,key_hint,model_ids,limit_yuan',[a.id,req.customer.id,text(b.label,'名称',50),hash(secret),secret.slice(-6),models,b.limit_yuan])).rows[0];
    await audit(db,req.actor,'customer.key_created',a.organization_id,k.id,{models});return k;
   });res.status(201).json({key,secret,base_url:cfg.origin+'/v1'});
