@@ -27,6 +27,7 @@
   if(a.status!=='complete'||b.status!=='complete')return unavailable('本次包含失败、停止或不完整结果，不计算节省结论。');
   const bill=a.billing,estimate=b.estimate;
   if(bill?.status!=='settled')return unavailable('平台费用尚未结算，暂不计算差额。');
+  if(bill.funding_kind==='allocated')return unavailable('本次使用企业分配额度，已展示实际扣减；未记录企业购入成本，暂不计算现金节省。');
   if(estimate?.status!=='estimated')return unavailable('参照费用无法估算，暂不计算差额。');
   if(bill.currency!=='CNY'||estimate.currency!=='CNY')return unavailable('双方费用币种不一致或未提供，暂不计算差额。');
   const actual=decimal(bill.paid_equivalent_yuan),expected=decimal(estimate.total_yuan);

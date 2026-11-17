@@ -64,3 +64,17 @@ export async function platformBilling(pool,callId,keyId){
   calculation:parts,price_snapshot:rates,usage,
   notice:'实际扣额来自平台已结算账本；实付消费按本次扣额所用额度包的购买比例折算。现金余额按分累计记账，小额用量可能合并记账。'};
 }
+
+// Allocated credit is an allowance, not the recipient's purchased cash balance.
+// Show the exact ledger deduction, without inventing the company's purchase discount.
+export async function allocatedBilling(pool,callId,keyId){
+ const b=(await pool.query(`SELECT c.status,c.charged_yuan,c.settlement_source,c.price_snapshot,c.input_tokens,c.cached_input_tokens,c.output_tokens
+  FROM employee_calls c WHERE c.id=$1 AND c.key_id=$2`,[callId,keyId])).rows[0];
+ if(!b)return null;
+ const usage={input_tokens:b.input_tokens==null?null:Number(b.input_tokens),cached_input_tokens:b.cached_input_tokens==null?null:Number(b.cached_input_tokens),output_tokens:b.output_tokens==null?null:Number(b.output_tokens)};
+ const rates=b.price_snapshot,settled=b.status==='settled';
+ return {status:b.status,currency:'CNY',source:'allocated_ledger',funding_kind:'allocated',charged_yuan:b.charged_yuan,
+  actual_consumption_yuan:settled?b.charged_yuan:null,paid_equivalent_yuan:null,cash_booked_yuan:null,settlement_source:b.settlement_source,
+  calculation:settled&&rates?.input!=null?tokenCharges(usage,rates,Number(rates.multiplier)||1):null,price_snapshot:rates,usage,
+  notice:'真实消费为本次企业分配额度的实际扣减，不是个人现金支出。未记录企业取得这笔额度的购入成本，无法推算购包折扣或现金节省。'};
+}
