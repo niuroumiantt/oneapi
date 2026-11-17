@@ -7,6 +7,7 @@ import {employeeRequest} from './employee-credit.mjs';
 import {publicCapabilities} from './official-models.mjs';
 import {paidEnabled,paidRoutes} from './customer-credit.mjs';
 import {comparisonAccounts,comparisonCredential} from './compare-access.mjs';
+import {REFERENCE_PRICES,referencePriceSnapshot,estimateReference,platformBilling} from './compare-pricing.mjs';
 import {routeFetch} from './output-guard.mjs';
 import {REFERENCE_PROVIDERS,referenceTarget,publicFetch} from './compare-network.mjs';
 import {consumeCompletion,readLimited,scrub} from './compare-stream.mjs';
@@ -38,9 +39,9 @@ export function customerCompareRoutes(app,pool,cfg,requireCustomer){
  async function platformCatalog(){
   if(!paidEnabled(cfg))throw new HttpError(503,'付费 API 暂未开放，请稍后重试');
   const routes=await (cfg.comparePaidRoutes?cfg.comparePaidRoutes():paidRoutes(pool,cfg));
-  return routes.map(({model:m})=>({id:m.id,name:m.name||m.id,capabilities:publicCapabilities(m,8192),upstream_model:m.upstreamModel||null}));
+  return routes.map(({model:m})=>({id:m.id,name:m.name||m.id,family:m.family,official_reference_model:m.family==='deepseek'?'deepseek-flash':m.upstreamModel,capabilities:publicCapabilities(m,8192),upstream_model:m.upstreamModel||null}));
  }
- router.get('/config',async(req,res)=>res.json({products:req.compareAccounts,models:await platformCatalog(),providers:REFERENCE_PROVIDERS,protocol:'OpenAI Chat Completions',max_file_bytes:FILE_LIMIT,max_text_characters:TEXT_LIMIT,max_files:5,max_output_tokens:8192,timeout_seconds:180,retention:'自带密钥仅用于本次会话，不写入数据库或报告；平台调用按已购账户计费。测试后请到供应商平台撤销测试 Key。'}));
+ router.get('/config',async(req,res)=>res.json({products:req.compareAccounts,models:await platformCatalog(),providers:REFERENCE_PROVIDERS,reference_prices:REFERENCE_PRICES,protocol:'OpenAI Chat Completions',max_file_bytes:FILE_LIMIT,max_text_characters:TEXT_LIMIT,max_files:5,max_output_tokens:8192,timeout_seconds:180,retention:'自带密钥仅用于本次会话，不写入数据库或报告；平台调用按已购账户计费。测试后请到供应商平台撤销测试 Key。'}));
  router.post('/models',async(req,res)=>{
   const b=req.body||{},signal=AbortSignal.timeout(20000);
   if(b.side==='ours')return res.json({products:req.compareAccounts,models:await platformCatalog(),source:'paid_account',manual:false});
@@ -59,6 +60,7 @@ export function customerCompareRoutes(app,pool,cfg,requireCustomer){
   const b=req.body||{},refKey=keyValue(b.reference?.key),ours=modelValue(b.ours?.model),reference=referenceTarget(b.reference),refModel=modelValue(b.reference?.model);
   const account=req.compareAccounts.find(a=>a.account_id===b.ours?.account_id);
   if(!account)throw new HttpError(403,'请选择当前登录账号的已购产品；旧页面请刷新后重试');
+  const referencePrice=referencePriceSnapshot(reference,refModel,b.reference_pricing,new Date(),cfg.employeeCredit?.holidays);
   const shared=sharedMessages(b.prompt,b.system,b.attachments),params=parameters(b);let credential=null;
   const retire=async()=>{if(!credential)return;const key=credential;credential=null;await pool.query("UPDATE customer_api_keys SET revoked_at=coalesce(revoked_at,now()) WHERE id=$1 AND purpose='compare'",[key.id]).catch(()=>{console.warn('comparison credential cleanup deferred to expiry');});};
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(new Error('TIMEOUT')),cfg.compareTimeoutMs||180000);
@@ -80,7 +82,7 @@ export function customerCompareRoutes(app,pool,cfg,requireCustomer){
    const ourKey=credential.secret,runId=randomUUID(),secrets=[ourKey,refKey];
    res.status(200).set({'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-store','X-Accel-Buffering':'no'});res.flushHeaders();
    const send=async(type,data)=>{if(res.destroyed||res.writableEnded)return;if(!res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`))await Promise.race([once(res,'drain'),once(res,'close')]);};
-   await send('meta',{run_id:runId,created_at:new Date().toISOString(),reference,product:{name:account.name,account_id:account.account_id},models:{a:ours,a_upstream:shaped.model.upstreamModel,b:refModel},parameters:effective,parameters_adjusted:JSON.stringify(params)!==JSON.stringify(effective),input_sha256:requestHash,attachments:shared.manifest,measurement:'同一服务端分别从请求发出计时；平台侧包含网关鉴权、路由与计费处理。',retention:'不保存对比内容或密钥'});
+   await send('meta',{run_id:runId,created_at:new Date().toISOString(),reference,reference_price:referencePrice,product:{name:account.name,account_id:account.account_id},models:{a:ours,a_upstream:shaped.model.upstreamModel,b:refModel},parameters:effective,parameters_adjusted:JSON.stringify(params)!==JSON.stringify(effective),input_sha256:requestHash,attachments:shared.manifest,measurement:'同一服务端分别从请求发出计时；平台侧包含网关鉴权、路由与计费处理。',retention:'不保存对比内容或密钥'});
    const ping=setInterval(()=>{if(!res.destroyed)res.write(': heartbeat\n\n');},15000);
    try{await Promise.all(['a','b'].map(async side=>{
     const started=performance.now();let result;
@@ -89,11 +91,11 @@ export function customerCompareRoutes(app,pool,cfg,requireCustomer){
      const response=await (isA?local(platformURL(req)+'/chat/completions',{method:'POST',headers:headers(ourKey),body:JSON.stringify(payload),redirect:'error',signal:controller.signal}):routeFetch(pool,remote,refModel,reference.base_url+'/chat/completions',{method:'POST',headers:headers(refKey),body:JSON.stringify(payload),redirect:'error',signal:controller.signal}));
      result=await consumeCompletion(response,{started,secrets,onDelta:delta=>send('delta',{side,...delta})});
      if(isA&&result.platform_call_id&&/^[0-9a-f-]{36}$/i.test(result.platform_call_id)){
-      const bill=(await pool.query(`SELECT status,charged_yuan,settlement_source FROM customer_calls WHERE id=$1 AND key_id=$2`,[result.platform_call_id,credential.id]).catch(()=>({rows:[]}))).rows[0];
-      if(bill)result.billing={...bill,currency:'CNY',source:'platform_ledger'};
+      result.billing=await platformBilling(pool,result.platform_call_id,credential.id).catch(()=>null);
      }
     }catch(e){result={status:'failed',error:e instanceof HttpError?scrub(e.message,secrets):'连接失败或响应中断，请检查接口、额度及网络',usage:null,timing:{first_text_ms:null,total_ms:Math.round(performance.now()-started)}};}
     if(controller.signal.aborted){result.status=controller.signal.reason?.message==='TIMEOUT'?'timeout':'cancelled';result.error=result.status==='timeout'?'本次对比超过 180 秒，已停止；上游已发生用量仍可能计费':'请求已取消；已发生用量仍可能计费';}
+    if(side==='b')result.estimate=estimateReference(result,referencePrice);
     await send('result',{side,...result});
    }));await send('end',{run_id:runId});}finally{clearInterval(ping);await retire();res.end();}
   }finally{clearTimeout(timeout);active.delete(req.customer.id);res.off('close',disconnect);await retire();}

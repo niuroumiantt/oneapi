@@ -1584,6 +1584,38 @@ test('ordinary customer: discounted purchase, signed payment, scoped key, shared
  assert.equal((await buyer.j.call('/api/customer-credit/status')).data.keys.length,1,'internal comparison key is not a customer-managed Key');
  const expired='sf_paid_'+token();await pool.query("INSERT INTO customer_api_keys(account_id,owner_id,label,secret_hash,key_hint,model_ids,limit_yuan,purpose,expires_at) VALUES($1,$2,'expired fixture',$3,'test',ARRAY['deepseek-flash'],1,'compare',now()-interval '1 second')",[order.account_id,buyer.user.id,hash(expired)]);
  assert.equal((await buyer.j.call('/v1/models',{headers:{Authorization:'Bearer '+expired}})).status,401,'expired comparison credentials never authenticate');
+ // Expenses use the purchased pack ratio, not a misleading full-price cash claim.
+ assert.ok(Math.abs(Number(left.billing.paid_equivalent_yuan)-Number(left.billing.charged_yuan)*0.3)<1e-12);
+ assert.equal(left.billing.calculation.items.length,3);assert.equal(left.billing.usage.input_tokens,10);
+ assert.equal(compareEvents.find(x=>x.event==='result'&&x.data.side==='b').data.estimate.status,'estimated');
+ assert.equal(Number(left.billing.cash_booked_yuan),0,'sub-cent cash is accumulated, never rounded up per call');
+ const openModels=['deepseek-flash','deepseek-flash-0910','glm-5.3','glm-5.3-flash'];
+ appCfg.customerPaid.models=openModels;
+ for(const model of openModels.slice(1)){
+  const m=findOfficialModel(model);
+  await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES('Paid extra','supplier','https://kerapi.cn/v1',$1,'paid-unique','staff-owner',$2,$3)",[m.upstreamModel,supplier,cred]);
+  await pool.query("INSERT INTO channel_states(model_id,paused,updated_by) VALUES($1,false,'test') ON CONFLICT(model_id) DO UPDATE SET paused=false",[model]);
+ }
+ assert.deepEqual((await buyer.j.call('/api/compare/config')).data.models.map(m=>m.id),openModels);
+ await pool.query("UPDATE channel_states SET paused=true WHERE model_id='deepseek-flash-0910'");
+ assert.ok(!(await buyer.j.call('/api/compare/config')).data.models.some(m=>m.id==='deepseek-flash-0910'));
+ assert.equal((await post(buyer.j,'/api/compare/run',{...compareBody,ours:{...compareBody.ours,model:'deepseek-flash-0910'}})).status,403);
+ await pool.query("UPDATE channel_states SET paused=false WHERE model_id='deepseek-flash-0910'");
+ await pool.query("INSERT INTO upstream_model_flags(model_id,flag) VALUES('GLM-5.3-Flash','ignores_max_tokens') ON CONFLICT(model_id,flag) DO UPDATE SET cleared_at=NULL");
+ assert.ok(!(await buyer.j.call('/api/compare/config')).data.models.some(m=>m.id==='glm-5.3-flash'));
+ await pool.query("UPDATE upstream_model_flags SET cleared_at=now() WHERE model_id='GLM-5.3-Flash'");
+ for(const model of openModels.slice(1)){
+  const m=findOfficialModel(model),beforeCount=referenceCalls;
+  const response=await post(buyer.j,'/api/compare/run',{...compareBody,prompt:'paid models billing test',ours:{...compareBody.ours,model},reference:{...compareBody.reference,provider:m.family,model:m.family==='deepseek'?'deepseek-flash':m.upstreamModel},parameters:{max_tokens:128,reasoning_effort:'low'}});
+  assert.equal(response.status,200,String(response.data));
+  const events=response.data.split('\n\n').filter(s=>s.startsWith('event: result')).map(s=>JSON.parse(s.split('data: ')[1]));
+  const a=events.find(e=>e.side==='a'),b=events.find(e=>e.side==='b');
+  assert.equal(a.status,'complete',JSON.stringify(a));assert.equal(a.billing.status,'settled');
+  assert.equal(a.billing.price_snapshot.input,m.rates.input);assert.equal(b.estimate.status,'estimated');
+  assert.ok(Math.abs(Number(a.billing.paid_equivalent_yuan)-Number(a.billing.charged_yuan)*0.3)<1e-12);
+  assert.equal(referenceCalls,beforeCount+1);
+ }
+
  assert.ok(!compared.data.includes(secret));assert.ok(!compared.data.includes('official-fixture-secret'));compareFetch=fetch;
  // Unexpected supplier usage cannot exceed even a small key's remaining lifetime cap.
  const capped=await post(buyer.j,'/api/customer-credit/keys',{label:'small cap',models:['deepseek-flash'],limit_yuan:'1'});
@@ -1930,4 +1962,22 @@ test('comparison requires purchased remaining credits and current enterprise bil
  assert.equal((await comparisonAccounts(pool,member.user.id))[0].account_id,orgAccount);
  await pool.query("UPDATE memberships SET status='suspended' WHERE organization_id=$1 AND user_id=$2",[org.id,member.user.id]);
  assert.equal((await comparisonAccounts(pool,member.user.id)).length,0,'suspended membership cannot spend company credits');
+});
+
+test('comparison cash display uses the exact mix of purchased packs and cumulative cent ledger',async()=>{
+ const {settlePaidCall}=await import('../src/pack-ledger.mjs'),{platformBilling}=await import('../src/compare-pricing.mjs');
+ const u=await user('compare-mixed-packs');
+ const a=(await pool.query('INSERT INTO billing_accounts(owner_id,list_credit_fen,cash_balance_fen) VALUES($1,300,125) RETURNING id',[u.user.id])).rows[0].id;
+ const first=(await pool.query("INSERT INTO credit_packs(account_id,source_kind,source_id,face_fen,cash_fen,remaining_fen,created_at) VALUES($1,'bank',$2,100,25,100,now()-interval '1 hour') RETURNING id",[a,randomUUID()])).rows[0].id;
+ await pool.query("INSERT INTO credit_packs(account_id,source_kind,source_id,face_fen,cash_fen,remaining_fen) VALUES($1,'bank',$2,200,100,200)",[a,randomUUID()]);
+ const k=(await pool.query("INSERT INTO customer_api_keys(account_id,owner_id,label,secret_hash,key_hint,model_ids,limit_yuan,purpose) VALUES($1,$2,'mixed fixture',$3,'fixture',ARRAY['deepseek-flash'],10,'compare') RETURNING id",[a,u.user.id,hash(token())])).rows[0].id;
+ const c=(await pool.query("INSERT INTO customer_calls(account_id,key_id,owner_id,model_id,price_snapshot,status,hold_yuan) VALUES($1,$2,$3,'deepseek-flash','{\"input\":\"1\",\"cached\":\"0.02\",\"output\":\"4\",\"multiplier\":1}','pending',1.501) RETURNING id",[a,k,u.user.id])).rows[0].id;
+ await settlePaidCall(pool,c,'1.501',{input:1501000,cached:0,output:0},'test',null,1);
+ const b=await platformBilling(pool,c,k);
+ assert.equal(b.status,'settled');assert.equal(Number(b.charged_yuan),1.501);
+ assert.equal(Number(b.paid_equivalent_yuan),0.5005,'first yuan at 25%, remaining .501 at 50%');
+ assert.equal(Number(b.cash_booked_yuan),0.5,'fraction of cent remains accumulated in pack ledger');
+ assert.equal(Number(b.calculation.total_yuan),1.501);
+ assert.equal(await platformBilling(pool,c,randomUUID()),null,'call billing remains scoped to the current credential');
+ assert.equal(Number((await pool.query('SELECT remaining_fen FROM credit_packs WHERE id=$1',[first])).rows[0].remaining_fen),0);
 });
