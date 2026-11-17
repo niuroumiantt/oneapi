@@ -1,0 +1,7 @@
+# 场景配图
+
+`scenes.jpg` 为 imagegen 内置工具生成的 3×2 场景插画，用 CSS 分格显示。它们是用途示意，不是上游作者提供的效果图，也不是 Skill 实测输出。原始生成稿保留为 scenes.png。
+
+Prompt:
+
+Use case: illustration-story. Create ONE high quality editorial illustration contact sheet for a Chinese AI skills directory, exactly 3 columns and 2 rows of equal rectangular panels, overall landscape 1536x1024, no gutters, no text, no letters, no logos, no watermark. Each panel has a distinct self-contained scene with generous edges so each will crop into a landscape card: top left a quiet navy and coral developer desk with laptop and elegant floating code windows; top middle cream paper documents, a small bar chart, calculator and stationery; top right magnifying glass over an open research notebook and bookmarks; bottom left a charming tabletop fantasy adventure with folded parchment map, tiny lighthouse, forest, dice and book; bottom middle expressive little friendly orange clay cat performing a wave amid animation frame cards; bottom right swirling generative art in teal coral navy ribbons beside a small artist sketchbook. Cohesive premium tactile cut-paper and soft clay editorial illustration, softly lit, off-white backgrounds, navy/coral/seafoam restrained palette, sophisticated friendly scene storytelling. Entire sheet must fill the canvas; each of six panels is separate and contains no elements that cross panel boundaries. This is decorative category art, not a software screenshot.
