@@ -2,10 +2,11 @@ import {performance} from 'node:perf_hooks';
 import {HttpError,hash,id,text,token,transaction,audit} from './core.mjs';
 import {employeeRoutes,holdYuan,officialFromLog,usageFrom} from './employee-credit.mjs';
 import {accountFor,settlePaidCall,refundQuote} from './pack-ledger.mjs';
+import {guardedModels} from './output-guard.mjs';
 import {GATEWAY_INSTANCE} from './gateway-instance.mjs';
 const pattern=/^Bearer (sf_paid_[A-Za-z0-9_-]{43})$/;
 export const paidEnabled=cfg=>Boolean(cfg.customerPaid?.enabled&&cfg.customerPaid?.models?.length&&process.env.SUPPLIER_LAB_SECRET);
-export const paidRoutes=async(pool,cfg)=>(await employeeRoutes(pool,cfg)).filter(r=>cfg.customerPaid?.models?.includes(r.model.id));
+export const paidRoutes=async(pool,cfg)=>{const [routes,blocked]=await Promise.all([employeeRoutes(pool,cfg),guardedModels(pool)]);return routes.filter(r=>cfg.customerPaid?.models?.includes(r.model.id)&&!blocked.has(r.model.id)&&!blocked.has(r.model.upstreamModel));};
 export function paidBackend(pool,cfg){return {
  matches:req=>pattern.test(req.get('authorization')||''),table:'customer_calls',routes:()=>paidRoutes(pool,cfg),
  async authenticate(req){
