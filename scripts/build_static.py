@@ -29,6 +29,15 @@ def main():
         html = html.replace(f'"{name}"', f'"{target}"')
         assets[target] = content
     assets['index.html'] = html.encode()
+    compare_html = git('show', 'HEAD:web/compare.html').decode()
+    for name in ('compare.css', 'compare.js'):
+        content = git('show', f'HEAD:web/{name}')
+        stem, extension = name.rsplit('.', 1)
+        target = f'{stem}.{hashlib.sha256(content).hexdigest()[:12]}.{extension}'
+        compare_html = compare_html.replace(f'"{name}"', f'"{target}"')
+        assets[target] = content
+    assets['compare.html'] = compare_html.encode()
+
     for name in ('pinapi-mark.svg', 'pinapi-wordmark.svg', 'semifly-email-logo.png', 'universe-speed-knob.png', 'favicon.svg', 'semifly-wordmark.svg', 'semifly-lockup.svg', 'THIRD-PARTY-LICENSES.txt'):
         assets[name] = git('show', f'HEAD:web/{name}')
     # Explicit publication manifest: no arbitrary repository/runtime files.

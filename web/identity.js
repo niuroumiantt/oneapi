@@ -400,7 +400,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   const state=key=>`class="${active===key?'active':''}" aria-current="${active===key?'page':'false'}"`,inner=(icon,label)=>`${ico(icon)}<span>${label}</span>`;
   const tab=(key,icon,label)=>org?`<button type="button" data-live="org-tab" data-tab="${key}" data-nav="${key}" ${state(key)}>${inner(icon,label)}</button>`:`<button type="button" data-personal-tab data-live="personal-tab" data-tab="${key}" data-nav="${key}" ${state(key)}>${inner(icon,label)}</button>`;
   const link=(key,href,icon,label)=>`<a href="${href}" data-nav="${key}" ${state(key)}>${inner(icon,label)}</a>`;
-  return tab('overview','layout-dashboard','概览')+tab('models','layers','模型')+tab('keys','command','密钥')+tab('usage','chart-no-axes-combined','用量')+
+  return tab('overview','layout-dashboard','概览')+tab('models','layers','模型')+tab('keys','command','密钥')+link('compare','/compare.html','layers','API 对比')+tab('usage','chart-no-axes-combined','用量')+
    (manager?tab('people','users-round','员工'):'')+
    (!org?link('billing','#billing/personal','receipt-text','账单'):manager?link('billing','#billing/organization/'+id,'receipt-text','账单'):'')+
    (org?tab('support','circle-alert','支持')+tab('settings','settings','设置'):link('support','#support','circle-alert','支持')+link('settings','#security','settings','设置'));

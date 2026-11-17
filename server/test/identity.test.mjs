@@ -62,7 +62,7 @@ function wxNotify(event_type,resource,signOpts){
  const body=JSON.stringify({id:randomBytes(8).toString('hex'),create_time:'2026-11-12T10:00:00+08:00',resource_type:'encrypt-resource',event_type,summary:'通知',resource:{original_type:ad,algorithm:'AEAD_AES_256_GCM',ciphertext,associated_data:ad,nonce}});
  return fetch(origin+'/api/payments/wechat/notify',{method:'POST',headers:{'Content-Type':'application/json',...wxSign(body,signOpts)},body});
 }
-let pool,appServer,idpServer,service,origin,idpOrigin,appCfg,pilotDir,pilotFetch=fetch,identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true},revoked=false;
+let pool,appServer,idpServer,service,origin,idpOrigin,appCfg,pilotDir,pilotFetch=fetch,compareFetch=fetch,identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true},revoked=false;
 const sent=[],codes=new Map(),access=new Map();let serial=1;
 const password='Local-only!Testing-1842';
 function jar(ip='192.0.2.'+(serial++)){const cookies=new Map();return {cookies,async call(path,{method='GET',body,headers={}}={}){
@@ -95,7 +95,7 @@ before(async()=>{
  const cfg=config({APP_ORIGIN:origin,DATABASE_URL:databaseURL,BETTER_AUTH_SECRET:'test-only-strong-secret-932847239847293847',STAFF_OIDC_ISSUER:idpOrigin,STAFF_OIDC_CLIENT_ID:'oneapi-test-staff',STAFF_OIDC_CLIENT_SECRET:'test-client-secret',STAFF_BOOTSTRAP_SUB:'staff-owner',BANK_TRANSFER_VERIFIED:'true',BANK_TRANSFER_ACCOUNT_NAME:'Company Test',BANK_TRANSFER_BANK_NAME:'Test Bank Branch',BANK_TRANSFER_ACCOUNT_NUMBER:'0000000000000000'});
  cfg.alipay={...cfg.alipay,enabled:true,appId:'2021000000000001',sellerId:'2088000000000001',privateKey:pem(appKeys.privateKey),publicKey:pem(alipayKeys.publicKey),allowedEmails:new Set(['nobody@example.test'])};cfg.alipayFetch=fakeAlipay;
  cfg.wechat={...cfg.wechat,enabled:true,mchId:WX.mchId,appId:WX.appId,certSerial:WX.certSerial,privateKey:pem(wxMerchant.privateKey),publicKeyId:WX.publicKeyId,publicKey:pem(wxPlatform.publicKey),apiV3Key:wxApiV3Key,allowedEmails:new Set(['nobody@example.test'])};cfg.wechatFetch=fakeWechat;
- appCfg=cfg;cfg.pilotFetch=(...args)=>pilotFetch(...args);
+ appCfg=cfg;cfg.pilotFetch=(...args)=>pilotFetch(...args);cfg.compareReferenceFetch=(...args)=>compareFetch(...args);
  service=createApp(pool,cfg,{sendMail:async m=>{sent.push(m);return {};},verify:async()=>true});await migrate(pool,service.auth);await pool.query('TRUNCATE "user",staff_members,staff_oidc_states,mail_outbox,request_limits,"rateLimit",channel_states,upstream_model_flags,upstream_watch_runs,upstream_watch_events,acceptance_profiles,agents,published_reports,identity_check_runs,identity_check_items CASCADE');appServer.on('request',service.app);
 });
 after(async()=>{appServer?.close();idpServer?.close();await pool?.end();if(pilotDir)await rm(pilotDir,{recursive:true,force:true});});
@@ -1561,6 +1561,19 @@ test('ordinary customer: discounted purchase, signed payment, scoped key, shared
  // Stream uses exactly the same forwarding handler and price snapshot.
  pilotFetch=async()=>new Response('data: '+JSON.stringify({choices:[{delta:{content:'hi'}}]})+'\n\ndata: '+JSON.stringify({choices:[],usage:{prompt_tokens:10,completion_tokens:1}})+'\n\ndata: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream','x-request-id':'paid-request-2'}});
  assert.equal((await call({model:'deepseek-flash',stream:true,messages:[{role:'user',content:'hi'}],max_tokens:10})).status,200);
+ // Real customer session -> compare -> existing /v1 gateway -> real PostgreSQL ledger.
+ const compareBody={ours:{key:secret,model:'deepseek-flash'},reference:{provider:'deepseek',key:'official-fixture-secret',model:'deepseek-flash'},prompt:'same task '+ 'x'.repeat(20000),parameters:{max_tokens:128}};
+ let referenceCalls=0;
+ compareFetch=async()=>{referenceCalls++;return new Response('data: '+JSON.stringify({model:'official-returned',choices:[{delta:{content:'reference'},finish_reason:'stop'}],usage:{prompt_tokens:10,completion_tokens:1}})+'\n\ndata: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream'}});};
+ const ccBefore=(await pool.query('SELECT count(*)::int AS n FROM customer_calls WHERE key_id=$1',[made.data.key.id])).rows[0].n;
+ assert.equal((await post(other.j,'/api/compare/run',compareBody)).status,403);
+ assert.equal((await buyer.j.call('/api/compare/run',{method:'POST',body:compareBody,headers:{Origin:'https://foreign.example'}})).status,403);
+ const compared=await post(buyer.j,'/api/compare/run',compareBody);assert.equal(compared.status,200,String(compared.data));
+ const compareEvents=compared.data.split('\n\n').filter(x=>x.includes('data: ')).map(x=>({event:x.match(/event: (.*)/)?.[1],data:JSON.parse(x.split('data: ')[1])}));
+ const left=compareEvents.find(x=>x.event==='result'&&x.data.side==='a').data;
+ assert.equal(left.status,'complete');assert.equal(left.billing.status,'settled');assert.equal(left.usage.total_tokens,11);assert.ok(Number(left.billing.charged_yuan)>0);assert.equal(referenceCalls,1);
+ assert.equal((await pool.query('SELECT count(*)::int AS n FROM customer_calls WHERE key_id=$1',[made.data.key.id])).rows[0].n,ccBefore+1,'exactly one platform call billed');
+ assert.ok(!compared.data.includes(secret));assert.ok(!compared.data.includes('official-fixture-secret'));compareFetch=fetch;
  // Unexpected supplier usage cannot exceed even a small key's remaining lifetime cap.
  const capped=await post(buyer.j,'/api/customer-credit/keys',{label:'small cap',models:['deepseek-flash'],limit_yuan:'1'});
  const excess=(await pool.query("INSERT INTO customer_calls(account_id,key_id,owner_id,model_id,price_snapshot,status,hold_yuan) VALUES($1,$2,$3,'deepseek-flash','{}','pending',0.01) RETURNING id",[order.account_id,capped.data.key.id,buyer.user.id])).rows[0].id;
