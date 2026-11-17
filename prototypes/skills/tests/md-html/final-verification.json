@@ -5,7 +5,7 @@
     "真实浏览器桌面与 390px 移动宽度均可阅读，无横向溢出",
     "保留 Markdown 来源链接、表格金额和“待确认”"
   ],
-  "limits": "只完成本地 HTML 转换与浏览器预览，未粘贴进微信公众号编辑器，也未发布文章。公众号最终样式兼容性待验收。",
+  "limits": "本地 HTML 转换与浏览器预览已通过。2026-11-17 尝试访问公众号编辑器，被浏览器站点安全策略阻止；没有完成微信粘贴验收，也未发布。需人工粘贴核对后补证。",
   "environment": {
     "python": "3.12.14",
     "node": "24.22.1",
@@ -23,5 +23,12 @@
     "citation_marker": true,
     "red": true,
     "font_size": true
+  },
+  "wechatEditor": {
+    "status": "blocked_not_tested",
+    "date": "2026-11-17",
+    "reason": "Browser site-safety policy blocked access; no workaround attempted",
+    "pastePerformed": false,
+    "published": false
   }
 }

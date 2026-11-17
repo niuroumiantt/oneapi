@@ -46,34 +46,47 @@ Object.assign(window.SKILL_TESTS, {
     "cardImage": "tests/docx/card.jpg"
   },
   "sheet": {
-    "status": "计算通过 · 原重算超时",
-    "headline": "去重、退货与月度汇总：合计 4,340 元",
-    "summary": "实际安装 xlsx Skill，生成 3 张工作表、11 个公式和原生图表。原 recalc.py 两次超时；另用 LibreOffice 直接转换验证公式与改价联动，未把替代路径冒充原脚本成功。",
+    "status": "本地适配后重算通过",
+    "headline": "11 个公式约 1.4 秒重算，保留原表格与图表",
+    "summary": "原宏调用在本机超时；新增本地适配器，先清除临时副本的旧缓存并用 LibreOffice 计算，再由原 Skill 写回公式缓存。基准、带旧缓存改价、重复执行、除零与超时保护均已实际测试。",
     "checks": [
-      "8 条输入去重为 7 条，重复记录单独保留，退货 -136 元未丢失",
-      "独立重算：9 月 1,516、10 月 2,824、合计 4,340",
-      "单价 68→70 后：9 月 1,540、合计 4,364；原始文件未覆盖"
+      "11 个公式、0 错误；9 月 1,516、10 月 2,824、合计 4,340",
+      "保留旧缓存改价 68→70 后，9 月 1,540、合计 4,364",
+      "公式文本及图表、样式等非工作表部件未改变；重复重算无变化",
+      "除零错误如实报告；强制超时返回失败且输入文件不变"
     ],
-    "limits": "原始 XLSX 的公式缓存为空；另附重算副本。原脚本仍未通过全流程；渲染有较多留白，未在 Microsoft Excel 中验收。",
+    "limits": "这是固定版本的本站本地适配，原作者脚本本身未修改，直接运行原脚本仍可能超时。只验证所列 XLSX 样本与故障分支，未在微软 Excel 客户端验收。",
     "files": [
+      [
+        "下载修复后 Excel",
+        "fixed.xlsx"
+      ],
+      [
+        "修复说明与用法",
+        "fix-report.md"
+      ],
+      [
+        "本地重算适配器",
+        "recalc-local.py"
+      ],
+      [
+        "实际回归结果",
+        "recalc-fixed-result.json"
+      ],
+      [
+        "保留旧缓存改价样本",
+        "fixed-mutation.xlsx"
+      ],
       [
         "原始 Excel",
         "output.xlsx"
-      ],
-      [
-        "重算副本",
-        "recalculated.xlsx"
       ],
       [
         "PDF 预览",
         "output.pdf"
       ],
       [
-        "输入 CSV",
-        "input.csv"
-      ],
-      [
-        "两次超时记录",
+        "首次超时报告",
         "report.md"
       ],
       [
@@ -134,7 +147,7 @@ Object.assign(window.SKILL_TESTS, {
       "真实浏览器桌面与 390px 移动宽度均可阅读，无横向溢出",
       "保留 Markdown 来源链接、表格金额和“待确认”"
     ],
-    "limits": "只完成本地 HTML 转换与浏览器预览，未粘贴进微信公众号编辑器，也未发布文章。公众号最终样式兼容性待验收。",
+    "limits": "本地 HTML 转换与浏览器预览已通过。2026-11-17 尝试访问公众号编辑器，被浏览器站点安全策略阻止；没有完成微信粘贴验收，也未发布。需人工粘贴核对后补证。",
     "files": [
       [
         "打开真实 HTML",
@@ -159,12 +172,16 @@ Object.assign(window.SKILL_TESTS, {
       [
         "最终核验",
         "final-verification.json"
+      ],
+      [
+        "微信人工验收步骤",
+        "wechat-check.html"
       ]
     ],
     "date": "2026-11-17",
     "tone": "conditional",
     "runtime": "Codex CLI 0.160.0 · macOS · skills@1.9.0 · 临时项目安装",
-    "caption": "实际 HTML 的浏览器截图；尚未在微信公众号编辑器验收。",
+    "caption": "实际 HTML 的本地浏览器截图，不是微信编辑器截图；微信粘贴验收仍待完成。",
     "cardImage": "tests/md-html/card.jpg"
   }
 });

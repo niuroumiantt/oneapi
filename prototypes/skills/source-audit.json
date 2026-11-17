@@ -63,9 +63,10 @@
     "sourceExcerpt": "---\nname: xlsx\ndescription: \"Use this skill any time a spreadsheet file is the primary input or output. This means any task where the user wants to: open, read, edit, or fix an existing .xlsx, .xlsm, .xltx, .csv, or .tsv file (e.g., adding columns, computing formulas, formatting, charting, cleaning messy data); create a new spreadsheet from scratch or from other data sources; or convert between tabular file formats. Trigger especially when the user references a spreadsheet file by name or path — even casually (like \\\"the xlsx in my downloads\\\") — and wants something done to it or produced from it. Also trigger for cleaning or restructuring messy tabular data files (malformed rows, misplaced headers, junk data) into proper spreadsheets. The deliverable must be a spreadsheet file. Do NOT trigger when the primary deliverable is a Word document, HTML report, standalone Python script, database pipeline, or Google Sheets API integration, even if tabular data is involved.\"\nlicense: Complete terms in LICENSE.txt\n---\n\n# XLSX creation, editing, and analysis\n\n| Task | Approach |\n|---|---|\n| **Create** or **edit** with formulas/formatting | `openpyxl` — see gotchas below |\n| **Bulk data** in or out | `pandas` (`read_excel`, `to_excel`) |\n| **Quick look** at a sheet | `markitdown file.xlsx` — `## SheetName` per sheet; reads `.xlsm` too. No cell coordinates, so don't plan edits from it |\n| **Read** a model (formulas *and* values) | two `load_workbook` passes — see gotchas |\n\n> `openpyxl`, `pandas`, and `markitdown` are preinstalled — do not run `pip install` first; write the script and import directly. Only if an import fails (or the `markitdown` command is missing): `pip install` the missing package.\n\n> Script paths below are relative to this skill's directory.\n\n## Requirements for ",
     "licenseEvidence": "\n                                 Apache License\n                           Version 2.0, January 2004\n                        http://www.apache.org/licenses/\n\n   TERMS AND CONDITIONS FOR USE, REPRODUC",
     "installation": "passed: project-level copy in isolated temporary directory",
-    "taskTest": "计算通过 · 原重算超时",
+    "taskTest": "本地适配后重算通过",
     "oneapiCompatibility": "Not tested",
-    "executionEvidence": "tests/sheet/index.html"
+    "executionEvidence": "tests/sheet/index.html",
+    "localAdaptation": "tests/sheet/fix-report.md"
   },
   {
     "repo": "anthropics/skills",
@@ -456,7 +457,8 @@
     "installation": "passed: project-level copy in isolated temporary directory",
     "taskTest": "HTML 转换与预览通过",
     "oneapiCompatibility": "Not tested",
-    "executionEvidence": "tests/md-html/index.html"
+    "executionEvidence": "tests/md-html/index.html",
+    "wechatPasteTest": "Not tested: browser site-safety policy blocked editor access"
   },
   {
     "repo": "jimliu/baoyu-skills",

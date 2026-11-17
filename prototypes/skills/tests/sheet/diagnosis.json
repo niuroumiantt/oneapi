@@ -1,0 +1,29 @@
+[
+  {
+    "variant": "original",
+    "elapsed": 12.01,
+    "timeout": true,
+    "exit": 255,
+    "fileChanged": false,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "variant": "terminate",
+    "elapsed": 12.01,
+    "timeout": true,
+    "exit": 255,
+    "fileChanged": false,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "variant": "document-first",
+    "elapsed": 12.01,
+    "timeout": true,
+    "exit": 255,
+    "fileChanged": false,
+    "stdout": "",
+    "stderr": ""
+  }
+]

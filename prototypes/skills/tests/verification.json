@@ -487,38 +487,141 @@
           ]
         }
       ],
-      "result": "计算通过 · 原重算超时",
+      "result": "本地适配后重算通过",
       "checks": [
-        "8 条输入去重为 7 条，重复记录单独保留，退货 -136 元未丢失",
-        "独立重算：9 月 1,516、10 月 2,824、合计 4,340",
-        "单价 68→70 后：9 月 1,540、合计 4,364；原始文件未覆盖"
+        "11 个公式、0 错误；9 月 1,516、10 月 2,824、合计 4,340",
+        "保留旧缓存改价 68→70 后，9 月 1,540、合计 4,364",
+        "公式文本及图表、样式等非工作表部件未改变；重复重算无变化",
+        "除零错误如实报告；强制超时返回失败且输入文件不变"
       ],
       "limits": [
-        "原始 XLSX 的公式缓存为空；另附重算副本。原脚本仍未通过全流程；渲染有较多留白，未在 Microsoft Excel 中验收。"
+        "这是固定版本的本站本地适配，原作者脚本本身未修改，直接运行原脚本仍可能超时。只验证所列 XLSX 样本与故障分支，未在微软 Excel 客户端验收。"
       ],
       "artifacts": {
         "card.jpg": "608b2967fd515212f13eab0d16c6abb8bdeb5bb550969bc123aee25a3c03bebd",
         "build.py": "a6a45259b0017052485758cd4807aba9b45c8c2139663c0fef8fec7dc591284e",
         "skills-lock.json": "cbb3ac5398e7aa80b4f6f2d4a5a7e9a7155e19ed2bac646b105b1e6ae356db30",
+        "recalc-local.py": "602194aa9700ec3916e8d7809e6d627b76bf222c563626711b8ba74cdccfcd93",
         "mutation.xlsx": "1823fabaec406cb2fc859debe0172b24066157a2003365b1de5d99e3b8f7793e",
         "input.csv": "490a44addd26f62a9e987041a5f95a7408cc886e5fdbae8dc380bab2d57c78b5",
         "recalc.json": "276473a3968812b4165603239df3cdc2799a027c5b9e1c5ddb8f95cacfa3c811",
-        "index.html": "5c45f0b5858dd52dd4fed59f31a276ba7e83f9fc65ae34ac2a3c96c7c0e13b17",
+        "index.html": "21c395416cdda48ed2f8560817b2f01a57b94ac2b05b97723b7f3fb19e9e8d3a",
         "font-recovery.log": "39924ad71bf11523f236032c428f73b2d4ccf7a2c1321db1a4bc426790b321fa",
+        "test-recalc-local.py": "f272ec812fccdb0211a5ac9ae18b76ba6ba39f14515b22167e9c3c77f3380f2f",
         "report.md": "497dbf7eb304a334de5316f3323faaee1c6a587ab4f3b71e41363cc1600cd85c",
         "page-1.jpg": "4549749adff14c9cc314ad6106287b007f1adbfbd9d02221056c4879f77d8f24",
         "page-3.jpg": "ecef18461b910a7b479f9d99eb8a72af865400f642ada6280940355da79f8bea",
         "page-2.jpg": "8b0fd938e0731546615c959a91f714229b9fdc691b17939df484eea9a7471c2c",
-        "screenshot.jpg": "dd321a055dfa0173eed67c5805e8613891e977ea46f7a10ab1b2013b14f89c11",
+        "screenshot.jpg": "acc9b45d18f525fd253561feb1a3f41f7fcc0178882b690140f2ea87f3a96057",
         "prompt.txt": "833bf78f7c984c1108e7a9b5acc76a94559fd894d1656b67d84efdd477aa3908",
-        "final-verification.json": "061f2e74636223e0181ef34e64c19420829ba15d160ea1b20dca0ad3b1b6d3f1",
+        "final-verification.json": "accb573ef75e4b1cf1d18d1faefd7b0b909db315cefdb8f2b7e08cd92ed330c6",
+        "recalc-fixed-result.json": "b5b548b1ed7285eb0b21c5f9394c5c53fd89d7c6d176bacf70d5c2eac991e50e",
+        "fixed-mutation.xlsx": "c55acb4503f85a59107c3553012920eb6f29a0b42f9a11b652ad6c914b5cc0a1",
         "output.xlsx": "673115a0258e157f14e8926c1ad2e675a2c571fb10e7b56370f4696d7b618295",
+        "fixed.xlsx": "6314b024374360c0dcaad0d0db0e14c891b19c025d0ed13471a4fae32168d3b8",
         "independent-recalc.py": "e1a478736380df6c3d3a0a935a19a8459b325e9478b932043aa34753d744d531",
         "output.pdf": "2489207e782c015ca7c1a93007a7ee62247a6a4ff1edf4aa0e1ed8b1fa2a0a0c",
+        "fix-report.md": "5da4b6102adb82e4c57dc7dbc9d8bc5bb7b58d64f6ea546ae2b3dd607450ea61",
         "verification.json": "a6b66e12f85deb48332130f7b37dd02c1eadd5d2fbc1a6b6028ba649399b03bf",
         "recalc-first.json": "62a7837c927666e58e1481a1f093ec8655037e4828a9adb195fa87c7ae06082f",
+        "recalc-fix.jpg": "34820530e13805522a7094565dab9ce7a620e4964b87a1dde023ce2f836d6c29",
+        "diagnosis-macro-uri.json": "be0f2cf89eacbcb7426e77df837dcd17a79baf05968dacf5d176bb423100cb56",
         "install.log": "ecd194ea94c526ec0673e4ddc6e37f462cb5a825420792ae7457e08f94e0e0a9",
+        "diagnosis.json": "181a0e4d31c34ff9d36ae5f52d8ec688e9817cc5f5d58cc1c1e8e61a3321fc45",
         "recalculated.xlsx": "1f842aa36c0d6becf631461ba1e6ac7c92e99e82897f2a28943afc99b8b90d02"
+      },
+      "followupVerification": {
+        "baseline": {
+          "status": "success",
+          "total_errors": 0,
+          "error_summary": {},
+          "total_formulas": 11,
+          "local_adapter": {
+            "engine": "LibreOffice conversion + upstream cache-only writer",
+            "upstream_sha256": "7265aa4a41f5273596ee5694ce8a4d881c18adafb6203fece769107d08403263",
+            "elapsed_seconds": 1.426
+          },
+          "exit_code": 0,
+          "changedParts": [
+            "xl/worksheets/sheet1.xml",
+            "xl/worksheets/sheet2.xml",
+            "xl/worksheets/sheet3.xml"
+          ],
+          "nonWorksheetPartsIdentical": true,
+          "actual": [
+            1516,
+            2824,
+            4340
+          ],
+          "formulaTextsIdentical": true
+        },
+        "staleCacheMutation": {
+          "status": "success",
+          "total_errors": 0,
+          "error_summary": {},
+          "total_formulas": 11,
+          "local_adapter": {
+            "engine": "LibreOffice conversion + upstream cache-only writer",
+            "upstream_sha256": "7265aa4a41f5273596ee5694ce8a4d881c18adafb6203fece769107d08403263",
+            "elapsed_seconds": 1.401
+          },
+          "exit_code": 0,
+          "changedParts": [
+            "xl/worksheets/sheet1.xml",
+            "xl/worksheets/sheet2.xml"
+          ],
+          "nonWorksheetPartsIdentical": true,
+          "actual": [
+            1540,
+            2824,
+            4364
+          ]
+        },
+        "repeat": {
+          "status": "success",
+          "total_errors": 0,
+          "error_summary": {},
+          "total_formulas": 11,
+          "local_adapter": {
+            "engine": "LibreOffice conversion + upstream cache-only writer",
+            "upstream_sha256": "7265aa4a41f5273596ee5694ce8a4d881c18adafb6203fece769107d08403263",
+            "elapsed_seconds": 1.44
+          },
+          "exit_code": 0,
+          "changedParts": [],
+          "nonWorksheetPartsIdentical": true
+        },
+        "divisionByZero": {
+          "status": "errors_found",
+          "total_errors": 1,
+          "error_summary": {
+            "#DIV/0!": {
+              "count": 1,
+              "locations": [
+                "Sheet!A1"
+              ]
+            }
+          },
+          "total_formulas": 1,
+          "local_adapter": {
+            "engine": "LibreOffice conversion + upstream cache-only writer",
+            "upstream_sha256": "7265aa4a41f5273596ee5694ce8a4d881c18adafb6203fece769107d08403263",
+            "elapsed_seconds": 1.322
+          },
+          "exit_code": 1,
+          "changedParts": [
+            "xl/worksheets/sheet1.xml"
+          ],
+          "nonWorksheetPartsIdentical": true
+        },
+        "timeoutDoesNotModifyInput": {
+          "error": "Local conversion exceeded 1s; workbook unchanged",
+          "local_adapter": {
+            "engine": "LibreOffice conversion + upstream cache-only writer",
+            "upstream_sha256": "7265aa4a41f5273596ee5694ce8a4d881c18adafb6203fece769107d08403263",
+            "elapsed_seconds": 1.01
+          }
+        }
       }
     },
     "slides": {
@@ -621,27 +724,35 @@
         "保留 Markdown 来源链接、表格金额和“待确认”"
       ],
       "limits": [
-        "只完成本地 HTML 转换与浏览器预览，未粘贴进微信公众号编辑器，也未发布文章。公众号最终样式兼容性待验收。"
+        "本地 HTML 转换与浏览器预览已通过。2026-11-17 尝试访问公众号编辑器，被浏览器站点安全策略阻止；没有完成微信粘贴验收，也未发布。需人工粘贴核对后补证。"
       ],
       "artifacts": {
         "card.jpg": "27ea48f33c86c88ac765d7f0f2f8b3d170f2965fcc6f9a2fc3762ab1db8d3445",
         "input.md": "fc5d675c5f0bf9bba4c6b45cc74b181d6a815d6ea9523d4cf5f9c592c3681f87",
         "dependency-install.log": "0695ee6191cf18a52c03e43b0a155da6f3edf411f0dbff61316eeb389b9a3f6d",
         "skills-lock.json": "ccee248788cbca581da63377fb6a03e4583929d26c1eacabde6452b5ce218f88",
-        "index.html": "f31a488c9e1e1c3a456a05086734a85929ac34bd692ad5a63f8a0a9edf998b27",
+        "index.html": "c33a060c0f80dfe7ef3adcfb136165456be73218f7b5e5dec917b38bc15c5ff3",
         "verify-output.py": "a421cad4ccceb66a88cda6c3c4fd34955229e748cac18e1ed52780c38269b70d",
         "report.md": "9e9b8e67a12e4b85add4fd2bcac62f117f611273b47fd0423f4f7675b5108e49",
         "screenshot.jpg": "577eccf357af595e00cff4102639995a695c3724236c3505da0e208208260a94",
         "prompt.txt": "c21c922789140a313177f7d1a6003042ce0e3187ccf92de8b22e9da9365febb1",
-        "final-verification.json": "58c89545dc9db25e77706ce2f62970bed6a5d29d2dc7157c534a8b42dee3d148",
+        "final-verification.json": "49003e3dcc705b89a71fda3f45ecc5fede2d93222b6c890a095fab59a369768e",
         "run-conversion.sh": "eca5e39c6678590ffd25e20d5d356acc2947890ccb623d789efcf3300a755919",
         "input.html": "924377d0a7052fd29761b9fc68f7fac40f1bdde6c93f9f23af9131d03221553a",
         "mobile.jpg": "868a8fb58e270e0886da90911dec42b36e7cc38e6f4f4675d73c0bfa8f1528ef",
         "verification.json": "67cbdd5cea8e06e9d3e743e97737d8ddfe7caf1e1f81799d5a43afb2438c4930",
         "conversion.stderr.log": "f26ac60114868d944d728bf9dd62d9059fd9cab61d93feab27aa38598b6ece94",
         "install.log": "3fc3d0345081b8600b5c24afdaae4e1be1ba0e8d94c42c9d811b355d2888d9cd",
+        "wechat-check.html": "21b03af368d00287d22c94ba598697927fd15ae54a6755b7369380eee45aa3b5",
         "bun-version.txt": "d03d8b268b4171328ac2458ce8ca82d69a1fde38469d4e4faae4f8fa8d8a5e35",
         "conversion.json": "cdcd420eaec36ba228009b10b52db1026f27701180c3664ead4c536023d92856"
+      },
+      "followupVerification": {
+        "status": "blocked_not_tested",
+        "date": "2026-11-17",
+        "reason": "Browser site-safety policy blocked access; no workaround attempted",
+        "pastePerformed": false,
+        "published": false
       }
     }
   }
