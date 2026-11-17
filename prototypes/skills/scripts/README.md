@@ -1,6 +1,6 @@
 # Skills 目录与每日榜单更新
 
-保持本地原型；更新数据不会部署、推送、安装 Skill，也不修改精选名单。
+用户已授权公网发布。生产部署与每日调度见 `scripts/skills-deploy/README.md`。更新器只刷新公开数据，不推送源码、不安装 Skill、不修改精选名单。
 
 ## 双榜含义
 
@@ -36,6 +36,8 @@ node prototypes/skills/check-catalog.cjs
 - 不自动把热榜仓库收入免费 Skill 目录；来源、许可与安装文档需另行人工审核。
 
 ## 每日调度
+
+2026-11-17：生产服务器的 `oneapi-skills-update.timer` 已接管更新，每天09:00 Asia/Shanghai运行，首次抓取成功。数据独立存放于 `/srv/sites/oneapi-skills-data/market-data.json`，通过 `/skills/market-live.json` 公开。以下本机调度已暂停，作为历史记录保留；公网更新不依赖开发电脑或 Codex。
 
 已通过 Codex 桌面自动任务工具创建并查看：`semifly-skills`，名称“更新 semifly 本地 Skills 榜单”，状态 ACTIVE，每天本地时间 09:00（当前本机时区 Asia/Shanghai）。附着当前对话，仅更新本地 market-data.json 并运行校验；不 commit、不 push、不部署。
 
