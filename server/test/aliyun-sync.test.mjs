@@ -8,7 +8,7 @@ test('actual bills retain precision; forecast and OneAPI allocations never infer
 });
 test('resource, product bill and instance bill pagination includes every page',async()=>{
  const seen=[];const d=await readAliyun(auth,async(a,s,op,p)=>{seen.push([op,p]);if(op==='DescribeInstances')return {TotalCount:2,Instances:{Instance:[{InstanceId:'i-'+p.PageNumber}]}};if(op==='QueryAccountBill')return {Data:{TotalCount:2,Items:{Item:[{ProductName:'p'+p.PageNum}]}}};return {Data:{Items:[{InstanceID:p.NextToken?'b':'a'}],NextToken:p.NextToken?'':'next'}}});
- assert.equal(d.resources.items.length,2);assert.equal(d.billing.items.length,2);assert.equal(d.instance_billing.items.length,2);assert.equal(seen.length,6);
+ assert.equal(d.resources.items.length,2);assert.equal(d.billing.items.length,2);assert.equal(d.instance_billing.items.length,2);assert.equal(seen.filter(x=>x[1].Granularity!=='DAILY').length,8);
 });
 test('broken pagination and denied reads cannot publish partial totals or zero costs',async()=>{
  const d=await readAliyun(auth,async(a,s,op,p)=>{if(op==='DescribeInstanceBill')return {Data:{Items:[{}],NextToken:'repeated'}};if(op==='QueryAccountBill')return {Data:{TotalCount:3,Items:{Item:p.PageNum===1?[{}]:[]}}};return fetcher(a,s,op,p)});
@@ -30,8 +30,8 @@ test('scheduled sync persists once, reuses six-hour cadence across worker restar
 test('cloud UI shows failed refresh and keeps forecast and allocation visibly separate',async()=>{
  const {readFileSync}=await import('node:fs'),vm=await import('node:vm');const source=readFileSync(new URL('../private/supplier-lab.js',import.meta.url),'utf8');
  const snapshot=retainSuccessfulSnapshot(null,await readAliyun(auth,fetcher));snapshot.billing.stale=true;snapshot.billing.last_error='Forbidden';
- const ctx=vm.createContext({cloudData:{configured:true,snapshot},esc:String,when:String,stat:(...x)=>x.join(' ')});vm.runInContext(source.slice(source.indexOf('function cloudView('),source.indexOf('function configureCloud(')),ctx);
- const html=ctx.cloudView();assert.match(html,/每 6 小时自动同步/);assert.match(html,/预测费用 未接入/);assert.match(html,/OneAPI 已归属成本 待确认/);assert.match(html,/本次同步失败：Forbidden/);assert.match(html,/22.590001/);assert.match(html,/资源账单 · 待分配/);
+ const ctx=vm.createContext({cloudData:{configured:true,snapshot},esc:String,when:String,stat:(...x)=>x.join(' ')});vm.runInContext(source.slice(source.indexOf('function cloudCostView('),source.indexOf('function configureCloud(')),ctx);
+ const html=ctx.cloudView();assert.match(html,/每 6 小时自动同步/);assert.match(html,/官方预测未接入/);assert.match(html,/OneAPI 已归属成本 待确认/);assert.match(html,/本次同步失败：Forbidden/);assert.match(html,/22.590001/);assert.match(html,/原始资源汇总/);
 });
 
 test('account and instance bills reconcile exactly across currencies without assuming matching timestamps imply matching totals',()=>{
