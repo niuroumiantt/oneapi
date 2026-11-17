@@ -1,0 +1,2 @@
+convert /private/tmp/oneapi-office-tests-20261117/sheet/output.xlsx as a Calc document -> /private/tmp/oneapi-office-tests-20261117/sheet/output.pdf using filter : calc_pdf_Export
+Overwriting: /private/tmp/oneapi-office-tests-20261117/sheet/output.pdf
