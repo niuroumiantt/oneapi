@@ -1,3 +1,4 @@
+import {syncAliyun} from './aliyun-readonly.mjs';
 import {wechatpayClient,wechatBillsConfigured} from './wechatpay.mjs';
 import {syncDueWechatBills} from './wechat-bills.mjs';
 import {alipayClient} from './alipay.mjs';
@@ -33,5 +34,8 @@ const priceWatchStart=setTimeout(priceWatchOnce,300000),priceWatchWorker=setInte
 const billClient=cfg.alipay?.enabled?alipayClient(cfg.alipay):null;const wxBillClient=wechatBillsConfigured(cfg.wechat)?wechatpayClient(cfg.wechat):null;let syncingBills=false;
 const billOnce=async()=>{if(syncingBills)return;syncingBills=true;try{if(billClient)await syncDueAlipayBills(pool,billClient);}catch{console.error('alipay_bill_sync_unavailable');}try{await syncDueWechatBills(pool,wxBillClient);}catch{console.error('wechat_bill_sync_unavailable');}finally{syncingBills=false;}};
 const billStart=setTimeout(billOnce,60000),billWorker=setInterval(billOnce,3600000);
+// The persisted attempt time makes restart and multiple workers reuse the same six-hour cadence.
+let syncingCloud=false;const cloudOnce=async()=>{if(syncingCloud||!process.env.SUPPLIER_LAB_SECRET)return;syncingCloud=true;try{await syncAliyun(pool,vault(process.env.SUPPLIER_LAB_SECRET),{scheduled:true})}catch{console.error('aliyun_sync_unavailable')}finally{syncingCloud=false}};
+const cloudStart=setTimeout(cloudOnce,90000),cloudWorker=setInterval(cloudOnce,60000);
 // A stopping process serves its open calls for at most 20 seconds, less than gateway-instance.mjs GONE_AFTER.
-for(const signal of ['SIGTERM' ,'SIGINT'])process.on(signal,()=>{clearTimeout(billStart);clearInterval(billWorker);clearInterval(lifelineWorker);clearInterval(worker);clearInterval(cleanup);clearInterval(usageWorker);clearTimeout(watchStart);clearInterval(watchWorker);clearTimeout(priceWatchStart);clearInterval(priceWatchWorker);server.close(async()=>{await markStopped(pool).catch(()=>{});await pool.end();process.exit(0);});setTimeout(()=>process.exit(1),20000).unref();});
+for(const signal of ['SIGTERM' ,'SIGINT'])process.on(signal,()=>{clearTimeout(cloudStart);clearInterval(cloudWorker);clearTimeout(billStart);clearInterval(billWorker);clearInterval(lifelineWorker);clearInterval(worker);clearInterval(cleanup);clearInterval(usageWorker);clearTimeout(watchStart);clearInterval(watchWorker);clearTimeout(priceWatchStart);clearInterval(priceWatchWorker);server.close(async()=>{await markStopped(pool).catch(()=>{});await pool.end();process.exit(0);});setTimeout(()=>process.exit(1),20000).unref();});
