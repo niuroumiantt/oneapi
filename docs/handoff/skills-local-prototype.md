@@ -112,3 +112,17 @@ K-Dense 条目核心证据分析不需网络；可选科学绘图依赖 OpenRout
 - 桌面、390px 手机视觉检查；768px 与390px 宽度检查无横向溢出；console 无 error/warn。手机截图接口需显式 clip 才正常返回缩放比例，已用对应截图验证，不是页面缩放问题。
 - Impeccable detector 返回 []；没有更改其项目配置。
 - 截图：本会话 visualizations 目录的 skills-featured-board.jpg、skills-github-board.jpg、skills-github-mobile.jpg。本地地址仍为 http://127.0.0.1:4175/prototypes/skills/ 。
+
+## 2026-11-17 办公实测与四列布局（仅本地）
+
+- 用户要求优先实际安装/测试 Word、Excel、PPT、公众号排版；缩紧顶部，桌面卡片从二列改四列。未 push、部署或发表文章。
+- 在 `/private/tmp/oneapi-office-tests-20261117` 独立项目安装固定版本，使用 `skills@1.9.0 --agent codex --copy`；实际 Codex CLI 执行读入原 Skill。Office 仍为 anthropics 固定 e4bb5d9，公众号为 jimliu 固定 ca703c2。未改原 Skill。
+- Word：生成一页 A4、两张可编辑表格；原校验器通过。初次 PDF 中文缺字，临时 Fontconfig 映射系统 Heiti SC 后同一 DOCX 正常渲染，保留初次失败文件与原报告。
+- Excel：原始 XLSX 三表、11 公式、原生图表；8 行去重为7行并保留退货和重复记录。原 recalc.py 57s/119s 两次超时，原工作簿缓存为空。独立 LibreOffice 直接转换副本得到 1516/2824/4340，单价68→70 后得到1540/2824/4364。副本、改价样本及独立脚本留证，不把替代路径当原脚本通过。
+- PPT：4页16:9、4页备注、1原生图表、1原生表格、1内嵌工作簿、无栅格整页图；模型修正占位符与字体后原验证器通过。PDF四页逐页目检。
+- 公众号：原脚本 simple/red/16px/keep-title/cite 输出真实 HTML；锁定 Bun 依赖，9结构检查通过；桌面与390px实际浏览器预览无横向溢出。未微信粘贴、未发布。
+- Word/Excel/PPT 均采用捆绑 LibreOffice 隔离配置渲染，不是 Microsoft Office 原生客户端验收。模型走现有 Codex 账户，金额未测，OneAPI 组合未测。
+- `tests/{docx,sheet,slides,md-html}` 含原文件、PDF/HTML、真实预览、浏览器截图、输入、安装锁/日志、原报告和 final-verification.json；详情页挂接下载。总计8项已实测，32项未运行。
+- 顶部双榜保留，缩紧行高/边距；1512px四列，1024px三列，850px以下二列，600px以下一列。四项新测试使用真实产物缩略图，其余封面用途示意。390px详情、列表，1024px列表、桌面四列均无横向溢出；GitHub榜仍10项。
+- 验收：40条目录检查、8项安装/产物哈希/截图检查、6个榜单离线测试；Impeccable静态检测[]。浏览器截图 `tests/office-four-column.jpg`。
+- 本地地址仍为 http://127.0.0.1:4175/prototypes/skills/ 。尚未执行 Office 原生交互编辑验收与微信公众号粘贴验收；Excel原重算脚本仍未通过，页面明确标记。

@@ -5,3 +5,166 @@ window.SKILL_TESTS = {
   pdf:{status:'样本实测通过',tone:'passed',date:'2026-11-17',headline:'3 页 PDF：12 / 12 个字段核对一致',summary:'Agent 使用已安装 PDF Skill 编写并执行提取脚本；3 条记录的名称、日期、预算与页码全部匹配预留标准答案。',checks:['3 条记录、12 个字段逐项相等','第 3 条缺失日期保留为 null','预算精度与原始页码保留；提取时输入文件未改变'],limits:'人工构造的文字 PDF，未测试扫描 OCR、复杂表格或加密文件；本地重跑修正了样本标题的缺字分隔符，字段数据未改变。',runtime:'Codex CLI 0.160.0 · pdfplumber 0.11.9 · pypdf 6.21.4',files:[['输入 PDF','fixture.pdf'],['提取 CSV','extracted.csv'],['提取 JSON','extracted.json'],['执行报告','report.md']]},
   react:{status:'样本实测通过',tone:'passed',date:'2026-11-17',headline:'静态代码审查：识别 3 / 3 项预植入问题',summary:'按已安装的 React 性能指南审查独立样本，识别请求瀑布、lodash 根入口导入和搜索旧响应覆盖问题。',checks:['三个发现与保留的验收答案逐项对应','报告包含文件行号与修改建议','未将正常文本插值误报为 XSS，未修改输入源码'],limits:'仅静态审查；没有构建、测速或性能提升数据。竞态发现正确，但引用的 client-swr-dedup 是相关上位规则，不是专门的竞态规则。',runtime:'Codex CLI 0.160.0 · vercel-react-best-practices 1.0.0',files:[['输入代码','ReviewFixture.tsx'],['完整审查报告','report.md'],['发现 JSON','findings.json'],['验收标准','expected.json']]}
 };
+
+Object.assign(window.SKILL_TESTS, {
+  "docx": {
+    "status": "补齐字体后通过",
+    "headline": "1 页活动复盘，2 张可编辑表格",
+    "summary": "实际安装原始 docx Skill，由 Agent 生成 Word 文件。原验证器通过；首次 PDF 中文缺字，配置临时中文字体后，同一 DOCX 渲染正常。",
+    "checks": [
+      "A4 单页，费用表与行动表均为 Word 原生表格",
+      "预算 18,000、支出 16,420、余额 1,580 与输入一致",
+      "保留“待确认”和满意度数据缺失，没有编造结论"
+    ],
+    "limits": "基于虚构业务材料；使用 LibreOffice 渲染并逐页目检，未在 Microsoft Word 中打开验收。",
+    "files": [
+      [
+        "下载 Word",
+        "output.docx"
+      ],
+      [
+        "PDF 预览",
+        "output.pdf"
+      ],
+      [
+        "原始输入",
+        "input.md"
+      ],
+      [
+        "原执行报告",
+        "report.md"
+      ],
+      [
+        "最终核验",
+        "final-verification.json"
+      ]
+    ],
+    "date": "2026-11-17",
+    "tone": "conditional",
+    "runtime": "Codex CLI 0.160.0 · macOS · skills@1.9.0 · 临时项目安装",
+    "caption": "真实生成文件经 LibreOffice 渲染后的预览页截图；不是 Microsoft Office 客户端截图。",
+    "cardImage": "tests/docx/card.jpg"
+  },
+  "sheet": {
+    "status": "计算通过 · 原重算超时",
+    "headline": "去重、退货与月度汇总：合计 4,340 元",
+    "summary": "实际安装 xlsx Skill，生成 3 张工作表、11 个公式和原生图表。原 recalc.py 两次超时；另用 LibreOffice 直接转换验证公式与改价联动，未把替代路径冒充原脚本成功。",
+    "checks": [
+      "8 条输入去重为 7 条，重复记录单独保留，退货 -136 元未丢失",
+      "独立重算：9 月 1,516、10 月 2,824、合计 4,340",
+      "单价 68→70 后：9 月 1,540、合计 4,364；原始文件未覆盖"
+    ],
+    "limits": "原始 XLSX 的公式缓存为空；另附重算副本。原脚本仍未通过全流程；渲染有较多留白，未在 Microsoft Excel 中验收。",
+    "files": [
+      [
+        "原始 Excel",
+        "output.xlsx"
+      ],
+      [
+        "重算副本",
+        "recalculated.xlsx"
+      ],
+      [
+        "PDF 预览",
+        "output.pdf"
+      ],
+      [
+        "输入 CSV",
+        "input.csv"
+      ],
+      [
+        "两次超时记录",
+        "report.md"
+      ],
+      [
+        "最终核验",
+        "final-verification.json"
+      ]
+    ],
+    "date": "2026-11-17",
+    "tone": "conditional",
+    "runtime": "Codex CLI 0.160.0 · macOS · skills@1.9.0 · 临时项目安装",
+    "caption": "真实生成文件经 LibreOffice 渲染后的预览页截图；不是 Microsoft Office 客户端截图。",
+    "cardImage": "tests/sheet/card.jpg"
+  },
+  "slides": {
+    "status": "修正并渲染后通过",
+    "headline": "4 页复盘：原生图表、行动表与讲稿",
+    "summary": "实际安装 pptx Skill，Agent 使用 PptxGenJS 生成 16:9 演示文稿。运行中修正占位符写法并配置中文字体，重新生成后通过原验证器与逐页渲染检查。",
+    "checks": [
+      "4 页幻灯片，每页都有备注讲稿",
+      "1 张原生柱状图、1 张原生表格、1 个内嵌数据工作簿",
+      "无整页栅格图片；金额、负责人和待确认日期均与输入一致"
+    ],
+    "limits": "可编辑性依据 OOXML 原生对象结构检查，未在 Microsoft PowerPoint 中交互编辑。仅测试这份 4 页虚构材料。",
+    "files": [
+      [
+        "下载 PPT",
+        "output.pptx"
+      ],
+      [
+        "PDF 预览",
+        "output.pdf"
+      ],
+      [
+        "原始输入",
+        "input.md"
+      ],
+      [
+        "执行报告",
+        "report.md"
+      ],
+      [
+        "最终核验",
+        "final-verification.json"
+      ]
+    ],
+    "date": "2026-11-17",
+    "tone": "conditional",
+    "runtime": "Codex CLI 0.160.0 · macOS · skills@1.9.0 · 临时项目安装",
+    "caption": "真实生成文件经 LibreOffice 渲染后的预览页截图；不是 Microsoft Office 客户端截图。",
+    "cardImage": "tests/slides/card.jpg"
+  },
+  "md-html": {
+    "status": "HTML 转换与预览通过",
+    "headline": "Markdown → 红色主题公众号 HTML",
+    "summary": "实际安装 baoyu-markdown-to-html 及其锁定依赖，执行原始转换脚本，生成带标题、费用表、引用、代码块和行动清单的 HTML。",
+    "checks": [
+      "原脚本成功输出 HTML，9 项结构检查通过",
+      "真实浏览器桌面与 390px 移动宽度均可阅读，无横向溢出",
+      "保留 Markdown 来源链接、表格金额和“待确认”"
+    ],
+    "limits": "只完成本地 HTML 转换与浏览器预览，未粘贴进微信公众号编辑器，也未发布文章。公众号最终样式兼容性待验收。",
+    "files": [
+      [
+        "打开真实 HTML",
+        "input.html"
+      ],
+      [
+        "原始 Markdown",
+        "input.md"
+      ],
+      [
+        "转换记录",
+        "conversion.json"
+      ],
+      [
+        "执行报告",
+        "report.md"
+      ],
+      [
+        "手机截图",
+        "mobile.jpg"
+      ],
+      [
+        "最终核验",
+        "final-verification.json"
+      ]
+    ],
+    "date": "2026-11-17",
+    "tone": "conditional",
+    "runtime": "Codex CLI 0.160.0 · macOS · skills@1.9.0 · 临时项目安装",
+    "caption": "实际 HTML 的浏览器截图；尚未在微信公众号编辑器验收。",
+    "cardImage": "tests/md-html/card.jpg"
+  }
+});

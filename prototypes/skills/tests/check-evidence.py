@@ -15,4 +15,4 @@ for name, case in evidence['cases'].items():
     assert (root / name / 'screenshot.jpg').read_bytes().startswith(b'\xff\xd8')
 assert json.loads((root / 'pdf/extracted.json').read_text()) == json.loads((root / 'pdf/expected.json').read_text())
 assert evidence['cases']['react']['seededIssuesFound'] == 3
-print(f'PASS: 4 installed cases, {count} artifact hashes, 4 screenshots, PDF held-out values')
+print(f'PASS: {len(evidence["cases"])} installed cases, {count} artifact hashes, {len(evidence["cases"])} screenshots, PDF held-out values')

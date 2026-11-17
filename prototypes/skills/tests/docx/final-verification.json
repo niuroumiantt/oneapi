@@ -1,0 +1,18 @@
+{
+  "status": "补齐字体后通过",
+  "checks": [
+    "A4 单页，费用表与行动表均为 Word 原生表格",
+    "预算 18,000、支出 16,420、余额 1,580 与输入一致",
+    "保留“待确认”和满意度数据缺失，没有编造结论"
+  ],
+  "limits": "基于虚构业务材料；使用 LibreOffice 渲染并逐页目检，未在 Microsoft Word 中打开验收。",
+  "environment": {
+    "python": "3.12.14",
+    "node": "24.22.1",
+    "officeRenderer": "bundled LibreOffice headless, isolated profiles",
+    "fontRecovery": "temporary Fontconfig mapping to system Heiti SC; no global font changes"
+  },
+  "visualReview": "All rendered pages inspected; HTML desktop and 390px mobile inspected",
+  "nativeTables": 2,
+  "pages": 1
+}

@@ -1,0 +1,20 @@
+{
+  "status": "修正并渲染后通过",
+  "checks": [
+    "4 页幻灯片，每页都有备注讲稿",
+    "1 张原生柱状图、1 张原生表格、1 个内嵌数据工作簿",
+    "无整页栅格图片；金额、负责人和待确认日期均与输入一致"
+  ],
+  "limits": "可编辑性依据 OOXML 原生对象结构检查，未在 Microsoft PowerPoint 中交互编辑。仅测试这份 4 页虚构材料。",
+  "environment": {
+    "python": "3.12.14",
+    "node": "24.22.1",
+    "officeRenderer": "bundled LibreOffice headless, isolated profiles",
+    "fontRecovery": "temporary Fontconfig mapping to system Heiti SC; no global font changes"
+  },
+  "visualReview": "All rendered pages inspected; HTML desktop and 390px mobile inspected",
+  "pages": 4,
+  "nativeCharts": 1,
+  "nativeTables": 1,
+  "notesSlides": 4
+}

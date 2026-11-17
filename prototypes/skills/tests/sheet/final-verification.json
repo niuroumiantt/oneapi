@@ -1,0 +1,45 @@
+{
+  "status": "计算通过 · 原重算超时",
+  "checks": [
+    "8 条输入去重为 7 条，重复记录单独保留，退货 -136 元未丢失",
+    "独立重算：9 月 1,516、10 月 2,824、合计 4,340",
+    "单价 68→70 后：9 月 1,540、合计 4,364；原始文件未覆盖"
+  ],
+  "limits": "原始 XLSX 的公式缓存为空；另附重算副本。原脚本仍未通过全流程；渲染有较多留白，未在 Microsoft Excel 中验收。",
+  "environment": {
+    "python": "3.12.14",
+    "node": "24.22.1",
+    "officeRenderer": "bundled LibreOffice headless, isolated profiles",
+    "fontRecovery": "temporary Fontconfig mapping to system Heiti SC; no global font changes"
+  },
+  "visualReview": "All rendered pages inspected; HTML desktop and 390px mobile inspected",
+  "independentRecalculation": {
+    "actual": [
+      1516,
+      2824,
+      4340
+    ],
+    "expected": [
+      1516,
+      2824,
+      4340
+    ],
+    "passed": true,
+    "method": "Independent LibreOffice direct conversion, not upstream recalc.py"
+  },
+  "mutationTest": {
+    "actual": [
+      1540,
+      2824,
+      4364
+    ],
+    "expected": [
+      1540,
+      2824,
+      4364
+    ],
+    "passed": true,
+    "method": "Independent LibreOffice direct conversion, not upstream recalc.py"
+  },
+  "upstreamRecalcPassed": false
+}

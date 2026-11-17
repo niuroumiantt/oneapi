@@ -1,0 +1,20 @@
+{
+  "status": "structure_passed_recalc_failed",
+  "formula_count": 11,
+  "monthly_totals": [
+    1516,
+    2824
+  ],
+  "total": 4340,
+  "kept": 7,
+  "duplicates": 1,
+  "input_unchanged": true,
+  "recalc": {
+    "error": "LibreOffice timed out after 119s; formulas were NOT recalculated. Re-run with a longer timeout."
+  },
+  "cached_summary": [
+    null,
+    null,
+    null
+  ]
+}
