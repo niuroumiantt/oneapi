@@ -35,7 +35,14 @@
   // Round percentage to two decimal places only after exact subtraction and division.
   const hundredths=bUnits===0n?null:(absolute*10000n+bUnits/2n)/bUnits;
   const percent=hundredths===null?null:hundredths===0n&&absolute>0n?'< 0.01':(Number(hundredths)/100).toLocaleString('zh-CN',{maximumFractionDigits:2});
-  return {...base,status:'compared',direction:difference>0n?'less':difference<0n?'more':'equal',actual_yuan:format(aUnits,scale),reference_estimate_yuan:format(bUnits,scale),difference_yuan:format(difference,scale),absolute_difference_yuan:format(absolute,scale),percentage:percent,percentage_unavailable_reason:bUnits===0n?'预估费用为 0，无法计算百分比。':null,formula:'差额 = 参照预估费用 − 平台实付消费（购包折算）；节省比例 = 差额 ÷ 参照预估费用 × 100%。'};
+  return {...base,status:'compared',direction:difference>0n?'less':difference<0n?'more':'equal',actual_yuan:format(aUnits,scale),reference_estimate_yuan:format(bUnits,scale),difference_yuan:format(difference,scale),absolute_difference_yuan:format(absolute,scale),percentage:percent,percentage_unavailable_reason:bUnits===0n?'预估费用为 0，无法计算百分比。':null,formula:'差额 = 参照预估费用 − 平台真实消费（按购包成交折扣折算）；节省比例 = 差额 ÷ 参照预估费用 × 100%。'};
  }
- return {compare};
+ function discount(bill){
+  if(bill?.status!=='settled')return null;
+  const paid=decimal(bill.paid_equivalent_yuan),face=decimal(bill.charged_yuan);if(!paid||!face||face.units===0n)return null;
+  const scale=Math.max(paid.scale,face.scale),paidUnits=paid.units*10n**BigInt(scale-paid.scale),faceUnits=face.units*10n**BigInt(scale-face.scale);
+  const rounded=(paidUnits*100000n+faceUnits/2n)/faceUnits;
+  return (paidUnits*100000n%faceUnits===0n?'':'约 ')+format(rounded,4);
+ }
+ return {compare,discount};
 });

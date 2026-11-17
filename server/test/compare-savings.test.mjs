@@ -43,3 +43,12 @@ test('manual and third-party estimates are never labelled official',()=>{
 test('comparison output is JSON-exportable and does not copy credentials',()=>{
  const pair=fixture();pair[1].estimate.source.key='secret-fixture';const json=JSON.stringify(savings.compare(...pair));assert.ok(!json.includes('secret-fixture'));assert.match(json,/difference_yuan/);assert.match(json,/formula/);
 });
+
+test('purchase discount uses the consumed credit, not current identity or last payment',()=>{
+ const bill=fixture()[0].billing;assert.equal(savings.discount(bill),'3');
+ assert.equal(savings.discount({...bill,charged_yuan:'1.501',paid_equivalent_yuan:'0.5005'}),'约 3.3344');
+ assert.equal(savings.discount({...bill,paid_equivalent_yuan:bill.charged_yuan}),'10');
+ assert.equal(savings.discount({...bill,charged_yuan:'0',paid_equivalent_yuan:'0'}),null);
+ assert.equal(savings.discount({...bill,status:'pending'}),null);
+ assert.equal(savings.discount({...bill,paid_equivalent_yuan:null}),null);
+});
