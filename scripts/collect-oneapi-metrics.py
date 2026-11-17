@@ -63,6 +63,67 @@ def atomic_json(path, value, mode):
     tmp.chmod(mode)
     tmp.replace(path)
 
+def project_network():
+    """Actual container bytes, including internal traffic; NOT billable public egress."""
+    try:
+        identity, pid, started = command(['docker', 'inspect', '--format', '{{.Id}}|{{.State.Pid}}|{{.State.StartedAt}}', 'oneapi-api-1']).split('|')
+        if int(pid) <= 0:
+            return None
+        rows = Path('/proc', pid, 'net/dev').read_text().splitlines()[2:]
+        rx = tx = 0
+        interfaces = []
+        for line in rows:
+            name, values = line.split(':', 1)
+            if name.strip() == 'lo':
+                continue
+            fields = values.split()
+            rx += int(fields[0]); tx += int(fields[8]); interfaces.append(name.strip())
+        if not interfaces:
+            return None
+        return dict(identity=identity + ':' + started + ':' + ','.join(sorted(interfaces)), rx=rx, tx=tx)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+def backup_inventory():
+    """Only completed local OneAPI dumps; no contents or filenames exported."""
+    try:
+        sizes, modified = [], []
+        with os.scandir('/srv/oneapi-backups') as entries:
+            for entry in entries:
+                if entry.name.startswith('oneapi-') and entry.name.endswith('.dump') and entry.is_file(follow_symlinks=False):
+                    st = entry.stat(follow_symlinks=False)
+                    sizes.append(st.st_size); modified.append(st.st_mtime)
+        return dict(status='ok', source='local_completed_database_dumps', bytes=sum(sizes), files=len(sizes),
+                    latest_at=dt.datetime.fromtimestamp(max(modified),dt.timezone.utc).isoformat() if modified else None)
+    except OSError:
+        return dict(status='unavailable')
+
+def update_usage(previous, current, stamp):
+    """Only accumulate observed intervals. Reset/gap/midnight never backfills history."""
+    old = previous.get('usage_meter') or {}
+    result = dict(started_at=old.get('started_at', stamp), days=[dict(x) for x in old.get('days', [])],
+                  allocation_ready=False, source='container_interface_bytes', public_egress_status='not_separated')
+    day = dt.datetime.fromisoformat(stamp).astimezone(dt.timezone(dt.timedelta(hours=8))).date().isoformat()
+    row = next((x for x in result['days'] if x['date']==day), None)
+    if row is None:
+        row = dict(date=day, rx_bytes=0, tx_bytes=0, observed_seconds=0, gaps=0)
+        result['days'].append(row)
+    elapsed = current['clock'] - previous.get('clock', current['clock'])
+    a, b = previous.get('project_network'), current.get('project_network')
+    previous_day = old.get('last_day')
+    valid = (previous.get('boot')==current['boot'] and 0 < elapsed <= 120 and previous_day==day and a and b and a['identity']==b['identity'] and b['rx']>=a['rx'] and b['tx']>=a['tx'])
+    if valid:
+        row['rx_bytes'] += b['rx']-a['rx']; row['tx_bytes'] += b['tx']-a['tx']
+        row['observed_seconds'] = round(row['observed_seconds']+elapsed, 2)
+    elif old:
+        row['gaps'] += 1
+    result['last_day'] = day
+    result['days'] = sorted(result['days'],key=lambda x:x['date'])[-35:]
+    result['collected_at'] = stamp
+    result['network_status'] = 'ok' if b else 'unavailable'
+    result['backup'] = backup_inventory()
+    return result
+
 def collect():
     try:
         previous = json.loads(STATE.read_text())
@@ -71,6 +132,8 @@ def collect():
         time.sleep(1)
     current = counters()
     rates = delta_metrics(previous, current)
+    current['project_network'] = project_network()
+    current['usage_meter'] = update_usage(previous, current, dt.datetime.now(dt.timezone.utc).isoformat())
     memory = {row.split(':')[0]: int(row.split()[1]) * 1024 for row in Path('/proc/meminfo').read_text().splitlines()}
     disk = shutil.disk_usage('/')
     services = []
@@ -89,12 +152,19 @@ def collect():
                   memory_total_bytes=memory['MemTotal'], memory_used_bytes=memory['MemTotal']-memory['MemAvailable'],
                   disk_total_bytes=disk.total, disk_used_bytes=disk.used,
                   network=dict(interface=current['interface'], rx_bps=rates['rx_bps'], tx_bps=rates['tx_bps']),
-                  uptime_seconds=float(Path('/proc/uptime').read_text().split()[0]), services=services,
+                  usage_meter=current['usage_meter'], uptime_seconds=float(Path('/proc/uptime').read_text().split()[0]), services=services,
                   local_probe=dict(ok=bool(api and api.get('status')=='ok'), latency_ms=latency),
                   deployment=dict(api_sha=api.get('source_sha') if api else None,
                                   web_sha=(release.get('source_sha') or release.get('source_commit') or release.get('commit')) if release else None))
     atomic_json(OUTPUT, result, 0o644)
     atomic_json(STATE, current, 0o600)
+    # Keep private monthly ledgers beyond the 35-day UI window. Never rewrite an older month with a truncated window.
+    meter = current['usage_meter']; today = meter['last_day']
+    months = {today[:7]}
+    if today.endswith('-01'):
+        months.update(x['date'][:7] for x in meter['days'] if x['date'] < today)
+    for month in months:
+        atomic_json(STATE.parent / ('usage-' + month + '.json'), dict(started_at=meter['started_at'], period=month, days=[x for x in meter['days'] if x['date'].startswith(month)], allocation_ready=False), 0o600)
 
 if __name__ == '__main__':
     collect()

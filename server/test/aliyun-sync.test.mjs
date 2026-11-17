@@ -30,7 +30,7 @@ test('scheduled sync persists once, reuses six-hour cadence across worker restar
 test('cloud UI shows failed refresh and keeps forecast and allocation visibly separate',async()=>{
  const {readFileSync}=await import('node:fs'),vm=await import('node:vm');const source=readFileSync(new URL('../private/supplier-lab.js',import.meta.url),'utf8');
  const snapshot=retainSuccessfulSnapshot(null,await readAliyun(auth,fetcher));snapshot.billing.stale=true;snapshot.billing.last_error='Forbidden';
- const ctx=vm.createContext({cloudData:{configured:true,snapshot},esc:String,when:String,stat:(...x)=>x.join(' ')});vm.runInContext(source.slice(source.indexOf('function cloudCostView('),source.indexOf('function configureCloud(')),ctx);
+ const ctx=vm.createContext({cloudData:{configured:true,snapshot},serverSnapshot:null,esc:String,when:String,stat:(...x)=>x.join(' ')});vm.runInContext(source.slice(source.indexOf('function cloudUsageView('),source.indexOf('function configureCloud(')),ctx);
  const html=ctx.cloudView();assert.match(html,/每 6 小时自动同步/);assert.match(html,/官方预测未接入/);assert.match(html,/OneAPI 已归属成本 待确认/);assert.match(html,/本次同步失败：Forbidden/);assert.match(html,/22.590001/);assert.match(html,/原始资源汇总/);
 });
 

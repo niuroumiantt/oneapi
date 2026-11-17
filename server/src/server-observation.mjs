@@ -3,12 +3,18 @@ import {requireTechnical} from './workspaces.mjs';
 const numeric=(v,max=Number.MAX_SAFE_INTEGER)=>typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<=max?v:null;
 const stamp=v=>typeof v==='string'&&Number.isFinite(Date.parse(v))?new Date(v).toISOString():null;
 const sha=v=>typeof v==='string'&&/^[a-f0-9]{40}$/.test(v)?v:null;
+export function projectUsageMeter(raw){
+ if(!stamp(raw?.started_at)||!stamp(raw?.collected_at))return null;
+ return {started_at:stamp(raw.started_at),collected_at:stamp(raw.collected_at),allocation_ready:false,source:'container_interface_bytes',public_egress_status:'not_separated',network_status:raw.network_status==='ok'?'ok':'unavailable',
+ days:(Array.isArray(raw.days)?raw.days:[]).slice(-35).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x.date||'')).map(x=>({date:x.date,rx_bytes:numeric(x.rx_bytes),tx_bytes:numeric(x.tx_bytes),observed_seconds:numeric(x.observed_seconds,86400),gaps:numeric(x.gaps)})),
+ backup:{status:raw.backup?.status==='ok'?'ok':'unavailable',source:'local_completed_database_dumps',bytes:numeric(raw.backup?.bytes),files:numeric(raw.backup?.files),latest_at:stamp(raw.backup?.latest_at)}};
+}
 // Whitelist the public-to-staff projection; never return arbitrary host file fields.
 export function projectMetrics(raw,now=Date.now()) {
  if(raw?.schema!==1||!stamp(raw.collected_at))throw Error('INVALID_SNAPSHOT');
  const age=(now-Date.parse(raw.collected_at))/1000,stale=age>60||age< -5;
  const result={status:stale?'stale':'ok',collected_at:stamp(raw.collected_at),age_seconds:Math.max(0,Math.round(age)),scope:'shared_host',
-  sample_seconds:numeric(raw.sample_seconds,120),cpu_percent:numeric(raw.cpu_percent,100),cpu_cores:numeric(raw.cpu_cores,65536),
+  usage_meter:projectUsageMeter(raw.usage_meter),sample_seconds:numeric(raw.sample_seconds,120),cpu_percent:numeric(raw.cpu_percent,100),cpu_cores:numeric(raw.cpu_cores,65536),
   memory_total_bytes:numeric(raw.memory_total_bytes),memory_used_bytes:numeric(raw.memory_used_bytes),
   disk_total_bytes:numeric(raw.disk_total_bytes),disk_used_bytes:numeric(raw.disk_used_bytes),uptime_seconds:numeric(raw.uptime_seconds),
   network:{interface:typeof raw.network?.interface==='string'&&/^[a-zA-Z0-9_.:-]{1,32}$/.test(raw.network.interface)?raw.network.interface:null,rx_bps:numeric(raw.network?.rx_bps),tx_bps:numeric(raw.network?.tx_bps)},
