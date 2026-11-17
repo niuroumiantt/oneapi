@@ -12,16 +12,21 @@ function pricePreview(){const manual=$('price-mode').value==='manual';$('manual-
 function syncReferenceModel(){const m=chosen();if(refAutomatic&&m){const provider=$('ref-provider').value;if(provider===m.family)$('ref-model').value=m.official_reference_model;else if(provider==='custom')$('ref-model').value=m.upstream_model||m.id;}}
 function cost(side,r){
  const box=$('cost-'+side),title=document.createElement('div'),label=document.createElement('span'),value=document.createElement('strong'),note=document.createElement('p');title.className='cost-total';note.className='cost-note';
- const a=side==='a',b=r?.billing,e=r?.estimate,settled=b?.status==='settled';
- label.textContent=a?'实付消费（购包折算）':e?.source?.kind==='user_entered'?'参照费用 · 预估（自填单价）':((e?.source?.provider||$('ref-provider').value)==='custom'?'参照费用 · 预估':'官方费用 · 预估');
- value.textContent=!r?'等待本次结果':a?(settled?money(b.paid_equivalent_yuan):b?.status==='failed'?'未扣费':'待结算'):e?.status==='estimated'?money(e.total_yuan):'无法估算';title.append(label,value);box.replaceChildren(title);
- note.textContent=a?(b?.notice||'运行后读取平台结算账本，显示实际扣额及购包折算消费。'):(e?.notice||'仅作预估，本站无法读取参照平台的真实账单，实际费用以对应平台账单为准。');
- if(a&&settled){const credit=document.createElement('p');credit.className='cost-credit';credit.textContent=`实际扣除官价额度 ${money(b.charged_yuan)} · 现金账本本次记账 ${money(b.cash_booked_yuan)}`;box.append(credit);}
+ const a=side==='a',b=r?.billing,e=r?.estimate,settled=b?.status==='settled',parts=a?b?.calculation:e,alias=a&&last?.models.a==='deepseek-flash-0910';
+ label.textContent=a?(alias?'Token 计价（参照 Flash 官价）':'Token 计价（官方单价）'):e?.source?.kind==='user_entered'?'Token 计价（自填单价预估）':((e?.source?.provider||$('ref-provider').value)==='custom'?'Token 计价（参照预估）':'Token 计价（官方预估）');
+ value.textContent=!r?'等待本次结果':a?(parts?.total_yuan!=null?money(parts.total_yuan):b?.status==='failed'?'无法计算':'等待完整计费数据'):e?.status==='estimated'?money(e.total_yuan):'无法估算';title.append(label,value);box.replaceChildren(title);
+ note.textContent=a?'Token 官价合计按本次调用冻结的单价和倍率计算；真实消费按本次使用额度包在购买时的实付款比例折算，不随当前身份或最后一次充值折扣重算。跨额度包消费分别折算后汇总。':(e?.notice||'仅作预估，本站无法读取参照平台的真实账单，实际费用以对应平台账单为准。');
  if(!a&&e?.reason){const reason=document.createElement('p');reason.className='cost-credit';reason.textContent=e.reason;box.append(reason);}
- const parts=a?b?.calculation:e;
- if(parts?.items){const details=document.createElement('details'),summary=document.createElement('summary'),list=document.createElement('dl');summary.textContent='Token 计费明细';list.className='cost-lines';for(const item of parts.items){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=({input:'未命中输入',cached:'缓存命中',output:'输出（含已报告的推理）'})[item.kind];dd.textContent=`${fmt(item.tokens)} × ¥${Number(item.rate_yuan_per_million)} / 百万 = ${money(item.amount_yuan)}`;list.append(dt,dd);}details.append(summary,list);
-  const total=document.createElement('p');total.textContent=`Token 计价合计 ${money(parts.total_yuan)}${a?'；实际扣额见上方账本，可能受余额或 Key 上限约束。':'。'}`;details.append(total);
-  if(!a&&e.source.source_url){const source=document.createElement('a');source.href=e.source.source_url;source.target='_blank';source.rel='noopener noreferrer';source.textContent=`官方价格来源 · 核对于 ${e.source.checked_at}`;details.append(source);}box.append(details);}
+ if(parts?.items){const details=document.createElement('details'),summary=document.createElement('summary'),list=document.createElement('dl');summary.textContent='Token 计费明细';details.open=true;list.className='cost-lines';for(const item of parts.items){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=({input:'未命中输入',cached:'缓存命中',output:'输出（含已报告的推理）'})[item.kind];dd.textContent=`${fmt(item.tokens)} × ¥${Number(item.rate_yuan_per_million)} / 百万 = ${money(item.amount_yuan)}`;list.append(dt,dd);}details.append(summary,list);
+  const total=document.createElement('p');total.textContent=`Token 计价合计 ${money(parts.total_yuan)}。`;details.append(total);
+  const platformModel=a?config?.models.find(m=>m.id===last?.models.a):null;
+  const source=a?config?.reference_prices?.find(p=>p.provider===platformModel?.family&&p.model.toLowerCase()===platformModel?.official_reference_model?.toLowerCase()):e?.source;
+  if(source?.source_url){const link=document.createElement('a');link.href=source.source_url;link.target='_blank';link.rel='noopener noreferrer';link.textContent=`官方价格来源 · 核对于 ${source.checked_at}`;details.append(link);}box.append(details);}
+ if(a){
+  const actual=document.createElement('div'),actualLabel=document.createElement('span'),actualValue=document.createElement('strong');actual.className='cost-total actual-cost';actualLabel.textContent='真实消费（折扣后）';actualValue.textContent=!r?'等待本次结果':settled?money(b.paid_equivalent_yuan):b?.status==='failed'?'未扣费':'待结算';actual.append(actualLabel,actualValue);box.append(actual);
+  if(settled){const discount=document.createElement('p'),credit=document.createElement('p');discount.className='cost-credit';const d=SemiflyCostComparison.discount(b);discount.textContent=d?`本次使用额度的综合折扣：${d} 折。按购买时实付款 ÷ 官价额度计算。`:'本次折扣无法计算；真实消费以结算记录为准。';credit.className='cost-credit';credit.textContent=`实际扣除官价额度 ${money(b.charged_yuan)} · 现金账本本次记账 ${money(b.cash_booked_yuan)}。现金按分累计，小额用量可能合并记账。`;box.append(discount,credit);}
+  if(alias){const aliasNote=document.createElement('p');aliasNote.className='cost-note';aliasNote.textContent='0910 是供应商版本，平台参照 DeepSeek Flash 官价计费，不代表存在该版本独立官方报价。';box.append(aliasNote);}
+ }
  if(!a&&e?.notes?.length){const notes=document.createElement('p');notes.className='cost-credit';notes.textContent=e.notes.join(' ');box.append(notes);}
  box.append(note);
  $('bill-'+side).textContent=a?(settled?'平台账本 · 已结算':b?.status==='failed'?'平台账本 · 未扣费':'平台账本 · 等待结算'):'预计金额 · 非参照方账单';
@@ -51,7 +56,7 @@ function updateCostComparison(){
  $('savings-amount').textContent=money(c.absolute_difference_yuan);
  $('savings-percent-label').textContent=c.direction==='more'?'高于预估':c.direction==='equal'?'费用差异':'预计节省';
  $('savings-percent').textContent=c.percentage===null?'无法计算':c.percentage+'%';
- $('savings-formula').textContent=`参照预估 ${money(c.reference_estimate_yuan)} − 我们的实付消费 ${money(c.actual_yuan)} = ${c.direction==='more'?'− ':''}${money(c.absolute_difference_yuan)}。`+(c.percentage_unavailable_reason||'比例按差额 ÷ 参照预估费用计算。');
+ $('savings-formula').textContent=`参照预估 ${money(c.reference_estimate_yuan)} − 我们的真实消费 ${money(c.actual_yuan)} = ${c.direction==='more'?'− ':''}${money(c.absolute_difference_yuan)}。`+(c.percentage_unavailable_reason||'比例按差额 ÷ 参照预估费用计算。');
 }
 function updateConclusion(){updateCostComparison();const a=last?.results.a,b=last?.results.b;if(!a||!b){$('conclusion').textContent='两路独立执行，等待各自接口返回。';return}const comparable=a.status==='complete'&&b.status==='complete'&&!a.warnings?.some(x=>x.includes('非流式'))&&!b.warnings?.some(x=>x.includes('非流式'));let s='';if(comparable&&b.timing?.total_ms>0){const diff=a.timing.total_ms-b.timing.total_ms;s=`本次 A 总耗时比 B ${diff>0?'多':'少'} ${Math.abs(diff/1000).toFixed(2)} 秒（${Math.abs(diff/b.timing.total_ms*100).toFixed(1)}%）。`;}else s='本次包含失败、截断、非流式或不完整结果，不给出速度优劣结论。';$('conclusion').textContent=s+' 用量、缓存、推理与回答长度可能不同；单次结果不能鉴定模型身份。';}
 function result(side,data){last.results[side]=data;$('state-'+side).textContent=states[data.status]||data.status;$('state-'+side).classList.remove('running');$('result-'+side).classList.remove('running');$('answer-'+side).classList.remove('cursor');if(!last.outputs[side].text)$('answer-'+side).textContent=data.error||'接口未返回可见回答，请检查推理内容和完成原因。';$('warning-'+side).textContent=[data.error,...(data.warnings||[])].filter(Boolean).join(' ');stats(side,data);cost(side,data);table();updateConclusion();}
