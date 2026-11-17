@@ -362,7 +362,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
     ,coalesce(u.active,0)::int AS active_calls,u.last_client,coalesce(u.calls_24h,0)::int AS calls_24h,coalesce(u.tokens_24h,0)::bigint AS tokens_24h,coalesce(p.peak,0)::int AS peak_rpm
     FROM employee_api_keys k LEFT JOIN (SELECT key_id,count(*) AS calls,sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)) AS tokens,sum(coalesce(charged_yuan,0)) AS yuan,max(created_at) AS last_call_at,count(*) FILTER(WHERE status='pending' AND created_at>now()-interval '10 minutes') AS active,(array_agg(client ORDER BY created_at DESC))[1] AS last_client,count(*) FILTER(WHERE created_at>now()-interval '24 hours') AS calls_24h,coalesce(sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)) FILTER(WHERE created_at>now()-interval '24 hours'),0) AS tokens_24h FROM employee_calls WHERE owner_id=$1 GROUP BY key_id) u ON u.key_id=k.id
     LEFT JOIN (SELECT key_id,max(n) AS peak FROM (SELECT key_id,count(*) AS n FROM employee_calls WHERE owner_id=$1 AND created_at>now()-interval '24 hours' GROUP BY key_id,date_trunc('minute',created_at)) x GROUP BY key_id) p ON p.key_id=k.id
-    WHERE k.owner_id=$1 ORDER BY k.created_at DESC LIMIT 20`,[req.customer.id]),
+    WHERE k.owner_id=$1 AND k.purpose='api' ORDER BY k.created_at DESC LIMIT 20`,[req.customer.id]),
    pool.query('SELECT c.id,k.label AS key_label,c.model_id,c.status,c.hold_yuan,c.charged_yuan,c.settlement_source,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.latency_ms,c.error_code,c.client,c.created_at FROM employee_calls c JOIN employee_api_keys k ON k.id=c.key_id WHERE c.owner_id=$1 ORDER BY c.created_at DESC LIMIT 30',[req.customer.id]),
    employeeRoutes(pool,cfg),
    pool.query("SELECT to_char(created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD') AS day,model_id,count(*)::int AS calls,coalesce(sum(charged_yuan),0) AS yuan FROM employee_calls WHERE owner_id=$1 AND created_at>=now()-interval '14 days' GROUP BY 1,2 ORDER BY 1,2",[req.customer.id]),
@@ -381,7 +381,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
   if(b.limit_yuan!==undefined&&b.limit_yuan!==null&&b.limit_yuan!==''){const raw=String(b.limit_yuan);if(!moneyPattern.test(raw)||Number(raw)<=0)throw new HttpError(400,'消费上限需为大于 0 的金额，最多两位小数');limit=raw;}
   const key=await transaction(pool,async db=>{
    await db.query('SELECT user_id FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[req.customer.id]);
-   const count=(await db.query('SELECT count(*)::int AS count FROM employee_api_keys WHERE owner_id=$1 AND revoked_at IS NULL',[req.customer.id])).rows[0].count;
+   const count=(await db.query("SELECT count(*)::int AS count FROM employee_api_keys WHERE owner_id=$1 AND revoked_at IS NULL AND purpose='api'",[req.customer.id])).rows[0].count;
    if(count>=MAX_KEYS)throw new HttpError(409,`最多保留 ${MAX_KEYS} 枚有效 Key，请先停用旧 Key`);
    const created=(await db.query('INSERT INTO employee_api_keys(owner_id,label,secret_hash,key_hint,model_ids,limit_yuan) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,label,key_hint,created_at,model_ids,limit_yuan',[req.customer.id,label,hash(secret),secret.slice(-6),models,limit])).rows[0];
    await audit(db,req.actor,'employee_credit.key_created',cfg.employeeCredit.organizationId,created.id,{models,limit_yuan:limit});return created;
@@ -410,9 +410,9 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
   if(backend)return backend.authenticate(req);
   if(!enabled(cfg))throw new HttpError(503,'公司额度尚未开放');
   const secret=keyPattern.exec(req.get('authorization'))[1];
-  const key=(await pool.query(`SELECT k.id AS key_id,k.owner_id,k.model_ids,k.limit_yuan,k.max_concurrent,k.per_minute,m.organization_id FROM employee_api_keys k JOIN "user" u ON u.id=k.owner_id
+  const key=(await pool.query(`SELECT k.id AS key_id,k.owner_id,k.model_ids,k.limit_yuan,k.max_concurrent,k.per_minute,k.purpose,m.organization_id FROM employee_api_keys k JOIN "user" u ON u.id=k.owner_id
    JOIN memberships m ON m.user_id=k.owner_id AND m.organization_id=$2 AND m.status='active'
-   WHERE k.secret_hash=$1 AND k.revoked_at IS NULL AND u."emailVerified" AND NOT coalesce(u.disabled,false)`,[hash(secret),cfg.employeeCredit.organizationId])).rows[0];
+   WHERE k.secret_hash=$1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND u."emailVerified" AND NOT coalesce(u.disabled,false)`,[hash(secret),cfg.employeeCredit.organizationId])).rows[0];
   if(!key)throw new HttpError(401,'平台 Key 无效或已停用');
   req.employeeAuth=key;
   return key;
@@ -451,9 +451,9 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
   const key=await authenticate(req);
   await limit(key,res);
   const origin=callClient(name=>req.get(name));
-  let shaped;try{shaped=employeeRequest(req.body);}catch(e){if(e instanceof HttpError&&e.status===400){const rejected=recordProfile(pool,origin,req.body,e.message);!backend&&captureHook?.(key.key_id,rejected,origin,e.message);}throw e;}
+  let shaped;try{shaped=employeeRequest(req.body);}catch(e){if(e instanceof HttpError&&e.status===400){const rejected=recordProfile(pool,origin,req.body,e.message);!backend&&key.purpose!=='compare'&&captureHook?.(key.key_id,rejected,origin,e.message);}throw e;}
   const {model,payload,stream,input,output}=shaped,signature=recordProfile(pool,origin,req.body);
-  !backend&&captureHook?.(key.key_id,signature,origin,null);
+  !backend&&key.purpose!=='compare'&&captureHook?.(key.key_id,signature,origin,null);
   if(key.model_ids&&!key.model_ids.includes(model.id))throw new HttpError(403,`这把 Key 只能调用：${key.model_ids.join('、')}`,'model_not_allowed');
   const route=(await (backend?backend.routes():employeeRoutes(pool,cfg))).find(r=>r.model.id===model.id);
   if(!route)throw new HttpError(503,'这个模型暂时不可用','model_unavailable');
@@ -465,7 +465,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
   const freeSlots=()=>{seatSlot?.release();slot.release();};
   res.once('close',freeSlots);if(res.destroyed)freeSlots();
   const multiplier=priceMultiplier(model,new Date(),cfg.employeeCredit?.holidays),hold=holdYuan(model.rates,{input,output},multiplier);
-  const summary=!backend&&await summariesOn(pool,cfg)?callSummary(req.body.messages):null;
+  const summary=!backend&&key.purpose!=='compare'&&await summariesOn(pool,cfg)?callSummary(req.body.messages):null;
   const callId=await (backend?backend.reserve({key,model:{...model,multiplier},route,hold,origin}):transaction(pool,async db=>{
    // The row lock serialises reservations so concurrent calls cannot overspend.
    await db.query('SELECT user_id FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[key.owner_id]);
@@ -595,6 +595,7 @@ const freeOnKerapi=e=>String(e?.type)==='5'||(Number(e?.quota)===0&&!(Number(e?.
  *  - Otherwise, after 24 hours with a request ID still unmatched: charge the hold (H7, owner decided 2026-11-12).
  */
 export async function settleEmployeeCalls(pool){
+ await pool.query("UPDATE employee_api_keys SET revoked_at=now() WHERE purpose='compare' AND revoked_at IS NULL AND expires_at<=now()");
  await pool.query("UPDATE employee_calls SET summary=NULL WHERE summary IS NOT NULL AND created_at<now()-interval '30 days'");
  // Open past the longest possible request, so the process that served it is gone. Without a request ID the upstream never answered.
  await pool.query(`UPDATE employee_calls SET status='failed',finished_at=coalesce(finished_at,now()),error_code='GATEWAY_INTERRUPTED' WHERE upstream_request_id IS NULL AND (status='pending' AND created_at<now()-interval '${STALE_PENDING}' OR status='awaiting_bill' AND error_code='STALE_PENDING')`);
