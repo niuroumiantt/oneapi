@@ -73,7 +73,7 @@ def parse_skill_count(source):
     return dict(display=match[1],countApprox=parse_count(match[1]))
 
 def fetch(url):
-    req = urllib.request.Request(url,headers={'User-Agent':'semifly-local-catalog/1.0','Accept-Language':'en-US,en;q=0.8'})
+    req = urllib.request.Request(url,headers={'User-Agent':'semifly-skills-catalog/1.0','Accept-Language':'en-US,en;q=0.8'})
     with urllib.request.urlopen(req,timeout=35) as response:
         body = response.read(12_000_001)
         if len(body) > 12_000_000:
@@ -129,6 +129,7 @@ def atomic_write(path, data):
     path.parent.mkdir(parents=True,exist_ok=True)
     fd,tmp = tempfile.mkstemp(prefix=path.name+'.',suffix='.tmp',dir=path.parent)
     try:
+        os.fchmod(fd,0o644)  # Public snapshot, readable by the static server.
         with os.fdopen(fd,'w') as handle:
             json.dump(data,handle,ensure_ascii=False,indent=2)
             handle.write('\n');handle.flush();os.fsync(handle.fileno())
