@@ -137,3 +137,16 @@ K-Dense 条目核心证据分析不需网络；可选科学绘图依赖 OpenRout
 - 微信：工具读取现有公众号标签时被站点安全策略拒绝，明确禁止其他浏览器表面、间接执行、CDP等绕行。未执行粘贴、未发表、未伪造截图。已经向用户说明并请求人工反馈；暂无反馈。
 - `tests/md-html/wechat-check.html` 为人工步骤和核对表，详情保留“HTML预览通过 / 微信粘贴未验收”并注明阻止原因。现有screenshot.jpg仍为本地HTML，不能说是微信编辑器截图。不要自行重试或绕过该站点限制。
 - 本地页面验证：修复状态和fixed.xlsx链接可见，真实浏览器截图更新。四列设计不改。截图tests/sheet/recalc-fix.jpg。
+
+## 2026-11-17 公网发布授权与生产调度
+
+- 用户暂停新增Skill/微信粘贴测试，明确要求发布公网；不再等待微信反馈，公众号保留待验收。
+- 在干净工作区新建codex/skills-public并合入最新origin/main，保留生产59ec7f3既有更新。PR #101已合并，SHA001ff245212e6ff0adbfe22c245ab2b43786ac58。
+- 正式入口/skills/，主页/模型广场/产品导航增加入口。40项、桌面四列、semifly精选与GitHub Top10保持。构建器按public-files.json发布源码prototypes/skills，重写原型文案和资源路径。177文件，HTML内部引用完整，112份实测产物哈希匹配。仅静态发布，不部署API或DB。
+- 原静态SHA59ec7f366c1668cb3adeebd80e673ca5142a8e14，归档SHA a5e8cc99a128efec2a7b3c67a5ab3ea18555d5f61618a75051685df2c3322dbf。新归档SHA ffcf67b88555fbb3e6ffef96630a233a81bd4d2f406bb6333e3392092bae3cf0，经infra既有发布器原子切换。
+- 生产oneapi-skills-update.timer：每天09:00 Asia/Shanghai，最多30秒抖动，Persistent补跑。专用deploy用户只写/srv/sites/oneapi-skills-data，独立于不可变静态版本。/srv/oneapi-skills/current指向74ed035固定版本，脚本与合并SHA一致。
+- 首次抓取2026-11-17T06:12:53+00:00成功，GitHub10项、errors=[]、service Result=success；下次2026-11-18 09:00:14 CST。/skills/market-live.json已经真实返回成功数据。前端失败回退包内快照并显示旧数据提示。
+- Caddy仅增加Skills数据handle，已有readonly /srv/sites挂载不变。候选验证通过，SIGUSR1热重载mainland-caddy-1；备份/var/lib/infra-release/backups/Caddyfile.before-skills.20261117T061252Z，配置SHA472303d6e1e3a110bb284c73a4273740ee96cdfc82dda5b3d31ce330df6fac83。源片段和安装器保存在scripts/skills-deploy；infra未来全量改Caddy时必须保留此片段。
+- 原Codex本机定时任务semifly-skills已通过工具改为PAUSED。网站更新不再依赖本机开机。
+- 发布完成：infra回执status=deployed，线上release.json为001ff245212e6ff0adbfe22c245ab2b43786ac58。完整上传SHA256一致后切换；慢连接改为八块上传，不改变产物或发布校验流程。
+- 线上浏览器已核对标题、四列296.5px、40项目录、10条GitHub实时榜（11/17 14:12采集）、Excel修复状态与下载链接；390px详情无横向溢出，console无error/warn。截图本会话visualizations/skills-public-four-columns.jpg（当前首屏双榜）。
