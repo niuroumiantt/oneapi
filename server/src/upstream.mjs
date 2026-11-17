@@ -1,3 +1,4 @@
+import {costSafeFetch} from './output-guard.mjs';
 // Upstream pages: suppliers with their models, and each supplier's purchase keys.
 // Rule: a key belongs to a supplier and covers every model that supplier offers, so models are managed per supplier
 // (adding one adds it to every live key) and keys are managed per supplier (a new key gets every model at once).
@@ -19,6 +20,7 @@ export async function syncSupplierModels(db, labSupplierId) {
 }
 
 export function upstreamRoutes(app, pool, cfg, requireStaff, fetchImpl = fetch) {
+ fetchImpl=costSafeFetch(pool,fetchImpl);
  const secret = process.env.SUPPLIER_LAB_SECRET, box = secret?.length >= 32 ? vault(secret) : null;
 
  app.get('/api/staff/lab/upstream', requireStaff, async (req, res) => {

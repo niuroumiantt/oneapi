@@ -1,3 +1,5 @@
+import {bankSnapshot,transferDay} from './bank-transfers.mjs';
+import {addPack} from './pack-ledger.mjs';
 // Business console: the owner's and finance's view of the company (revenue, cost, margin, invoices),
 // supplier and customer codes with a light CRM, discount grants, and first-line support.
 import { HttpError, id, text, transaction, audit, hasBusiness } from './core.mjs';
@@ -58,7 +60,7 @@ export function tagList(value) {
 export const invoiceable = ({ recharged_fen, refunded_fen, invoiced_fen }) => Number(recharged_fen) - Number(refunded_fen) - Number(invoiced_fen);
 
 const SH = "AT TIME ZONE 'Asia/Shanghai'";
-const AMOUNT = "CASE WHEN x.evidence->>'amount' ~ '^[0-9]+(\\.[0-9]+)?$' THEN (x.evidence->>'amount')::numeric ELSE 0 END";
+const AMOUNT = 'x.finance_amount_yuan';
 // $1 is the accounting month. Upstream bills can land a little outside the call's own timestamp, so the join window is a day wider.
 const RANGE = `r AS (SELECT ($1||'-01')::timestamp ${SH} AS a,(($1||'-01')::timestamp+interval '1 month') ${SH} AS z)`;
 // The same upstream request can be stored under two credentials that hold one secret: count each request once.
@@ -70,13 +72,21 @@ const CALLS = `calls AS (
  SELECT e.model_id,e.owner_id AS user_id,a.organization_id,e.status='failed' AS failed,e.settled_at IS NOT NULL AS settled,coalesce(e.charged_yuan,0) AS list_yuan,e.actual_yuan AS fallback,e.upstream_request_id AS rid,coalesce(e.input_tokens,0)+coalesce(e.output_tokens,0) AS tokens
   FROM employee_calls e JOIN employee_credit_accounts a ON a.user_id=e.owner_id,r WHERE e.created_at>=r.a AND e.created_at<r.z
  UNION ALL
+ SELECT e.model_id,e.owner_id,a.organization_id,e.status='failed',e.settled_at IS NOT NULL,0,e.actual_yuan,e.upstream_request_id,coalesce(e.input_tokens,0)+coalesce(e.output_tokens,0)
+  FROM customer_calls e JOIN billing_accounts a ON a.id=e.account_id,r WHERE e.created_at>=r.a AND e.created_at<r.z
+ UNION ALL
  SELECT p.model_id,p.owner_id,NULL::uuid,p.status='failed',p.status='succeeded',0,p.estimated_upstream_yuan,p.upstream_request_id,coalesce(p.input_tokens,0)+coalesce(p.output_tokens,0)
   FROM pilot_calls p,r WHERE p.created_at>=r.a AND p.created_at<r.z)`;
 const COST = 'CASE WHEN c.settled THEN coalesce(u.amt,c.fallback,0) ELSE 0 END';
 // An upstream bill that no customer call accounts for: acceptance tests, load tests, key checks.
-const UNCLAIMED = 'NOT EXISTS (SELECT 1 FROM employee_calls e WHERE e.upstream_request_id=u.request_id) AND NOT EXISTS (SELECT 1 FROM pilot_calls p WHERE p.upstream_request_id=u.request_id)';
+const CLAIMED = `claimed AS MATERIALIZED (SELECT upstream_request_id AS rid FROM customer_calls WHERE upstream_request_id IS NOT NULL
+ UNION SELECT upstream_request_id FROM employee_calls WHERE upstream_request_id IS NOT NULL
+ UNION SELECT upstream_request_id FROM pilot_calls WHERE upstream_request_id IS NOT NULL)`;
+const UNCLAIMED = 'NOT EXISTS (SELECT 1 FROM claimed WHERE claimed.rid=u.request_id)';
 
-const CUSTOMER_ROWS = `SELECT c.id,c.code,c.kind,c.stage,c.tags,c.owner_subject,sm.name AS owner_name,c.created_at,c.user_id,c.organization_id,
+const CUSTOMER_ROWS = `WITH recent_usage AS MATERIALIZED (SELECT owner_id,count(*)::int AS calls_30d,max(created_at) AS last_call_at
+ FROM employee_calls WHERE created_at>=now()-interval '30 days' GROUP BY owner_id)
+ SELECT c.id,c.code,c.kind,c.stage,c.tags,c.owner_subject,sm.name AS owner_name,c.created_at,c.user_id,c.organization_id,
  coalesce(o.name,u.name) AS name,coalesce(u.email,cu.email) AS email,coalesce(u.disabled,false) AS disabled,
  (SELECT count(*) FROM memberships m WHERE m.organization_id=c.organization_id AND m.status='active')::int AS members,
  (SELECT string_agg(g.name,'、') FROM memberships m JOIN organizations g ON g.id=m.organization_id WHERE m.user_id=c.user_id AND m.status='active') AS orgs,
@@ -89,8 +99,8 @@ const CUSTOMER_ROWS = `SELECT c.id,c.code,c.kind,c.stage,c.tags,c.owner_subject,
  LEFT JOIN staff_members sm ON sm.subject=c.owner_subject
  LEFT JOIN billing_accounts b ON (b.organization_id=c.organization_id OR b.owner_id=c.user_id)
  LEFT JOIN LATERAL (SELECT coalesce(sum(a.granted_yuan),0) AS granted,coalesce(sum(a.spent_yuan),0) AS spent FROM employee_credit_accounts a WHERE a.organization_id=c.organization_id OR a.user_id=c.user_id) credit ON true
- LEFT JOIN LATERAL (SELECT count(*)::int AS calls_30d,max(e.created_at) AS last_call_at FROM employee_calls e WHERE e.created_at>=now()-interval '30 days'
-  AND (e.owner_id=c.user_id OR e.owner_id IN (SELECT a.user_id FROM employee_credit_accounts a WHERE a.organization_id=c.organization_id))) used ON true`;
+ LEFT JOIN LATERAL (SELECT coalesce(sum(e.calls_30d),0)::int AS calls_30d,max(e.last_call_at) AS last_call_at FROM recent_usage e
+  WHERE e.owner_id=c.user_id OR e.owner_id IN (SELECT a.user_id FROM employee_credit_accounts a WHERE a.organization_id=c.organization_id)) used ON true`;
 // Dates are sent as plain YYYY-MM-DD text: a JS Date would shift by the server's time zone.
 const INVOICE_ROWS = `SELECT i.*,to_char(i.issued_on,'YYYY-MM-DD') AS issued_day,c.code AS customer_code,coalesce(o.name,u.name) AS customer_name,s.code AS supplier_code,s.display_name AS supplier_name,h.name AS handled_by_name
  FROM tax_invoices i LEFT JOIN customers c ON c.id=i.customer_id LEFT JOIN organizations o ON o.id=c.organization_id LEFT JOIN "user" u ON u.id=c.user_id
@@ -99,6 +109,12 @@ const DISCOUNT_ROWS = `SELECT d.*,c.code AS customer_code,coalesce(o.name,u.name
  CASE WHEN d.status<>'active' THEN d.status WHEN now()<d.starts_at THEN 'scheduled' WHEN now()>=d.ends_at THEN 'expired' ELSE 'active' END AS state
  FROM discount_grants d LEFT JOIN customers c ON c.id=d.customer_id LEFT JOIN organizations o ON o.id=c.organization_id LEFT JOIN "user" u ON u.id=c.user_id
  LEFT JOIN staff_members a ON a.subject=d.created_by LEFT JOIN staff_members k ON k.subject=d.decided_by`;
+
+// Share the account lock with refunds: a pending refund cannot be overtaken by invoice issue.
+async function lockInvoiceAccount(db,customerId){
+ const a=(await db.query(`SELECT b.id FROM billing_accounts b JOIN customers c ON b.owner_id=c.user_id OR b.organization_id=c.organization_id WHERE c.id=$1 FOR UPDATE OF b`,[customerId])).rows[0];
+ if(a&&(await db.query("SELECT 1 FROM payment_refunds f JOIN payment_orders o ON o.id=f.order_id WHERE o.account_id=$1 AND f.status='pending'",[a.id])).rowCount)throw new HttpError(409,'退款处理中，请完成退款后再申请或开具发票');
+}
 
 /** Money received and already invoiced for one customer. Pending refunds count as refunded, to stay on the safe side. */
 async function invoiceLimit(db, customerId) {
@@ -110,49 +126,72 @@ async function invoiceLimit(db, customerId) {
  return { ...row, available_fen: Math.max(0, invoiceable(row)) };
 }
 
+// These interactive aggregates are too short to amortize PostgreSQL JIT compilation.
+// Keep the setting local to one read-only snapshot; never change pooled/session defaults.
+export async function financeReport(pool, month) {
+ const q = await pool.connect();
+ try {
+  await q.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+  await q.query('SET LOCAL jit = off');
+  const current = await monthFinance(q, month), series = await yearSeries(q);
+  await q.query('COMMIT');
+  return { current, series };
+ } catch (error) {
+  await q.query('ROLLBACK');
+  throw error;
+ } finally { q.release(); }
+}
+
 async function monthFinance(pool, month) {
- const [totals, byProduct, byCustomer, bySupplier, balances] = await Promise.all([
-  pool.query(`WITH ${RANGE},${BILLS},${CALLS}
-   SELECT (SELECT coalesce(-sum(l.amount_fen),0)/100.0 FROM billing_ledger l,r WHERE l.kind='usage' AND l.created_at>=r.a AND l.created_at<r.z) AS cash_revenue,
+ const queries = [
+  `SELECT (SELECT coalesce(-sum(l.amount_fen),0)/100.0 FROM billing_ledger l,r WHERE l.kind='usage' AND l.created_at>=r.a AND l.created_at<r.z) AS cash_revenue,
     (SELECT coalesce(sum(l.amount_fen),0)/100.0 FROM billing_ledger l,r WHERE l.kind='recharge' AND l.created_at>=r.a AND l.created_at<r.z) AS received,
     (SELECT coalesce(sum(f.amount_fen),0)/100.0 FROM payment_refunds f,r WHERE f.status='succeeded' AND f.completed_at>=r.a AND f.completed_at<r.z) AS refunded,
+    (SELECT coalesce(sum(o.fee_fen),0)/100.0 FROM payment_channel_costs o,r WHERE o.cost_day>=(r.a AT TIME ZONE 'Asia/Shanghai')::date AND o.cost_day<(r.z AT TIME ZONE 'Asia/Shanghai')::date) AS channel_cost,
+    (SELECT count(*) FROM payment_orders o,r WHERE o.status='paid' AND (o.channel_fee_fen IS NULL OR o.channel_fee_issue IS NOT NULL) AND o.paid_at>=r.a AND o.paid_at<r.z) AS channel_unreconciled,
     (SELECT coalesce(sum(p.amount_fen),0)/100.0 FROM supplier_payments p,r WHERE p.voided_at IS NULL AND p.paid_on>=(r.a ${SH})::date AND p.paid_on<(r.z ${SH})::date) AS supplier_paid,
     (SELECT coalesce(sum(i.amount_fen),0)/100.0 FROM tax_invoices i,r WHERE i.direction='output' AND i.status='issued' AND i.issued_on>=(r.a ${SH})::date AND i.issued_on<(r.z ${SH})::date) AS invoiced,
     (SELECT coalesce(sum(u.amt),0) FROM u,r WHERE u.occurred_at>=r.a AND u.occurred_at<r.z AND ${UNCLAIMED}) AS other_cost,
-    (SELECT json_build_object('calls',count(*),'list_yuan',coalesce(sum(c.list_yuan),0),'cost',coalesce(sum(${COST}),0),'unmatched',count(*) FILTER(WHERE c.settled AND u.request_id IS NULL),'estimated',coalesce(sum(c.fallback) FILTER(WHERE c.settled AND u.request_id IS NULL),0)) FROM calls c LEFT JOIN u ON u.request_id=c.rid) AS sales`, [month]),
-  pool.query(`WITH ${RANGE},${BILLS},${CALLS}
-   SELECT c.model_id,count(*)::int AS calls,count(*) FILTER(WHERE c.failed)::int AS failed,coalesce(sum(c.tokens),0)::bigint AS tokens,coalesce(sum(c.list_yuan),0) AS list_yuan,coalesce(sum(${COST}),0) AS cost
-   FROM calls c LEFT JOIN u ON u.request_id=c.rid GROUP BY 1 ORDER BY 5 DESC,2 DESC`, [month]),
-  pool.query(`WITH ${RANGE},${BILLS},${CALLS}
-   SELECT k.id,k.code,k.kind,coalesce(o.name,w.name) AS name,count(*)::int AS calls,coalesce(sum(c.list_yuan),0) AS list_yuan,coalesce(sum(${COST}),0) AS cost
-   FROM calls c LEFT JOIN u ON u.request_id=c.rid JOIN customers k ON (k.organization_id=c.organization_id OR (c.organization_id IS NULL AND k.user_id=c.user_id))
-   LEFT JOIN organizations o ON o.id=k.organization_id LEFT JOIN "user" w ON w.id=k.user_id GROUP BY k.id,o.name,w.name ORDER BY 6 DESC,7 DESC LIMIT 100`, [month]),
-  pool.query(`WITH ${RANGE},${BILLS}
-   SELECT p.id,p.code,p.display_name,coalesce(k.requests,0)::int AS requests,coalesce(k.yuan,0) AS cost,coalesce(pay.fen,0)/100.0 AS paid
+    (SELECT json_build_object('calls',count(*),'list_yuan',coalesce(sum(c.list_yuan),0),'cost',coalesce(sum(c.cost),0),'unmatched',count(*) FILTER(WHERE c.settled AND c.unmatched),'estimated',coalesce(sum(c.fallback) FILTER(WHERE c.settled AND c.unmatched),0)) FROM priced_calls c) AS sales`,
+  `SELECT c.model_id,count(*)::int AS calls,count(*) FILTER(WHERE c.failed)::int AS failed,coalesce(sum(c.tokens),0)::bigint::text AS tokens,coalesce(sum(c.list_yuan),0)::text AS list_yuan,coalesce(sum(c.cost),0)::text AS cost
+   FROM priced_calls c GROUP BY 1 ORDER BY coalesce(sum(c.list_yuan),0) DESC,count(*) DESC`,
+  `SELECT k.id,k.code,k.kind,coalesce(o.name,w.name) AS name,sum(c.calls)::int AS calls,coalesce(sum(c.list_yuan),0)::text AS list_yuan,coalesce(sum(c.cost),0)::text AS cost
+   FROM (SELECT organization_id,user_id,count(*) AS calls,sum(list_yuan) AS list_yuan,sum(cost) AS cost FROM priced_calls GROUP BY organization_id,user_id) c JOIN customers k ON (k.organization_id=c.organization_id OR (c.organization_id IS NULL AND k.user_id=c.user_id))
+   LEFT JOIN organizations o ON o.id=k.organization_id LEFT JOIN "user" w ON w.id=k.user_id GROUP BY k.id,o.name,w.name ORDER BY coalesce(sum(c.list_yuan),0) DESC,coalesce(sum(c.cost),0) DESC LIMIT 100`,
+  `SELECT p.id,p.code,p.display_name,coalesce(k.requests,0)::int AS requests,coalesce(k.yuan,0)::text AS cost,(coalesce(pay.fen,0)/100.0)::text AS paid
    FROM suppliers p LEFT JOIN (SELECT u.supplier_id,count(*) AS requests,sum(u.amt) AS yuan FROM u,r WHERE u.occurred_at>=r.a AND u.occurred_at<r.z GROUP BY 1) k ON k.supplier_id=p.id
    LEFT JOIN (SELECT sp.supplier_id,sum(sp.amount_fen) AS fen FROM supplier_payments sp,r WHERE sp.voided_at IS NULL AND sp.paid_on>=(r.a ${SH})::date AND sp.paid_on<(r.z ${SH})::date GROUP BY 1) pay ON pay.supplier_id=p.id
-   ORDER BY p.code`, [month]),
-  pool.query(`SELECT (SELECT coalesce(sum(cash_balance_fen),0)/100.0 FROM billing_accounts) AS customer_cash,
+   ORDER BY p.code`,
+  `SELECT (SELECT coalesce(sum(cash_balance_fen),0)/100.0 FROM billing_accounts) AS customer_cash,
    (SELECT coalesce(sum(granted_yuan-spent_yuan),0) FROM employee_credit_accounts) AS credit_unused,
-   (SELECT coalesce(sum(amount_fen),0)/100.0 FROM tax_invoices WHERE direction='output' AND status='requested') AS invoices_requested`)]);
- const t = totals.rows[0], n = v => Number(v || 0), sales = t.sales, names = new Map(OFFICIAL_MODELS.map(m => [m.id, m.name]));
+   (SELECT coalesce(sum(amount_fen),0)/100.0 FROM tax_invoices WHERE direction='output' AND status='requested') AS invoices_requested`];
+ // One statement shares the de-duplicated bills and calls across all month breakdowns.
+ const result = (await pool.query(`WITH ${RANGE},${BILLS},${CALLS},${CLAIMED},
+  priced_calls AS MATERIALIZED (SELECT c.*,${COST} AS cost,u.request_id IS NULL AS unmatched FROM calls c LEFT JOIN u ON u.request_id=c.rid)
+  SELECT (SELECT row_to_json(t) FROM (${queries[0]}) t) AS totals,
+   (SELECT coalesce(json_agg(t),'[]'::json) FROM (${queries[1]}) t) AS products,
+   (SELECT coalesce(json_agg(t),'[]'::json) FROM (${queries[2]}) t) AS customers,
+   (SELECT coalesce(json_agg(t),'[]'::json) FROM (${queries[3]}) t) AS suppliers,
+   (SELECT row_to_json(t) FROM (${queries[4]}) t) AS balances`, [month])).rows[0];
+ const { totals: t, products, customers, suppliers, balances } = result;
+ const n = v => Number(v || 0), sales = t.sales, names = new Map(OFFICIAL_MODELS.map(m => [m.id, m.name]));
  // Upstream cost = what customer calls cost us (their bill, or list price when the upstream sends none) + bills nobody's call explains.
  const revenue = n(t.cash_revenue), salesCost = n(sales.cost), otherCost = n(t.other_cost), cost = salesCost + otherCost, list = n(sales.list_yuan);
  return {
   month,
   // Recognised revenue is cash actually charged for usage. Internal credit is shown at list price but is not revenue.
-  accrual: { revenue, credit_list: list, upstream_cost: cost, sales_cost: salesCost, other_cost: otherCost, estimated_cost: n(sales.estimated), gross_profit: revenue - cost, list_margin: list + revenue > 0 ? (list + revenue - salesCost) / (list + revenue) : null, calls: n(sales.calls), unmatched_calls: n(sales.unmatched) },
-  cash: { received: n(t.received), refunded: n(t.refunded), supplier_paid: n(t.supplier_paid), net: n(t.received) - n(t.refunded) - n(t.supplier_paid), invoiced: n(t.invoiced) },
-  balances: { customer_cash: n(balances.rows[0].customer_cash), credit_unused: n(balances.rows[0].credit_unused), invoices_requested: n(balances.rows[0].invoices_requested) },
-  by_product: byProduct.rows.map(p => ({ ...p, name: names.get(p.model_id) || p.model_id })),
-  by_customer: byCustomer.rows,
-  by_supplier: bySupplier.rows
+  accrual: { revenue, channel_cost:n(t.channel_cost),channel_unreconciled:n(t.channel_unreconciled),operating_profit:revenue-cost-n(t.channel_cost), credit_list: list, upstream_cost: cost, sales_cost: salesCost, other_cost: otherCost, estimated_cost: n(sales.estimated), gross_profit: revenue - cost, list_margin: list + revenue > 0 ? (list + revenue - salesCost) / (list + revenue) : null, calls: n(sales.calls), unmatched_calls: n(sales.unmatched) },
+  cash: { received: n(t.received), refunded: n(t.refunded), supplier_paid: n(t.supplier_paid),channel_cost:n(t.channel_cost), net: n(t.received) - n(t.refunded) - n(t.supplier_paid) - n(t.channel_cost), invoiced: n(t.invoiced) },
+  balances: { customer_cash: n(balances.customer_cash), credit_unused: n(balances.credit_unused), invoices_requested: n(balances.invoices_requested) },
+  by_product: products.map(p => ({ ...p, name: names.get(p.model_id) || p.model_id })),
+  by_customer: customers,
+  by_supplier: suppliers
  };
 }
 
 async function yearSeries(pool) {
  const first = `date_trunc('month',now() ${SH})-interval '11 months'`, key = column => `to_char(${column} ${SH},'YYYY-MM')`;
- return (await pool.query(`WITH b AS (SELECT (${first}) ${SH} AS t),
+ return (await pool.query(`WITH b AS (SELECT (${first}) ${SH} AS t),${CLAIMED},
   months AS (SELECT to_char(generate_series(${first},date_trunc('month',now() ${SH}),interval '1 month'),'YYYY-MM') AS month),
   u AS (SELECT DISTINCT ON (x.request_id) x.request_id,x.occurred_at,${AMOUNT} AS amt FROM supplier_usage_records x,b WHERE x.occurred_at>=b.t-interval '1 day' ORDER BY x.request_id,x.updated_at DESC),
   calls AS (SELECT e.created_at,e.upstream_request_id AS rid,e.actual_yuan AS fallback FROM employee_calls e,b WHERE e.created_at>=b.t AND e.settled_at IS NOT NULL
@@ -163,13 +202,13 @@ async function yearSeries(pool) {
   ledger AS (SELECT ${key('l.created_at')} AS month,sum(l.amount_fen) FILTER(WHERE l.kind='recharge') AS recharge_fen,-sum(l.amount_fen) FILTER(WHERE l.kind='usage') AS usage_fen FROM billing_ledger l,b WHERE l.created_at>=b.t GROUP BY 1),
   refunds AS (SELECT ${key('f.completed_at')} AS month,sum(f.amount_fen) AS fen FROM payment_refunds f,b WHERE f.status='succeeded' AND f.completed_at>=b.t GROUP BY 1),
   paid AS (SELECT to_char(p.paid_on,'YYYY-MM') AS month,sum(p.amount_fen) AS fen FROM supplier_payments p,b WHERE p.voided_at IS NULL AND p.paid_on>=(b.t ${SH})::date GROUP BY 1)
-  SELECT m.month,coalesce(l.usage_fen,0)/100.0 AS revenue,coalesce(c.yuan,0) AS credit_list,coalesce(c.calls,0)::int AS calls,coalesce(k.yuan,0) AS upstream_cost,
+  SELECT m.month,coalesce(l.usage_fen,0)/100.0 AS revenue,coalesce(c.yuan,0) AS credit_list,coalesce(c.calls,0)::int AS calls,coalesce(k.yuan,0) AS upstream_cost,coalesce((SELECT sum(o.fee_fen)/100.0 FROM payment_channel_costs o WHERE to_char(o.cost_day,'YYYY-MM')=m.month),0) AS channel_cost,
    coalesce(l.recharge_fen,0)/100.0 AS received,coalesce(f.fen,0)/100.0 AS refunded,coalesce(p.fen,0)/100.0 AS supplier_paid
   FROM months m LEFT JOIN cost k USING(month) LEFT JOIN credit c USING(month) LEFT JOIN ledger l USING(month) LEFT JOIN refunds f USING(month) LEFT JOIN paid p USING(month) ORDER BY m.month`)).rows
   .map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, k === 'month' ? v : Number(v)])));
 }
 
-export function businessConsoleRoutes(app, pool, requireStaff) {
+export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
  const staffName = async subject => (await pool.query('SELECT name FROM staff_members WHERE subject=$1', [subject])).rows[0]?.name || null;
 
  app.put('/api/staff/members/:subject/finance-access', requireStaff, async (req, res) => {
@@ -190,7 +229,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
  // ---- Dashboard -------------------------------------------------------------------------------
  app.get('/api/staff/business/dashboard', requireStaff, async (req, res) => {
   requireBusiness(req);
-  const finance = hasFinance(req.staff);
+  const finance = hasFinance(req.staff), summary = req.query.summary === '1';
   await pool.query('SELECT ensure_customers()');
   const [counts, top] = await Promise.all([
    pool.query(`SELECT (SELECT count(*) FROM account_upgrade_requests WHERE status='pending')::int AS upgrades,
@@ -200,27 +239,27 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
     (SELECT count(*) FROM discount_grants WHERE status='active' AND now()>=starts_at AND now()<ends_at)::int AS discounts_active,
     (SELECT count(*) FROM tax_invoices WHERE direction='output' AND status='requested')::int AS invoices_requested,
     (SELECT count(*) FROM payment_refunds WHERE status='pending')::int AS refunds_pending,
-    (SELECT count(*) FROM bank_transfer_entries WHERE status='pending')::int AS bank_transfers_pending,
+    ((SELECT count(*) FROM bank_transfer_entries WHERE status='pending')+(SELECT count(*) FROM bank_transfer_notices WHERE status='submitted'))::int AS bank_transfers_pending,
     (SELECT count(*) FROM channel_states WHERE paused)::int AS models_paused,
     (SELECT count(*) FROM customers WHERE kind='enterprise')::int AS enterprises,
     (SELECT count(*) FROM customers WHERE kind='personal')::int AS individuals,
     (SELECT count(*) FROM customers WHERE created_at>=now()-interval '30 days')::int AS customers_new_30d,
     (SELECT count(DISTINCT owner_id) FROM employee_calls WHERE created_at>=now()-interval '30 days')::int AS users_active_30d,
     (SELECT count(*) FROM suppliers)::int AS suppliers`),
-   pool.query(`${CUSTOMER_ROWS} WHERE used.calls_30d>0 ORDER BY used.calls_30d DESC LIMIT 5`)]);
+   summary ? Promise.resolve({ rows: [] }) : pool.query(`${CUSTOMER_ROWS} WHERE used.calls_30d>0 ORDER BY used.calls_30d DESC LIMIT 5`)]);
   const c = counts.rows[0];
   if (!finance) { delete c.invoices_requested; delete c.refunds_pending; delete c.bank_transfers_pending; }
   res.json({
    staff: { name: req.staff.name, finance, technical: req.staff.role === 'platform_admin' || req.staff.technical_access === true, admin: isAdmin(req.staff) },
    counts: c, top_customers: top.rows,
-   finance: finance ? { current: await monthFinance(pool, accountingMonth()), series: await yearSeries(pool) } : null
+   finance: finance && !summary ? await financeReport(pool, accountingMonth()) : null
   });
  });
 
  // ---- Finance ---------------------------------------------------------------------------------
  app.get('/api/staff/business/finance', requireStaff, async (req, res) => {
   requireFinance(req);
-  res.json({ current: await monthFinance(pool, accountingMonth(req.query.month)), series: await yearSeries(pool) });
+  res.json(await financeReport(pool, accountingMonth(req.query.month)));
  });
 
  app.get('/api/staff/business/invoices', requireStaff, async (req, res) => {
@@ -241,6 +280,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
    const target = direction === 'output' ? id(b.customer_id) : id(b.supplier_id);
    if (direction === 'output') {
     if (!(await db.query('SELECT 1 FROM customers WHERE id=$1 FOR UPDATE', [target])).rowCount) throw new HttpError(404, '客户不存在');
+    await lockInvoiceAccount(db,target);
     const limit = await invoiceLimit(db, target);
     if (amount > limit.available_fen && b.allow_over_limit !== true) throw new HttpError(409, `超出可开票金额 ¥${(limit.available_fen / 100).toFixed(2)}。先票后款请勾选“允许超出实收”。`);
    } else if (!(await db.query('SELECT 1 FROM suppliers WHERE id=$1', [target])).rowCount) throw new HttpError(404, '供应商不存在');
@@ -262,6 +302,11 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
    let next;
    if (action === 'issue') {
     if (current.status !== 'requested') throw new HttpError(409, '只有待开票的申请可以登记开具');
+    if(current.direction==='output'){
+     await lockInvoiceAccount(db,current.customer_id);
+     const limit=await invoiceLimit(db,current.customer_id);
+     if(invoiceable(limit)<0&&b.allow_over_limit!==true)throw new HttpError(409,'退款后实收不足，请重新核对开票金额');
+    }
     const number = text(b.invoice_number, '发票号码', 30);
     if (number.length < 8) throw new HttpError(400, '发票号码至少 8 位');
     next = (await db.query("UPDATE tax_invoices SET status='issued',invoice_number=$2,issued_on=$3,handled_by=$4,updated_at=now() WHERE id=$1 RETURNING id,status", [invoiceId, number, day(b.issued_on, '开票日期'), req.staff.subject])).rows[0];
@@ -312,7 +357,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
 
  // ---- Bank transfer dual approval -------------------------------------------------------------
  const BANK_TRANSFER_ROWS = `SELECT e.id,e.customer_id,e.account_id,e.cash_fen,e.face_fen,to_char(e.received_on,'YYYY-MM-DD') AS received_day,
-  e.reference,e.note,e.status,e.created_by,e.created_at,e.decided_by,e.decided_at,e.decision_note,
+  e.reference,e.payer_name,e.receiving_account,e.note,e.status,e.created_by,e.created_at,e.decided_by,e.decided_at,e.decision_note,e.decision_role,
   c.code AS customer_code,coalesce(o.name,u.name) AS customer_name,c.kind AS customer_kind,
   a.name AS created_by_name,k.name AS decided_by_name
   FROM bank_transfer_entries e JOIN customers c ON c.id=e.customer_id
@@ -331,27 +376,40 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
  app.get('/api/staff/business/bank-transfers', requireStaff, async (req, res) => {
   requireFinance(req);
   const entries = (await pool.query(`${BANK_TRANSFER_ROWS} ORDER BY e.status='pending' DESC,e.created_at DESC LIMIT 300`)).rows;
-  res.json({ entries, refund_policy: REFUND_POLICY_ZH });
+  const notices=(await pool.query(`SELECT n.*,to_char(n.paid_on,'YYYY-MM-DD') AS paid_day,o.name AS organization_name,c.id AS customer_id,c.code AS customer_code,u.email AS submitted_email FROM bank_transfer_notices n JOIN organizations o ON o.id=n.organization_id JOIN "user" u ON u.id=n.submitted_by LEFT JOIN customers c ON c.organization_id=n.organization_id WHERE n.status='submitted' ORDER BY n.created_at LIMIT 300`)).rows;
+  res.json({ entries,notices,current_subject:req.staff.subject,can_self_review:isAdmin(req.staff),receiving_account:cfg.bankTransfer?.enabled?bankSnapshot(cfg):null, refund_policy: REFUND_POLICY_ZH });
  });
  app.post('/api/staff/business/bank-transfers', requireStaff, async (req, res) => {
   requireFinance(req);
-  const b = req.body || {}, customerId = id(b.customer_id), cash = fen(b.cash_yuan, '实付金额'), receivedOn = day(b.received_on, '到账日期');
+  const b = req.body || {}, customerId = id(b.customer_id), cash = fen(b.cash_yuan, '实付金额'), receivedOn = transferDay(b.received_on), reference=text(b.reference,'银行到账流水号',120),payer=text(b.payer_name,'付款户名',160), referenceKey=reference.replace(/\s/g,'').toUpperCase();
+  if(!cfg.bankTransfer?.enabled)throw new HttpError(409,'对公收款账户尚未配置');
   const faceRaw = b.face_yuan === undefined || b.face_yuan === null || b.face_yuan === '' ? null : fen(b.face_yuan, '官价额度面额');
   const face = faceRaw ?? cash;
   if (face < cash) throw new HttpError(400, '官价额度面额不能低于实付金额');
-  if (receivedOn > new Date(Date.now() + 86400000).toISOString().slice(0, 10)) throw new HttpError(400, '到账日期不能晚于今天');
+
   const row = await transaction(pool, async db => {
    const customer = (await db.query('SELECT id,kind,user_id,organization_id FROM customers WHERE id=$1 FOR UPDATE', [customerId])).rows[0];
-   if (!customer) throw new HttpError(404, '客户不存在');
+   if (!customer||!customer.organization_id) throw new HttpError(400, '请选择企业客户');
+   let notice=null;
+   if(b.notice_id){notice=(await db.query('SELECT * FROM bank_transfer_notices WHERE id=$1 FOR UPDATE',[id(b.notice_id)])).rows[0];if(!notice||notice.organization_id!==customer.organization_id||notice.status!=='submitted')throw new HttpError(409,'转账信息已处理或不属于此企业');if((Number(notice.cash_fen)!==cash||notice.payer_name!==payer)&&!b.note?.trim())throw new HttpError(400,'实收金额或付款户名与客户提交不一致，请填写核对说明');}
+   await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,66))',[referenceKey]);
+   const duplicate=(await db.query("SELECT id FROM bank_transfer_entries WHERE status IN ('pending','approved') AND upper(regexp_replace(reference,'\\s','','g'))=$1 LIMIT 1",[referenceKey])).rows[0];
+   if(duplicate)throw new HttpError(409,'该银行到账流水已登记，请查看现有记录，勿重复入账');
    const account = await ensureBillingAccount(db, customer);
-   const created = (await db.query(`INSERT INTO bank_transfer_entries(customer_id,account_id,cash_fen,face_fen,received_on,reference,note,created_by)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,status,cash_fen,face_fen`,
-    [customerId, account.id, cash, face, receivedOn, optional(b.reference, '回单号', 120), optional(b.note, '备注', 500), req.staff.subject])).rows[0];
+   const created = (await db.query(`INSERT INTO bank_transfer_entries(customer_id,account_id,cash_fen,face_fen,received_on,reference,note,created_by,payer_name,reference_key,receiving_account)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,status,cash_fen,face_fen`,
+    [customerId, account.id, cash, face, receivedOn, reference, optional(b.note, '备注', 500), req.staff.subject,payer,referenceKey,bankSnapshot(cfg)])).rows[0];
+   if(notice)await db.query("UPDATE bank_transfer_notices SET status='registered',entry_id=$2,reviewed_by=$3,reviewed_at=now(),review_note=$4 WHERE id=$1",[notice.id,created.id,req.staff.subject,optional(b.note,'核对说明',500)]);
    await audit(db, req.actor, 'bank_transfer.registered', customer.organization_id, created.id, { cash_fen: cash, face_fen: face });
    return created;
   });
   res.status(201).json(row);
  });
+ app.post('/api/staff/business/bank-transfer-notices/:notice/reject',requireStaff,async(req,res)=>{
+  requireFinance(req);const reason=text(req.body?.note,'退回原因',500);
+  await transaction(pool,async db=>{const n=(await db.query("UPDATE bank_transfer_notices SET status='rejected',reviewed_by=$2,reviewed_at=now(),review_note=$3 WHERE id=$1 AND status='submitted' RETURNING organization_id",[id(req.params.notice),req.staff.subject,reason])).rows[0];if(!n)throw new HttpError(409,'这笔转账信息已经处理过');await audit(db,req.actor,'bank_transfer.notice_rejected',n.organization_id,req.params.notice,{reason});});res.json({ok:true});
+ });
+
  app.post('/api/staff/business/bank-transfers/:entry/:action', requireStaff, async (req, res) => {
   requireFinance(req);
   const entryId = id(req.params.entry), action = choice(req.params.action, ['approve', 'reject'], '操作');
@@ -360,16 +418,19 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
    const cur = (await db.query('SELECT * FROM bank_transfer_entries WHERE id=$1 FOR UPDATE', [entryId])).rows[0];
    if (!cur) throw new HttpError(404, '登记不存在');
    if (cur.status !== 'pending') throw new HttpError(409, '这笔转账已经处理过');
-   if (cur.created_by === req.staff.subject) throw new HttpError(403, '登记人不能复核自己登记的转账');
+   const selfReview=cur.created_by===req.staff.subject;
+   if (selfReview&&!isAdmin(req.staff)) throw new HttpError(403, '普通财务不能复核自己登记的转账');
    if (action === 'reject') {
-    const rejected = (await db.query(`UPDATE bank_transfer_entries SET status='rejected',decided_by=$2,decided_at=now(),decision_note=$3 WHERE id=$1 RETURNING id,status`, [entryId, req.staff.subject, decisionNote])).rows[0];
-    await audit(db, req.actor, 'bank_transfer.rejected', null, entryId, { note: decisionNote });
+    const rejected = (await db.query(`UPDATE bank_transfer_entries SET status='rejected',decided_by=$2,decided_at=now(),decision_note=$3,decision_role=$4 WHERE id=$1 RETURNING id,status`, [entryId, req.staff.subject, decisionNote, req.staff.role])).rows[0];
+    await audit(db, req.actor, 'bank_transfer.rejected', null, entryId, { note: decisionNote, self_review:selfReview, decision_role:req.staff.role, created_by:cur.created_by });
     return rejected;
    }
+   if(!cur.reference.trim()||!cur.payer_name.trim())throw new HttpError(409,'这笔旧登记缺少付款户名或银行流水号，请驳回后重新登记');
    const acct = (await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen+$2,list_credit_fen=list_credit_fen+$3 WHERE id=$1 RETURNING cash_balance_fen,list_credit_fen,organization_id', [cur.account_id, cur.cash_fen, cur.face_fen])).rows[0];
    await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'recharge',$2,$3,'payment',$4)", [cur.account_id, cur.cash_fen, acct.cash_balance_fen, cur.id]);
-   const approved = (await db.query(`UPDATE bank_transfer_entries SET status='approved',decided_by=$2,decided_at=now(),decision_note=$3 WHERE id=$1 RETURNING id,status,cash_fen,face_fen`, [entryId, req.staff.subject, decisionNote])).rows[0];
-   await audit(db, req.actor, 'bank_transfer.approved', acct.organization_id, entryId, { cash_fen: String(cur.cash_fen), face_fen: String(cur.face_fen) });
+   await addPack(db,{accountId:cur.account_id,sourceKind:'bank',sourceId:cur.id,faceFen:cur.face_fen,cashFen:cur.cash_fen});
+   const approved = (await db.query(`UPDATE bank_transfer_entries SET status='approved',decided_by=$2,decided_at=now(),decision_note=$3,decision_role=$4 WHERE id=$1 RETURNING id,status,cash_fen,face_fen`, [entryId, req.staff.subject, decisionNote, req.staff.role])).rows[0];
+   await audit(db, req.actor, 'bank_transfer.approved', acct.organization_id, entryId, { cash_fen: String(cur.cash_fen), face_fen: String(cur.face_fen), note:decisionNote, self_review:selfReview, decision_role:req.staff.role, created_by:cur.created_by });
    return approved;
   });
   res.json(row);
@@ -445,7 +506,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
   const [grants, campaigns, tags] = await Promise.all([pool.query(`${DISCOUNT_ROWS} ORDER BY d.status='pending' DESC,d.created_at DESC LIMIT 500`),
    pool.query('SELECT c.id,c.name,c.customer_price_percent,c.starts_at,c.ends_at,c.total_discount_budget_fen,p.display_name AS product_name FROM promotion_campaigns c JOIN model_products p ON p.id=c.model_product_id ORDER BY c.created_at DESC LIMIT 100'),
    pool.query('SELECT t AS tag,count(*)::int AS customers FROM customers,unnest(tags) t GROUP BY 1 ORDER BY 2 DESC,1')]);
-  res.json({ grants: grants.rows, campaigns: campaigns.rows, tags: tags.rows, models: OFFICIAL_MODELS.map(m => ({ id: m.id, name: m.name })), can_decide: hasFinance(req.staff), me: req.staff.subject, billing_connected: false });
+  res.json({ grants: grants.rows, campaigns: campaigns.rows, tags: tags.rows, models: OFFICIAL_MODELS.map(m => ({ id: m.id, name: m.name })), can_decide: hasFinance(req.staff), me: req.staff.subject, billing_connected: true });
  });
  app.post('/api/staff/business/discounts', requireStaff, async (req, res) => {
   requireBusiness(req);
@@ -456,6 +517,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
   if (ends <= starts || ends - starts > 366 * 86400000) throw new HttpError(400, '有效期须在一年以内且结束晚于开始');
   if (ends <= new Date()) throw new HttpError(400, '结束时间须晚于现在');
   const model = b.model_id ? choice(b.model_id, OFFICIAL_MODELS.map(m => m.id), '适用产品') : null, cap = b.cap_yuan === undefined || b.cap_yuan === '' ? null : fen(b.cap_yuan, '优惠上限');
+  const promo=String(b.promo_code||'').trim().toUpperCase();if(!/^[A-Z0-9_-]{0,40}$/.test(promo))throw new HttpError(400,'促销码格式不正确');
   const tag = audience === 'tag' ? tagList([b.tag])[0] : null, customer = audience === 'customer' ? id(b.customer_id) : null;
   // The platform administrator's own grants take effect at once; everyone else's wait for a second person.
   const status = isAdmin(req.staff) ? 'active' : 'pending';
@@ -463,6 +525,7 @@ export function businessConsoleRoutes(app, pool, requireStaff) {
    if (customer && !(await db.query('SELECT 1 FROM customers WHERE id=$1', [customer])).rowCount) throw new HttpError(404, '客户不存在');
    const created = (await db.query(`INSERT INTO discount_grants(name,audience,customer_id,tag,model_id,customer_price_percent,cap_fen,starts_at,ends_at,reason,status,created_by,decided_by,decided_at)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id,status`, [name, audience, customer, tag, model, percent, cap, starts, ends, reason, status, req.staff.subject, status === 'active' ? req.staff.subject : null, status === 'active' ? new Date() : null])).rows[0];
+   if(promo)await db.query('UPDATE discount_grants SET promo_code=$2 WHERE id=$1',[created.id,promo]);
    await audit(db, req.actor, 'discount_grant.created', null, created.id, { audience, customer_price_percent: percent, status });
    return created;
   });
@@ -571,6 +634,7 @@ export function customerBusinessRoutes(app, pool, requireCustomer) {
   if ((customer.kind === 'enterprise' || type === 'special') && !taxNumber) throw new HttpError(400, '企业抬头须填写纳税人识别号');
   if (taxNumber && !TAX_NUMBER.test(taxNumber)) throw new HttpError(400, '税号须为 15–20 位数字或大写字母');
   if ((await db.query("SELECT count(*)::int AS n FROM tax_invoices WHERE customer_id=$1 AND status='requested'", [customer.id])).rows[0].n >= 5) throw new HttpError(429, '待处理的开票申请过多，请等待财务处理');
+  await lockInvoiceAccount(db,customer.id);
   const limit = await invoiceLimit(db, customer.id);
   if (amount > limit.available_fen) throw new HttpError(409, `可开票金额为 ¥${(limit.available_fen / 100).toFixed(2)}，按实际付款扣除退款和已申请的发票计算`);
   const created = (await db.query(`INSERT INTO tax_invoices(direction,customer_id,invoice_type,title,tax_number,email,amount_fen,status,note,requested_by_user) VALUES('output',$1,$2,$3,$4,$5,$6,'requested',$7,$8) RETURNING id,status,amount_fen,created_at`,

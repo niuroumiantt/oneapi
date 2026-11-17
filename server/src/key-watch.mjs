@@ -10,12 +10,12 @@ import { requireTechnical } from './workspaces.mjs';
 import { validateLabBaseUrl } from './supplier-lab.mjs';
 import { syncSupplierModels } from './upstream.mjs';
 import { OFFICIAL_MODELS } from './official-models.mjs';
-import { IGNORES_MAX_TOKENS, forgetGuardCache } from './output-guard.mjs';
+import { IGNORES_MAX_TOKENS, forgetGuardCache, guardedModels, COST_BLOCK_MESSAGE } from './output-guard.mjs';
 
 export const WATCH_INTERVAL_MS = 30 * 60 * 1000;
 const LEVEL = { ignores_max_tokens: 'warning', auto_launched: 'info', needs_manual_launch: 'warning', upstream_removed: 'critical', key_missing_model: 'critical', key_check_failed: 'critical', key_list_failed: 'warning', duplicate_key: 'warning', catalog_not_upstream: 'info' };
 const TITLE = {
- ignores_max_tokens: e => `上游 ${e.subject} 不遵守 max_tokens（要 1 个给了 ${e.detail.got} 个），网关已代为截断`,
+ ignores_max_tokens: e => `上游 ${e.subject} 不遵守 max_tokens${e.detail.got?`（要 1 个给了 ${e.detail.got} 个）`:''}，已暂停调用以避免额外费用`,
  auto_launched: e => `上游新增 ${e.subject}，目录里有定价，已自动上线`,
  needs_manual_launch: e => `上游新增 ${e.subject}，目录里没有定价，需要人工上线`,
  upstream_removed: e => `上游不再提供 ${e.subject}，员工调用会失败`,
@@ -27,11 +27,22 @@ const TITLE = {
 };
 export const eventTitle = e => (TITLE[e.kind] || (() => e.kind))(e);
 
-async function readJson(response) { const raw = (await response.text()).slice(0, 262144); try { return JSON.parse(raw); } catch { return null; } }
+async function readJson(response) {
+ const reader=response.body?.getReader(); if(!reader)return null;
+ let size=0;const chunks=[];
+ try { for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>262144){await reader.cancel();return null;}chunks.push(Buffer.from(value));}return JSON.parse(Buffer.concat(chunks).toString()); }
+ catch { return null; } finally { reader.releaseLock(); }
+}
 
-export async function runKeyWatch(pool, { box, fetchImpl = fetch, mail = null, trigger = 'schedule' }) {
+const activeRuns = new WeakMap();
+export function runKeyWatch(pool, options) {
+ if (activeRuns.has(pool)) return activeRuns.get(pool);
+ const work = runKeyWatchOnce(pool, options).finally(() => activeRuns.delete(pool));
+ activeRuns.set(pool, work); return work;
+}
+async function runKeyWatchOnce(pool, { box, fetchImpl = fetch, mail = null, trigger = 'schedule' }) {
  if (!box) return { skipped: 'no-secret' };
- const started = new Date(), found = [];
+ const started = new Date(), found = [], blocked = await guardedModels(pool);
  const add = (supplierId, kind, subject, detail = {}) => found.push({ supplier_id: supplierId, kind, subject: String(subject).slice(0, 200), level: LEVEL[kind], detail });
  const suppliers = (await pool.query(`SELECT s.id AS lab_id,s.canonical_supplier_id AS supplier_id,coalesce(p.display_name,s.name) AS name FROM supplier_lab_suppliers s LEFT JOIN suppliers p ON p.id=s.canonical_supplier_id
   WHERE s.kind='supplier' AND s.disabled_at IS NULL AND (p.id IS NULL OR p.status<>'blocked') AND EXISTS(SELECT 1 FROM supplier_lab_credentials c WHERE c.supplier_id=s.id AND c.disabled_at IS NULL)`)).rows;
@@ -41,33 +52,42 @@ export async function runKeyWatch(pool, { box, fetchImpl = fetch, mail = null, t
   const registered = (await pool.query('SELECT DISTINCT model_id FROM supplier_lab_endpoints WHERE supplier_id=$1 AND disabled_at IS NULL AND credential_id IS NOT NULL', [s.lab_id])).rows.map(r => r.model_id);
   const seen = new Map(); const distinct = [];
   for (const k of keys) { if (seen.has(k.credential_fingerprint)) add(s.supplier_id, 'duplicate_key', k.id, { key: k.label, same_as: seen.get(k.credential_fingerprint).label }); else { seen.set(k.credential_fingerprint, k); distinct.push(k); } }
-  const lists = [];
+  const lists = [], keyResults = [];
+  const previous = (await pool.query('SELECT summary FROM upstream_watch_runs ORDER BY started_at DESC LIMIT 1')).rows[0]?.summary;
   for (const k of distinct) {
    let secret; try { validateLabBaseUrl(k.base_url); secret = box.open(k.credential_ciphertext).key; } catch (e) { add(s.supplier_id, 'key_check_failed', '无法读取 Key 或地址不在允许名单', { key: k.label, credential_id: k.id }); continue; }
    const twins = keys.filter(x => x.credential_fingerprint === k.credential_fingerprint).map(x => x.id);
    // 1. model list (try /models on the key's base, then on the /v1 variant, since some keys were registered without /v1)
-   let list = null;
+   let list = null, listError = null, listStatus = null; const listStarted = performance.now();
    for (const base of [...new Set([k.base_url, k.base_url.endsWith('/v1') ? k.base_url : k.base_url + '/v1'])]) {
-    try { const r = await fetchImpl(`${base}/models`, { headers: { Authorization: `Bearer ${secret}` }, redirect: 'error', signal: AbortSignal.timeout(20000) }); const j = r.ok ? await readJson(r) : null; if (Array.isArray(j?.data)) { list = j.data.map(m => m?.id).filter(x => typeof x === 'string'); break; } } catch { /* try next */ }
+    try { const r = await fetchImpl(`${base}/models`, { headers: { Authorization: `Bearer ${secret}` }, redirect: 'error', signal: AbortSignal.timeout(20000) }); listStatus = r.status; listError = r.ok ? 'MODELS_SCHEMA_INVALID' : `HTTP_${r.status}`; const j = r.ok ? await readJson(r) : null; if (Array.isArray(j?.data)) { list = [...new Set(j.data.map(m => m?.id).filter(x => typeof x === 'string' && x.length <= 120))]; listError = null; break; } } catch (e) { listError = e?.name === 'TimeoutError' ? 'TIMEOUT' : 'NETWORK_OR_PROTOCOL_ERROR'; }
    }
    if (list) { lists.push(list); for (const m of registered) if (!list.includes(m)) add(s.supplier_id, 'key_missing_model', m, { key: k.label, credential_id: k.id }); }
    else add(s.supplier_id, 'key_list_failed', k.id, { key: k.label, credential_id: k.id });
    // 2. one 1-token request per registered model
-   const pending = [...registered], results = [];
+   const listMs = Math.round(performance.now() - listStarted);
+   const allModels = [...new Set([...(list || []), ...registered])], pending = allModels.slice(0,200), results = [];
    const checkOne = async model => {
     const t0 = performance.now();
+    if(blocked.has(model))return {model,ok:false,blocked:true,status:null,ms:0,checked_at:new Date().toISOString(),error:COST_BLOCK_MESSAGE};
     try {
      const r = await fetchImpl(`${k.base_url}/chat/completions`, { method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1, stream: false }), signal: AbortSignal.timeout(30000) });
-     const j = await readJson(r); const ok = r.ok;
+     const j = await readJson(r); const ok = r.ok && Array.isArray(j?.choices) && j.choices.some(c => c?.message && (typeof c.message.content === 'string' || typeof c.message.reasoning_content === 'string' || Array.isArray(c.message.tool_calls)));
      const out = j?.usage?.completion_tokens;
-     return { model, ok, status: r.status, ms: Math.round(performance.now() - t0), output_tokens: Number.isFinite(out) ? out : null, error: ok ? null : String(j?.error?.message || `HTTP ${r.status}`).replaceAll(secret, '***').slice(0, 200) };
-    } catch (e) { return { model, ok: false, status: null, ms: Math.round(performance.now() - t0), error: e?.name === 'TimeoutError' ? '30 秒无响应' : '连接失败' }; }
+     return { model, ok, status: r.status, checked_at: new Date().toISOString(), ms: Math.round(performance.now() - t0), output_tokens: Number.isFinite(out) ? out : null, error: ok ? null : String(j?.error?.message || (r.ok ? 'RESPONSE_SCHEMA_INVALID' : `HTTP ${r.status}`)).replaceAll(secret, '***').slice(0, 200) };
+    } catch (e) { return { model, ok: false, status: null, checked_at: new Date().toISOString(), ms: Math.round(performance.now() - t0), error: e?.name === 'TimeoutError' ? '30 秒无响应' : '连接失败' }; }
    };
    await Promise.all(Array.from({ length: Math.min(3, pending.length) }, async () => { for (let m = pending.shift(); m; m = pending.shift()) results.push(await checkOne(m)); }));
-   for (const r of results.filter(r => !r.ok)) add(s.supplier_id, 'key_check_failed', r.model, { key: k.label, credential_id: k.id, error: r.error, status: r.status });
-   // max_tokens=1 answered with more than 1 output token: the upstream ignores the limit, so the gateway's output guard takes over.
+   const prev = previous?.suppliers?.find(x=>x.supplier_id===s.supplier_id)?.key_results?.find(x=>x.credential_id===k.id);
+   keyResults.push({credential_id:k.id,label:k.label,shared_credential_ids:twins,checked_at:new Date().toISOString(),
+    listed_models:list,list_status:listStatus,list_error:listError,list_ms:listMs,model_count:list?.length??null,
+    added:list?list.filter(m=>!(prev?.listed_models||registered).includes(m)):[],removed:list?(prev?.listed_models||registered).filter(m=>!list.includes(m)):[],
+    tested:results.filter(r=>!r.blocked).length,blocked:results.filter(r=>r.blocked).length,success:results.filter(r=>r.ok).length,failed:results.filter(r=>!r.ok&&!r.blocked).length,untested:Math.max(0,allModels.length-results.length),results});
+   for (const r of results.filter(r => !r.ok && !r.blocked)) add(s.supplier_id, 'key_check_failed', r.model, { key: k.label, credential_id: k.id, error: r.error, status: r.status });
+   for(const r of results.filter(r=>r.blocked&&!found.some(e=>e.kind==='ignores_max_tokens'&&e.subject===r.model)))add(s.supplier_id,'ignores_max_tokens',r.model,{key:k.label,blocked:true});
+   // A proven overrun quarantines further billable requests; no automatic paid retry or automatic recovery.
    for (const r of results.filter(r => r.ok && r.output_tokens != null)) {
-    if (r.output_tokens > 1) { await pool.query(`INSERT INTO upstream_model_flags(model_id,flag,detail) VALUES($1,$2,$3) ON CONFLICT(model_id,flag) DO UPDATE SET last_seen=now(),detail=EXCLUDED.detail,cleared_at=NULL,since=CASE WHEN upstream_model_flags.cleared_at IS NULL THEN upstream_model_flags.since ELSE now() END`, [r.model, IGNORES_MAX_TOKENS, { asked: 1, got: r.output_tokens, key: k.label }]); add(s.supplier_id, 'ignores_max_tokens', r.model, { key: k.label, got: r.output_tokens }); }
+    if (r.output_tokens > 1) { blocked.add(r.model); await pool.query(`INSERT INTO upstream_model_flags(model_id,flag,detail) VALUES($1,$2,$3) ON CONFLICT(model_id,flag) DO UPDATE SET last_seen=now(),detail=EXCLUDED.detail,cleared_at=NULL,since=CASE WHEN upstream_model_flags.cleared_at IS NULL THEN upstream_model_flags.since ELSE now() END`, [r.model, IGNORES_MAX_TOKENS, { asked: 1, got: r.output_tokens, key: k.label }]); add(s.supplier_id, 'ignores_max_tokens', r.model, { key: k.label, got: r.output_tokens }); }
     else await pool.query('UPDATE upstream_model_flags SET cleared_at=now() WHERE model_id=$1 AND flag=$2 AND cleared_at IS NULL', [r.model, IGNORES_MAX_TOKENS]);
    }
    forgetGuardCache();
@@ -95,7 +115,7 @@ export async function runKeyWatch(pool, { box, fetchImpl = fetch, mail = null, t
    }
    for (const o of OFFICIAL_MODELS.filter(o => o.upstream === 'kerapi' && !upstream.includes(o.upstreamModel))) add(s.supplier_id, 'catalog_not_upstream', o.name, { catalog_id: o.id });
   }
-  summary.suppliers.push({ supplier_id: s.supplier_id, name: s.name, keys: keys.length, distinct_keys: distinct.length, registered: registered.length, upstream: upstream ? upstream.length : null, upstream_models: upstream });
+  summary.suppliers.push({ supplier_id: s.supplier_id, name: s.name, keys: keys.length, distinct_keys: distinct.length, registered: registered.length, upstream: upstream ? upstream.length : null, upstream_models: upstream, key_results: keyResults });
  }
  // Catalog models whose upstream is not a purchase supplier at all (e.g. the DeepSeek official direct line with no key).
  const routedIds = new Set((await pool.query("SELECT DISTINCT e.model_id FROM supplier_lab_endpoints e JOIN supplier_lab_credentials c ON c.id=e.credential_id JOIN supplier_lab_suppliers s ON s.id=e.supplier_id WHERE e.disabled_at IS NULL AND c.disabled_at IS NULL AND s.kind='supplier'")).rows.map(r => r.model_id));
@@ -127,14 +147,15 @@ export function keyWatchRoutes(app, pool, cfg, requireStaff, { box, fetchImpl = 
  let running = null;
  app.get('/api/staff/lab/key-watch', requireStaff, async (req, res) => {
   requireTechnical(req);
-  const [run, events] = await Promise.all([pool.query('SELECT trigger,started_at,finished_at,summary FROM upstream_watch_runs ORDER BY started_at DESC LIMIT 1'), pool.query("SELECT * FROM upstream_watch_events WHERE status='open' ORDER BY CASE level WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,first_seen DESC")]);
-  res.json({ interval_minutes: WATCH_INTERVAL_MS / 60000, last_run: run.rows[0] || null, running: Boolean(running), events: events.rows.map(e => ({ ...e, title: eventTitle(e) })) });
+  const [run, events] = await Promise.all([pool.query('SELECT id,trigger,started_at,finished_at,summary FROM upstream_watch_runs ORDER BY started_at DESC LIMIT 20'), pool.query("SELECT * FROM upstream_watch_events WHERE status='open' ORDER BY CASE level WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,first_seen DESC")]);
+  res.json({ interval_minutes: WATCH_INTERVAL_MS / 60000, last_run: run.rows[0] || null, history: run.rows, running: activeRuns.has(pool), events: events.rows.map(e => ({ ...e, title: eventTitle(e) })) });
  });
  app.post('/api/staff/lab/key-watch/run', requireStaff, async (req, res) => {
   requireTechnical(req); if (!box) throw new HttpError(503, '验收加密服务未配置');
   if (running) throw new HttpError(409, '检查正在进行，请稍候');
-  running = runKeyWatch(pool, { box, fetchImpl, mail, trigger: 'manual' }).finally(() => { running = null; });
+  running = runKeyWatch(pool, { box, fetchImpl, mail:req.body?.notify===false?null:mail, trigger: 'manual' }).finally(() => { running = null; });
   await audit(pool, req.actor, 'upstream.key_watch_run', null, null, {});
+  if(req.body?.background){running.catch(()=>console.error('manual_key_watch_failed'));res.status(202).json({running:true});return;}
   res.json(await running);
  });
 }

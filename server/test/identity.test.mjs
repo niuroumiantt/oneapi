@@ -1,3 +1,4 @@
+import {applyStatement,syncAlipayBill} from '../src/alipay-bills.mjs';
 import test,{before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
@@ -95,7 +96,7 @@ before(async()=>{
  cfg.alipay={...cfg.alipay,enabled:true,appId:'2021000000000001',sellerId:'2088000000000001',privateKey:pem(appKeys.privateKey),publicKey:pem(alipayKeys.publicKey),allowedEmails:new Set(['nobody@example.test'])};cfg.alipayFetch=fakeAlipay;
  cfg.wechat={...cfg.wechat,enabled:true,mchId:WX.mchId,appId:WX.appId,certSerial:WX.certSerial,privateKey:pem(wxMerchant.privateKey),publicKeyId:WX.publicKeyId,publicKey:pem(wxPlatform.publicKey),apiV3Key:wxApiV3Key,allowedEmails:new Set(['nobody@example.test'])};cfg.wechatFetch=fakeWechat;
  appCfg=cfg;cfg.pilotFetch=(...args)=>pilotFetch(...args);
- service=createApp(pool,cfg,{sendMail:async m=>{sent.push(m);return {};},verify:async()=>true});await migrate(pool,service.auth);await pool.query('TRUNCATE "user",staff_members,staff_oidc_states,mail_outbox,request_limits,"rateLimit",channel_states,acceptance_profiles,agents,published_reports,identity_check_runs,identity_check_items CASCADE');appServer.on('request',service.app);
+ service=createApp(pool,cfg,{sendMail:async m=>{sent.push(m);return {};},verify:async()=>true});await migrate(pool,service.auth);await pool.query('TRUNCATE "user",staff_members,staff_oidc_states,mail_outbox,request_limits,"rateLimit",channel_states,upstream_model_flags,upstream_watch_runs,upstream_watch_events,acceptance_profiles,agents,published_reports,identity_check_runs,identity_check_items CASCADE');appServer.on('request',service.app);
 });
 after(async()=>{appServer?.close();idpServer?.close();await pool?.end();if(pilotDir)await rm(pilotDir,{recursive:true,force:true});});
 test('email must be verified; unknown identity cannot read workspace; CSRF is rejected',async()=>{
@@ -149,7 +150,7 @@ test('managers keep one department list that members and join requests must use'
 test('real billing reads are isolated and cannot credit funds without a merchant',async()=>{
  assert.equal((await jar().call('/api/billing/personal')).status,401);
  const personal=await owner.j.call('/api/billing/personal');assert.equal(personal.status,200);assert.equal(personal.data.scope,'personal');assert.equal(personal.data.cash_balance_fen,'0');assert.equal(personal.data.list_credit_fen,'0');assert.equal(personal.data.total_recharged_fen,'0');assert.deepEqual(personal.data.entries,[]);assert.deepEqual(personal.data.usage_by_model,[]);assert.equal(personal.data.recharge.enabled,false);assert.equal(personal.data.recharge.minimum_fen,500);assert.match(personal.data.refund.policy,/15%/);assert.equal(personal.data.bank_transfer,undefined);
- const org=await owner.j.call(`/api/billing/organizations/${orgA.id}`);assert.equal(org.status,200);assert.equal(org.data.scope,'organization');assert.equal(org.data.cash_balance_fen,'0');assert.equal(org.data.list_credit_fen,'0');assert.equal(org.data.refund.enabled,false);assert.equal(org.data.bank_transfer.enabled,true);assert.equal(org.data.bank_transfer.account_number,'0000000000000000');
+ const org=await owner.j.call(`/api/billing/organizations/${orgA.id}`);assert.equal(org.status,200);assert.equal(org.data.scope,'organization');assert.equal(org.data.cash_balance_fen,'0');assert.equal(org.data.list_credit_fen,'0');assert.equal(org.data.refund.enabled,true);assert.equal(org.data.bank_transfer.enabled,true);assert.equal(org.data.bank_transfer.account_number,'0000000000000000');
  assert.equal((await other.j.call(`/api/billing/organizations/${orgA.id}`)).status,403);
  assert.equal((await owner.j.call(`/api/billing/organizations/${orgB.id}`)).status,403);
  assert.equal((await owner.j.call('/api/billing/personal',{method:'POST',body:{amount_fen:500}})).status,404);
@@ -688,7 +689,7 @@ test('employee credit is one-time, company-only, reserved before calling and cha
       const matrix=await ops.call('/api/staff/lab/acceptance');assert.equal(matrix.status,200,JSON.stringify(matrix.data));assert.equal(matrix.data.features.length,16);assert.ok(matrix.data.profiles.some(p=>p.synthetic)&&matrix.data.profiles.some(p=>p.client==='WorkBuddy'));
       assert.equal((await staffer.j.call('/api/staff/lab/acceptance')).status,401);
       const started=await ops.call('/api/staff/lab/acceptance/replay',{method:'POST',body:{model_id:'deepseek-flash'}});assert.equal(started.status,202,JSON.stringify(started.data));
-      let run;for(let i=0;i<50;i++){run=(await ops.call('/api/staff/lab/acceptance')).data;if(run.run.finished_at)break;await new Promise(r=>setTimeout(r,40));}
+      let run;for(let i=0;i<50;i++){run=(await ops.call('/api/staff/lab/acceptance')).data;if(run.run.id===started.data.run.id&&run.run.finished_at&&['basic','out_32k','thinking_on'].every(f=>run.profiles.find(p=>p.signature==='synthetic:'+f)?.results?.['deepseek-flash']))break;await new Promise(r=>setTimeout(r,40));}
       assert.ok(run.run.finished_at,'replay finishes');const cell=f=>run.profiles.find(p=>p.signature==='synthetic:'+f).results['deepseek-flash'];
       assert.equal(cell('basic').status,'pass');assert.equal(cell('out_32k').status,'pass','32K output now passes through');assert.equal(cell('thinking_on').status,'partial');
       const detail=await ops.call('/api/staff/lab/acceptance/profiles/synthetic:basic');assert.equal(detail.status,200);assert.ok(detail.data.history.length>=1);}
@@ -1002,17 +1003,23 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
   try{
    const run=await admin.call('/api/staff/lab/key-watch/run',{method:'POST',body:{}});assert.equal(run.status,200,JSON.stringify(run.data));
    const sum=run.data.suppliers.find(x=>x.supplier_id===sid);assert.equal(sum.keys,3);assert.equal(sum.distinct_keys,2,'the duplicate is checked once');assert.equal(sum.upstream,3);
+   const kr=sum.key_results.find(k=>k.credential_id===good.id);assert.equal(kr.model_count,3);assert.equal(kr.tested,3);assert.equal(kr.success,3);assert.equal(kr.failed,0);assert.equal(kr.shared_credential_ids.length,2);
+   assert.ok(kr.results.some(r=>r.model==='up-model-new'&&r.ok),'new discovered models are tested before registration');assert.ok(kr.added.includes('up-model-new'));assert.ok(kr.checked_at);assert.ok(kr.results.every(r=>Number.isInteger(r.ms)));
+   const history=(await admin.call('/api/staff/lab/key-watch')).data.history;assert.ok(history.length);assert.deepEqual(history[0].summary.suppliers.find(x=>x.supplier_id===sid).key_results,sum.key_results,'history survives a separate read');
+
    let w=(await admin.call('/api/staff/lab/key-watch')).data;const mine=w.events.filter(e=>e.supplier_id===sid),kinds=mine.map(e=>e.kind+':'+e.subject);
    assert.ok(kinds.includes('auto_launched:GLM-5.3-Flash'),'catalog model the upstream now offers goes live');assert.ok(kinds.includes('needs_manual_launch:up-model-new'),'unknown model needs a manual launch');
-   assert.ok(mine.some(e=>e.kind==='duplicate_key'&&e.detail.same_as==='主 Key'));assert.ok(mine.some(e=>e.kind==='key_check_failed'&&e.detail.key==='备 Key'));assert.ok(mine.some(e=>e.kind==='key_list_failed'&&e.detail.key==='备 Key'));
+   assert.ok(mine.some(e=>e.kind==='duplicate_key'&&e.detail.same_as==='主 Key'));assert.ok(sum.key_results.find(k=>k.label==='备 Key').results.some(r=>r.model==='up-model-a'&&r.blocked),'once overrun is found, later keys in this run do not repeat the billable probe');assert.ok(mine.some(e=>e.kind==='key_list_failed'&&e.detail.key==='备 Key'));
    assert.ok(!JSON.stringify(w).includes('sk-up-bad'),'key never echoed');
    assert.ok(mine.some(e=>e.kind==='ignores_max_tokens'&&e.subject==='up-model-a'&&e.detail.got===5),'a 1-token check answered with 5 tokens is flagged');assert.equal((await pool.query("SELECT count(*)::int AS n FROM upstream_model_flags WHERE model_id='up-model-a' AND flag='ignores_max_tokens' AND cleared_at IS NULL")).rows[0].n,1);
    assert.equal((await pool.query("SELECT count(DISTINCT credential_id)::int AS n FROM supplier_lab_endpoints WHERE supplier_id=$1 AND model_id='GLM-5.3-Flash' AND disabled_at IS NULL",[lab])).rows[0].n,3,'auto-launched model reaches every key');
    const good2=(await pool.query("SELECT last_check_ok,last_check_model FROM supplier_lab_credentials WHERE supplier_id=$1 AND credential_fingerprint=$2",[lab,good.credential_fingerprint])).rows;assert.equal(good2.length,2);assert.ok(good2.every(r=>r.last_check_ok===true),'result written to both rows of the same secret');
    // upstream drops a model: critical event; the earlier one resolves when the run no longer sees it
-   pilotFetch=async(url,options)=>{const auth=options?.headers?.Authorization;if(String(url).endsWith('/models'))return auth==='Bearer sk-up-good'?new Response(JSON.stringify({data:[{id:'GLM-5.3-Flash'}]}),{status:200}):new Response('{"data":[]}',{status:auth==='Bearer sk-up-bad'?401:200});return new Response(JSON.stringify({choices:[{message:{content:'p'}}]}),{status:auth==='Bearer sk-up-bad'?401:200});};
+   pilotFetch=async(url,options)=>{const auth=options?.headers?.Authorization;if(String(url).endsWith('/models'))return auth==='Bearer sk-up-good'?new Response(JSON.stringify({data:[{id:'GLM-5.3-Flash'}]}),{status:200}):new Response('{"data":[]}',{status:auth==='Bearer sk-up-bad'?401:200});return new Response(JSON.stringify({message:'not a completion'}),{status:auth==='Bearer sk-up-bad'?401:200});};
    assert.equal((await admin.call('/api/staff/lab/key-watch/run',{method:'POST',body:{}})).status,200);
    w=(await admin.call('/api/staff/lab/key-watch')).data;const after=w.events.filter(e=>e.supplier_id===sid).map(e=>e.kind+':'+e.subject);
+   assert.ok(w.history[0].summary.suppliers.find(x=>x.supplier_id===sid).key_results.find(k=>k.credential_id===good.id).removed.includes('up-model-a'));assert.ok(w.history[0].summary.suppliers.find(x=>x.supplier_id===sid).key_results.find(k=>k.credential_id===good.id).results.every(r=>!r.ok),'HTTP 200 with invalid completion schema must fail');
+   assert.ok(w.history[0].summary.suppliers.find(x=>x.supplier_id===sid).key_results.find(k=>k.credential_id===good.id).results.find(r=>r.model==='up-model-a').blocked,'known violation is blocked on the next watch');
    assert.ok(after.includes('upstream_removed:up-model-a'),'model the upstream dropped is critical');assert.ok(!after.includes('needs_manual_launch:up-model-new'),'resolved when no longer seen');
    const ov=(await admin.call('/api/staff/lab/overview')).data;assert.ok(ov.risks.some(r=>r.area==='watch'&&r.title.includes('上游不再提供 up-model-a')));
    const card=ov.suppliers.find(x=>x.id===sid);assert.equal(card.duplicate_keys,1);assert.equal(card.distinct_keys,2);
@@ -1099,40 +1106,27 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
    assert.equal((await jar().call('/api/staff/lab/identity')).status,401);
   }finally{pilotFetch=saved;}}
 });
-test('staff refunds go back to the payer once, hold the balance first and reverse rejections',async()=>{
+test('pack refunds return the unused proportion less 15%, survive rejection and replay',async()=>{
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
  const buyer=await user('refund-buyer');appCfg.alipay.allowedEmails.add(buyer.email);
  const order=(await buyer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:3000,idempotency_key:'refund-order-key-0001'}})).data.order;
  const out=(await pool.query('SELECT out_trade_no,account_id FROM payment_orders WHERE id=$1',[order.id])).rows[0],trade=seedAlipayTrade(out.out_trade_no,'30.00');trade.status='TRADE_SUCCESS';
  assert.equal((await buyer.j.call('/api/billing/alipay-orders/'+order.id)).data.order.status,'paid');
- const bal=async()=>(await buyer.j.call('/api/billing/personal')).data.cash_balance_fen,path=`/api/staff/payments/orders/${order.id}/refunds`;
- const ask=(amount,key,reason='客户申请退款')=>admin.call(path,{method:'POST',body:{amount_fen:amount,reason,idempotency_key:key}});
- assert.equal(await bal(),'3000');
- assert.ok((await buyer.j.call(path,{method:'POST',body:{amount_fen:100,reason:'x',idempotency_key:'customer-try-000001'}})).status>=400,'customers cannot refund');
- assert.ok((await admin.call('/api/staff/payments/orders')).data.orders.some(o=>o.id===order.id&&o.payer_email===buyer.email));
- assert.equal((await ask(3001,'refund-key-over-00001')).status,409);
- assert.equal((await ask(100,'refund-key-noreason01','')).status,400);
- // Partial refund, then a replay of the same request changes nothing.
- const first=await ask(1000,'refund-key-partial-001');assert.equal(first.status,201);assert.equal(first.data.status,'succeeded');
- assert.equal(await bal(),'2000');assert.equal(trade.refundedFen,1000);
- const replay=await ask(1000,'refund-key-partial-001');assert.equal(replay.status,200);assert.equal(replay.data.refund_id,first.data.refund_id);assert.equal(await bal(),'2000');assert.equal(trade.refundedFen,1000);
- // Unclear result: balance stays held, a second refund waits, a retry with the same request number settles it.
- alipayRefundMode='timeout';const pending=await ask(500,'refund-key-pending-001');assert.equal(pending.data.status,'pending');assert.equal(await bal(),'1500');
- assert.equal((await ask(100,'refund-key-blocked-001')).status,409);
+ const balance=async()=>(await buyer.j.call('/api/billing/personal')).data,path=`/api/staff/payments/orders/${order.id}/refunds`;
+ const ask=(amount,key)=>admin.call(path,{method:'POST',body:{amount_fen:amount,reason:'退回剩余额度',idempotency_key:key}});
+ assert.equal((await buyer.j.call(path,{method:'POST',body:{amount_fen:2550}})).status,401);
+ assert.equal((await ask(3000,'pack-over-refund-0001')).status,409);
+ const quote=(await admin.call(`/api/staff/payments/orders/${order.id}/refund-quote`)).data;assert.equal(quote.net_fen,'2550');assert.equal(quote.fee_fen,'450');
+ alipayRefundMode='reject';const rejected=await ask(2550,'pack-reject-00000001');alipayRefundMode='ok';assert.equal(rejected.data.status,'failed');assert.equal((await balance()).list_credit_fen,'3000');assert.equal((await balance()).cash_balance_fen,'3000');
+ alipayRefundMode='timeout';const pending=await ask(2550,'pack-pending-0000001');assert.equal(pending.data.status,'pending');assert.equal((await balance()).list_credit_fen,'0');assert.equal((await balance()).cash_balance_fen,'450');
+ assert.equal((await ask(2550,'pack-blocked-0000001')).status,409);
+ assert.equal((await buyer.j.call('/api/billing/personal/invoices',{method:'POST',body:{invoice_type:'general',title:'测试个人',email:buyer.email,amount_yuan:'1'}})).status,409,'invoice must wait for pending refund');
  alipayRefundMode='ok';assert.equal((await admin.call(`/api/staff/payments/refunds/${pending.data.refund_id}/retry`,{method:'POST',body:{}})).data.status,'succeeded');
- assert.equal(await bal(),'1500');assert.equal(trade.refundedFen,1500);
- // A definitive rejection gives the held amount back.
- alipayRefundMode='reject';const rejected=await ask(500,'refund-key-reject-0001');alipayRefundMode='ok';
- assert.equal(rejected.data.status,'failed');assert.equal(await bal(),'1500');assert.equal(trade.refundedFen,1500);
- const view=(await admin.call('/api/staff/payments/orders')).data.orders.find(o=>o.id===order.id);
- assert.equal(view.refunded_fen,'1500');assert.deepEqual(view.refunds.map(r=>r.status),['succeeded','succeeded','failed']);
- // Spent money cannot be refunded.
- await pool.query('UPDATE billing_accounts SET cash_balance_fen=200,list_credit_fen=200 WHERE id=$1',[out.account_id]);
- assert.match((await ask(1000,'refund-key-spent-00001')).data.error,/已使用的部分不能退款/);
- const ledger=(await pool.query('SELECT kind,amount_fen::int FROM billing_ledger WHERE account_id=$1 ORDER BY id',[out.account_id])).rows.map(r=>r.kind+':'+r.amount_fen);
- assert.deepEqual(ledger,['recharge:3000','refund:-1000','refund:-500','refund:-500','reversal:500']);
- assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action LIKE 'billing.refund.%'")).rows[0].n>=6,true);
+ assert.equal((await balance()).cash_balance_fen,'0');assert.equal(trade.refundedFen,2550);
+ const replay=await ask(2550,'pack-pending-0000001');assert.equal(replay.data.refund_id,pending.data.refund_id);assert.equal(trade.refundedFen,2550);
+ const ledger=(await balance()).entries;assert.equal(ledger.filter(e=>e.reference_id?.startsWith('refund-fee:')).length,1);
 });
+
 test('sign out revokes persistent customer session',async()=>{assert.equal((await owner.j.call('/api/auth/sign-out',{method:'POST',body:{}})).status,200);assert.equal((await owner.j.call('/api/platform/me')).status,401);});
 test('two workspaces share credentials, actual acceptance and fail-closed catalog releases',async()=>{
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;
@@ -1308,37 +1302,23 @@ test('wechat native recharge credits the exact amount once, only after a signed 
  assert.equal((await balance()).cash_balance_fen,'3550');
  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='billing.recharge.wechat_paid' AND subject_id=ANY($1)",[[created.data.order.id,second.id]])).rows[0].n,2);
 });
-test('wechat refunds go back once, survive timeouts and settle from refund notifies',async()=>{
+test('wechat pack refunds settle by signed notification and restore rejected reservations',async()=>{
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
  const buyer=await user('wx-refund-buyer');appCfg.wechat.allowedEmails.add(buyer.email);
  const order=(await buyer.j.call('/api/billing/personal/wechat-orders',{method:'POST',body:{amount_fen:3000,idempotency_key:'wx-refund-order-0001'}})).data.order;
- const o=(await pool.query('SELECT out_trade_no,account_id FROM payment_orders WHERE id=$1',[order.id])).rows[0];wxTrades.get(o.out_trade_no).state='SUCCESS';
+ const o=(await pool.query('SELECT out_trade_no FROM payment_orders WHERE id=$1',[order.id])).rows[0];wxTrades.get(o.out_trade_no).state='SUCCESS';
  assert.equal((await buyer.j.call('/api/billing/payment-orders/'+order.id)).data.order.status,'paid');
- const bal=async()=>(await buyer.j.call('/api/billing/personal')).data.cash_balance_fen,ask=(amount,key)=>admin.call(`/api/staff/payments/orders/${order.id}/refunds`,{method:'POST',body:{amount_fen:amount,reason:'客户申请退款',idempotency_key:key}});
- const outNo=async refundId=>(await pool.query('SELECT out_request_no FROM payment_refunds WHERE id=$1',[refundId])).rows[0].out_request_no;
- const refundNotify=async(refundId,refund_status)=>wxNotify('REFUND.'+refund_status,{mchid:WX.mchId,out_trade_no:o.out_trade_no,transaction_id:'x',out_refund_no:await outNo(refundId),refund_id:'50x',refund_status,amount:{total:3000,refund:1,payer_total:3000,payer_refund:1}});
- const list=(await admin.call('/api/staff/payments/orders')).data;assert.ok(list.channels.includes('wechat_native'));assert.equal(list.orders.find(x=>x.id===order.id).provider,'wechat_native');
- const first=await ask(1000,'wx-refund-key-ok-0001');assert.equal(first.data.status,'succeeded');assert.equal(await bal(),'2000');
- const sent=wxCalls.findLast(c=>c.path==='/v3/refund/domestic/refunds');assert.deepEqual(sent.body.amount,{refund:1000,total:3000,currency:'CNY'});assert.equal(sent.body.notify_url,origin+'/api/payments/wechat/notify');
- // Timeout: held, then the retry looks the refund up, finds none, and sends it once.
- wxRefundMode='timeout';const lost=await ask(500,'wx-refund-key-lost-001');assert.equal(lost.data.status,'pending');assert.equal(await bal(),'1500');
- wxRefundMode='ok';assert.equal((await admin.call(`/api/staff/payments/refunds/${lost.data.refund_id}/retry`,{method:'POST',body:{}})).data.status,'succeeded');
- assert.equal([...wxRefunds.values()].filter(r=>r.out_trade_no===o.out_trade_no).length,2);
- // Processing: settled by the signed refund notify; a retry afterwards changes nothing.
- wxRefundMode='processing';const slow=await ask(300,'wx-refund-key-slow-001');assert.equal(slow.data.status,'pending');wxRefundMode='ok';
- assert.equal((await refundNotify(slow.data.refund_id,'SUCCESS')).status,204);
- assert.equal((await pool.query('SELECT status FROM payment_refunds WHERE id=$1',[slow.data.refund_id])).rows[0].status,'succeeded');
- assert.equal((await admin.call(`/api/staff/payments/refunds/${slow.data.refund_id}/retry`,{method:'POST',body:{}})).data.status,'succeeded');
- // Processing then CLOSED, and an outright NOT_ENOUGH rejection, both give the money back.
- wxRefundMode='processing';const closed=await ask(200,'wx-refund-key-close-01');wxRefundMode='ok';
- assert.equal((await refundNotify(closed.data.refund_id,'CLOSED')).status,204);
- wxRefundMode='reject';const rejected=await ask(200,'wx-refund-key-reject01');wxRefundMode='ok';assert.equal(rejected.data.status,'failed');
- assert.equal(await bal(),'1200');
- const ledger=(await pool.query('SELECT kind,amount_fen::int FROM billing_ledger WHERE account_id=$1 ORDER BY id',[o.account_id])).rows.map(r=>r.kind+':'+r.amount_fen);
- assert.deepEqual(ledger,['recharge:3000','refund:-1000','refund:-500','refund:-300','refund:-200','reversal:200','refund:-200','reversal:200']);
- assert.equal((await pool.query('SELECT refunded_fen::int FROM payment_orders WHERE id=$1',[order.id])).rows[0].refunded_fen,1800);
- assert.ok(wxCalls.every(c=>c.ok));
+ const ask=key=>admin.call(`/api/staff/payments/orders/${order.id}/refunds`,{method:'POST',body:{amount_fen:2550,reason:'退回剩余额度',idempotency_key:key}});
+ wxRefundMode='reject';const rejected=await ask('wx-refund-reject-0001');wxRefundMode='ok';assert.equal(rejected.data.status,'failed');
+ assert.equal((await buyer.j.call('/api/billing/personal')).data.list_credit_fen,'3000');
+ wxRefundMode='processing';const pending=await ask('wx-refund-notify-0001');wxRefundMode='ok';assert.equal(pending.data.status,'pending');
+ const n=(await pool.query('SELECT out_request_no FROM payment_refunds WHERE id=$1',[pending.data.refund_id])).rows[0].out_request_no;
+ const notify=()=>wxNotify('REFUND.SUCCESS',{mchid:WX.mchId,out_trade_no:o.out_trade_no,out_refund_no:n,refund_status:'SUCCESS',amount:{total:3000,refund:2550}});
+ assert.equal((await notify()).status,204);assert.equal((await notify()).status,204);
+ assert.equal((await buyer.j.call('/api/billing/personal')).data.cash_balance_fen,'0');
+ assert.equal((await admin.call(`/api/staff/payments/refunds/${pending.data.refund_id}/retry`,{method:'POST',body:{}})).data.status,'succeeded');assert.ok(wxCalls.every(c=>c.ok));
 });
+
 test('wechat pay client refuses unsigned or foreign-signed replies and decrypts resources',async()=>{
  const {wechatpayClient,decryptResource,beijingRfc3339}=await import('../src/wechatpay.mjs');
  const base={mchId:WX.mchId,appId:WX.appId,certSerial:WX.certSerial,privateKey:pem(wxMerchant.privateKey),publicKeyId:WX.publicKeyId,publicKey:pem(wxPlatform.publicKey),apiV3Key:wxApiV3Key};
@@ -1387,6 +1367,8 @@ test('business console: finance switch, codes, CRM, invoices against paid money,
  for(const path of ['/api/staff/business/finance','/api/staff/business/invoices','/api/staff/business/supplier-payments','/api/staff/business/bank-transfers','/api/staff/payments/orders'])assert.equal((await biz.call(path)).status,403,path);
  const plain=(await biz.call('/api/staff/business/dashboard')).data;assert.equal(plain.finance,null);assert.equal(plain.counts.invoices_requested,undefined);assert.equal(plain.counts.bank_transfers_pending,undefined);assert.equal(plain.staff.finance,false);
  assert.equal((await biz.call('/api/staff/members/biz-fixture/finance-access',{method:'PUT',body:{enabled:true}})).status,403);
+ assert.equal((await pool.query("SELECT count(*)::int n FROM pg_indexes WHERE indexname IN ('customer_calls_upstream_request_lookup','employee_calls_upstream_request_lookup','pilot_calls_upstream_request_lookup')")).rows[0].n,3);
+ const summary=(await admin.call('/api/staff/business/dashboard?summary=1')).data;assert.equal(summary.staff.finance,true);assert.equal(summary.finance,null);assert.deepEqual(summary.top_customers,[]);assert.equal(typeof summary.counts.bank_transfers_pending,'number');
  const full=(await admin.call('/api/staff/business/dashboard')).data;assert.equal(full.finance.series.length,12);assert.equal(typeof full.counts.invoices_requested,'number');
 
  // Supplier codes: assigned on insert, one serial per year, never reused.
@@ -1469,7 +1451,7 @@ test('business console: finance switch, codes, CRM, invoices against paid money,
  assert.equal((await grant(admin,{audience:'all',model_id:'no-such-model'})).status,400);
  const applicable=(await biz.call('/api/staff/business/customers/'+enterprise.id)).data.discounts;assert.equal(applicable.length,2,'by tag and by name');assert.equal(applicable.every(d=>d.state==='active'),true);
  assert.equal((await post(admin,`/api/staff/business/discounts/${direct.data.id}/revoke`)).status,200);assert.equal((await post(admin,`/api/staff/business/discounts/${direct.data.id}/revoke`)).status,409);
- const register=(await biz.call('/api/staff/business/discounts')).data;assert.equal(register.billing_connected,false);assert.equal(register.tags.find(t=>t.tag==='高校').customers,1);
+ const register=(await biz.call('/api/staff/business/discounts')).data;assert.equal(register.billing_connected,true);assert.equal(register.tags.find(t=>t.tag==='高校').customers,1);
 
  // First-line support: categories, reusable answers, replies the customer can read, hand-off to technical.
  assert.equal((await post(buyer.j,'/api/support/tickets',{subject:'怎么开发票',body:'充值后在哪里申请？',category:'tax'})).status,400);
@@ -1502,7 +1484,8 @@ test('list-credit refund formula and dual-approval bank transfer',async()=>{
  assert.deepEqual(refundCashFen({faceFen:10000,cashPaidFen:3000,remainingFen:5000,hasIssuedInvoice:false}),{ok:true,grossFen:1500,feeFen:225,netFen:1275});
  assert.equal(refundCashFen({faceFen:10000,cashPaidFen:3000,remainingFen:5000,hasIssuedInvoice:true}).code,'invoice_blocks_refund');
  assert.equal(refundCashFen({faceFen:10000,cashPaidFen:3000,remainingFen:0,hasIssuedInvoice:false}).code,'nothing_to_refund');
- assert.equal(refundCashFen({faceFen:100,cashPaidFen:100,remainingFen:1,hasIssuedInvoice:false}).code,'fee_consumes_refund');
+ assert.equal(refundCashFen({faceFen:100,cashPaidFen:30,remainingFen:4,hasIssuedInvoice:false}).netFen,1);
+ assert.equal(refundCashFen({faceFen:100,cashPaidFen:100,remainingFen:1,hasIssuedInvoice:false}).netFen,1);
 
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
  identity={sub:'finance-a',email:'finance-a@example.test',name:'Finance A',staff_approved:true};const fa=jar();await staffLogin(fa);
@@ -1520,8 +1503,8 @@ test('list-credit refund formula and dual-approval bank transfer',async()=>{
  assert.ok(enterprise);
  const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(new Date());
  const post=(j,path,body={})=>j.call(path,{method:'POST',body});
- assert.equal((await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,cash_yuan:'100',face_yuan:'50',received_on:day})).status,400,'face below cash');
- const reg=await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,cash_yuan:'40',face_yuan:'100',received_on:day,reference:'BT-1',note:'合同价'});
+ assert.equal((await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,payer_name:'Bank Xfer Co',cash_yuan:'100',face_yuan:'50',received_on:day})).status,400,'face below cash');
+ const reg=await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,payer_name:'Bank Xfer Co',cash_yuan:'40',face_yuan:'100',received_on:day,reference:'BT-1',note:'合同价'});
  assert.equal(reg.status,201,JSON.stringify(reg.data));assert.equal(reg.data.status,'pending');
  const pending=await fa.call('/api/staff/business/bank-transfers');assert.equal(pending.data.entries[0].id,reg.data.id);assert.match(pending.data.refund_policy,/15%/);
  assert.equal((await admin.call('/api/staff/business/dashboard')).data.counts.bank_transfers_pending>=1,true);
@@ -1534,8 +1517,370 @@ test('list-credit refund formula and dual-approval bank transfer',async()=>{
  const view=await buyer.j.call(`/api/billing/organizations/${org.id}`);
  assert.equal(view.data.cash_balance_fen,'4000');assert.equal(view.data.list_credit_fen,'10000');assert.equal(view.data.total_recharged_fen,'4000');
  assert.equal((await post(fb,`/api/staff/business/bank-transfers/${reg.data.id}/approve`)).status,409);
- const other=await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,cash_yuan:'10',received_on:day,reference:'BT-2'});
+ const other=await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,payer_name:'Bank Xfer Co',cash_yuan:'10',received_on:day,reference:'BT-2'});
  assert.equal(other.status,201);assert.equal(Number(other.data.face_fen),1000,'face defaults to cash');
  assert.equal((await post(fb,`/api/staff/business/bank-transfers/${other.data.id}/reject`,{note:'付款户名不符'})).status,200);
  assert.deepEqual(await bal(),{cash_balance_fen:4000,list_credit_fen:10000},'reject leaves balances');
+});
+
+test('ordinary customer: discounted purchase, signed payment, scoped key, shared gateway, precise usage and refund',async()=>{
+ const {creditPaidOrder}=await import('../src/payments.mjs');
+ const {settlePaidCall,refundQuote}=await import('../src/pack-ledger.mjs');
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ const buyer=await user('paid-flow'),other=await user('paid-other');appCfg.alipay.allowedEmails.add(buyer.email);
+ appCfg.customerPaid={enabled:true,models:['deepseek-flash']};
+ await pool.query("UPDATE channel_states SET paused=false WHERE model_id='deepseek-flash'");
+ const supplier=(await pool.query("INSERT INTO supplier_lab_suppliers(name,kind,created_by) VALUES('Paid fixture','supplier','staff-owner') RETURNING id")).rows[0].id;
+ const cred=(await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by,priority) VALUES($1,'Paid key','https://kerapi.cn/v1',$2,'paid-unique','staff-owner',1) RETURNING id",[supplier,vault(process.env.SUPPLIER_LAB_SECRET).seal({key:'fake-paid-upstream'})])).rows[0].id;
+ await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES('Paid Flash','supplier','https://kerapi.cn/v1','deepseek-v4.1-flash','paid-unique','staff-owner',$1,$2)",[supplier,cred]);
+ await pool.query('SELECT ensure_customers()');const customer=(await pool.query('SELECT id FROM customers WHERE user_id=$1',[buyer.user.id])).rows[0].id;
+ const grant=async(percent,code=null)=>pool.query("INSERT INTO discount_grants(name,audience,customer_id,customer_price_percent,starts_at,ends_at,reason,status,created_by,promo_code) VALUES('pack-test','customer',$1,$2,now()-interval '1 hour',now()+interval '1 day','test','active','staff-owner',$3) RETURNING id",[customer,percent,code]);
+ await grant(40);const best=(await grant(30,'PACK30')).rows[0].id;
+ const post=(j,path,body={})=>j.call(path,{method:'POST',body});
+ assert.equal((await post(buyer.j,'/api/billing/quote',{face_fen:10000})).data.amount_fen,4000);
+ assert.equal((await post(buyer.j,'/api/billing/quote',{face_fen:10000,promo_code:'PACK30'})).data.amount_fen,3000);
+ assert.equal((await post(other.j,'/api/billing/quote',{face_fen:10000,promo_code:'PACK30'})).status,400,'code cannot bypass audience');
+ const before=await post(buyer.j,'/api/customer-credit/keys',{label:'before payment',models:['deepseek-flash'],limit_yuan:'10'});assert.equal(before.status,402);
+ const buy=await post(buyer.j,'/api/billing/personal/alipay-orders',{face_fen:10000,promo_code:'PACK30',expected_cash_fen:3000,idempotency_key:'paid-flow-order-001'});assert.equal(buy.status,201,JSON.stringify(buy.data));assert.equal(buy.data.order.amount_fen,'3000');assert.equal(buy.data.order.face_fen,'10000');
+ await pool.query("UPDATE discount_grants SET customer_price_percent=20 WHERE id=$1",[best]);
+ const replay=await post(buyer.j,'/api/billing/personal/alipay-orders',{face_fen:10000,promo_code:'PACK30',idempotency_key:'paid-flow-order-001'});assert.equal(replay.data.order.id,buy.data.order.id);assert.equal(replay.data.order.amount_fen,'3000','price is frozen');
+ const order=(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[buy.data.order.id])).rows[0];
+ const confirm={provider:'alipay_f2f',tradeNo:'fixture-paid-flow',totalFen:3000};
+ await Promise.all([creditPaidOrder(pool,order.out_trade_no,confirm,'test'),creditPaidOrder(pool,order.out_trade_no,confirm,'test')]);
+ const wallet=async()=>(await buyer.j.call('/api/billing/personal')).data;
+ assert.equal((await wallet()).list_credit_fen,'10000');assert.equal((await wallet()).cash_balance_fen,'3000');assert.equal((await wallet()).packs.length,1);
+ const made=await post(buyer.j,'/api/customer-credit/keys',{label:'my agent',models:['deepseek-flash'],limit_yuan:'100'});assert.equal(made.status,201,JSON.stringify(made.data));assert.match(made.data.secret,/^sf_paid_/);
+ assert.equal((await post(other.j,'/api/customer-credit/keys/'+made.data.key.id+'/revoke')).status,404);
+ const secret=made.data.secret,call=body=>buyer.j.call('/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+secret},body});
+ pilotFetch=async()=>Response.json({id:'fixture-upstream-id',choices:[{message:{content:'ok'}}],usage:{prompt_tokens:1000,completion_tokens:10,prompt_tokens_details:{cached_tokens:100}}},{headers:{'x-request-id':'paid-request-1'}});
+ const result=await call({model:'deepseek-flash',messages:[{role:'user',content:'hello'}],max_tokens:100});assert.equal(result.status,200,JSON.stringify(result.data));
+ const calls=(await buyer.j.call('/api/customer-credit/status')).data.calls;assert.equal(calls.length,1);assert.equal(calls[0].status,'settled');assert.equal(calls[0].input_tokens,'1000');
+ const paid=Number(calls[0].charged_yuan);assert.ok(paid>0);const previous=(await wallet()).list_credit_fen;
+ await settlePaidCall(pool,calls[0].id,'99',null,'test',null,null);assert.equal((await wallet()).list_credit_fen,previous,'settlement is idempotent');
+ assert.equal((await call({model:'glm-5.3',messages:[{role:'user',content:'no'}],max_tokens:10})).status,403);
+ // Stream uses exactly the same forwarding handler and price snapshot.
+ pilotFetch=async()=>new Response('data: '+JSON.stringify({choices:[{delta:{content:'hi'}}]})+'\n\ndata: '+JSON.stringify({choices:[],usage:{prompt_tokens:10,completion_tokens:1}})+'\n\ndata: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream','x-request-id':'paid-request-2'}});
+ assert.equal((await call({model:'deepseek-flash',stream:true,messages:[{role:'user',content:'hi'}],max_tokens:10})).status,200);
+ // Unexpected supplier usage cannot exceed even a small key's remaining lifetime cap.
+ const capped=await post(buyer.j,'/api/customer-credit/keys',{label:'small cap',models:['deepseek-flash'],limit_yuan:'1'});
+ const excess=(await pool.query("INSERT INTO customer_calls(account_id,key_id,owner_id,model_id,price_snapshot,status,hold_yuan) VALUES($1,$2,$3,'deepseek-flash','{}','pending',0.01) RETURNING id",[order.account_id,capped.data.key.id,buyer.user.id])).rows[0].id;
+ await settlePaidCall(pool,excess,'9',{input:1,output:1},'test',null,null);
+ const cappedCall=(await pool.query('SELECT actual_yuan,charged_yuan FROM customer_calls WHERE id=$1',[excess])).rows[0];assert.equal(Number(cappedCall.actual_yuan),9);assert.equal(Number(cappedCall.charged_yuan),1);
+ // Pending work blocks refunds. Reservations are also counted against the per-key cap.
+ const account=(await pool.query('SELECT * FROM billing_accounts WHERE id=$1',[order.account_id])).rows[0];
+ const reserved=(await pool.query("INSERT INTO customer_calls(account_id,key_id,owner_id,model_id,credential_id,price_snapshot,status,hold_yuan) VALUES($1,$2,$3,'deepseek-flash',$4,'{}','pending',99.999) RETURNING id",[account.id,made.data.key.id,buyer.user.id,cred])).rows[0].id;
+ const pack=(await wallet()).packs[0];assert.match((await refundQuote(pool,pack.id)).blocked,/调用/);
+ assert.equal((await call({model:'deepseek-flash',messages:[{role:'user',content:'hi'}],max_tokens:32768})).status,402);
+ await pool.query("UPDATE customer_calls SET status='failed' WHERE id=$1",[reserved]);
+ const q=await refundQuote(pool,pack.id);assert.equal(q.blocked,null);assert.ok(Number(q.net_fen)<2550&&Number(q.net_fen)>2500);
+ const asked=await post(buyer.j,'/api/customer-credit/packs/'+pack.id+'/refund-request',{reason:'测试退款'});assert.equal(asked.status,200);
+ assert.equal((await post(other.j,'/api/customer-credit/packs/'+pack.id+'/refund-request',{reason:'foreign'})).status,404);
+ seedAlipayTrade(order.out_trade_no,'30.00').status='TRADE_SUCCESS';
+ const refunded=await post(admin,`/api/staff/payments/orders/${order.id}/refunds`,{amount_fen:Number(q.net_fen),reason:'客户申请',idempotency_key:'paid-pack-refund-001'});assert.equal(refunded.data.status,'succeeded',JSON.stringify(refunded.data));
+ assert.equal((await wallet()).list_credit_fen,'0');assert.equal((await wallet()).cash_balance_fen,'0');
+ assert.equal((await call({model:'deepseek-flash',messages:[{role:'user',content:'hi'}],max_tokens:10})).status,402);
+ await post(buyer.j,'/api/customer-credit/keys/'+made.data.key.id+'/revoke');assert.equal((await call({model:'deepseek-flash',messages:[{role:'user',content:'hi'}],max_tokens:10})).status,401);
+ // Re-running migrations must not recreate refunded credit or restore spent amounts.
+ await migrate(pool,service.auth);assert.equal((await wallet()).list_credit_fen,'0');assert.equal((await wallet()).packs.length,1);
+ appCfg.customerPaid.enabled=false;pilotFetch=fetch;
+});
+
+
+test('payment rounding, actual channel cost isolation and audited admin waiver',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ const buyer=await user('rounding-buyer');appCfg.alipay.allowedEmails.add(buyer.email);
+ const order=(await buyer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{face_fen:500,idempotency_key:'rounding-order-key-001'}})).data.order;
+ const o=(await pool.query('SELECT out_trade_no,account_id FROM payment_orders WHERE id=$1',[order.id])).rows[0];seedAlipayTrade(o.out_trade_no,'5.00').status='TRADE_SUCCESS';
+ await buyer.j.call('/api/billing/alipay-orders/'+order.id);
+ const pack=(await pool.query('SELECT id FROM credit_packs WHERE source_id=$1',[order.id])).rows[0];
+ // Reproduce the real tiny-call remainder; no per-call penny rounding.
+ await pool.query('UPDATE credit_packs SET remaining_fen=499.9959 WHERE id=$1',[pack.id]);await pool.query('UPDATE billing_accounts SET list_credit_fen=499.9959 WHERE id=$1',[o.account_id]);
+ const wallet=async()=>(await buyer.j.call('/api/billing/personal')).data;
+ assert.equal((await wallet()).list_credit_fen,'500');assert.equal((await wallet()).list_credit_exact_fen,'499.9959000000');
+ const path='/api/staff/payments/orders/'+order.id;
+ const quote=(await admin.call(path+'/refund-quote')).data;assert.equal(quote.net_fen,'425');
+ const fee=body=>admin.call(path+'/channel-fee',{method:'POST',body});
+ assert.equal((await buyer.j.call(path+'/channel-fee',{method:'POST',body:{amount_fen:3,version:0,evidence:'test statement'}})).status,401);
+ assert.equal((await fee({amount_fen:3,version:0,evidence:'test statement row 1'})).status,200);
+ assert.equal((await fee({amount_fen:3,version:0,evidence:'duplicate'})).status,409);
+ assert.equal((await wallet()).cash_balance_fen,'500','channel fee never reduces customer money');
+ const month=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date());
+ const finance=(await admin.call('/api/staff/business/finance?month='+month)).data;
+ assert.ok(finance.current.accrual.channel_cost>=0.03);
+ const listing=(await admin.call('/api/staff/payments/orders')).data;
+ assert.equal(listing.customers.find(c=>c.email===buyer.email).transactions,1);
+ assert.equal(listing.customers.find(c=>c.email===buyer.email).received_fen,'500');
+ assert.equal((await admin.call(path+'/refund-quote?fee_percent=0')).data.net_fen,'500');
+ assert.equal((await admin.call(path+'/refund-quote?fee_percent=-1')).status,400);
+ assert.equal((await admin.call(path+'/refund-quote?fee_percent=5')).data.net_fen,'475');
+ identity={sub:'fee-finance-fixture',email:'fee-finance@example.test',name:'Finance',staff_approved:true};const financeStaff=jar();await staffLogin(financeStaff);
+ await admin.call('/api/staff/members/fee-finance-fixture',{method:'PATCH',body:{role:'operations',status:'active'}});
+ await admin.call('/api/staff/members/fee-finance-fixture/finance-access',{method:'PUT',body:{enabled:true}});await staffLogin(financeStaff);
+ assert.equal((await financeStaff.call(path+'/refund-quote')).status,200);
+ assert.equal((await financeStaff.call(path+'/refund-quote?fee_percent=0')).status,403);
+ assert.equal((await financeStaff.call(path+'/refunds',{method:'POST',body:{amount_fen:500,service_fee_percent:0,waiver_reason:'not authorised',reason:'test',idempotency_key:'not-authorised-waive'}})).status,403);
+
+ assert.equal((await admin.call(path+'/refunds',{method:'POST',body:{amount_fen:500,service_fee_percent:0,reason:'test',idempotency_key:'waiver-missing-reason'}})).status,400);
+ const body={amount_fen:500,service_fee_percent:0,waiver_reason:'acceptance goodwill',reason:'unused funds',idempotency_key:'waiver-rounding-000001'};
+ const result=await admin.call(path+'/refunds',{method:'POST',body});assert.equal(result.data.status,'succeeded',JSON.stringify(result.data));
+ assert.equal((await admin.call(path+'/refunds',{method:'POST',body})).data.refund_id,result.data.refund_id);
+ const record=(await pool.query('SELECT * FROM payment_refunds WHERE id=$1',[result.data.refund_id])).rows[0];assert.equal(record.service_fee_percent,0);assert.equal(record.standard_net_fen,'425');assert.equal(record.waiver_reason,'acceptance goodwill');assert.equal(record.waiver_approved_by,'staff-owner');assert.ok(record.waiver_approved_at);
+ assert.equal((await wallet()).cash_balance_fen,'0');assert.equal((await wallet()).list_credit_fen,'0');
+ assert.equal((await admin.call(path+'/refunds',{method:'POST',body:{...body,service_fee_percent:15,amount_fen:425}})).status,409,'idempotency key cannot change approved terms');
+ assert.equal((await fee({amount_fen:0,version:1,evidence:'statement correction: fee waived by channel'})).status,200);
+ assert.equal((await fee({amount_fen:3,version:1,evidence:'stale correction'})).status,409);
+ assert.equal((await fee({amount_fen:3,version:2,evidence:'corrected actual channel fee'})).status,200);
+
+ assert.equal((await pool.query('SELECT channel_fee_fen FROM payment_orders WHERE id=$1',[order.id])).rows[0].channel_fee_fen,'3','refund does not erase actual channel cost');
+});
+
+test('Alipay statement reconciliation is idempotent, preserves manual corrections and customer credit',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ const buyer=await user('bill-buyer');appCfg.alipay.allowedEmails.add(buyer.email);
+ const order=(await buyer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{face_fen:500,idempotency_key:'bill-order-key-001'}})).data.order;
+ let o=(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[order.id])).rows[0];seedAlipayTrade(o.out_trade_no,'5.00').status='TRADE_SUCCESS';await buyer.j.call('/api/billing/alipay-orders/'+order.id);
+ await pool.query("UPDATE payment_orders SET paid_at='2026-01-02 12:00:00+08' WHERE id=$1",[order.id]);
+ o=(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[order.id])).rows[0];
+ const actor={kind:'system',id:'bill-test'},entry={trade:o.provider_trade_no,order:o.out_trade_no,kind:'交易',amount:500,fee:-3,refund:''};
+ const read=async()=>(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[order.id])).rows[0];
+ const balance=async()=>(await pool.query('SELECT cash_balance_fen,list_credit_fen FROM billing_accounts WHERE id=$1',[o.account_id])).rows[0];const before=await balance();
+ const apply=async rows=>{const db=await pool.connect();try{await db.query('BEGIN');const r=await applyStatement(db,'2026-01-02',rows,'a'.repeat(64),actor);await db.query('COMMIT');return r;}catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}};
+ assert.equal((await apply([entry])).matched,1);assert.equal((await read()).channel_fee_fen,'3');let version=(await read()).channel_fee_version;
+ await apply([entry]);assert.equal((await read()).channel_fee_version,version);assert.deepEqual(await balance(),before);
+ assert.equal((await apply([{...entry,trade:'wrong'}])).exceptions,1);assert.equal((await read()).channel_fee_fen,'3');
+ assert.equal((await apply([{...entry,amount:501}])).exceptions,1);
+ for(const fee of [3,-501]){assert.equal((await apply([{...entry,fee}])).exceptions,1);assert.equal((await read()).channel_fee_fen,'3');}
+ assert.equal((await apply([{...entry,fee:0}])).exceptions,0);assert.equal((await read()).channel_fee_fen,'0');
+ assert.equal((await apply([entry,entry])).exceptions,1);
+ await apply([entry]);assert.equal((await read()).channel_fee_issue,null);
+
+ await pool.query("INSERT INTO payment_refunds(order_id,out_request_no,amount_fen,reason,status,requested_by,idempotency_key,completed_at) VALUES($1,'bill-refund-example',424,'fixture','succeeded','test','bill-refund-example',now())",[o.id]);
+ const refund={...entry,kind:'退款',amount:-424,fee:0,refund:'bill-refund-example'};
+ assert.equal((await apply([entry,refund])).exceptions,0);assert.equal((await read()).channel_fee_fen,'3');
+ assert.equal((await apply([entry,{...refund,fee:-1}])).exceptions,1);assert.match((await read()).channel_fee_issue,/退费/);assert.equal((await read()).channel_fee_fen,'3');
+ assert.equal((await apply([entry,refund])).exceptions,0);
+ version=(await read()).channel_fee_version;
+ const auditCount=async()=>Number((await pool.query("SELECT count(*) FROM audit_events WHERE action='billing.channel_fee.bill_reconciled' AND subject_id=$1",[o.id])).rows[0].count);
+ const audits=await auditCount();
+ await apply([entry,refund]);await apply([entry,refund]);
+ assert.equal((await read()).channel_fee_version,version);assert.equal(await auditCount(),audits);assert.deepEqual(await balance(),before);
+ const path='/api/staff/payments/orders/'+order.id+'/channel-fee';
+ assert.equal((await admin.call(path,{method:'POST',body:{amount_fen:2,version,evidence:'manual statement adjustment'}})).status,200);
+ assert.equal((await apply([entry])).exceptions,1);assert.equal((await read()).channel_fee_fen,'2');assert.equal((await read()).channel_fee_source,'manual');
+ assert.equal((await apply([])).exceptions,1);assert.match((await read()).channel_fee_issue,/缺少/);
+ assert.deepEqual(await balance(),before);
+ assert.equal((await buyer.j.call('/api/staff/payments/alipay-bills/sync',{method:'POST',body:{day:'2026-01-02'}})).status,401);
+ assert.equal((await admin.call('/api/staff/payments/alipay-bills/sync',{method:'POST',body:{day:'2999-01-01'}})).status,400);
+ const missing=await syncAlipayBill(pool,{billDownloadUrl:async()=>({code:'40004',sub_code:'BILL_NOT_EXIST'})},'2026-01-02');assert.equal(missing.status,'pending');assert.equal((await read()).channel_fee_fen,'2');
+ const unsafe=await syncAlipayBill(pool,{billDownloadUrl:async()=>({code:'10000',bill_download_url:'https://localhost/private'})},'2026-01-02');assert.equal(unsafe.error_code,'BILL_DOWNLOAD_HOST_REJECTED');assert.deepEqual(await balance(),before);
+ const view=(await admin.call('/api/staff/payments/orders')).data;assert.ok(view.bill_sync.enabled);assert.equal(view.bill_sync.days.find(d=>d.day==='2026-01-02').status,'pending');
+});
+
+test('WeChat statements reconcile receipt and cross-month refund fees exactly once without customer postings',async()=>{
+ const {applyWechatStatement,syncWechatBill}=await import('../src/wechat-bills.mjs');
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ const buyer=await user('wx-bill-buyer');appCfg.wechat.allowedEmails.add(buyer.email);
+ const order=(await buyer.j.call('/api/billing/personal/wechat-orders',{method:'POST',body:{amount_fen:500,idempotency_key:'wx-bill-order-0001'}})).data.order;
+ let o=(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[order.id])).rows[0];wxTrades.get(o.out_trade_no).state='SUCCESS';await buyer.j.call('/api/billing/payment-orders/'+order.id);
+ await pool.query("UPDATE payment_orders SET paid_at='2026-01-31 12:00:00+08' WHERE id=$1",[order.id]);
+ o=(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[order.id])).rows[0];
+ const entry={trade:o.provider_trade_no,order:o.out_trade_no,kind:'SUCCESS',type:'NATIVE',amount:500,fee:5,refund:'0'};
+ const read=async()=>(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[o.id])).rows[0];
+ const balance=async()=>(await pool.query('SELECT cash_balance_fen,list_credit_fen FROM billing_accounts WHERE id=$1',[o.account_id])).rows[0],before=await balance();
+ const ledgerBefore=(await pool.query('SELECT count(*) FROM billing_ledger')).rows[0].count;
+ const apply=async(day,entries)=>{const db=await pool.connect();try{await db.query('BEGIN');const r=await applyWechatStatement(db,day,entries,'a'.repeat(64),{kind:'system',id:'wx-bill-test'});await db.query('COMMIT');return r;}catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}};
+ assert.equal((await apply('2026-01-31',[entry])).exceptions,0);assert.equal((await read()).channel_fee_fen,'5');
+ for(const bad of [{...entry,fee:-3},{...entry,fee:501},{...entry,amount:499},{...entry,trade:'wrong'}]){assert.equal((await apply('2026-01-31',[bad])).exceptions,1);assert.equal((await read()).channel_fee_fen,'5');}
+ assert.equal((await apply('2026-01-31',[entry,entry])).exceptions,1);
+ await apply('2026-01-31',[entry]);assert.equal((await read()).channel_fee_issue,null);
+ await pool.query("INSERT INTO payment_refunds(order_id,out_request_no,amount_fen,reason,status,requested_by,idempotency_key,created_at,completed_at) VALUES($1,'wx-bill-refund',424,'fixture','succeeded','test','wx-bill-refund','2026-02-01 12:00+08','2026-02-02 12:00+08')",[o.id]);
+ const refund={...entry,kind:'REFUND',amount:424,fee:-4,refund:'wx-bill-refund',refundTrade:'wx-refund-id',refundStatus:'SUCCESS'};
+ assert.equal((await apply('2026-02-01',[refund])).exceptions,0);assert.equal((await read()).channel_fee_fen,'1');
+ const version=(await read()).channel_fee_version;
+ const audits=async()=>(await pool.query("SELECT count(*) FROM audit_events WHERE action='billing.channel_fee.wechat_bill_reconciled' AND subject_id=$1",[o.id])).rows[0].count;
+ const count=await audits();await apply('2026-02-01',[refund]);await apply('2026-01-31',[entry]);assert.equal((await read()).channel_fee_fen,'1');assert.equal((await read()).channel_fee_version,version);assert.equal(await audits(),count);
+ const costs=(await pool.query("SELECT to_char(cost_day,'YYYY-MM-DD') AS day,fee_fen FROM payment_channel_costs WHERE order_id=$1 ORDER BY cost_day",[o.id])).rows;assert.deepEqual(costs,[{day:'2026-01-31',fee_fen:'5'},{day:'2026-02-01',fee_fen:'-4'}]);
+ const feb=(await admin.call('/api/staff/business/finance?month=2026-02')).data;assert.equal(feb.current.accrual.channel_cost,-0.04);assert.equal(feb.current.cash.channel_cost,-0.04);
+ assert.equal((await apply('2026-02-01',[{...refund,fee:4}])).exceptions,1);
+ assert.equal((await apply('2026-02-01',[{...refund,refundStatus:'PROCESSING'}])).exceptions,1);
+ await apply('2026-02-01',[refund]);
+ assert.equal((await apply('2026-02-02',[refund])).exceptions,1,'same refund cannot count on two dates');
+ assert.equal((await buyer.j.call('/api/staff/payments/wechat-bills/sync',{method:'POST',body:{day:'2026-01-31'}})).status,401);
+ assert.equal((await admin.call('/api/staff/payments/wechat-bills/sync',{method:'POST',body:{day:'2999-01-01'}})).status,400);
+ assert.ok((await admin.call('/api/staff/payments/orders')).data.wechat_bill_sync.enabled);
+ assert.equal((await syncWechatBill(pool,{billDownloadUrl:async()=>({status:400,data:{code:'STATEMENT_CREATING'}})},'2026-02-01')).status,'pending');
+ assert.equal((await read()).channel_fee_fen,'1');
+ assert.equal((await admin.call('/api/staff/payments/orders/'+o.id+'/channel-fee',{method:'POST',body:{amount_fen:2,version,evidence:'manual net fee correction'}})).status,200);
+ assert.equal((await apply('2026-02-01',[refund])).exceptions,1);assert.equal((await read()).channel_fee_fen,'2');assert.equal((await read()).channel_fee_source,'manual');
+ assert.equal((await pool.query('SELECT count(*) FROM payment_channel_costs WHERE order_id=$1',[o.id])).rows[0].count,'1');
+ assert.deepEqual(await balance(),before);assert.equal((await pool.query('SELECT count(*) FROM billing_ledger')).rows[0].count,ledgerBefore);
+ const disabled=createApp(pool,{...appCfg,wechat:{...appCfg.wechat,enabled:false}});
+ const disabledServer=disabled.app.listen(0,'127.0.0.1');await new Promise(resolve=>disabledServer.once('listening',resolve));
+ const base='http://127.0.0.1:'+disabledServer.address().port;
+ try{
+  const v=await admin.call(base+'/api/staff/payments/orders');assert.equal(v.status,200);assert.ok(v.data.wechat_bill_sync.enabled);assert.ok(!v.data.channels.includes('wechat_native'));
+  const blocked=await buyer.j.call(base+'/api/billing/personal/wechat-orders',{method:'POST',body:{amount_fen:500,idempotency_key:'disabled-wx-must-not-pay'}});assert.equal(blocked.status,403);assert.match(blocked.data.error,/接入|开通|开放/);
+ }finally{await new Promise(resolve=>disabledServer.close(resolve));}
+
+});
+
+test('corporate transfer notices remain uncredited until independent review, isolated and duplicate-safe',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ identity={sub:'finance-a',email:'finance-a@example.test',name:'Finance A',staff_approved:true};const fa=jar();await staffLogin(fa);
+ const buyer=await user('bank-notice'),stranger=await user('bank-outsider'),org=await organization(buyer,'Notice Enterprise');
+ const path=`/api/billing/organizations/${org.id}`,today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(new Date()),post=(j,path,b)=>j.call(path,{method:'POST',body:b});
+ const claim={cash_yuan:'100.01',paid_on:today,payer_name:'Notice Enterprise',payer_reference:'PAYER-100',note:'contract 1',idempotency_key:'notice-000001'};
+ assert.equal((await post(stranger.j,path+'/bank-transfers',claim)).status,403);
+ for(const bad of [{...claim,paid_on:'2026-02-30'},{...claim,paid_on:'2999-01-01'},{...claim,cash_yuan:'0.001'},{...claim,payer_name:''}])assert.equal((await post(buyer.j,path+'/bank-transfers',bad)).status,400);
+ const first=await post(buyer.j,path+'/bank-transfers',claim);assert.equal(first.status,201,JSON.stringify(first.data));
+ assert.equal((await post(buyer.j,path+'/bank-transfers',claim)).data.id,first.data.id);
+ assert.equal((await post(buyer.j,path+'/bank-transfers',{...claim,cash_yuan:'100'})).status,409);
+ assert.equal((await post(buyer.j,path+'/bank-transfers',{...claim,idempotency_key:'notice-000002',payer_reference:'payer-100 '})).status,409);
+ let view=(await buyer.j.call(path)).data;assert.equal(view.cash_balance_fen,'0');assert.equal(view.bank_transfer.notices.length,1);assert.equal(view.bank_transfer.notices[0].status,'submitted');assert.equal(view.bank_transfer.notices[0].receiving_account.account_number,'0000000000000000');
+ assert.equal((await stranger.j.call(path)).status,403);assert.equal((await buyer.j.call('/api/staff/business/bank-transfers')).status,401);
+ const otherOrg=await organization(stranger,'Other Enterprise');assert.deepEqual((await stranger.j.call('/api/billing/organizations/'+otherOrg.id)).data.bank_transfer.notices,[]);
+ await pool.query('SELECT ensure_customers()');const customer=(await pool.query('SELECT id FROM customers WHERE organization_id=$1',[org.id])).rows[0];
+ const intake={customer_id:customer.id,notice_id:first.data.id,payer_name:claim.payer_name,cash_yuan:'100.01',received_on:today,reference:'BANK-UNIQUE-100',note:'confirmed actual bank receipt'};
+ const list=await admin.call('/api/staff/business/bank-transfers');assert.ok(list.data.notices.some(n=>n.id===first.data.id));assert.equal(list.data.receiving_account.account_number,'0000000000000000');
+ assert.equal((await post(fa,'/api/staff/business/bank-transfers',{...intake,reference:''})).status,400);
+ assert.equal((await post(fa,'/api/staff/business/bank-transfers',{...intake,cash_yuan:'99',note:''})).status,400);
+ const registration=await post(fa,'/api/staff/business/bank-transfers',intake);assert.equal(registration.status,201,JSON.stringify(registration.data));
+ const entry=registration.data.id;
+ assert.equal((await post(fa,`/api/staff/business/bank-transfers/${entry}/approve`,{})).status,403);
+ const direct={...intake,notice_id:undefined,reference:'bank- unique-100'};
+ assert.equal((await post(admin,'/api/staff/business/bank-transfers',direct)).status,409,'normalized receiving-bank reference is reserved');
+ view=(await buyer.j.call(path)).data;assert.equal(view.cash_balance_fen,'0');assert.equal(view.bank_transfer.notices[0].status,'registered');
+ assert.equal((await post(admin,`/api/staff/business/bank-transfer-notices/${first.data.id}/reject`,{note:'too late'})).status,409);
+ const approvals=await Promise.all([post(admin,`/api/staff/business/bank-transfers/${entry}/approve`,{note:'checked'}),post(admin,`/api/staff/business/bank-transfers/${entry}/approve`,{note:'checked'})]);assert.deepEqual(approvals.map(r=>r.status).sort(),[200,409]);
+ view=(await buyer.j.call(path)).data;assert.equal(view.cash_balance_fen,'10001');assert.equal(view.list_credit_fen,'10001');assert.equal(view.bank_transfer.notices[0].status,'approved');assert.equal(view.bank_transfer.notices[0].credited_cash_fen,'10001');
+ assert.equal((await pool.query("SELECT count(*) FROM billing_ledger WHERE reference_id=$1",[entry])).rows[0].count,'1');assert.equal((await pool.query("SELECT count(*) FROM credit_packs WHERE source_kind='bank' AND source_id=$1",[entry])).rows[0].count,'1');
+ const rejected=await post(buyer.j,path+'/bank-transfers',{...claim,idempotency_key:'notice-reject-1',payer_reference:'PAYER-REJECT'});
+ assert.equal((await post(admin,`/api/staff/business/bank-transfer-notices/${rejected.data.id}/reject`,{note:''})).status,400);
+ assert.equal((await post(admin,`/api/staff/business/bank-transfer-notices/${rejected.data.id}/reject`,{note:'请核对流水号'})).status,200);
+ view=(await buyer.j.call(path)).data;assert.equal(view.bank_transfer.notices.find(n=>n.id===rejected.data.id).review_note,'请核对流水号');assert.equal(view.cash_balance_fen,'10001');
+ assert.equal((await post(buyer.j,path+'/bank-transfers',{...claim,idempotency_key:'notice-reject-2',payer_reference:'PAYER-REJECT'})).status,201,'rejected notices may be corrected and submitted again');
+ const duplicateDirect={...intake,notice_id:undefined,reference:'CONCURRENT-REFERENCE'};
+ const regs=await Promise.all([post(admin,'/api/staff/business/bank-transfers',duplicateDirect),post(fa,'/api/staff/business/bank-transfers',duplicateDirect)]);assert.deepEqual(regs.map(r=>r.status).sort(),[201,409]);
+});
+
+test('only platform admins may self-review bank transfers, with durable role and audit evidence',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ identity={sub:'finance-a',email:'finance-a@example.test',name:'Finance A',staff_approved:true};const finance=jar();await staffLogin(finance);
+ const buyer=await user('bank-admin-review'),org=await organization(buyer,'Admin Review Enterprise');
+ const customers=(await admin.call('/api/staff/business/customers')).data.customers,c=customers.find(c=>c.organization_id===org.id);
+ const post=(j,path,body={})=>j.call(path,{method:'POST',body}),path='/api/staff/business/bank-transfers';
+ const payload={customer_id:c.id,payer_name:org.name,cash_yuan:'12.34',received_on:new Date(Date.now()+8*3600000).toISOString().slice(0,10),reference:'SELF-REVIEW-ADMIN',note:'银行已到账'};
+ assert.equal((await admin.call(path)).data.can_self_review,true);assert.equal((await finance.call(path)).data.can_self_review,false);
+ const reg=await post(admin,path,payload);assert.equal(reg.status,201,JSON.stringify(reg.data));
+ const row=async id=>(await pool.query('SELECT * FROM bank_transfer_entries WHERE id=$1',[id])).rows[0];
+ const initial=await row(reg.data.id);assert.equal(initial.status,'pending');assert.equal(initial.decided_by,null);
+ const outcomes=await Promise.all([post(admin,path+'/'+reg.data.id+'/approve',{note:'管理员核对银行回单'}),post(admin,path+'/'+reg.data.id+'/approve',{note:'管理员核对银行回单'})]);assert.deepEqual(outcomes.map(x=>x.status).sort(),[200,409]);
+ const approved=await row(reg.data.id);assert.equal(approved.created_by,'staff-owner');assert.equal(approved.decided_by,'staff-owner');assert.equal(approved.decision_role,'platform_admin');assert.ok(approved.created_at&&approved.decided_at);assert.equal(approved.decision_note,'管理员核对银行回单');
+ const events=(await pool.query('SELECT actor_id,action,detail,created_at FROM audit_events WHERE subject_id=$1 ORDER BY created_at',[reg.data.id])).rows;
+ assert.deepEqual(events.map(e=>e.action),['bank_transfer.registered','bank_transfer.approved']);assert.ok(events.every(e=>e.actor_id==='staff-owner'&&e.created_at));assert.equal(events[1].detail.self_review,true);assert.equal(events[1].detail.decision_role,'platform_admin');assert.equal(events[1].detail.note,approved.decision_note);
+ assert.equal((await pool.query('SELECT count(*)::int n FROM billing_ledger WHERE reference_id=$1',[reg.data.id])).rows[0].n,1);
+ assert.equal((await buyer.j.call('/api/billing/organizations/'+org.id)).data.cash_balance_fen,'1234');
+ const rejected=await post(admin,path,{...payload,reference:'SELF-REJECT-ADMIN'});assert.equal(rejected.status,201);
+ assert.equal((await post(admin,path+'/'+rejected.data.id+'/reject',{note:'回单登记有误'})).status,200);
+ assert.equal((await row(rejected.data.id)).decision_role,'platform_admin');
+ const rejAudit=(await pool.query("SELECT detail FROM audit_events WHERE subject_id=$1 AND action='bank_transfer.rejected'",[rejected.data.id])).rows[0];assert.equal(rejAudit.detail.self_review,true);assert.equal(rejAudit.detail.note,'回单登记有误');
+ const ordinary=await post(finance,path,{...payload,reference:'SELF-REVIEW-FINANCE'});assert.equal(ordinary.status,201);
+ for(const action of ['approve','reject'])assert.equal((await post(finance,path+'/'+ordinary.data.id+'/'+action,{note:'伪造管理员字段',decision_role:'platform_admin',can_self_review:true})).status,403);
+ assert.equal((await row(ordinary.data.id)).status,'pending');
+ await assert.rejects(pool.query("UPDATE bank_transfer_entries SET status='approved',decided_by=created_by,decided_at=now(),decision_role='operations' WHERE id=$1",[ordinary.data.id]),e=>e.code==='23514','database still enforces ordinary finance separation');
+ assert.equal((await post(admin,path+'/'+ordinary.data.id+'/approve',{note:'独立复核'})).status,200);
+ const audit=(await pool.query("SELECT detail FROM audit_events WHERE subject_id=$1 AND action='bank_transfer.approved'",[ordinary.data.id])).rows[0];assert.equal(audit.detail.self_review,false);
+ assert.equal((await buyer.j.call('/api/billing/organizations/'+org.id)).data.cash_balance_fen,'2468');
+});
+
+test('finance reports use one read-only snapshot and restore JIT after success or failure',async()=>{
+ const {financeReport,accountingMonth}=await import('../src/business-console.mjs');
+ const month=accountingMonth(),baseline=await financeReport(pool,month),q=await pool.connect();
+ const originalJit=(await q.query('SHOW jit')).rows[0].jit;
+ const account=(await pool.query('SELECT id FROM billing_accounts ORDER BY id LIMIT 1')).rows[0].id;
+ let changed=false,checked=false,ledgerId;
+ const connection={query:async(sql,args)=>{
+  if(sql.startsWith('WITH ')){
+   assert.equal((await q.query('SHOW jit')).rows[0].jit,'off');
+   assert.equal((await q.query('SHOW transaction_read_only')).rows[0].transaction_read_only,'on');
+   checked=true;
+  }
+  if(sql.startsWith('WITH b AS')&&!changed){
+   // A concurrent committed balance change must not leak into this report halfway through.
+   await pool.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen+1 WHERE id=$1',[account]);changed=true;
+   ledgerId=(await pool.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'recharge',1,1,'payment','snapshot-fixture') RETURNING id",[account])).rows[0].id;
+  }
+  return q.query(sql,args);
+ },release(){}};
+ try{
+  await q.query('SET jit=on');
+  const result=await financeReport({connect:async()=>connection},month);
+  assert.ok(checked);assert.equal(result.current.balances.customer_cash,baseline.current.balances.customer_cash);
+  assert.deepEqual(result.current.cash,baseline.current.cash);assert.deepEqual(result.series,baseline.series);
+  assert.equal((await q.query('SHOW jit')).rows[0].jit,'on');
+  const fresh=await financeReport(pool,month);assert.ok(Math.abs(fresh.series.find(r=>r.month===month).received-baseline.series.find(r=>r.month===month).received-0.01)<1e-8);assert.ok(Math.abs(fresh.current.balances.customer_cash-baseline.current.balances.customer_cash-0.01)<1e-8);
+  await assert.rejects(financeReport({connect:async()=>connection},'invalid-month'));
+  assert.equal((await q.query('SHOW jit')).rows[0].jit,'on');
+  assert.equal((await q.query('SHOW transaction_read_only')).rows[0].transaction_read_only,'off');
+ }finally{
+  // Keep the synthetic recharge: the ledger is append-only, even in tests.
+  await q.query(originalJit==='on'?'SET jit=on':'SET jit=off');q.release();
+ }
+});
+
+test('finance amount projection preserves decimals and follows every evidence correction atomically',async()=>{
+ const credential=(await pool.query('SELECT id FROM supplier_lab_credentials ORDER BY id LIMIT 1')).rows[0].id;
+ const sync=(await pool.query("INSERT INTO supplier_usage_syncs(credential_id,record_count,response_sha256,created_by) VALUES($1,1,'projection-fixture','test') RETURNING id",[credential])).rows[0].id;
+ const cases=[['0','0'],['0.01','0.01'],['0.000000000001','0.000000000001'],['12345678901234567890.123456789012','12345678901234567890.123456789012'],['001.2300','1.2300'],[null,'0'],['','0'],['-1','0'],['1e-3','0'],['bad','0']];
+ for(const [i,[amount,expected]] of cases.entries()){
+  const r=await pool.query("INSERT INTO supplier_usage_records(credential_id,request_id,model_id,occurred_at,evidence,sync_id) VALUES($1,$2,'projection-test','2001-02-01T00:00:00Z',$3,$4) RETURNING finance_amount_yuan::text AS amount",[credential,'projection-fixture-'+i,{amount},sync]);
+  assert.equal(r.rows[0].amount,expected);
+ }
+ const mismatch=await pool.query(String.raw`SELECT count(*)::int n FROM supplier_usage_records WHERE finance_amount_yuan IS DISTINCT FROM CASE WHEN evidence->>'amount' ~ '^[0-9]+(\.[0-9]+)?$' THEN (evidence->>'amount')::numeric ELSE 0 END`);
+ assert.equal(mismatch.rows[0].n,0,'all fixture amounts equal the old finance expression');
+ const q=await pool.connect();
+ try{
+  await q.query('BEGIN');
+  await q.query("UPDATE supplier_usage_records SET evidence=$1 WHERE credential_id=$2 AND request_id='projection-fixture-1'",[{amount:'0.02'},credential]);
+  assert.equal((await q.query("SELECT finance_amount_yuan::text AS amount FROM supplier_usage_records WHERE credential_id=$1 AND request_id='projection-fixture-1'",[credential])).rows[0].amount,'0.02');
+  await q.query('ROLLBACK');
+  assert.equal((await q.query("SELECT finance_amount_yuan::text AS amount FROM supplier_usage_records WHERE credential_id=$1 AND request_id='projection-fixture-1'",[credential])).rows[0].amount,'0.01');
+  await q.query("UPDATE supplier_usage_records SET evidence=$1 WHERE credential_id=$2 AND request_id='projection-fixture-1'",[{amount:'0.03'},credential]);
+  assert.equal((await q.query("SELECT finance_amount_yuan::text AS amount FROM supplier_usage_records WHERE credential_id=$1 AND request_id='projection-fixture-1'",[credential])).rows[0].amount,'0.03');
+  await assert.rejects(q.query("UPDATE supplier_usage_records SET finance_amount_yuan=99 WHERE credential_id=$1 AND request_id='projection-fixture-1'",[credential]),e=>e.code==='428C9');
+ }finally{q.release();}
+});
+
+test('shared finance matching preserves duplicate bills, cross-month matches and customer totals',async()=>{
+ const {financeReport}=await import('../src/business-console.mjs');
+ const key=(await pool.query('SELECT key_id,owner_id,credential_id FROM employee_calls ORDER BY created_at LIMIT 1')).rows[0];
+ const other=(await pool.query('SELECT id FROM supplier_lab_credentials WHERE id<>$1 ORDER BY id LIMIT 1',[key.credential_id])).rows[0].id;
+ const sync=(await pool.query("INSERT INTO supplier_usage_syncs(credential_id,record_count,response_sha256,created_by) VALUES($1,4,'group-fixture','test') RETURNING id",[key.credential_id])).rows[0].id;
+ await pool.query('SELECT ensure_customers()');
+ for(const [rid,amount,credential,occurred,updated] of [
+  ['group-billed','0.01',key.credential_id,'2002-03-31T15:00:00Z','2002-04-01T00:00:00Z'],
+  ['group-billed','0.02',other,'2002-03-31T16:30:00Z','2002-04-02T00:00:00Z'],
+  ['group-open','0.04',key.credential_id,'2002-03-31T15:00:00Z','2002-04-01T00:00:00Z'],
+  ['group-other','0.05',key.credential_id,'2002-03-31T15:00:00Z','2002-04-01T00:00:00Z']
+ ])await pool.query("INSERT INTO supplier_usage_records(credential_id,request_id,model_id,occurred_at,evidence,sync_id,updated_at) VALUES($1,$2,'group-model',$3,$4,$5,$6)",[credential,rid,occurred,{amount},sync,updated]);
+ for(const [rid,status,actual,charged] of [['group-billed','settled','0.99','0.1'],['group-missing','settled','0.03','0.2'],['group-open','awaiting_bill',null,null]])
+  await pool.query("INSERT INTO employee_calls(key_id,owner_id,credential_id,model_id,status,hold_yuan,actual_yuan,charged_yuan,upstream_request_id,input_tokens,output_tokens,created_at,settled_at) VALUES($1,$2,$3,'group-model',$4,1,$5,$6,$7,1,2,'2002-03-31T15:30:00Z',CASE WHEN $4='settled' THEN '2002-04-01T00:00:00Z'::timestamptz ELSE NULL END)",[key.key_id,key.owner_id,key.credential_id,status,actual,charged,rid]);
+ const d=(await financeReport(pool,'2002-03')).current;
+ assert.equal(d.accrual.calls,3);assert.equal(d.accrual.credit_list,0.3);assert.equal(d.accrual.sales_cost,0.05);assert.equal(d.accrual.other_cost,0.05);assert.equal(d.accrual.upstream_cost,0.1);assert.equal(d.accrual.estimated_cost,0.03);assert.equal(d.accrual.unmatched_calls,1);
+ assert.equal(d.by_product.length,1);assert.equal(d.by_product[0].tokens,'9');assert.equal(Number(d.by_product[0].cost),0.05);
+ assert.equal(d.by_customer.length,1);assert.equal(d.by_customer[0].calls,3);assert.equal(Number(d.by_customer[0].list_yuan),0.3);assert.equal(Number(d.by_customer[0].cost),0.05);
+ const before=(await pool.query('SELECT request_id,credential_id,finance_amount_yuan::text AS amount FROM supplier_usage_records ORDER BY request_id,credential_id')).rows;
+ // Exercise migration backfill against existing evidence, not only fresh inserts.
+ await pool.query('ALTER TABLE supplier_usage_records DROP COLUMN finance_amount_yuan');
+ const migration=await readFile(new URL('../migrations/068_finance_usage_amount.sql',import.meta.url),'utf8');await pool.query(migration);await pool.query(migration);
+ const after=(await pool.query('SELECT request_id,credential_id,finance_amount_yuan::text AS amount FROM supplier_usage_records ORDER BY request_id,credential_id')).rows;assert.deepEqual(after,before);
+});
+
+test('customer usage preaggregation matches direct call counts for personal and enterprise customers',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ const response=await admin.call('/api/staff/business/customers');assert.equal(response.status,200);
+ for(const c of response.data.customers){
+  const expected=(await pool.query("SELECT count(*)::int AS calls,max(e.created_at) AS latest FROM employee_calls e WHERE e.created_at>=now()-interval '30 days' AND (e.owner_id=$1 OR e.owner_id IN (SELECT a.user_id FROM employee_credit_accounts a WHERE a.organization_id=$2))",[c.user_id,c.organization_id])).rows[0];
+  assert.equal(c.calls_30d,expected.calls,c.code);assert.equal(c.last_call_at,expected.latest?.toISOString()??null,c.code);
+ }
 });

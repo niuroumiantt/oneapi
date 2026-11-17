@@ -1,3 +1,4 @@
+import {costSafeFetch} from './output-guard.mjs';
 // Step load test against one upstream model: concurrency climbs step by step (1, 2, 4, 8 …) with streaming requests,
 // recording time to first token, total time, output speed and errors. It stops early when a step fails too often,
 // when spending reaches the budget, or when staff press stop. The result is a stable concurrency figure,
@@ -77,6 +78,7 @@ export function summarizeSteps(test, samples) {
 }
 
 export function stressRoutes(app, pool, cfg, requireStaff, fetchImpl = fetch) {
+ fetchImpl=costSafeFetch(pool,fetchImpl);
  const secret = process.env.SUPPLIER_LAB_SECRET, box = secret?.length >= 32 ? vault(secret) : null;
  let active = null;
  const endpointSql = `SELECT e.id,e.label,e.model_id,e.base_url,e.input_yuan_per_m,e.cached_input_yuan_per_m,e.output_yuan_per_m,c.label AS credential_label,c.credential_ciphertext,s.name AS supplier_name

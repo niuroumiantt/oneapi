@@ -15,7 +15,7 @@ const NAV = [
 const PAGES = Object.fromEntries(NAV.flatMap(([, items, gate]) => items.map(([key, label]) => [key, { label, gate }])));
 const SUBTITLES = {
  overview: '收入、成本、利润和今天要处理的事。', pnl: '按月看收入、成本和毛利，按产品、客户、上游拆开。', payments: '客户付款订单与原路退款。',
- transfers: '对公转账：财务登记实付与官价面额，另一人复核后入账。',
+ transfers: '对公转账：财务登记实付与官价面额，复核后入账。',
  invoices: '开给客户的销项发票，和上游开给我们的进项发票。', payables: '付给上游的充值和结算款，对照收到的发票。',
  suppliers: '上游档案、编码、联系人和采购成本。', customers: '下游客户档案、编码、分群和跟进记录。', upgrades: '个人账号升级为企业账号的审核。',
  products: '在售产品的价格、用量和上架流程。', discounts: '促销活动，以及对客户、分群授予的折扣。', tickets: '一线支持：回复、分类、转技术。', answers: '标准问答，回复工单时一键引用。'
@@ -54,19 +54,19 @@ const when = v => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '
 const dayOf = v => v ? new Date(v).toLocaleDateString('zh-CN') : '—';
 // A grant's end is stored as the instant after its last day; show the last day itself.
 const lastDay = v => v ? dayOf(new Date(v).getTime() - 1) : '—';
-const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+const today = () => new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
 const discountText = p => `${p}%（${p / 10} 折）`;
 
-let state = null, loadError = '';
+let state = null, loadError = '', generation = 0, drawing = 0;
 const cache = {}, ui = { month: '', customers: { q: '', kind: '', stage: '', tag: '' }, tickets: { status: 'open', tier: '', category: '' }, invoices: 'output' };
 
 async function api(path, body) {
- const r = await fetch('/api/staff/' + path, { credentials: 'same-origin', ...(body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
+ const r = await fetch('/api/staff/' + path, { credentials: 'same-origin', ...(!body ? { signal: AbortSignal.timeout(45000) } : {}), ...(body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
  const d = await r.json().catch(() => ({}));
- if (!r.ok) throw Error(d.error || '读取失败');
+ if (!r.ok) throw Error(d.error || `读取失败（${r.status}）`);
  return d;
 }
-const get = path => cache[path] ? Promise.resolve(cache[path]) : api(path).then(d => (cache[path] = d));
+const get = path => { const started = generation; return cache[path] ? Promise.resolve(cache[path]) : api(path).then(d => { if (started === generation) cache[path] = d; return d; }); };
 function notify(text, ok = false) { const n = $('#notice'); n.textContent = text || ''; n.classList.toggle('ok', ok); }
 const currentPage = () => { let page = ALIASES[location.hash.slice(1)] || location.hash.slice(1) || 'overview'; return PAGES[page] ? page : 'overview'; };
 const options = (map, selected, blank) => (blank === undefined ? '' : `<option value="">${blank}</option>`) + Object.entries(map).map(([k, v]) => `<option value="${att(k)}" ${k === selected ? 'selected' : ''}>${esc(v)}</option>`).join('');
@@ -80,10 +80,12 @@ function openForm({ title, body, submit = '保存', wide = false, onSubmit }) {
  const dialog = $('#dialog'), form = $('#dialogForm');
  dialog.classList.toggle('wide', wide);
  form.innerHTML = `<h2>${title}</h2>${body}<div class="form-error" role="alert"></div><div class="actions"><button type="button" data-close>${onSubmit ? '取消' : '关闭'}</button>${onSubmit ? `<button class="primary" type="submit">${submit}</button>` : ''}</div>`;
+ form.oninput = () => { form.querySelector('.form-error').textContent = ''; };
  form.onsubmit = async e => {
   e.preventDefault();
   if (!onSubmit) return;
   const button = form.querySelector('[type=submit]');
+  form.querySelector('.form-error').textContent = '';
   button.disabled = true;
   try { const done = await onSubmit(Object.fromEntries(new FormData(form))); dialog.close(); await reload(); if (done) notify(done, true); }
   catch (err) { form.querySelector('.form-error').textContent = err.message; }
@@ -138,7 +140,7 @@ pages.overview = () => {
  let html = '';
  if (f) {
   const a = f.current.accrual, k = f.current.cash;
-  html += `<div class="metrics">${metric('本月已确认收入', yuan(a.revenue), '客户现金实际扣费')}${metric('本月上游成本', yuan(a.upstream_cost), `其中销售 ${yuan(a.sales_cost)}，测试与系统 ${yuan(a.other_cost)}`)}${metric('本月毛利', yuan(a.gross_profit), '已确认收入 − 上游成本', a.gross_profit < 0)}${metric('本月净现金流', yuan(k.net), `收款 ${yuan(k.received)} − 退款 ${yuan(k.refunded)} − 付上游 ${yuan(k.supplier_paid)}`, k.net < 0)}</div>`;
+  html += `<div class="metrics">${metric('本月已确认收入', yuan(a.revenue), '客户现金实际扣费')}${metric('本月上游成本', yuan(a.upstream_cost), `其中销售 ${yuan(a.sales_cost)}，测试与系统 ${yuan(a.other_cost)}`)}${metric('本月毛利', yuan(a.gross_profit), '已确认收入 − 上游成本', a.gross_profit < 0)}${metric('本月净现金流', yuan(k.net), `收款 ${yuan(k.received)} − 退款 ${yuan(k.refunded)} − 付上游 ${yuan(k.supplier_paid)} − 渠道费 ${yuan(k.channel_cost)}`, k.net < 0)}</div>`;
   if (!a.revenue && a.credit_list) html += `<div class="callout">本月还没有现金收入：客户调用目前只扣公司发放的内部额度（按标价 ${yuan(a.credit_list)}），不计入收入。按标价计算的毛利率为 ${pct(a.list_margin)}。</div>`;
  }
  html += section('今天要处理', `<div class="todo">${todo('upgrades', c.upgrades, '待审企业认证')}${todo('tickets', c.tickets, '未关闭工单')}${todo('invoices', c.invoices_requested, '待开票申请')}${todo('transfers', c.bank_transfers_pending, '对公待复核')}${todo('payments', c.refunds_pending, '退款待确认')}${todo('discounts', c.discounts_pending, '待审批折扣')}${todo('products', c.models_paused, '已暂停的产品')}</div>`);
@@ -153,31 +155,43 @@ pages.pnl = d => {
  const line = (label, value, cls = '') => `<tr class="${cls}"><td>${label}</td><td>${value}</td></tr>`;
  const margin = (list, cost) => Number(list) > 0 ? pct((Number(list) - Number(cost)) / Number(list)) : '—';
  let html = `<div class="filters"><label class="check">会计月份 <select id="pnlMonth">${options(months, c.month)}</select></label><small>按北京时间自然月统计。</small></div>`;
- html += `<div class="cols" style="margin-top:14px"><div class="panel"><table class="statement" data-nosort><thead><tr><th colspan="2">消耗口径：赚了多少</th></tr></thead><tbody>${line('已确认收入（客户现金扣费）', yuan(a.revenue))}${line('上游成本', yuan(a.upstream_cost))}${line('销售成本（客户调用花掉的上游费用）', yuan(a.sales_cost), 'sub')}${line('测试、验收与系统调用（没有对应客户调用的上游账单）', yuan(a.other_cost), 'sub')}${line('毛利', `<span class="${a.gross_profit < 0 ? 'bad' : ''}">${yuan(a.gross_profit)}</span>`, 'total')}${line('内部额度消耗（按标价，不计收入）', yuan(a.credit_list), 'memo')}${line('按标价计算的毛利率', pct(a.list_margin), 'memo')}</tbody></table></div>`;
- html += `<div class="panel"><table class="statement" data-nosort><thead><tr><th colspan="2">现金口径：钱进钱出</th></tr></thead><tbody>${line('客户充值收款', yuan(k.received))}${line('退款', '-' + yuan(k.refunded))}${line('付给上游', '-' + yuan(k.supplier_paid))}${line('净现金流', `<span class="${k.net < 0 ? 'bad' : ''}">${yuan(k.net)}</span>`, 'total')}${line('本月已开销项发票', yuan(k.invoiced), 'memo')}${line('客户预存余额（尚未消费，属于负债）', yuan(b.customer_cash), 'memo')}${line('已发放未使用的内部额度', yuan(b.credit_unused), 'memo')}</tbody></table></div></div>`;
+ html += `<div class="cols" style="margin-top:14px"><div class="panel"><table class="statement" data-nosort><thead><tr><th colspan="2">消耗口径：赚了多少</th></tr></thead><tbody>${line('已确认收入（客户现金扣费）', yuan(a.revenue))}${line('上游成本', yuan(a.upstream_cost))}${line('销售成本（客户调用花掉的上游费用）', yuan(a.sales_cost), 'sub')}${line('测试、验收与系统调用（没有对应客户调用的上游账单）', yuan(a.other_cost), 'sub')}${line('毛利', `<span class="${a.gross_profit < 0 ? 'bad' : ''}">${yuan(a.gross_profit)}</span>`, 'total')}${line('支付渠道费用（已核对）',yuan(a.channel_cost))}${line('扣除渠道费后经营收益',yuan(a.operating_profit),'total')}${line('内部额度消耗（按标价，不计收入）', yuan(a.credit_list), 'memo')}${line('按标价计算的毛利率', pct(a.list_margin), 'memo')}</tbody></table></div>`;
+ html += `<div class="panel"><table class="statement" data-nosort><thead><tr><th colspan="2">现金口径：钱进钱出</th></tr></thead><tbody>${line('客户充值收款', yuan(k.received))}${line('退款', '-' + yuan(k.refunded))}${line('付给上游', '-' + yuan(k.supplier_paid))}${line('支付渠道费用', '-' + yuan(k.channel_cost))}${line('净现金流', `<span class="${k.net < 0 ? 'bad' : ''}">${yuan(k.net)}</span>`, 'total')}${line('本月已开销项发票', yuan(k.invoiced), 'memo')}${line('客户预存余额（尚未消费，属于负债）', yuan(b.customer_cash), 'memo')}${line('已发放未使用的内部额度', yuan(b.credit_unused), 'memo')}</tbody></table></div></div>`;
+ if(a.channel_unreconciled)html+=`<div class="callout">本月 ${a.channel_unreconciled} 笔支付渠道费用待核对，尚未计入成本；请在收款与退款中登记，经营收益与净现金流暂未完整。</div>`;
  if (a.unmatched_calls) html += `<div class="callout">${a.unmatched_calls} 笔调用没有对应的上游逐笔账单（上游不回传，或账单还没同步），成本按标价估算，共 ${yuan(a.estimated_cost)}。这部分按标价算的毛利为 0。</div>`;
- html += section('近 12 个月', `<div class="panel pad">${monthChart(d.series)}</div>` + table(['月份', ['已确认收入'], ['上游成本'], ['毛利'], ['内部额度消耗'], ['收款'], ['退款'], ['付上游']], [...d.series].reverse().map(m => `<tr><td>${esc(m.month)}</td>${num(yuan(m.revenue), m.revenue)}${num(yuan(m.upstream_cost), m.upstream_cost)}${num(yuan(m.revenue - m.upstream_cost), m.revenue - m.upstream_cost)}${num(yuan(m.credit_list), m.credit_list)}${num(yuan(m.received), m.received)}${num(yuan(m.refunded), m.refunded)}${num(yuan(m.supplier_paid), m.supplier_paid)}</tr>`).join('')));
+ html += section('近 12 个月', `<div class="panel pad">${monthChart(d.series)}</div>` + table(['月份', ['已确认收入'], ['上游成本'], ['毛利'], ['内部额度消耗'], ['收款'], ['退款'], ['付上游'],['渠道费'],['扣渠道费后收益']], [...d.series].reverse().map(m => `<tr><td>${esc(m.month)}</td>${num(yuan(m.revenue), m.revenue)}${num(yuan(m.upstream_cost), m.upstream_cost)}${num(yuan(m.revenue - m.upstream_cost), m.revenue - m.upstream_cost)}${num(yuan(m.credit_list), m.credit_list)}${num(yuan(m.received), m.received)}${num(yuan(m.refunded), m.refunded)}${num(yuan(m.supplier_paid), m.supplier_paid)}${num(yuan(m.channel_cost),m.channel_cost)}${num(yuan(m.revenue-m.upstream_cost-m.channel_cost))}</tr>`).join('')));
  html += section('按产品', table(['产品', ['调用'], ['失败'], ['Token'], ['消耗（标价）'], ['上游成本'], ['标价毛利率']], c.by_product.map(p => `<tr><td><b>${esc(p.name)}</b><small>${esc(p.model_id)}</small></td>${num(p.calls)}${num(p.failed)}${num(Number(p.tokens).toLocaleString('zh-CN'), p.tokens)}${num(yuan(p.list_yuan), p.list_yuan)}${num(yuan(p.cost), p.cost)}${num(margin(p.list_yuan, p.cost))}</tr>`).join(''), '这个月还没有调用。'));
  html += section('按客户', table(['编码', '客户', ['调用'], ['消耗（标价）'], ['上游成本'], ['标价毛利率']], c.by_customer.map(r => `<tr class="clickable" data-customer="${att(r.id)}"><td><code>${esc(r.code)}</code></td><td><b>${esc(r.name)}</b><small>${LABEL.kind[r.kind]}</small></td>${num(r.calls)}${num(yuan(r.list_yuan), r.list_yuan)}${num(yuan(r.cost), r.cost)}${num(margin(r.list_yuan, r.cost))}</tr>`).join(''), '这个月还没有客户调用。'));
  html += section('按上游', table(['编码', '供应商', ['上游账单请求数'], ['上游成本'], ['本月已付']], c.by_supplier.map(s => `<tr><td><code>${esc(s.code)}</code></td><td><b>${esc(s.display_name)}</b></td>${num(s.requests)}${num(yuan(s.cost), s.cost)}${num(yuan(s.paid), s.paid)}</tr>`).join(''), '还没有供应商档案。'), '', '成本来自上游账单的逐笔记录；已付来自“上游付款”登记。');
  return html;
 };
 
+function billSyncView(d,channel='alipay',name='支付宝'){
+ if(!d?.enabled)return '';
+ const label={matched:'已核对',review:'有差异待核对',pending:'待重试'};
+ const last=d.days?.[0];
+ return `<div class="callout"><button data-act="${channel}-bill-sync" data-day="${att(d.yesterday)}">同步${name}账单</button> 次日上午自动核对，渠道费只计入公司成本。${last?`<small>账单 ${esc(last.day)} · ${label[last.status]||esc(last.status)} · ${last.matched} 笔匹配 / ${last.exceptions} 笔待核对 · ${when(last.checked_at)}${last.error_code?' · '+esc(last.error_code):''}</small>`:'<small>等待首份交易账单；未取得账单不视为零费用。</small>'}${d.days?.length?`<details><summary>最近账单与差异</summary>${d.days.map(x=>`<small>${esc(x.day)} · ${label[x.status]||esc(x.status)} · ${x.matched} 笔匹配 / ${x.exceptions} 笔待核对${x.ignored?' · '+x.ignored+' 笔非本站交易未入账':''}${x.error_code?' · '+esc(x.error_code):''}</small>`).join('')}</details>`:''}</div>`;
+}
 pages.payments = p => {
  const rows = p.orders.map(o => {
+  const request=p.requests?.find(r=>r.order_id===o.id);o.refund_request=request;
   const left = Number(o.amount_fen) - Number(o.refunded_fen), pending = o.refunds.find(r => r.status === 'pending'), find = [o.out_trade_no, o.provider_trade_no, o.account_name, o.owner_email, o.payer_email].join(' ').toLowerCase();
-  return `<tr data-find="${att(find)}"><td><b>${esc(o.out_trade_no)}</b><small>${when(o.paid_at || o.created_at)}${' · ' + esc(LABEL.channel[o.provider] || o.provider)}${o.provider_trade_no ? ' ' + esc(o.provider_trade_no) : ''}</small></td><td>${esc(o.account_name)}<small>${o.account_kind === 'organization' ? '企业' : '个人'} · 付款人 ${esc(o.payer_email)} · 实付余额 ${fen(o.account_balance_fen)} · 官价额度 ${fen(o.list_credit_fen)}</small></td>${num(fen(o.amount_fen) + (Number(o.refunded_fen) ? `<small>已退 ${fen(o.refunded_fen)}</small>` : ''), o.amount_fen)}<td>${pill('order', o.status)}${o.refunds.map(r => `<small>退款 ${fen(r.amount_fen)} · ${esc(LABEL.refund[r.status])} · ${esc(r.reason)}${r.status !== 'succeeded' && r.error_code ? ' · ' + esc(r.error_code) : ''}</small>`).join('')}</td><td>${pending ? `<button data-act="refund-retry" data-id="${att(pending.id)}">确认退款结果</button>` : o.status === 'paid' && left > 0 && p.channels?.includes(o.provider) ? `<button data-act="refund" data-id="${att(o.id)}" data-channel="${att(LABEL.channel[o.provider] || '')}" data-left="${left}" data-balance="${att(o.account_balance_fen)}">原路退款</button>` : '—'}</td></tr>`;
+  return `<tr data-find="${att(find)}"><td><b>${esc(o.out_trade_no)}</b><small>${when(o.paid_at || o.created_at)}${' · ' + esc(LABEL.channel[o.provider] || o.provider)}${o.provider_trade_no ? ' ' + esc(o.provider_trade_no) : ''}</small></td><td>${esc(o.account_name)}${request?`<small>客户申请退款：${esc(request.reason)}</small>`:''}<small>${o.account_kind === 'organization' ? '企业' : '个人'} · 付款人 ${esc(o.payer_email)} · 实付余额 ${fen(o.account_balance_fen)} · 官价额度 ${fen(o.list_credit_fen)}</small></td>${num(fen(o.amount_fen) + (Number(o.refunded_fen) ? `<small>已退 ${fen(o.refunded_fen)}</small>` : ''), o.amount_fen)}<td>${pill('order', o.status)}${o.refunds.map(r => `<small>退款 ${fen(r.amount_fen)} · ${esc(LABEL.refund[r.status])} · ${esc(r.reason)}${r.waiver_reason?` · 特批服务费 ${r.service_fee_percent}%（减免 ${fen(r.waived_fen)}） · ${esc(r.waiver_reason)} · 审批人 ${esc(r.waiver_approved_by)} · ${when(r.waiver_approved_at)}`:''}${r.status !== 'succeeded' && r.error_code ? ' · ' + esc(r.error_code) : ''}</small>`).join('')}</td><td>${pending ? `<button data-act="refund-retry" data-id="${att(pending.id)}">确认退款结果</button>` : o.status === 'paid' && o.refundable && left > 0 && p.channels?.includes(o.provider) ? `<button data-act="refund" data-id="${att(o.id)}" data-channel="${att(LABEL.channel[o.provider] || '')}" data-left="${left}" data-balance="${att(o.account_balance_fen)}">原路退款</button>` : '—'}${o.status==='paid'?`<button data-act="channel-fee" data-id="${att(o.id)}" data-version="${o.channel_fee_version}" data-fee="${o.channel_fee_fen??''}">${o.channel_fee_fen===null?'登记渠道费':`渠道费 ${fen(o.channel_fee_fen)}`}</button><small>${esc(o.channel_fee_issue||o.channel_fee_evidence||'待次日账单自动核对')}</small>`:''}</td></tr>`;
  }).join('');
- return section('在线支付订单与退款', table(['订单', '账户', ['金额'], '状态', '操作'], rows, '还没有付款订单。'), '<input id="find" type="search" placeholder="订单号 / 客户 / 邮箱" aria-label="搜索订单">', (p.refund_policy || '退款按实际付款金额，扣除已使用官价额度对应比例后，再收取 15% 手续费；已开具销项发票的不退款。') + ' 原路退回付款人的支付宝或微信。发起时先从账户扣出；渠道明确拒绝时自动冲回。')
-  + '<div class="callout">对公转账请到「对公入账」：财务登记实付与官价面额，另一人复核后入账。</div>';
+ return billSyncView(p.bill_sync)+billSyncView(p.wechat_bill_sync,'wechat','微信')+`<div class="metrics">${(p.summary||[]).map(s=>metric(LABEL.channel[s.provider],`${s.transactions} 笔 / ${fen(s.received_fen)}`,`累计实退 ${fen(s.refunded_fen)} · 已核对渠道成本 ${fen(s.channel_fee_fen)} · ${s.fees_unreconciled} 笔待核对`)).join('')}</div>`+section('按付款客户汇总（全部已付款）',table(['客户','渠道',['交易次数'],['累计付款']],(p.customers||[]).map(c=>`<tr><td>${esc(c.email)}</td><td>${esc(LABEL.channel[c.provider])}</td>${num(c.transactions)}${num(fen(c.received_fen))}</tr>`).join('')))+section('在线支付订单与退款', table(['订单', '账户', ['金额'], '状态', '操作'], rows, '还没有付款订单。'), '<input id="find" type="search" placeholder="订单号 / 客户 / 邮箱" aria-label="搜索订单">', (p.refund_policy || '退款按实际付款金额，扣除已使用官价额度对应比例后，再收取 15% 手续费；已开具销项发票的不退款。') + ' 原路退回付款人的支付宝或微信。发起时先从账户扣出；渠道明确拒绝时自动冲回。')
+  + '<div class="callout">对公转账请到「对公入账」：财务登记实付与官价面额，复核后入账。</div>';
 };
 
 pages.transfers = d => {
  const rows = d.entries.map(e => {
-  const find = [e.customer_code, e.customer_name, e.reference, e.note].join(' ').toLowerCase();
-  return `<tr data-find="${att(find)}"><td><code>${esc(e.customer_code)}</code><small>${esc(e.customer_name)} · ${LABEL.kind[e.customer_kind]}</small></td>${num(fen(e.cash_fen) + `<small>面额 ${fen(e.face_fen)}</small>`, e.cash_fen)}<td>${esc(e.received_day)}<small>${esc(e.reference || '无回单号')}${e.note ? ' · ' + esc(e.note) : ''}</small></td><td>${pill('transfer', e.status)}<small>登记 ${esc(e.created_by_name)} · ${when(e.created_at)}${e.decided_by_name ? ' · 复核 ' + esc(e.decided_by_name) : ''}</small>${e.decision_note ? `<small>${esc(e.decision_note)}</small>` : ''}</td><td>${e.status === 'pending' ? `<button data-act="transfer-approve" data-id="${att(e.id)}">复核入账</button> <button data-act="transfer-reject" data-id="${att(e.id)}">驳回</button>` : '—'}</td></tr>`;
+  const find = [e.customer_code, e.customer_name, e.reference,e.payer_name, e.note].join(' ').toLowerCase();
+  return `<tr data-find="${att(find)}"><td><code>${esc(e.customer_code)}</code><small>${esc(e.customer_name)} · ${LABEL.kind[e.customer_kind]}</small></td>${num(fen(e.cash_fen) + `<small>面额 ${fen(e.face_fen)}</small>`, e.cash_fen)}<td>${esc(e.received_day)}<small>付款户名 ${esc(e.payer_name||'未登记')}</small><small>${esc(e.reference || '无回单号')}${e.note ? ' · ' + esc(e.note) : ''}</small></td><td>${pill('transfer', e.status)}<small>登记 ${esc(e.created_by_name)} · ${when(e.created_at)}${e.decided_by_name ? ' · 复核 ' + esc(e.decided_by_name) + ' · ' + when(e.decided_at) + (e.created_by===e.decided_by&&e.decision_role==='platform_admin'?' · 管理员本人复核':'') : ''}</small>${e.decision_note ? `<small>${esc(e.decision_note)}</small>` : ''}</td><td>${e.status === 'pending' && (e.created_by!==d.current_subject||d.can_self_review) ? `<button data-act="transfer-approve" data-id="${att(e.id)}">复核入账</button> <button data-act="transfer-reject" data-id="${att(e.id)}">驳回</button>` : e.status==='pending'?'等待另一人复核':'—'}</td></tr>`;
  }).join('');
- return section('对公转账入账', table(['客户', ['实付 / 官价面额'], '到账日 / 回单', '状态', '操作'], rows, '还没有对公转账登记。'), '<button class="primary" data-act="transfer-new">登记到账</button>', '登记实付金额与官价额度面额（无折扣时面额等于实付）。待复核时不改余额；另一人对照银行流水通过后，增加实付账本与官价额度。登记人不能复核自己的登记。');
+ const notices=(d.notices||[]).map(n=>`<tr><td>${esc(n.organization_name)}<small>${esc(n.submitted_email)}</small></td><td>${esc(n.payer_name)}<small>${esc(n.payer_reference)}</small></td>${num(fen(n.cash_fen))}<td>${esc(n.paid_day)}<small>${esc(n.note)}</small></td><td><button data-act="transfer-new" data-notice="${att(n.id)}">核对并登记到账</button><button data-act="transfer-notice-reject" data-id="${att(n.id)}">退回</button></td></tr>`).join('');
+ const bank=d.receiving_account;
+ const bankInfo=bank?`<div class="callout">收款户名：${esc(bank.account_name)} · ${esc(bank.bank_name)} · ${esc(bank.account_number)}</div>`:'';
+ const inbox=section('客户提交 · 待核对到账',table(['企业','付款户名 / 付款流水',['提交金额'],'转账日 / 备注','操作'],notices,'暂无待核对的客户转账信息。'),'','客户提交仅供查找流水，核实公司银行账户实际到账后再登记。');
+ return bankInfo+inbox+section('对公转账入账', table(['客户', ['实付 / 官价面额'], '到账日 / 回单', '状态', '操作'], rows, '还没有对公转账登记。'), '<button class="primary" data-act="transfer-new">登记到账</button>', '登记实付金额与官价额度面额（无折扣时面额等于实付）。待复核时不改余额；对照银行流水复核通过后，增加实付账本与官价额度。平台管理员可复核自己的登记；普通财务须由另一人复核，所有操作均留记录。');
 };
 
 pages.invoices = d => {
@@ -225,8 +239,8 @@ pages.products = () => {
 const audienceText = g => g.audience === 'customer' ? `<code>${esc(g.customer_code)}</code> ${esc(g.customer_name)}` : g.audience === 'tag' ? `分群 <span class="pill">${esc(g.tag)}</span>` : '全部客户';
 pages.discounts = d => {
  const models = Object.fromEntries(d.models.map(m => [m.id, m.name]));
- const rows = d.grants.map(g => `<tr><td><b>${esc(g.name)}</b><small>${esc(g.reason)}</small></td><td>${audienceText(g)}</td><td>${g.model_id ? esc(models[g.model_id] || g.model_id) : '全部产品'}</td>${num(discountText(g.customer_price_percent) + (g.cap_fen ? `<small>优惠上限 ${fen(g.cap_fen)}</small>` : ''), g.customer_price_percent)}<td>${dayOf(g.starts_at)} – ${lastDay(g.ends_at)}</td><td>${pill('discount', g.state)}<small>提出 ${esc(g.created_by_name)}${g.decided_by_name && g.decided_by_name !== g.created_by_name ? ' · 处理 ' + esc(g.decided_by_name) : ''}</small>${g.decision_note ? `<small>${esc(g.decision_note)}</small>` : ''}</td><td>${g.status === 'pending' ? (d.can_decide && g.created_by !== d.me ? `<button data-act="discount" data-id="${att(g.id)}" data-action="approve">批准</button> <button data-act="discount" data-id="${att(g.id)}" data-action="reject">驳回</button>` : '<small>等待财务或管理员审批</small>') : g.status === 'active' && g.state !== 'expired' && (d.can_decide || g.created_by === d.me) ? `<button data-act="discount" data-id="${att(g.id)}" data-action="revoke">收回</button>` : '—'}</td></tr>`).join('');
- return '<div class="callout">折扣只在购买官价额度包付款时生效（取最优一条、不叠加）；调用一律按官网价扣官价额度。购包促销码接入前，本台账不改变实付金额。</div>'
+ const rows = d.grants.map(g => `<tr><td><b>${esc(g.name)}</b><small>${g.promo_code?'促销码：'+esc(g.promo_code)+' · ':''}${esc(g.reason)}</small></td><td>${audienceText(g)}</td><td>${g.model_id ? esc(models[g.model_id] || g.model_id) : '全部产品'}</td>${num(discountText(g.customer_price_percent) + (g.cap_fen ? `<small>优惠上限 ${fen(g.cap_fen)}</small>` : ''), g.customer_price_percent)}<td>${dayOf(g.starts_at)} – ${lastDay(g.ends_at)}</td><td>${pill('discount', g.state)}<small>提出 ${esc(g.created_by_name)}${g.decided_by_name && g.decided_by_name !== g.created_by_name ? ' · 处理 ' + esc(g.decided_by_name) : ''}</small>${g.decision_note ? `<small>${esc(g.decision_note)}</small>` : ''}</td><td>${g.status === 'pending' ? (d.can_decide && g.created_by !== d.me ? `<button data-act="discount" data-id="${att(g.id)}" data-action="approve">批准</button> <button data-act="discount" data-id="${att(g.id)}" data-action="reject">驳回</button>` : '<small>等待财务或管理员审批</small>') : g.status === 'active' && g.state !== 'expired' && (d.can_decide || g.created_by === d.me) ? `<button data-act="discount" data-id="${att(g.id)}" data-action="revoke">收回</button>` : '—'}</td></tr>`).join('');
+ return '<div class="callout">折扣只在购买官价额度包付款时生效（取最优一条、不叠加）；调用一律按官网价扣官价额度。无型号限制的有效授权已接入购包；旧的型号专属授权保留为台账，不参与通用额度包。</div>'
   + section('折扣授权', table(['授权', '对象', '适用产品', ['客户实付'], '有效期', '状态', '操作'], rows, '还没有折扣授权。'), '<button class="primary" data-act="discount-new">新建折扣授权</button>', '业务员工提出，财务或平台管理员审批，提出人不能审批自己的申请。平台管理员提出的授权直接生效。')
   + section('促销活动草稿', table(['活动', '商品', ['客户价格'], '期限', ['优惠预算']], d.campaigns.map(c => `<tr><td><b>${esc(c.name)}</b></td><td>${esc(c.product_name)}</td>${num(discountText(c.customer_price_percent), c.customer_price_percent)}<td>${dayOf(c.starts_at)} – ${dayOf(c.ends_at)}</td>${num(fen(c.total_discount_budget_fen), c.total_discount_budget_fen)}</tr>`).join(''), '还没有活动草稿。'), '<a href="/#ops/promotions">设计活动 ↗</a>', '活动草稿不会发放优惠码，也没有开启推广佣金。');
 };
@@ -252,23 +266,37 @@ async function draw() {
  $('#technical').hidden = !state.dash.staff.technical;
  drawNav(page);
  if (PAGES[page].gate && !state.dash.staff[PAGES[page].gate]) { content.innerHTML = '<div class="panel empty">这一页需要财务权限。请平台管理员在“账户与权限”里为你打开财务开关。</div>'; return; }
- const source = SOURCES[page]?.();
- if (source && !cache[source]) {
-  content.innerHTML = '<div class="panel empty">正在读取…</div>';
-  try { await get(source); } catch (e) { content.innerHTML = `<div class="panel empty">${esc(e.message)}</div>`; return; }
-  if (currentPage() !== page) return;
+ const turn = ++drawing, started = generation, source = SOURCES[page]?.();
+ const needsOverview = ['suppliers', 'products'].includes(page);
+ const needsBusiness = ['overview', 'products', 'upgrades'].includes(page);
+ const needsFinance = ['overview', 'products'].includes(page);
+ content.innerHTML = '<div class="panel empty">正在读取…</div>';
+ try {
+  const [overview, biz, dash] = await Promise.all([
+   needsOverview ? get('workspace/overview') : null,
+   needsBusiness ? get('workspace/business') : null,
+   needsFinance ? get('business/dashboard') : null,
+   source ? get(source) : null
+  ]);
+  if (turn !== drawing || started !== generation || currentPage() !== page) return;
+  Object.assign(state, { overview, biz });
+  if (dash) state.dash = dash;
+  content.innerHTML = pages[page](source ? cache[source] : null);
+  if (page === 'customers' && ui.customers.q) filterRows(ui.customers.q);
+ } catch (e) {
+  if (turn === drawing && started === generation && currentPage() === page) content.innerHTML = `<div class="panel empty">${esc(e.message)}，请点击刷新重试。</div>`;
  }
- content.innerHTML = pages[page](source ? cache[source] : null);
- if (page === 'customers' && ui.customers.q) filterRows(ui.customers.q);
 }
 async function load() {
+ const started = generation;
  try {
-  const [overview, biz, dash] = await Promise.all([api('workspace/overview'), api('workspace/business'), api('business/dashboard')]);
-  state = { overview, biz, dash }; loadError = '';
- } catch (e) { loadError = e.message; if (state) notify(e.message); }
+  const dash = await api('business/dashboard?summary=1');
+  if (started !== generation) return;
+  state = { dash }; loadError = '';
+ } catch (e) { if (started !== generation) return; state = null; loadError = e.message + '，请点击刷新重试。'; }
  await draw();
 }
-async function reload() { for (const key of Object.keys(cache)) delete cache[key]; await load(); }
+async function reload() { generation++; drawing++; state = null; for (const key of Object.keys(cache)) delete cache[key]; notify(''); await draw(); await load(); }
 function filterRows(q) { q = q.trim().toLowerCase(); document.querySelectorAll('tr[data-find]').forEach(r => { r.hidden = Boolean(q) && !r.dataset.find.includes(q); }); }
 
 // ---- Actions --------------------------------------------------------------------------------
@@ -322,10 +350,10 @@ function answerDialog(answerId) {
 async function discountDialog() {
  const d = cache['business/discounts'], tags = d.tags.map(t => `<option value="${att(t.tag)}">${esc(t.tag)}（${t.customers} 个客户）</option>`).join(''), customers = await customerOptions();
  const start = today(), end = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
- openForm({ title: '新建折扣授权', submit: '提交', body: `<label>授权名称<input name="name" required maxlength="100" placeholder="例如：某某公司年度合作价"></label>
+ openForm({ title: '新建折扣授权', submit: '提交', body: `<label>促销码（留空自动匹配合同折扣）<input name="promo_code" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}"></label><label>授权名称<input name="name" required maxlength="100" placeholder="例如：某某公司年度合作价"></label>
   <label>授权对象<select name="audience" id="audiencePick"><option value="customer">单个客户</option><option value="tag" ${tags ? '' : 'disabled'}>客户分群（按标签）</option><option value="all">全部客户</option></select></label>
   <label data-audience="customer">客户<select name="customer_id">${customers}</select></label><label data-audience="tag" hidden>分群标签<select name="tag">${tags}</select></label>
-  <div class="row2"><label>适用产品<select name="model_id"><option value="">全部产品</option>${d.models.map(m => `<option value="${att(m.id)}">${esc(m.name)}</option>`).join('')}</select></label><label>客户实付比例（%）<input name="customer_price_percent" type="number" min="1" max="99" required value="90"></label></div>
+  <div class="row2"><label>适用产品<select name="model_id"><option value="">全部产品</option></select></label><label>客户实付比例（%）<input name="customer_price_percent" type="number" min="1" max="99" required value="90"></label></div>
   <div class="row2"><label>开始日期<input name="starts_at" type="date" required value="${start}"></label><label>结束日期（含当天）<input name="ends_at" type="date" required value="${end}"></label></div>
   <label>优惠金额上限（元，可不填）<input name="cap_yuan" inputmode="decimal"></label><label>授权理由<textarea name="reason" required rows="3" maxlength="500" placeholder="合同、用量承诺、竞争情况…"></textarea></label><small>85 表示客户按标价的 85% 付费，即 8.5 折。</small>`,
   onSubmit: async v => {
@@ -337,18 +365,23 @@ async function discountDialog() {
 
 const simple = (title, body, onSubmit, submit) => openForm({ title, body, onSubmit, submit });
 const ACTIONS = {
- refund(b) {
-  const max = Math.min(Number(b.dataset.left), Number(b.dataset.balance));
-  if (max <= 0) return notify('账户实付余额为 0，已使用的部分不能退款。');
-  const policy = cache['payments/orders']?.refund_policy || '退款按实际付款金额，扣除已使用官价额度对应比例后，再收取 15% 手续费；已开具销项发票的不退款。';
-  simple('原路退款', `<p>${esc(policy)}</p><p>款项退回付款人的${esc(b.dataset.channel || '支付账户')}，无法撤回。这笔订单最多可退 ${fen(max)}（当前在线退款仍按订单未退金额与实付余额取低，完整按笔公式见后续版本）。</p><label>退款金额（元）<input name="amount" required inputmode="decimal" value="${(max / 100).toFixed(2)}"></label><label>退款原因（客户和审计记录可见）<input name="reason" required maxlength="200"></label><label class="check"><input type="checkbox" required> 我已核对订单和金额，并确认客户未开具销项发票</label>`, async v => {
-   const m = /^(\d{1,9})(?:\.(\d{1,2}))?$/.exec(v.amount.trim());
-   if (!m) throw Error('金额格式不正确');
-   const amount = Number(m[1]) * 100 + Number((m[2] || '').padEnd(2, '0'));
-   if (amount <= 0 || amount > max) throw Error('退款金额超出可退范围');
-   const r = await api(`payments/orders/${b.dataset.id}/refunds`, { amount_fen: amount, reason: v.reason.trim(), idempotency_key: crypto.randomUUID().replace(/-/g, '') });
-   return { succeeded: '退款成功，已原路退回。', failed: '支付渠道拒绝了这笔退款，金额已冲回账户余额。', pending: '退款已提交，渠道尚未确认结果，金额已从余额中扣出。稍后点“确认退款结果”。' }[r.status];
-  }, '确认退款');
+ async 'wechat-bill-sync'(b){simple('同步微信账单',`<p>核对收款、退款及实际手续费；退款退费冲减公司成本，重复同步不重复记账。每天北京时间 10 点后自动检查。</p><label>账单日期<input type="date" name="day" required max="${att(b.dataset.day)}" value="${att(b.dataset.day)}"></label>`,async v=>{const r=await api('payments/wechat-bills/sync',{day:v.day});return r.status==='pending'?`账单暂未取得，可稍后重试（${r.error_code}）。`:`已核对 ${r.matched} 笔，${r.exceptions} 笔待人工核对。`;},'同步账单');},
+ async 'alipay-bill-sync'(b){simple('同步支付宝账单',`<p>获取指定日的支付宝交易账单，核对收款与渠道费用。重复同步不会重复记成本；差异保留人工核对。</p><label>账单日期<input type="date" name="day" required max="${att(b.dataset.day)}" value="${att(b.dataset.day)}"></label>`,async v=>{const r=await api('payments/alipay-bills/sync',{day:v.day});return r.status==='pending'?`账单暂未取得，可稍后重试（${r.error_code}）。`:`已核对 ${r.matched} 笔，${r.exceptions} 笔待人工核对。`;},'同步账单');},
+ async 'channel-fee'(b){simple('核对支付渠道成本',`<p>按商户账单登记实际扣收费用（扣除实际退回的渠道费）。只计入公司成本，不扣客户额度；零费用也请明确登记。更正会保留审计记录。</p><label>实际渠道费用（元）<input name="amount" inputmode="decimal" required value="${b.dataset.fee===''?'':(Number(b.dataset.fee)/100).toFixed(2)}"></label><label>账单凭据 / 核对说明<input name="evidence" required maxlength="200"></label>`,async v=>{if(!/^\d+(\.\d{1,2})?$/.test(v.amount))throw Error('请输入最多两位小数的金额');await api(`payments/orders/${b.dataset.id}/channel-fee`,{amount_fen:Math.round(Number(v.amount)*100),version:Number(b.dataset.version),evidence:v.evidence});return '渠道成本已登记，客户额度不变。';},'保存核对记录');},
+ async refund(b) {
+  const q=await api(`payments/orders/${b.dataset.id}/refund-quote`);
+  if(q.blocked)return notify(q.blocked);
+  const idempotency=crypto.randomUUID().replace(/-/g,'');
+  simple('退回本包剩余额度', `<p>对应未使用实付 ¥${(Number(q.unused_cash_exact_fen)/100).toFixed(6)}；标准服务费 15%，标准退款 <strong>${fen(q.net_fen)}</strong>（四舍五入到分）。</p><p>退款冻结本包全部剩余额度；渠道明确拒绝后恢复。已开发票不可退。</p>${q.can_waive?'<label>服务费比例（默认 15%，特批可减至 0%）<input name="fee_percent" type="number" min="0" max="15" step="1" value="15" required></label><label>特批原因（减免时必填）<input name="waiver_reason" maxlength="200"></label><p id="refund-preview">实际退款 '+fen(q.net_fen)+'</p>':''}<label>退款原因<input name="reason" required maxlength="200"></label><label class="check"><input type="checkbox" required> 我已核对客户申请和退款金额</label>`, async v => {
+   const percent=q.can_waive?Number(v.fee_percent):15;
+   if(percent<15&&!v.waiver_reason?.trim())throw Error('请填写特批原因');
+   const latest=await api(`payments/orders/${b.dataset.id}/refund-quote?fee_percent=${percent}`);
+   if(latest.blocked)throw Error(latest.blocked);
+   if(latest.remaining_fen!==q.remaining_fen)throw Error('剩余额度已变化，请关闭后重新预览');
+   const result=await api(`payments/orders/${b.dataset.id}/refunds`,{amount_fen:Number(latest.net_fen),reason:v.reason,service_fee_percent:percent,waiver_reason:v.waiver_reason,idempotency_key:idempotency});
+   return {succeeded:'退款已成功',failed:'渠道拒绝，额度已恢复',pending:'退款处理中，请稍后确认'}[result.status];
+  },'确认原路退款');
+  const input=document.querySelector('[name="fee_percent"]');if(input)input.addEventListener('input',()=>{document.querySelector('#refund-preview').textContent='预计实际退款 '+fen(Math.round(Number(q.unused_cash_exact_fen)*(100-Number(input.value))/100))+'；减免将记录审批人及原因';});
  },
  async 'refund-retry'(b) { const r = await api(`payments/refunds/${b.dataset.id}/retry`, {}); await reload(); notify({ succeeded: '退款已确认成功。', failed: '支付渠道拒绝了这笔退款，金额已冲回。', pending: '渠道仍在处理，请稍后再试。' }[r.status], r.status === 'succeeded'); },
  'invoice-new': () => invoiceDialog(),
@@ -357,14 +390,16 @@ const ACTIONS = {
  'invoice-void': b => simple(b.dataset.kind === 'void' ? '作废发票' : '红冲发票', `<p>请先在电子税务局完成${b.dataset.kind === 'void' ? '作废' : '红字发票开具'}，再在这里登记。金额会回到可开票额度。</p><label>原因<textarea name="note" required rows="3" maxlength="500"></textarea></label>`, async v => { await api(`business/invoices/${b.dataset.id}/${b.dataset.kind}`, v); return '已登记。'; }, '登记'),
  'payable-new': () => simple('登记给上游的付款', `<label>供应商<select name="supplier_id" required>${cache['business/supplier-payments'].suppliers.map(s => `<option value="${att(s.id)}">${esc(s.code)} ${esc(s.display_name)}</option>`).join('')}</select></label><div class="row2"><label>金额（元）<input name="amount_yuan" required inputmode="decimal" placeholder="0.00"></label><label>付款日期<input name="paid_on" type="date" required value="${today()}" max="${today()}"></label></div><div class="row2"><label>付款方式<select name="method">${options(LABEL.method, 'bank')}</select></label><label>银行或平台流水号<input name="reference" maxlength="120"></label></div><label>备注<input name="note" maxlength="500" placeholder="例如：11 月账户充值"></label>`, async v => { await api('business/supplier-payments', v); return '付款已登记。'; }, '登记'),
  'payable-void': b => simple('作废付款记录', '<p>作废后这笔付款不再计入现金支出，记录保留。</p>', async () => { await api(`business/supplier-payments/${b.dataset.id}/void`, {}); return '已作废。'; }, '作废'),
- async 'transfer-new'() {
-  openForm({
-   title: '登记对公到账', submit: '提交待复核',
-   body: `<label>客户<select name="customer_id" required>${await customerOptions()}</select></label><div class="row2"><label>实付金额（元）<input name="cash_yuan" required inputmode="decimal" placeholder="0.00"></label><label>官价额度面额（元，不填则等于实付）<input name="face_yuan" inputmode="decimal" placeholder="无折扣时与实付相同"></label></div><div class="row2"><label>到账日期<input name="received_on" type="date" required value="${today()}" max="${today()}"></label><label>银行回单号<input name="reference" maxlength="120"></label></div><label>备注<input name="note" maxlength="500" placeholder="付款户名、用途等"></label><small>提交后不改余额；须由另一名财务对照银行流水复核入账。</small>`,
-   onSubmit: async v => { await api('business/bank-transfers', v); return '已登记，等待另一人复核。'; }
+ async 'transfer-new'(b) {
+  const n=cache['business/bank-transfers']?.notices?.find(n=>n.id===b?.dataset.notice);
+  const customers=(await get('business/customers')).customers.filter(c=>c.kind==='enterprise'),selected=n?customers.find(c=>c.organization_id===n.organization_id)?.id:'';
+  openForm({title:'登记对公到账',submit:'提交待复核',
+   body:`${n?`<input type="hidden" name="notice_id" value="${att(n.id)}"><p>客户提交：${esc(n.payer_name)} · ${fen(n.cash_fen)} · 付款流水 ${esc(n.payer_reference)}</p>`:''}<label>企业客户<select name="customer_id" required>${customers.map(c=>`<option value="${att(c.id)}" ${selected===c.id?'selected':''}>${esc(c.code)} ${esc(c.name)}</option>`).join('')}</select></label><label>银行流水中的付款户名<input name="payer_name" required maxlength="160" value="${att(n?.payer_name||'')}"></label><div class="row2"><label>实际到账金额（元）<input name="cash_yuan" required inputmode="decimal" value="${n?(Number(n.cash_fen)/100).toFixed(2):''}" placeholder="0.00"></label><label>官价额度面额（元，可不填）<input name="face_yuan" inputmode="decimal" placeholder="默认与实付相同"></label></div><div class="row2"><label>到账日期<input name="received_on" type="date" required value="${today()}" max="${today()}"></label><label>收款银行到账流水号<input name="reference" required maxlength="120" placeholder="以公司收款银行流水为准"></label></div><label>核对说明<input name="note" maxlength="500" placeholder="实收与客户提交不一致时必填"></label><small>请核实公司账户已到账；提交后仍须复核，不立即增加余额。管理员可自行复核，普通财务须另一人复核。</small>`,
+   onSubmit:async v=>{await api('business/bank-transfers',v);return '已登记，等待复核。';}
   });
  },
- 'transfer-approve': b => simple('复核入账', '<p>确认银行流水金额、付款户名与登记一致后入账：增加实付账本与官价额度。</p><label>备注（可选）<input name="note" maxlength="500"></label><label class="check"><input type="checkbox" required> 我已对照银行流水核对</label>', async v => { await api(`business/bank-transfers/${b.dataset.id}/approve`, { note: v.note || '' }); return '已入账。'; }, '确认入账'),
+ 'transfer-notice-reject':b=>simple('退回转账信息','<label>原因<textarea name="note" required maxlength="500" placeholder="例如：尚未查到到账流水，请核对付款日期和流水号"></textarea></label>',async v=>{await api(`business/bank-transfer-notices/${b.dataset.id}/reject`,v);return '已退回，客户可查看原因后重新提交。';},'退回'),
+ 'transfer-approve':b=>{const e=cache['business/bank-transfers'].entries.find(e=>e.id===b.dataset.id);return simple('复核入账',`${e.created_by===cache['business/bank-transfers'].current_subject&&cache['business/bank-transfers'].can_self_review?'<p>本次为管理员本人复核，将记录你的身份、复核时间及备注。</p>':''}<p>企业：${esc(e.customer_name)}<br>付款户名：${esc(e.payer_name)}<br>实付 ${fen(e.cash_fen)} · 官价额度 ${fen(e.face_fen)}<br>到账日期：${esc(e.received_day)}<br>银行到账流水：${esc(e.reference)}</p><label>备注（可选）<input name="note" maxlength="500"></label><label class="check"><input type="checkbox" required> 我已对照公司银行流水核对</label>`,async v=>{await api(`business/bank-transfers/${b.dataset.id}/approve`,{note:v.note||''});return '已入账。';},'确认入账');},
  'transfer-reject': b => simple('驳回对公登记', '<label>驳回原因<textarea name="note" required rows="3" maxlength="500"></textarea></label>', async v => { await api(`business/bank-transfers/${b.dataset.id}/reject`, v); return '已驳回。'; }, '驳回'),
  'supplier-new': () => simple('建立供应商档案', `<label>供应商名称<input name="display_name" required maxlength="100"></label><label>签约主体<input name="legal_name" required maxlength="160" placeholder="以合同或营业执照为准"></label><label>服务地区<input name="region" required maxlength="80" placeholder="未知请填待确认"></label><label>来源<select name="source_type">${options(LABEL.source, 'unconfirmed')}</select></label><p>保存后自动生成供应商编码，技术人员即可录入 Key。采购授权、合同和价格仍需在档案中核验。</p>`, async v => { await api('suppliers', { ...v, service_type: 'model_api' }); return '档案已建立并共享给技术后台。'; }, '保存档案'),
  'supplier-contact'(b) { const s = cache['business/suppliers'].suppliers.find(x => x.id === b.dataset.id); simple(`<code>${esc(s.code)}</code> ${esc(s.display_name)} 的联系人`, `<label>联系人<input name="contact_name" maxlength="80" value="${att(s.contact_name)}"></label><div class="row2"><label>电话<input name="contact_phone" maxlength="40" value="${att(s.contact_phone)}"></label><label>邮箱<input name="contact_email" type="email" maxlength="254" value="${att(s.contact_email)}"></label></div>`, async v => { await api(`business/suppliers/${s.id}/contact`, v); return '联系人已保存。'; }); },
