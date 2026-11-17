@@ -1,0 +1,9 @@
+这是用户明确要求的原始 Skill 真实安装运行验收。只在当前临时测试目录操作，不能修改 .agents/skills 的原始文件。必须先读已安装 SKILL.md 并按其流程真实生成输出，不允许只给计划，不允许伪造通过。使用 input 文件中的虚构材料。不要读取父目录或其他测试目录，不要读取 expected.json（独立验收答案）。禁止子代理、外部发布、上传、浏览器自动化、发送消息。没有登录或创建任何线上文档的授权。无需向用户提问，以下样式和范围已经确定。
+运行环境：Python /Users/m5/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3；Node /Users/m5/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node。node_modules 已连接到预装包。PATH 中的 soffice 是隔离的 bundled LibreOffice，不可调用用户安装的桌面 Office。PYTHONPATH 含临时 defusedxml。不能往运行库目录安装东西。若依赖缺失，记录实际错误，不绕过验收或另换工具伪装。
+保留生成脚本，输出 report.md 描述实际执行步骤、成功与失败、剩余限制。报告不能声称在 Microsoft Office 或微信编辑器中验收过。
+
+读取 .agents/skills/xlsx/SKILL.md。本次专门测试该上游 Skill 的 openpyxl 工作流，不替换成其他 Skill 或 artifact-tool。读取 input.csv 并生成 output.xlsx。要求精确工作表名及结构：
+1. “汇总”：A1 为“海风书店销售汇总”；A3“月份”、B3“净销售额（元）”；A4=2026-09，A5=2026-10，A6“合计”。B4/B5 使用 SUMIFS 等基础公式按月份汇总，B6 使用 SUM。D3 起放一个原生柱状图，图表绘制月度汇总，不遮住 A/B 列。
+2. “明细”：第1行列名 id,date,category,quantity,unit_price,amount；按原顺序保留每个 id 的第一条，amount 列必须 quantity*unit_price 公式。日期用真实日期单元格。保留负数退货。固定首行、金额两位小数、筛选范围正确。
+3. “重复记录”：相同六列表头；放被剔除的重复源记录（amount 可为公式）；记录原因放 H 列；不得悄悄丢弃重复记录。
+不要修改 input.csv。生成脚本 build.py，执行原 Skill scripts/recalc.py 对 output.xlsx 重算，保存 recalc.json，确认无公式错误，不能只检查进程退出码。把打印区域设置为可读的 A4 横向，汇总、明细、重复记录分别可打印在一页。再用 bundled soffice 导出 output.pdf。

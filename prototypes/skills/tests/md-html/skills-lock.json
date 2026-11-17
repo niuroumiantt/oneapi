@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "skills": {
+    "baoyu-markdown-to-html": {
+      "source": "JimLiu/baoyu-skills",
+      "ref": "ca703c2d7c2c4399a1dc0cf82224f8551e05a96d",
+      "commit": "ca703c2d7c2c4399a1dc0cf82224f8551e05a96d",
+      "sourceType": "github",
+      "skillPath": "skills/baoyu-markdown-to-html/SKILL.md",
+      "computedHash": "610092cf2db41b89574827d50e131bb261015e946086d643ffbf1e24104dc077",
+      "installMode": "copy"
+    }
+  }
+}

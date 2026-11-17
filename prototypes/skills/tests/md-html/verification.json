@@ -1,0 +1,11 @@
+{
+  "first_heading": true,
+  "chinese": true,
+  "amounts": true,
+  "table": true,
+  "code": true,
+  "bottom_original_url": true,
+  "citation_marker": true,
+  "red": true,
+  "font_size": true
+}

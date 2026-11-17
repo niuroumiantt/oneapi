@@ -1,0 +1,33 @@
+
+│
+●   codex  Agent detected — installing non-interactively
+│
+◇  Source: https://github.com/vercel-labs/agent-skills.git @ 1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62
+│
+◒  Cloning repository…◐  Cloning repository…◓  Cloning repository…◑  Cloning repository…◒  Cloning repository…◐  Cloning repository…◓  Cloning repository…◑  Cloning repository…◒  Cloning repository….◐  Cloning repository….◓  Cloning repository….◑  Cloning repository….◒  Cloning repository….◐  Cloning repository….◓  Cloning repository….◑  Cloning repository….◒  Cloning repository…..◐  Cloning repository…..◓  Cloning repository…..◑  Cloning repository…..◒  Cloning repository…..◐  Cloning repository…..◓  Cloning repository…..◑  Cloning repository…..◒  Cloning repository…...◐  Cloning repository…...◓  Cloning repository…...◑  Cloning repository…...◒  Cloning repository…...◐  Cloning repository…...◓  Cloning repository…...◑  Cloning repository…...◒  Cloning repository…...◐  Cloning repository…◓  Cloning repository…◑  Cloning repository…◒  Cloning repository…◐  Cloning repository…◓  Cloning repository…◑  Cloning repository…◒  Cloning repository…◐  Cloning repository….◓  Cloning repository….◑  Cloning repository….◒  Cloning repository….◐  Cloning repository….◓  Cloning repository….◑  Cloning repository….◒  Cloning repository….◐  Cloning repository…..◓  Cloning repository…..◑  Cloning repository…..◒  Cloning repository…..◐  Cloning repository…..◓  Cloning repository…..◑  Cloning repository…..◒  Cloning repository…..◐  Cloning repository…...◇  Repository cloned
+│
+◇  Found 9 skills
+│
+●  Selected 1 skill: vercel-react-best-practices
+
+│
+◇  Installation Summary ─────────────────────────╮
+│                                                │
+│  ./.agents/skills/vercel-react-best-practices  │
+│    universal: Codex                            │
+│                                                │
+├────────────────────────────────────────────────╯
+│
+◇  Installation complete
+
+│
+◇  Installed 1 skill ────────────────────────────────╮
+│                                                    │
+│  ✓ vercel-react-best-practices (copied)            │
+│    → ./.agents/skills/vercel-react-best-practices  │
+│                                                    │
+├────────────────────────────────────────────────────╯
+
+│
+└  Done!  Review skills before use; they run with full agent permissions.
+

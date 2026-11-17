@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "skills": {
+    "agent-dungeon-master": {
+      "source": "NylasDev/nylas-dungeon-master-skills",
+      "ref": "36da6d7770d97bc9ed4613df21019fb4c219c6b7",
+      "commit": "36da6d7770d97bc9ed4613df21019fb4c219c6b7",
+      "sourceType": "github",
+      "skillPath": "skills/tabletop-rpg/agent-dungeon-master/SKILL.md",
+      "computedHash": "45606c7b1ed62e7ff909883c8872e07d5149ec0806f593da575a7494da5a0255",
+      "installMode": "copy"
+    }
+  }
+}

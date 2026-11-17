@@ -1,0 +1,9 @@
+Resolved 4 packages in 1.95s
+Downloading imageio-ffmpeg (21.6MiB)
+ Downloaded imageio-ffmpeg
+Prepared 2 packages in 5.68s
+Installed 4 packages in 10ms
+ + imageio==2.38.2
+ + imageio-ffmpeg==0.8.1
+ + numpy==2.5.5
+ + pillow==13.0.0
