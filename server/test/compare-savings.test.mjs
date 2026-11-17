@@ -53,7 +53,10 @@ test('purchase discount uses the consumed credit, not current identity or last p
  assert.equal(savings.discount({...bill,paid_equivalent_yuan:null}),null);
 });
 
-test('allocated quota deduction cannot masquerade as cash spending or a zero-cost saving',()=>{
- const pair=fixture();Object.assign(pair[0].billing,{funding_kind:'allocated',actual_consumption_yuan:'0.00166',paid_equivalent_yuan:null});
- const c=savings.compare(...pair);assert.equal(c.status,'unavailable');assert.match(c.reason,/分配额度/);assert.equal(c.difference_yuan,undefined);
+test('allocated credit uses confirmed half-price cost and exact savings',()=>{
+ const pair=fixture();Object.assign(pair[0].billing,{funding_kind:'allocated',charged_yuan:'0.000017',paid_equivalent_yuan:null});pair[1].estimate.total_yuan='0.000017';
+ const c=savings.compare(...pair);assert.equal(c.status,'compared');assert.equal(c.actual_yuan,'0.0000085');assert.equal(c.difference_yuan,'0.0000085');assert.equal(c.percentage,'50');assert.match(c.funding_cost_basis,/50%/);
+ assert.equal(savings.actualCost({...pair[0].billing,charged_yuan:'0.000000000001'}),'0.0000000000005');
+ assert.equal(savings.actualCost({...pair[0].billing,status:'pending'}),null);
+ assert.equal(savings.actualCost({...pair[0].billing,charged_yuan:null}),null);
 });
