@@ -29,6 +29,6 @@ test('raw metadata keeps original field names but credentials are redacted',()=>
 });
 test('Aliyun reader uses only fixed read operations and keeps denied billing unknown',async()=>{
  const calls=[];const d=await readAliyun({region:'cn-shanghai',product:'ecs'},async(a,s,op,p)=>{calls.push(op);if(s==='bss'){const e=Error();e.code='Forbidden';throw e}return {TotalCount:1,Instances:{Instance:[{InstanceId:'i-test',Status:'Running',InternetMaxBandwidthOut:5}]}}});
- assert.deepEqual(calls,['DescribeInstances','QueryAccountBill']);assert.equal(d.resources.items[0].bandwidth_out_mbps,5);assert.equal(d.billing.status,'unavailable');assert.equal(d.billing.items,undefined);
+ assert.deepEqual(calls,['DescribeInstances','QueryAccountBill','DescribeInstanceBill']);assert.equal(d.resources.items[0].bandwidth_out_mbps,5);assert.equal(d.billing.status,'unavailable');assert.equal(d.billing.items,undefined);
  const body=rpcBody({Action:'DescribeInstances',Format:'JSON',Timestamp:'2026-11-10T06:00:00Z'},'fixture');assert.ok(body.includes('Signature='));assert.ok(!body.includes('fixture'));
 });
