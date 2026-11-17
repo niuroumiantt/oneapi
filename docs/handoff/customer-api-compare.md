@@ -25,6 +25,6 @@
 
 ## 发布与真实上游验证
 
-发布前的生产 API 为 `59ec7f3`，静态版本为 `001ff245`。此文档提交时尚未切换生产；真实上游抽测及最终发布回执在本文件后续补充。发布包含新增 ipaddr.js/unpdf 依赖，不能只复制 server 目录。无需数据库结构变更、Caddy 改动或模型开关变更。
+发布前的生产 API 为 `59ec7f3`，静态版本为 `001ff245`。此文档提交时尚未切换生产；真实上游抽测及最终发布回执在本文件后续补充。发布包含新增 ipaddr.js/unpdf 依赖，不能只复制 server 目录。无需数据库结构或模型开关变更。生产 Caddy 的普通 API 上限为 16 KB，因此 infra PR #416 专门为 compare/run、compare/attachment 增加 9 MB 入口，应用仍限制 8 MB；必须局部保留当前 Skills 路由。
 
 当前仅发现可用于抽测的 DeepSeek、GLM、KerAPI 既有验收凭据；Kimi/MiniMax 暂无可用真实密钥，不宣称完成这两家的付费调用验收。
