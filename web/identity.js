@@ -332,7 +332,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
    return `<aside class="purchase-entry"><div><b>使用公司分配的额度</b><p>额度不足时请联系企业管理员；无需向个人账户充值。</p></div><a href="#organization/${esc(org.id)}/support">联系支持</a></aside>`;
   }
   const billing=org?(lastOrgBilling?.id===org.id?lastOrgBilling.data:null):personalBilling,href=org?'#billing/organization/'+esc(org.id):'#billing/personal';
-  const available=paidCredit?Math.max(0,(Number(paidCredit.list_credit_fen)-Number(paidCredit.held_fen??0))/100):billing?Number(billing.list_credit_fen??billing.cash_balance_fen)/100:null;
+  const available=org?null:paidCredit?Math.max(0,(Number(paidCredit.list_credit_fen)-Number(paidCredit.held_fen??0))/100):billing?Number(billing.list_credit_fen??billing.cash_balance_fen)/100:null;
   const enabled=Boolean(billing?.payments_enabled),label=org?'企业充值':enabled?'充值额度':'额度与账单';
   if(compact)return `<a class="pc-purchase-link" href="${href}">${label}</a>`;
   const low=available!==null&&available<=0,title=low?'可用额度已用完':place==='models'?'按用量付费，额度可用于已开放模型':place==='keys'?'Key 负责接入，额度用于调用':'查看消耗，随时补充额度';
