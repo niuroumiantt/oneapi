@@ -2052,3 +2052,12 @@ test('allocated employees can compare without purchases and use their ordinary l
   assert.equal((await employee.j.call('/api/compare/run',{method:'POST',body})).status,402);assert.equal(upstreamCalls,1);assert.equal(referenceCalls,1);
  }finally{appCfg.employeeCredit.organizationId=oldOrg;appCfg.customerPaid.enabled=oldPaid;pilotFetch=oldPilot;compareFetch=oldReference;}
 });
+
+
+test('new passwords enforce the same policy on registration, change and reset; unavailable methods remain disabled',async()=>{
+ const methods=await jar().call('/api/public/auth-methods');assert.equal(methods.status,200);assert.equal(methods.data.password.minLength,8);assert.equal(methods.data.methods.phoneCode,false);assert.equal(methods.data.methods.wechat,false);assert.equal(methods.data.methods.alipay,false);
+ for(const [path,body] of [['sign-up/email',{email:'weak-policy@example.test',name:'Policy',password:'abcdefghijk!'}],['change-password',{currentPassword:password,newPassword:'Abcdefghijkl'}],['reset-password',{token:'invalid',newPassword:'Abcdefghijkl'}]]){
+  const r=await jar().call('/api/auth/'+path,{method:'POST',body});assert.equal(r.status,400);assert.equal(r.data.code,'PASSWORD_POLICY');
+ }
+ const r=await jar().call('/api/auth/sign-up/email',{method:'POST',body:{email:'short-policy@example.test',name:'Policy',password:'Abcdefg!'}});assert.equal(r.status,200,JSON.stringify(r.data));
+});
