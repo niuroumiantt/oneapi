@@ -28,3 +28,16 @@ test('context tools stay outside global navigation and supplied account replaces
  assert.doesNotMatch(html,/data-account-slot/);
  assert.match(html,/<\/nav>.*Account.*site-tools.*data-personal-search/);
 });
+
+test('navigating from a report to console clears report visibility before rendering console',()=>{
+ const app=readFileSync(new URL('../../web/app.js',import.meta.url),'utf8');
+ const source=app.slice(app.indexOf('function switchView('),app.indexOf('function showToast('));
+ const calls=[];
+ const context=vm.createContext({document:{getElementById:()=>null},window:{
+  ConsoleUI:{handles:v=>v.startsWith('console/'),render:()=>calls.push('console')},
+  RealTestingUI:{hide:()=>calls.push('hide-report')},DocsUI:{hide:()=>calls.push('hide-docs')}
+ }});
+ vm.runInContext(source+';switchView("console/technical");',context);
+ assert.ok(calls.indexOf('hide-report')>=0);
+ assert.ok(calls.indexOf('hide-report')<calls.indexOf('console'));
+});

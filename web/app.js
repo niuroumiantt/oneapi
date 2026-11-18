@@ -43,7 +43,7 @@ function updatePricingExample(){
 function switchView(view){
  document.getElementById("site-boot")?.remove();
  if(!view||view==='login')view='universe';
- if(window.ConsoleUI?.handles(view)){window.DocsUI?.hide();window.ConsoleUI.render(view);return;}
+ if(window.ConsoleUI?.handles(view)){window.RealTestingUI?.hide();window.DocsUI?.hide();window.ConsoleUI.render(view);return;}
  window.ConsoleUI?.hide();
  if(window.RealTestingUI?.handles(view)){window.DocsUI?.hide();window.LandingUI?.hide();window.RealTestingUI.render(view);return;}
  window.RealTestingUI?.hide();

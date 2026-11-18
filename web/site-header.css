@@ -105,7 +105,7 @@ html{scrollbar-gutter:stable}
 .pc-sidebar nav{align-items:stretch}
 .pc-sidebar nav button,.pc-sidebar nav a{width:100%;height:auto;min-height:44px;flex-direction:row;justify-content:flex-start;gap:12px;padding:10px 12px;font-size:13px;text-align:left}
 .pc-sidebar .ui-icon{--icon-size:20px}
-.pc-stage{width:100%;scrollbar-gutter:stable;padding:16px 24px}
+.pc-stage{width:100%;max-width:none;scrollbar-gutter:stable;padding:16px 24px}
 .doc-layout{max-width:none;grid-template-columns:var(--site-sidebar-width) minmax(0,1fr)}
 .doc-nav{border-right:1px solid var(--site-line);padding:16px 12px}
 .doc-main{max-width:1100px;padding:24px}
