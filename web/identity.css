@@ -881,3 +881,50 @@ td>.live-dot:first-child{margin-right:5px}
 @media(max-width:800px){.site-header.pc-topbar .site-tools .pc-global-search{display:none}.purchase-entry{align-items:flex-start;flex-wrap:wrap}.purchase-entry a{min-height:44px}.pc-purchase-link{min-height:40px;padding:6px 9px}}
 
 .personal-console-stats{grid-template-columns:repeat(4,minmax(0,1fr))}@media(max-width:560px){.personal-console-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* Recharge is a focused checkout, including Windows CJK fallback and scaled desktops. */
+#identity-view,.personal-console{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei UI","Microsoft YaHei","PingFang SC",Arial,sans-serif}
+.personal-console .billing-stage{width:100%;max-width:1280px;margin-inline:auto;overflow:auto;padding-bottom:32px}
+.billing-stage [data-personal-content]{flex:0 0 auto;overflow:visible}
+.billing-stage .pc-tab-page{flex:none;min-height:0}
+.billing-stage .pc-tab-body{overflow:visible;padding:28px 32px}
+.billing-policy{font-size:13px;color:#536176;margin:0 0 16px;line-height:1.65}
+.billing-policy summary{cursor:pointer;width:fit-content;padding:4px 0}
+.billing-policy p{max-width:960px;margin:8px 0}
+.recharge-checkout{max-width:1080px;margin-inline:auto}
+.recharge-checkout .billing-pay-head{margin:0 0 24px}
+.recharge-checkout .panel-title{font-size:24px;line-height:1.4;margin:0 0 8px}
+.recharge-layout{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,1fr);gap:40px;align-items:start}
+.recharge-entry{min-width:0}
+.recharge-amount-label{display:block;font-size:16px;font-weight:600;color:#202b41;margin-bottom:12px}
+.recharge-amount{display:flex;align-items:center;border:1.5px solid #8b9cb3;border-radius:12px;background:#fff;min-height:80px;padding:12px 20px;gap:12px}
+.recharge-amount:focus-within{border-color:#1677ff;outline:3px solid #1677ff26;outline-offset:2px}
+.recharge-amount>span{font-size:28px;color:#526176}
+.recharge-amount input{width:100%;min-width:0;height:auto;border:0;outline:0;background:transparent;padding:0;font-family:inherit;font-size:36px;font-weight:600;line-height:1.4;color:#17243d;font-variant-numeric:tabular-nums;box-shadow:none}
+.recharge-amount input::placeholder{font-size:22px;font-weight:400;color:#67758a}
+.recharge-help{font-size:13px;line-height:1.75;color:#536176;margin:10px 0 0}
+.recharge-presets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:20px}
+.recharge-presets .alipay-preset{min-width:0;min-height:48px;font-family:inherit;font-size:16px;padding:10px 6px}
+.recharge-presets .alipay-preset.active{border:2px solid #1677ff;padding:9px 5px}
+.recharge-promo{margin-top:24px;font-size:14px;color:#536176}
+.recharge-promo summary{cursor:pointer;width:fit-content;padding:4px 0}
+.recharge-promo label{display:block;margin:12px 0 8px}
+.recharge-promo input{width:100%;min-height:48px;padding:10px 14px;border:1px solid #9aa8bc;border-radius:8px;font:inherit;color:#17243d;background:#fff}
+.recharge-payment{padding:24px;background:#f3f8ff;border-radius:12px}
+.recharge-provider{display:flex;align-items:center;gap:14px}
+.alipay-brand-icon{width:72px;height:72px;flex:none;color:#1677ff}
+.recharge-provider strong{display:block;font-size:27px;color:#17243d;line-height:1.3}
+.recharge-provider span{display:block;margin-top:6px;font-size:13px;color:#455e7d}
+.recharge-steps{padding-left:22px;margin:22px 0;color:#364a63;font-size:14px;line-height:1.75}
+.recharge-steps li+li{margin-top:8px}
+.personal-console .recharge-payment .recharge-submit{margin-top:24px;display:flex;width:100%;min-height:56px;justify-content:center;background:#0865e6;border-color:#0865e6;border-radius:8px;color:#fff;font-family:inherit;font-size:16px;font-weight:600;line-height:1.5;white-space:normal;padding:12px 14px}
+.personal-console .recharge-payment .recharge-submit:hover{background:#0754c1;border-color:#0754c1}
+.personal-console .recharge-payment .recharge-submit:focus-visible,.recharge-promo summary:focus-visible,.billing-policy summary:focus-visible{outline:3px solid #1677ff;outline-offset:3px}
+.recharge-entry .live-notice{font-size:14px;margin-top:16px;padding:12px 14px;line-height:1.6}
+.recharge-unavailable{border-top:1px solid #e2e8f0;padding-top:16px;margin:28px 0 0;font-size:13px;color:#637087}
+.recharge-checkout .alipay-pay{padding:28px;gap:24px;align-items:flex-start}
+.recharge-checkout .alipay-pay-info p{font-size:14px}
+@media(max-width:1100px){.recharge-layout{gap:24px;grid-template-columns:minmax(0,1fr) minmax(260px,1fr)}.billing-stage .pc-tab-body{padding:24px}.recharge-payment{padding:20px}}
+@media(max-width:760px){.recharge-layout{grid-template-columns:minmax(0,1fr);gap:24px}.personal-console .billing-stage{max-width:100%;padding-inline:16px}.billing-stage .pc-tab-body{padding:20px}.recharge-checkout .panel-title{font-size:21px}.recharge-amount{min-height:72px;padding:12px 16px}.recharge-amount input{font-size:32px}.alipay-brand-icon{width:60px;height:60px}.recharge-checkout .alipay-pay{padding:18px}.recharge-checkout .alipay-pay>.alipay-brand-icon{align-self:flex-start}}
+.billing-stage>.personal-console-stats,.billing-stage>.billing-policy{flex-shrink:0}
+.billing-stage>.personal-console-stats>span{display:none}
+@media(max-width:800px){.billing-stage>.personal-console-stats{min-height:96px}.billing-stage>.personal-console-stats>div{min-height:48px}}
