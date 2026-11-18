@@ -217,8 +217,9 @@ ${note('工作台“模型 → 接入配置”里选择工具，会显示带截�
   const groups = [...new Set(PAGES.map(p => p.group))];
   const nav = groups.map(g => `<div class="doc-nav-group"><b>${esc(g)}</b>${PAGES.filter(p => p.group === g).map(p => `<a href="#docs/${p.id}" class="${p.id === page.id ? 'active' : ''}">${esc(p.title)}</a>`).join('')}</div>`).join('');
   const i = PAGES.indexOf(page), prev = PAGES[i - 1], next = PAGES[i + 1];
-  host.innerHTML = `<header class="doc-top"><a class="doc-brand" href="#universe"><img src="pinapi-wordmark.svg" alt="semifly.ai"></a><span class="doc-top-title">文档中心</span><input class="doc-search" type="search" placeholder="搜索文档，例如 413、Token、Cursor" aria-label="搜索文档" data-doc-search><nav><a href="#market">模型广场</a><a href="#workspace">工作台</a></nav></header>
+  host.innerHTML = `${window.SiteHeader.render('docs',{tools:'<strong>文档中心</strong><input class="doc-search" type="search" placeholder="搜索文档，例如 413、Token、Cursor" aria-label="搜索文档" data-doc-search>'})}
 <div class="doc-layout"><aside class="doc-nav" aria-label="文档目录">${nav}</aside><main class="doc-main"><p class="doc-crumb">${esc(page.group)}</p><h1>${esc(page.title)}</h1><div class="doc-body">${page.body()}</div><div class="doc-pager">${prev ? `<a href="#docs/${prev.id}">← ${esc(prev.title)}</a>` : '<span></span>'}${next ? `<a href="#docs/${next.id}">${esc(next.title)} →</a>` : ''}</div></main></div>`;
+  window.IdentityUI?.refreshPublic();
   document.title = `${page.title} · semifly.ai 文档`;
   const target = anchor ? host.querySelector(`#err-${CSS.escape(anchor)}`) || host.querySelector(`#${CSS.escape(anchor)}`) : null;
   if (target) { target.closest('tr')?.classList.add('doc-hit');target.scrollIntoView({ block: 'center' }); } else window.scrollTo(0, 0);

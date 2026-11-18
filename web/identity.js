@@ -18,11 +18,7 @@
  async function customerSignedIn(){try{return !!(await api('/api/platform/me')).user;}catch(e){return e.status!==401;}}
  function translate(code,message){const known={INVALID_EMAIL_OR_PASSWORD:'邮箱或密码不正确。',EMAIL_NOT_VERIFIED:'请先到邮箱完成验证；可重发验证邮件。',PASSWORD_TOO_SHORT:'密码至少需要 12 个字符。',PASSWORD_TOO_LONG:'密码不能超过 128 个字符。',INVALID_TOKEN:'链接无效或已经过期，请重新申请。',INVALID_PASSWORD:'当前密码不正确。',TOO_MANY_REQUESTS:'操作频繁，请稍后重试。',USER_ALREADY_EXISTS:'该邮箱已注册，请登录或找回密码。'};return known[code]||(message&&/^[\u3400-\u9fff]/.test(message)?message:'操作未完成，请检查输入或稍后重试。');}
  const btn=(label,action,attrs='',kind='')=>`<button class="live-button ${kind}" data-live="${action}" ${attrs}>${label}</button>`;
- function accountMenu(user,kind='customer',settingsHref='#security'){
-  if(!user)return `<a class="live-signin" href="#workspace">${ico('user-round')}<span>登录 / 注册</span></a>`;
-  const name=esc(user.name||user.email),initial=esc(Array.from(user.name||user.email||'U')[0]);
-  return `<details class="account-menu"><summary aria-label="账户菜单：${name}，已登录"><span class="account-avatar" aria-hidden="true">${initial}<i></i></span><span class="account-label"><b>${name}</b><small>${kind==='staff'?'员工已登录':'已登录'}</small></span>${ico('chevron-down')}</summary><div class="account-popover"><div class="account-person"><b>${name}</b><small>${esc(user.email)}</small></div>${kind==='staff'?`<a href="#staff-account">${ico('shield-check')} 员工工作台</a>`:`<a href="#workspace">${ico('layout-dashboard')} 我的工作台</a><a href="${settingsHref}">${ico('settings')} 账户设置</a>`}<button data-live="logout" data-session-kind="${kind}">${ico('log-in')} 退出登录</button></div></details>`;
- }
+ const accountMenu=(...args)=>window.SiteHeader.accountMenu(...args);
  function contextKind(){
   if(['staff','staff-account','admin'].includes(current)||current.startsWith('ops/'))return 'staff';
   if(['enterprise','enterprise-register','enterprise-login'].includes(current)||current.startsWith('organization/')||current.startsWith('billing/organization/')||current.startsWith('demo/organization/')||current.startsWith('join/'))return 'enterprise';
@@ -36,7 +32,7 @@
  function header(){
   const kind=contextKind();
   const nav=kind==='staff'?(staff?`<a href="#staff-account">员工工作台</a>${(staff.role==='platform_admin'||staff.technical_access)?'<a href="#console/technical/overview">技术运维</a>':''}`:''):'<a href="#universe">首页</a><a href="#market">模型广场</a><a href="#workspace">工作台</a>';
-  return `<header class="live-header"><a class="welcome-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"><span>It’s Your <em class="brand-ai">A</em>P<em class="brand-ai">I</em>.</span></a>${contextIndicator()}<nav aria-label="账户导航">${nav}${kind==='staff'&&!staff?'':accountMenu(staff||me?.user,staff?'staff':'customer')}</nav></header>`;
+  return window.SiteHeader.render('workspace',{className:'live-header',account:accountMenu(staff||me?.user,staff?'staff':'customer'),tools:kind==='staff'?contextIndicator()+`<nav>${nav}</nav>`:''});
  }
  let publicTicket=0;
  async function refreshPublic(){
@@ -460,7 +456,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   const orgs=me.organizations||[],approved=me.upgrade?.status==='approved',role=org?(customerRoles[lastOrg?.membership?.role]||'企业成员'):'个人账号',settings=org?`#organization/${esc(org.id)}/settings`:'#security';
   const spaces=[...(!org||personalVisible()?[{value:'personal',name:'个人工作区',current:!org}]:[]),...orgs.map(o=>({value:'organization/'+o.id,name:o.name,current:org?.id===o.id})),...(approved||orgs.length?[]:[{value:'upgrade',name:'＋ 升级为企业账号'}])];
   const workspace=spaces.length>1?`<label class="pc-workspace">${ico('building-2')}<select data-workspace-select aria-label="当前工作空间">${spaces.map(s=>`<option value="${esc(s.value)}" ${s.current?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>`:`<span class="pc-workspace">${ico('building-2')}<span class="pc-workspace-name" title="${esc(spaces[0]?.name||'')}">${esc(spaces[0]?.name||'')}</span></span>`;
-  return `<header class="pc-topbar"><a class="welcome-brand pc-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"></a><span class="pc-title-divider"></span>${surfaceSwitch()||'<strong class="pc-product-title">工作台</strong>'}<div class="pc-topbar-actions"><span class="pc-identity">${role}</span>${workspace}<a class="pc-docs-link" href="#docs" title="API 文档与常见问题">文档</a><label class="pc-global-search">${ico('search')}<input data-personal-search aria-label="搜索模型" placeholder="搜索模型，回车查看" value="${esc(personalSearch)}"></label>${accountMenu(me.user,'customer',settings)}</div></header>`;
+  return window.SiteHeader.render('workspace',{className:'pc-topbar',account:accountMenu(me.user,'customer',settings),tools:`${surfaceSwitch()||'<strong class="pc-product-title">工作台</strong>'}<div class="pc-topbar-actions"><span class="pc-identity">${role}</span>${workspace}<label class="pc-global-search">${ico('search')}<input data-personal-search aria-label="搜索模型" placeholder="搜索模型，回车查看" value="${esc(personalSearch)}"></label></div>`});
  }
  const analytics={range:'24h',data:null,at:0,loading:false,cost:'bar',calls:'trend'};
  function loadAnalytics(force=false){
