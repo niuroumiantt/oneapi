@@ -29,7 +29,9 @@ export function billingRoutes(app,pool,requireCustomer,cfg,payments){
   const packs=account?(await pool.query(`SELECT p.*,r.status AS refund_request_status FROM credit_packs p LEFT JOIN credit_refund_requests r ON r.pack_id=p.id AND r.status IN ('requested','processing') WHERE account_id=$1 ORDER BY p.created_at DESC LIMIT 100`,[account.id])).rows:[];
   const packViews=[];for(const p of packs){const q=await refundQuote(pool,p.id);packViews.push({...p,net_fen:q.net_fen,fee_fen:q.fee_fen,refund_blocked:q.blocked});}
   const usage=account?(await pool.query(`SELECT model_id,count(*)::int AS calls,coalesce(sum(input_tokens),0) AS input_tokens,coalesce(sum(output_tokens),0) AS output_tokens,coalesce(sum(charged_yuan),0) AS charged_yuan FROM customer_calls WHERE account_id=$1 GROUP BY model_id`,[account.id])).rows:[];
-  res.json({...disabled(account,entries.rows,scope,totalRecharged.rows[0].total_recharged_fen,channels),packs:packViews,usage_by_model:usage,...(bankTransfer?{bank_transfer:bankTransfer}:{})});
+  const summary=disabled(account,entries.rows,scope,totalRecharged.rows[0].total_recharged_fen,channels);
+  summary.recharge.channel_status=Object.fromEntries([['alipay_f2f',cfg.alipay],['wechat_native',cfg.wechat]].map(([key,config])=>[key,channels.includes(key)?'available':config?.enabled?'restricted':'unavailable']));
+  res.json({...summary,packs:packViews,usage_by_model:usage,...(bankTransfer?{bank_transfer:bankTransfer}:{})});
  }
  app.get('/api/billing/personal',requireCustomer,async(req,res)=>{
   const account=(await pool.query('SELECT id,cash_balance_fen,list_credit_fen,total_spent_fen FROM billing_accounts WHERE owner_id=$1',[req.customer.id])).rows[0];
