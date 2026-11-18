@@ -16,13 +16,9 @@
  let orgLoadedAt=0,panelDataAt=0,modelHealth=null,modelHealthAt=0,modelHealthTried=0,modelHealthLoading=false;
  async function api(path,body,method){if(body||method){orgLoadedAt=0;panelDataAt=0;lastOrgBilling=null;}const r=await fetch(path,{method:method||(body?'POST':'GET'),headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,credentials:'same-origin',cache:'no-store'});let data;try{data=await r.json();}catch{data={};}if(!r.ok){const err=Error(data.error||translate(data.code,data.message)||'暂时无法完成，请稍后重试。');err.status=r.status;throw err;}return data;}
  async function customerSignedIn(){try{return !!(await api('/api/platform/me')).user;}catch(e){return e.status!==401;}}
- function translate(code,message){const known={INVALID_EMAIL_OR_PASSWORD:'邮箱或密码不正确。',EMAIL_NOT_VERIFIED:'请先到邮箱完成验证；可重发验证邮件。',PASSWORD_TOO_SHORT:'密码至少需要 12 个字符。',PASSWORD_TOO_LONG:'密码不能超过 128 个字符。',INVALID_TOKEN:'链接无效或已经过期，请重新申请。',INVALID_PASSWORD:'当前密码不正确。',TOO_MANY_REQUESTS:'操作频繁，请稍后重试。',USER_ALREADY_EXISTS:'该邮箱已注册，请登录或找回密码。'};return known[code]||(message&&/^[\u3400-\u9fff]/.test(message)?message:'操作未完成，请检查输入或稍后重试。');}
+ function translate(code,message){const known={SESSION_NOT_FRESH:'查看登录设备前，请退出后重新登录以验证身份。',INVALID_EMAIL_OR_PASSWORD:'邮箱或密码不正确。',EMAIL_NOT_VERIFIED:'请先到邮箱完成验证；可重发验证邮件。',PASSWORD_TOO_SHORT:'密码至少需要 12 个字符。',PASSWORD_TOO_LONG:'密码不能超过 128 个字符。',INVALID_TOKEN:'链接无效或已经过期，请重新申请。',INVALID_PASSWORD:'当前密码不正确。',TOO_MANY_REQUESTS:'操作频繁，请稍后重试。',USER_ALREADY_EXISTS:'该邮箱已注册，请登录或找回密码。'};return known[code]||(message&&/^[\u3400-\u9fff]/.test(message)?message:'操作未完成，请检查输入或稍后重试。');}
  const btn=(label,action,attrs='',kind='')=>`<button class="live-button ${kind}" data-live="${action}" ${attrs}>${label}</button>`;
- function accountMenu(user,kind='customer',settingsHref='#security'){
-  if(!user)return `<a class="live-signin" href="#workspace">${ico('user-round')}<span>登录 / 注册</span></a>`;
-  const name=esc(user.name||user.email),initial=esc(Array.from(user.name||user.email||'U')[0]);
-  return `<details class="account-menu"><summary aria-label="账户菜单：${name}，已登录"><span class="account-avatar" aria-hidden="true">${initial}<i></i></span><span class="account-label"><b>${name}</b><small>${kind==='staff'?'员工已登录':'已登录'}</small></span>${ico('chevron-down')}</summary><div class="account-popover"><div class="account-person"><b>${name}</b><small>${esc(user.email)}</small></div>${kind==='staff'?`<a href="#staff-account">${ico('shield-check')} 员工工作台</a>`:`<a href="#workspace">${ico('layout-dashboard')} 我的工作台</a><a href="${settingsHref}">${ico('settings')} 账户设置</a>`}<button data-live="logout" data-session-kind="${kind}">${ico('log-in')} 退出登录</button></div></details>`;
- }
+ const accountMenu=(...args)=>window.SiteHeader.accountMenu(...args);
  function contextKind(){
   if(['staff','staff-account','admin'].includes(current)||current.startsWith('ops/'))return 'staff';
   if(['enterprise','enterprise-register','enterprise-login'].includes(current)||current.startsWith('organization/')||current.startsWith('billing/organization/')||current.startsWith('demo/organization/')||current.startsWith('join/'))return 'enterprise';
@@ -36,7 +32,7 @@
  function header(){
   const kind=contextKind();
   const nav=kind==='staff'?(staff?`<a href="#staff-account">员工工作台</a>${(staff.role==='platform_admin'||staff.technical_access)?'<a href="#console/technical/overview">技术运维</a>':''}`:''):'<a href="#universe">首页</a><a href="#market">模型广场</a><a href="#workspace">工作台</a>';
-  return `<header class="live-header"><a class="welcome-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"><span>It’s Your <em class="brand-ai">A</em>P<em class="brand-ai">I</em>.</span></a>${contextIndicator()}<nav aria-label="账户导航">${nav}${kind==='staff'&&!staff?'':accountMenu(staff||me?.user,staff?'staff':'customer')}</nav></header>`;
+  return window.SiteHeader.render('workspace',{className:'live-header',account:accountMenu(staff||me?.user,staff?'staff':'customer'),tools:kind==='staff'?contextIndicator()+`<nav>${nav}</nav>`:''});
  }
  let publicTicket=0;
  async function refreshPublic(){
@@ -59,7 +55,7 @@
    const existingOrg=host.querySelector('.org-shell'),nextOrg=template.content.querySelector('.org-shell');
    existingOrg.querySelector('.org-sidebar').innerHTML=nextOrg.querySelector('.org-sidebar').innerHTML;
    existingOrg.querySelector('.org-content').replaceWith(nextOrg.querySelector('.org-content'));
-  }else host.innerHTML=header()+`<main class="live-main">${content}</main><footer class="live-footer"><span>semifly.ai · 深圳市格洛可半导体有限公司</span><span>中国区 · 独立身份与工作空间</span></footer>`;
+  }else host.innerHTML=header()+`<main class="live-main">${content}</main>${window.SiteHeader.footer()}`;
   if(!wasIdentityActive){document.querySelectorAll('#market-view,#login-view').forEach(el=>el.hidden=true);window.LandingUI?.hide();}
   host.hidden=false;document.body.classList.remove('market-active','welcome-active','universe-active','ops-active','catalog-active','identity-context-personal','identity-context-enterprise','identity-context-staff');document.body.classList.add('identity-active','identity-context-'+contextKind());document.body.classList.toggle('personal-console-active',content.includes('class="personal-console"'));window.UniverseScene?.setActive(false);document.title='semifly.ai · '+({personal:'个人工作台',enterprise:'企业管理工作台',staff:'内部工作台'}[contextKind()]);
   document.body.classList.remove('identity-route-pending');
@@ -394,7 +390,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
  }
  function paidUsagePanel(){return `<section class="personal-ledger"><h2>付费调用用量</h2><p>按调用时官网价格计量；实付款消耗按购买批次折算。没有可靠用量的请求暂时预留，不按估算强制扣费。</p><div class="personal-table-wrap"><table><thead><tr><th>时间</th><th>模型</th><th>输入 / 输出 Token</th><th>官价额度（元）</th><th>状态</th></tr></thead><tbody>${paidCredit.calls.map(c=>`<tr><td>${new Date(c.created_at).toLocaleString('zh-CN')}</td><td>${esc(c.model_id)}</td><td>${c.input_tokens??'—'} / ${c.output_tokens??'—'}</td><td>${c.charged_yuan==null?'待结算':Number(c.charged_yuan).toFixed(6)}</td><td>${esc({settled:'已结算',pending:'调用中',awaiting_bill:'等待用量',failed:'未扣费'}[c.status])}</td></tr>`).join('')}</tbody></table></div></section>`;}
  let panelData={tickets:null,sessions:null},panelRedraw=null;
- function loadPanelData(kind,path,redraw){const box=panelData;if(box[kind]||box['loading:'+kind])return;box['loading:'+kind]=true;api(path).catch(()=>[]).then(value=>{box[kind]=value;if(box===panelData)redraw();});}
+ function loadPanelData(kind,path,redraw){const box=panelData;if(box[kind]||box['loading:'+kind])return;box['loading:'+kind]=true;api(path).catch(error=>{if(kind==='sessions'){box['error:'+kind]=error.message;return null;}return [];}).then(value=>{box[kind]=value;if(box===panelData)redraw();});}
  function panelNav(org,active){
   const manager=Boolean(org&&lastOrg?.permissions?.manager),id=org?esc(org.id):'';
   const state=key=>`class="${active===key?'active':''}" aria-current="${active===key?'page':'false'}"`,inner=(icon,label)=>`${ico(icon)}<span>${label}</span>`;
@@ -405,7 +401,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
    (!org?link('billing','#billing/personal','receipt-text','账单'):manager?link('billing','#billing/organization/'+id,'receipt-text','账单'):'')+
    (org?tab('support','circle-alert','支持')+tab('settings','settings','设置'):link('support','#support','circle-alert','支持')+link('settings','#security','settings','设置'));
  }
- const panelPage=(org,active,stage)=>`<div class="personal-console">${customerHeader(org)}<aside class="pc-sidebar"><nav aria-label="工作台导航">${panelNav(org,active)}</nav></aside><div class="pc-stage">${stage}</div></div>`;
+ const panelPage=(org,active,stage)=>`<div class="personal-console">${customerHeader(org)}<aside class="pc-sidebar"><nav aria-label="工作台导航">${panelNav(org,active)}</nav></aside><div class="pc-stage">${stage}</div>${window.SiteHeader.footer()}</div>`;
  const panelBody=content=>`<div data-personal-content>${content}</div>`;
  const panelLoading='<p class="personal-model-empty">正在读取…</p>';
  const settingRow=(label,value)=>`<div class="org-setting-row"><span>${label}</span><b>${value}</b></div>`;
@@ -424,7 +420,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   const upgrade=canUpgrade?(u?.status==='pending'?settingRow('企业升级','审核中'):`<div class="panel-setting-action"><a class="live-button primary" href="#upgrade">升级为企业账号</a></div>`):'';
   const account=`<div class="panel-settings">${settingRow('姓名',esc(me.user.name||'—'))}${settingRow('登录邮箱',esc(me.user.email))}${org?settingRow('企业',esc(org.name))+settingRow('我的身份',customerRoles[role]||'企业成员')+settingRow('权限范围',manager?'管理全公司的员工、额度和用量':'使用自己的额度和 Key')+settingRow('服务区域',org.region==='CN'?'中国区':esc(org.region||'中国区')):settingRow('账户类型','个人账号')}${upgrade}${manager&&teamUsage?settingRow('调用摘要记录',teamUsage.summaries_enabled?'已开启 · 保存最后一条提问的前 60 个字，30 天后删除':'未开启 · 只记录时间、模型、来源和费用'):''}${manager?`<div class="panel-setting-action">${teamUsage?btn(teamUsage.summaries_enabled?'关闭调用摘要':'开启调用摘要','toggle-summaries','','quiet'):''}${btn('查看操作记录','org-audit','','quiet')}</div>`:''}</div>`;
   const password=`<form id="live-password-form" class="live-form panel-form"><label>当前密码<input name="currentPassword" type="password" autocomplete="current-password" required></label><label>新密码<input name="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label><div id="live-form-message" role="status"></div><button class="live-button primary" type="submit">修改并退出其他设备</button></form>`;
-  const devices=!list?panelLoading:`<p class="live-small">${list.length} 个有效会话。需要时可一次退出其他设备。</p>${btn('退出其他设备','revoke-others','','quiet')}<div class="live-session-list">${list.map(s=>`<article><b>${esc((s.userAgent||'未知设备').slice(0,100))}</b><small>创建于 ${new Date(s.createdAt).toLocaleString('zh-CN')}</small></article>`).join('')}</div>`;
+  const devices=panelData['error:sessions']?`<p class="live-small" role="status">${esc(panelData['error:sessions'])}</p>`:!list?panelLoading:`<p class="live-small">${list.length} 个有效会话。需要时可一次退出其他设备。</p>${btn('退出其他设备','revoke-others','','quiet')}<div class="live-session-list">${list.map(s=>`<article><b>${esc((s.userAgent||'未知设备').slice(0,100))}</b><small>创建于 ${new Date(s.createdAt).toLocaleString('zh-CN')}</small></article>`).join('')}</div>`;
   const departments=`<div class="dept-panel"><p class="live-small">员工申请加入、管理者编辑成员时，只能从这里选部门。改名会同步到所有成员；改成已有部门的名字会把两个部门合并；删除后，成员回到“未分组”。</p><form id="live-dept-create" class="dept-add"><input name="name" maxlength="40" required placeholder="新部门名称，例如：销售部" aria-label="新部门名称"><button class="live-button primary" type="submit">添加部门</button><div role="status"></div></form><div class="dept-list">${depts.map(d=>`<div class="dept-row"><span><b>${esc(d.name)}</b><small>${d.members} 位成员</small></span>${btn('改名','dept-rename',`data-id="${esc(d.id)}" data-name="${esc(d.name)}"`,'quiet')}${btn('删除','dept-delete',`data-id="${esc(d.id)}" data-name="${esc(d.name)}" data-members="${d.members}"`,'quiet')}</div>`).join('')||'<p class="personal-model-empty">还没有部门。添加后，员工和管理者就能从列表中选择。</p>'}</div></div>`;
   return tabbedPage('settings',views,view==='password'?password:view==='sessions'?devices:view==='departments'&&manager?departments:account);
  }
@@ -460,7 +456,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   const orgs=me.organizations||[],approved=me.upgrade?.status==='approved',role=org?(customerRoles[lastOrg?.membership?.role]||'企业成员'):'个人账号',settings=org?`#organization/${esc(org.id)}/settings`:'#security';
   const spaces=[...(!org||personalVisible()?[{value:'personal',name:'个人工作区',current:!org}]:[]),...orgs.map(o=>({value:'organization/'+o.id,name:o.name,current:org?.id===o.id})),...(approved||orgs.length?[]:[{value:'upgrade',name:'＋ 升级为企业账号'}])];
   const workspace=spaces.length>1?`<label class="pc-workspace">${ico('building-2')}<select data-workspace-select aria-label="当前工作空间">${spaces.map(s=>`<option value="${esc(s.value)}" ${s.current?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>`:`<span class="pc-workspace">${ico('building-2')}<span class="pc-workspace-name" title="${esc(spaces[0]?.name||'')}">${esc(spaces[0]?.name||'')}</span></span>`;
-  return `<header class="pc-topbar"><a class="welcome-brand pc-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"></a><span class="pc-title-divider"></span>${surfaceSwitch()||'<strong class="pc-product-title">工作台</strong>'}<div class="pc-topbar-actions"><span class="pc-identity">${role}</span>${workspace}<a class="pc-docs-link" href="#docs" title="API 文档与常见问题">文档</a><label class="pc-global-search">${ico('search')}<input data-personal-search aria-label="搜索模型" placeholder="搜索模型，回车查看" value="${esc(personalSearch)}"></label>${accountMenu(me.user,'customer',settings)}</div></header>`;
+  return window.SiteHeader.render('workspace',{className:'pc-topbar',account:accountMenu(me.user,'customer',settings),tools:`${surfaceSwitch()||'<strong class="pc-product-title">工作台</strong>'}<div class="pc-topbar-actions"><span class="pc-identity">${role}</span>${workspace}<label class="pc-global-search">${ico('search')}<input data-personal-search aria-label="搜索模型" placeholder="搜索模型，回车查看" value="${esc(personalSearch)}"></label></div>`});
  }
  const analytics={range:'24h',data:null,at:0,loading:false,cost:'bar',calls:'trend'};
  function loadAnalytics(force=false){
@@ -792,7 +788,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
    catch(e){if(ticket===generation){if(e.status===401){me=null;lastOrg=null;lastOrgBilling=null;authForm();}else if(e.status===403||e.status===404){lastOrg=null;lastOrgBilling=null;mount(hero('YOUR WORKSPACE','暂时无法打开这个空间。','请核对账号及企业权限。')+note(e.message,true)+'<a class="live-button" href="#workspace">返回工作台</a>');}}}
    return;
   }
-  const staffView=view==='staff-account'||view==='admin'||view.startsWith('ops/');if(!host.innerHTML.trim())host.innerHTML='<div class="live-loading" role="status">正在打开你的工作空间…</div>';
+  const staffView=view==='staff-account'||view==='admin'||view.startsWith('ops/');if(!host.innerHTML.trim())host.innerHTML=header()+'<main class="live-loading" role="status">正在打开你的工作空间…</main>'+window.SiteHeader.footer();
   // Coming from another view (console, landing): show this frame at once with a loading bar, instead of leaving the old page visible until data arrives.
   if(!wasIdentityActive){document.querySelectorAll('#market-view,#login-view').forEach(el=>el.hidden=true);window.LandingUI?.hide();window.UniverseScene?.setActive(false);document.body.classList.remove('market-active','welcome-active','universe-active','catalog-active');document.body.classList.add('identity-active');host.hidden=false;host.classList.add('route-loading');}
   if(wasIdentityActive&&staff&&view.startsWith('ops/')){

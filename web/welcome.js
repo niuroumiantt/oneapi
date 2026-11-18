@@ -4,10 +4,7 @@
   const $=selector=>document.querySelector(selector);
   function entryViews(){
     $('#login-view').innerHTML=`<div class="welcome-page">
-  <header class="welcome-header">
-    <a class="welcome-brand" href="#universe" aria-label="semifly.ai 首页"><img src="pinapi-wordmark.svg" alt="semifly.ai"><span>It’s Your <em class="brand-ai">A</em>P<em class="brand-ai">I</em>.</span></a>
-    <nav aria-label="欢迎页导航"><a href="#market">模型广场 <span data-icon="arrow-up-right"></span></a><a href="skills/">Skills 广场</a><a href="#docs">文档</a><a href="#workspace">工作台</a><div data-account-slot><a class="live-signin" href="#workspace"><span data-icon="user-round"></span>登录 / 注册</a></div><div class="universe-clock"><span>北京时间</span><time id="universe-clock" aria-live="off">--:--:--.---</time></div></nav>
-  </header>
+  ${window.SiteHeader.render('universe')}
   <main class="welcome-main">
     <div class="universe-scene" aria-hidden="true"><canvas id="universe-canvas"></canvas><div class="universe-nebula"></div><div id="solar-bodies"></div><div class="universe-near-world"></div></div>
     <div class="universe-caption" aria-hidden="true"><span>太阳系 · 动态示意</span><span>ANDROMEDA / 仙女星系</span></div>
@@ -32,7 +29,7 @@
 
     </section>
   </main>
-  <footer class="welcome-footer"><span>semifly · 为好想法多走一步</span><span>深圳市格洛可半导体有限公司</span></footer>
+  ${window.SiteHeader.footer()}
 </div>
 `;
   }

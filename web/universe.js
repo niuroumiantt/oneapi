@@ -168,7 +168,6 @@
   }
   function update(){
     syncControls();
-    updateClock();
     if(frame)cancelAnimationFrame(frame);frame=0;last=0;
     if(active&&!document.hidden){resize();if(!paused&&(!reduced.matches||explicitMotion))frame=requestAnimationFrame(tick);}
   }
@@ -184,17 +183,6 @@
     speedOutput.value=(speed<=1?speed.toFixed(2):speed.toFixed(1))+'×';
     slider.setAttribute('aria-valuetext',speed+' 倍');slider.style.setProperty('--speed-progress',position/10+'%');
   });
-  const clock=document.getElementById('universe-clock');
-  const clockFormat=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
-  let clockFrame=0,clockSecond=-1,clockPrefix='';
-  function clockTick(){
-    clockFrame=0;if(!active||document.hidden||!clock)return;
-    const now=new Date(),second=Math.floor(now.getTime()/1000);
-    if(second!==clockSecond){clockSecond=second;clockPrefix=clockFormat.format(now);clock.dateTime=now.toISOString();}
-    clock.textContent=clockPrefix+'.'+String(now.getMilliseconds()).padStart(3,'0');
-    clockFrame=requestAnimationFrame(clockTick);
-  }
-  function updateClock(){if(clockFrame)cancelAnimationFrame(clockFrame);clockFrame=0;clockTick();}
   document.addEventListener('visibilitychange',update);reduced.addEventListener('change',()=>{explicitMotion=false;update();});
   window.UniverseScene.setActive(document.body.classList.contains('universe-active'));
 })();

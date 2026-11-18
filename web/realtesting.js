@@ -51,7 +51,8 @@
   document.body.classList.remove('market-active', 'identity-active', 'welcome-active', 'universe-active', 'ops-active', 'catalog-active', 'landing-active', 'docs-active');
   document.body.classList.add('realtesting-active'); host.hidden = false;
   window.IdentityUI?.cancel?.(); window.UniverseScene?.setActive?.(false);
-  host.innerHTML = `<header class="rt-top"><a class="rt-brand" href="#universe"><img src="pinapi-wordmark.svg" alt="semifly.ai"></a><span class="rt-top-title">实测报告</span><nav><a href="#docs">文档</a><a href="#market">模型广场</a>${REPORT ? '<button type="button" class="rt-pdf" data-rt-print>打印 / 保存为 PDF</button>' : ''}</nav></header><main class="rt-main">${REPORT ? body(REPORT) : `<section class="rt-sec"><h1>${REPORT === false ? '实测报告整理中，稍后发布。' : '正在读取实测报告…'}</h1></section>`}</main>`;
+  host.innerHTML = `${window.SiteHeader.render('docs',{tools:`<strong>实测报告</strong>${REPORT ? '<button type="button" class="rt-pdf" data-rt-print>打印 / 保存为 PDF</button>' : ''}`})}<main class="rt-main">${REPORT ? body(REPORT) : `<section class="rt-sec"><h1>${REPORT === false ? '实测报告整理中，稍后发布。' : '正在读取实测报告…'}</h1></section>`}</main>${window.SiteHeader.footer()}`;
+  window.IdentityUI?.refreshPublic();
   document.title = 'semifly.ai · 实测报告：我们的 API vs 官方 API';
   if (REPORT === null && !loading) loading = fetch('/api/public/realtesting').then(r => r.ok ? r.json() : false).catch(() => false).then(d => { REPORT = d; loading = null; if (!host.hidden) render(); });
  }

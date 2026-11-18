@@ -22,12 +22,14 @@ def main():
     sha = git('rev-parse', 'HEAD').decode().strip()
     html = git('show', 'HEAD:web/index.html').decode()
     assets = {}
-    for name in ('styles.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'identity.js', 'identity.css', 'home.css', 'landings.css', 'landings.js', 'brand.css', 'icons.js', 'model-catalog.js', 'app.js', 'welcome.js', 'table-sort.js', 'docs.js', 'docs.css', 'console.js', 'console.css', 'realtesting.js', 'realtesting.css', 'select-menu.js'):
+    asset_names = {}
+    for name in ('styles.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'identity.js', 'identity.css', 'home.css', 'landings.css', 'landings.js', 'brand.css', 'icons.js', 'model-catalog.js', 'app.js', 'welcome.js', 'table-sort.js', 'docs.js', 'docs.css', 'console.js', 'console.css', 'realtesting.js', 'realtesting.css', 'select-menu.js', 'site-header.js', 'site-header.css'):
         content = git('show', f'HEAD:web/{name}')
         stem, extension = name.rsplit('.', 1)
         target = f'{stem}.{hashlib.sha256(content).hexdigest()[:12]}.{extension}'
         html = html.replace(f'"{name}"', f'"{target}"')
         assets[target] = content
+        asset_names[name] = target
     assets['index.html'] = html.encode()
     compare_html = git('show', 'HEAD:web/compare.html').decode()
     for name in ('compare.css', 'compare-savings.js', 'compare-pdf.js', 'compare.js'):
@@ -36,6 +38,9 @@ def main():
         target = f'{stem}.{hashlib.sha256(content).hexdigest()[:12]}.{extension}'
         compare_html = compare_html.replace(f'"{name}"', f'"{target}"')
         assets[target] = content
+        asset_names[name] = target
+    for source, target in asset_names.items():
+        compare_html = compare_html.replace(f'"{source}"', f'"{target}"')
     assets['compare.html'] = compare_html.encode()
 
     for name in ('pinapi-mark.svg', 'pinapi-wordmark.svg', 'semifly-email-logo.png', 'universe-speed-knob.png', 'favicon.svg', 'semifly-wordmark.svg', 'semifly-lockup.svg', 'THIRD-PARTY-LICENSES.txt'):
@@ -51,6 +56,8 @@ def main():
             text = text.replace('semifly.ai 本地原型', 'semifly.ai')
             text = text.replace('<body>', '<body data-market-url="market-live.json">')
             text = text.replace('本地交互原型', 'Skills 广场').replace('本地验证 ·', '来源与许可已核对 ·')
+            for source, target in asset_names.items():
+                text = text.replace(f'"../{source}"', f'"../{target}"')
             content = text.encode()
         elif name == 'skills.js':
             content = content.decode().replace('semifly.ai 本地目录', 'semifly.ai').replace('每天 09:00 本地更新（需本机与 Codex 运行）', '每天 09:00 更新（北京时间）').encode()
