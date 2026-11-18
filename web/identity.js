@@ -362,6 +362,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
  }
  function personalDashboardContent(){
   if(personalTab==='overview')return overviewContent();
+  if(personalTab==='compare')return comparePanel();
   const selected=personalCatalog().find(m=>m.id===personalSelected)||personalCatalog()[0];
   if(personalTab==='models'){
    const rows=personalCatalogRows(),rates=selected?personalBaseRate(selected):null,pilotSelected=Boolean(!panelOrg&&personalPilot?.enabled&&personalPilot.model_ids?.includes(selected?.id)),employeeSelected=Boolean(creditActive()&&employeeCredit.model_ids?.includes(selected?.id)),paidSelected=Boolean(!creditActive()&&paidCredit?.enabled&&paidCredit.models?.some(m=>m.id===selected?.id));
@@ -384,12 +385,12 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
  function updatePersonalDashboard(){
   const content=host?.querySelector('[data-personal-content]');if(!content)return;
   content.innerHTML=personalDashboardContent();
-  if(!panelOrg){const row=host.querySelector('.personal-console-stats');if(row)row.hidden=personalTab==='overview';}
+  if(!panelOrg){const row=host.querySelector('.personal-console-stats');if(row)row.hidden=['overview','compare'].includes(personalTab);}
   host.querySelectorAll('[data-personal-tab]').forEach(b=>{const active=b.dataset.tab===personalTab;b.classList.toggle('active',active);if(b.getAttribute('role')==='tab')b.setAttribute('aria-selected',String(active));else b.setAttribute('aria-current',active?'page':'false');});
  }
  async function account(ticket,earlyBilling){
   if(me?.upgrade?.status==='approved'&&me.upgrade.organization_id){location.hash='organization/'+me.upgrade.organization_id;return;}
-  panelOrg=null;teamUsage=null;if(!['overview','models','keys','usage'].includes(personalTab))personalTab='overview';
+  panelOrg=null;teamUsage=null;if(!['overview','models','keys','usage','compare'].includes(personalTab))personalTab='overview';
   if(current==='personal/usage')personalTab='usage';
   const pilotPromise=api('/api/pilot/status').catch(()=>({enabled:false}));
   const employeePromise=api('/api/employee-credit/status').catch(()=>({enabled:false}));
@@ -418,12 +419,13 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   const state=key=>`class="${active===key?'active':''}" aria-current="${active===key?'page':'false'}"`,inner=(icon,label)=>`${ico(icon)}<span>${label}</span>`;
   const tab=(key,icon,label)=>org?`<button type="button" data-live="org-tab" data-tab="${key}" data-nav="${key}" ${state(key)}>${inner(icon,label)}</button>`:`<button type="button" data-personal-tab data-live="personal-tab" data-tab="${key}" data-nav="${key}" ${state(key)}>${inner(icon,label)}</button>`;
   const link=(key,href,icon,label)=>`<a href="${href}" data-nav="${key}" ${state(key)}>${inner(icon,label)}</a>`;
-  return tab('overview','layout-dashboard','概览')+tab('models','layers','模型')+tab('keys','command','密钥')+link('compare','/compare.html','layers','API 对比')+tab('usage','chart-no-axes-combined','用量')+
+  return tab('overview','layout-dashboard','概览')+tab('models','layers','模型')+tab('keys','command','密钥')+tab('compare','layers','API 对比')+tab('usage','chart-no-axes-combined','用量')+
    (manager?tab('people','users-round','员工'):'')+
    (!org?link('billing','#billing/personal','receipt-text','账单'):manager?link('billing','#billing/organization/'+id,'receipt-text','账单'):'')+
    (org?tab('support','circle-alert','支持')+tab('settings','settings','设置'):link('support','#support','circle-alert','支持')+link('settings','#security','settings','设置'));
  }
  const panelPage=(org,active,stage)=>`<div class="personal-console">${customerHeader(org)}<aside class="pc-sidebar"><nav aria-label="工作台导航">${panelNav(org,active)}</nav></aside><div class="pc-stage ${active==='billing'?'billing-stage':''}">${stage}</div>${window.SiteHeader.footer()}</div>`;
+ const comparePanel=()=>'<iframe class="workspace-compare-frame" title="API 对比台" src="/compare.html?embedded=1"></iframe>';
  const panelBody=content=>`<div data-personal-content>${content}</div>`;
  const panelLoading='<p class="personal-model-empty">正在读取…</p>';
  const settingRow=(label,value)=>`<div class="org-setting-row"><span>${label}</span><b>${value}</b></div>`;
@@ -461,7 +463,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   if(ticket!==generation||lastOrg?.organization?.id!==orgId||!current.startsWith('organization/'+orgId))return;
   employeeCredit=status;teamUsage=team;orgLoadedAt=Date.now();organizationV2(lastOrg);
  }
- const orgSections=['overview','budget','models','keys','usage','people','support','settings'];
+ const orgSections=['overview','budget','models','keys','compare','usage','people','support','settings'];
  const orgSection=section=>({budget:'usage'}[section]||(orgSections.includes(section)?section:'overview'));
  function surfaceSwitch(){
   const b=me?.backoffice;if(!b?.business&&!b?.technical)return '';
@@ -566,7 +568,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   const manager=Boolean(p.manager),credit=creditActive(),team=credit&&manager?teamUsage:null;
   const pending=data.joinRequests||[],joinLink=(data.joinLinks||[])[0],active=members.filter(person=>person.status==='active').length;
   panelRedraw=null;if(orgTab==='support'){loadPanelData('tickets','/api/support/tickets',()=>organizationV2(lastOrg));loadPanelData('answers','/api/support/answers',()=>organizationV2(lastOrg));}if(orgTab==='settings')loadPanelData('sessions','/api/auth/list-sessions',()=>organizationV2(lastOrg));
-  if(![...'overview models keys usage support settings'.split(' '),...(manager?['people']:[])].includes(orgTab))orgTab='overview';
+  if(![...'overview models keys compare usage support settings'.split(' '),...(manager?['people']:[])].includes(orgTab))orgTab='overview';
   const usageOf=person=>{const row=team?.members.find(x=>x.user_id===person.user_id);return row?`<span class="usage-cell"><span>${employeeYuan(row.spent_yuan)} / ${employeeYuan(row.granted_yuan)}</span>${usageBar(row.spent_yuan,row.granted_yuan)}</span>`:'—';};
   const memberRow=(person,index)=>{const self=person.user_id===me.user.id,on=person.status==='active';return `<tr><td><button type="button" class="member-link" data-live="member-detail" data-user="${esc(person.user_id)}">${esc(person.name)}</button>${self?' <span class="live-pill muted">当前账号</span>':''}<small>${esc(person.email)}</small></td><td>${customerRoles[person.role]||'企业成员'}</td><td>${esc(person.department)||'未分组'}</td><td><span class="live-pill ${on?'':'muted'}">${on?'已启用':'已停用'}</span></td><td class="org-usage-cell" data-sort="${(r=>r?usageShare(r.spent_yuan,r.granted_yuan).pct:'')(team?.members.find(x=>x.user_id===person.user_id))}">${usageOf(person)}</td><td class="org-actions">${credit&&on?btn('调整额度','team-quota',`data-user="${esc(person.user_id)}" data-name="${esc(person.name)}"`,'quiet'):''}${btn('管理','edit-member',`data-index="${index}"`,'quiet')}${self?'':btn(on?'停用':'启用','member-toggle',`data-index="${index}"`,'quiet')}</td></tr>`;};
   const pendingRow=i=>`<tr><td><b>${esc(i.display_name)}</b><small>${esc(i.email)}</small></td><td>申请加入</td><td>${esc(i.department)||'未分组'}</td><td><span class="live-pill muted">待审批</span></td><td class="org-usage-cell">—</td><td class="org-actions">${btn('批准','approve-request',`data-id="${i.id}"`,'primary')} ${btn('拒绝','reject-request',`data-id="${i.id}"`,'quiet')}</td></tr>`;
@@ -575,8 +577,8 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   const stat=(cls,icon,label,value)=>`<div class="${cls}">${ico(icon)}<span>${label}</span><strong>${value}</strong></div>`;
   const stats=team?stat('pc-stat-balance','server','员工额度余额',employeeYuan(team.totals.available_yuan))+stat('pc-stat-spent','receipt-text','本月消费',employeeYuan(team.totals.month_yuan))+stat('pc-stat-calls','chart-no-axes-combined','30 天调用',team.totals.calls_30d.toLocaleString('zh-CN'))+stat('pc-stat-budget','users-round','活跃员工',`${team.totals.active_members} / ${team.totals.members}`):credit?stat('pc-stat-balance','server','我的额度',employeeYuan(employeeCredit.available_yuan))+stat('pc-stat-spent','receipt-text','已结算',employeeYuan(employeeCredit.spent_yuan))+stat('pc-stat-calls','chart-no-axes-combined','结算中',employeeYuan(employeeCredit.held_yuan))+stat('pc-stat-budget','clock','发放',employeeYuan(employeeCredit.granted_yuan)):(manager?stat('pc-stat-balance','users-round','团队成员',String(active))+stat('pc-stat-spent','receipt-text','待审批',String(pending.length))+stat('pc-stat-calls','chart-no-axes-combined','模型调用','—')+stat('pc-stat-budget','clock','公司额度','未开通'):stat('pc-stat-balance','server','我的额度','未开通')+stat('pc-stat-spent','receipt-text','已结算','—')+stat('pc-stat-calls','chart-no-axes-combined','结算中','—')+stat('pc-stat-budget','clock','发放','—'));
   if(['overview','models','keys'].includes(orgTab))personalTab=orgTab;
-  const content=(orgTab==='usage'&&(team||credit)?purchaseEntry('usage'):'')+(orgTab==='people'?people:orgTab==='settings'?settingsContent(o):orgTab==='support'?supportContent():orgTab==='usage'?(team?teamUsageContent(team):credit?memberUsageContent():manager&&paidCredit?paidUsagePanel():'<section class="personal-state-panel"><h2>用量</h2><p>这个企业尚未开通公司额度，暂无用量数据。</p></section>'):personalDashboardContent());
-  mount(panelPage(o,orgTab,`${['overview','support','settings'].includes(orgTab)?'':`<div class="personal-console-stats">${stats}</div>`}<div data-personal-content>${content}</div>`));
+  const content=(orgTab==='usage'&&(team||credit)?purchaseEntry('usage'):'')+(orgTab==='compare'?comparePanel():orgTab==='people'?people:orgTab==='settings'?settingsContent(o):orgTab==='support'?supportContent():orgTab==='usage'?(team?teamUsageContent(team):credit?memberUsageContent():manager&&paidCredit?paidUsagePanel():'<section class="personal-state-panel"><h2>用量</h2><p>这个企业尚未开通公司额度，暂无用量数据。</p></section>'):personalDashboardContent());
+  mount(panelPage(o,orgTab,`${['overview','compare','support','settings'].includes(orgTab)?'':`<div class="personal-console-stats">${stats}</div>`}<div data-personal-content>${content}</div>`));
  }
  let demoState=null;
  const yuan=fen=>'¥'+(Number(fen||0)/100).toFixed(2);
