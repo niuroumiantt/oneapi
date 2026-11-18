@@ -24,3 +24,19 @@ header{height:56px}.nav{max-width:1600px;padding:0 24px}.logo{width:145px;height
 @media(max-width:700px){main{padding:8px 12px;height:calc(100dvh - 56px)}.nav{padding:0 12px}.key-warning{font-size:12px;padding:8px 10px}.key-warning span{display:none}.workspace-tabs span{display:none}.workspace-tabs button{padding:8px 12px}.connection{padding:12px}.pair,.results{grid-template-columns:1fr}.composer-top{flex-direction:column;align-items:flex-start;gap:8px}.composer-bottom .primary{width:auto;min-width:150px;flex:1}.composer-bottom .hint{display:none}.run-heading .actions{margin-top:8px}.answer{max-height:35vh}.param-grid{grid-template-columns:1fr 1fr}.cost-lines{grid-template-columns:1fr}.cost-lines dd{text-align:left}.fields{grid-template-columns:1fr 1fr}}
 
 #results-panel .cost-comparison{margin:0 0 10px}.cost-comparison>details{font-size:12px;margin-top:6px}.cost-comparison summary{cursor:pointer;color:var(--muted)}.answer{min-height:100px}.cost details:last-child{color:var(--muted)}
+
+/* Keep the same platform controls mounted and visible in both views. */
+.compare-workspace{display:grid;grid-template-columns:minmax(208px,248px) minmax(0,1fr);gap:12px;flex:1;min-height:0}
+.platform-panel{align-self:start;min-height:0;max-height:100%;overflow:auto}
+.platform-panel .connection-foot{align-items:flex-start;flex-direction:column;gap:4px}
+.compare-content{display:flex;flex-direction:column;min-width:0;min-height:0}
+.compare-content .connection{min-height:0}
+.run-heading,.run-heading>.flex{flex-wrap:wrap}
+.run-heading>.flex{flex-shrink:1}
+@media(max-width:800px){
+ .compare-workspace{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:8px}
+ .platform-panel{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px 10px}
+ .platform-panel .side-title,.platform-panel .connection-foot,#our-mapping{grid-column:1/-1;margin:0}
+ .platform-panel .model-field{margin:0}
+ .platform-panel .connection-foot{flex-direction:row;flex-wrap:wrap}
+}
