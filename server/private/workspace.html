@@ -66,6 +66,15 @@ form{display:grid;gap:12px}label{display:grid;gap:4px}label.check{display:flex;g
  nav{display:flex;overflow-x:auto;gap:4px}nav h3{display:none}nav button{white-space:nowrap;gap:6px}main{overflow:visible;padding:16px}.row2{grid-template-columns:1fr}}
 body>header{display:none!important}.shell{height:100dvh!important;min-height:0!important}
 @media(max-width:800px){.shell{height:auto!important}}
+
+.payment-order-scroll{overflow-x:auto}
+.payment-order-table{min-width:800px;table-layout:auto}
+.payment-order-table th{position:relative;padding-inline-end:22px}
+.payment-order-table th:nth-child(4){width:28%;min-width:180px}
+.payment-order-table td:nth-child(4){overflow-wrap:anywhere}
+.payment-column-grip{position:absolute;inset:0 0 0 auto;width:12px;padding:0;border:0;border-radius:0;background:transparent;cursor:col-resize;touch-action:none}
+.payment-column-grip::after{content:'';position:absolute;inset:25% 4px;border-inline-start:1px solid var(--line)}
+.payment-column-grip:hover,.payment-column-grip:focus-visible{background:#ede7fb}
 </style><header><b>semifly.ai</b><span>商务后台</span><div class="right"><a id="technical" href="/api/staff/lab/console" hidden>切换技术后台 ↗</a><a href="/#staff-account">账户与权限</a></div></header>
 <div class="shell"><aside><nav id="nav" aria-label="商务后台导航"></nav><a href="/#personal">返回个人空间 ↗</a></aside>
 <main><div class="heading"><div><h1 id="title">商务后台</h1><p id="subtitle">正在读取实际业务数据…</p></div><div class="tools" id="tools"><button id="refresh">刷新</button></div></div>
