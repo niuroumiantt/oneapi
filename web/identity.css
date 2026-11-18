@@ -916,8 +916,8 @@ td>.live-dot:first-child{margin-right:5px}
 .recharge-provider span{display:block;margin-top:6px;font-size:13px;color:#455e7d}
 .recharge-steps{padding-left:22px;margin:22px 0;color:#364a63;font-size:14px;line-height:1.75}
 .recharge-steps li+li{margin-top:8px}
-.personal-console .recharge-payment .recharge-submit{margin-top:24px;display:flex;width:100%;min-height:56px;justify-content:center;background:#1677ff;border-color:#1677ff;border-radius:8px;color:#fff;font-family:inherit;font-size:16px;font-weight:600;line-height:1.5;white-space:normal;padding:12px 14px}
-.personal-console .recharge-payment .recharge-submit:hover{background:#0865e6;border-color:#0865e6}
+.personal-console .recharge-payment .recharge-submit{margin-top:24px;display:flex;width:100%;min-height:56px;justify-content:center;background:#0865e6;border-color:#0865e6;border-radius:8px;color:#fff;font-family:inherit;font-size:16px;font-weight:600;line-height:1.5;white-space:normal;padding:12px 14px}
+.personal-console .recharge-payment .recharge-submit:hover{background:#0754c1;border-color:#0754c1}
 .personal-console .recharge-payment .recharge-submit:focus-visible,.recharge-promo summary:focus-visible,.billing-policy summary:focus-visible{outline:3px solid #1677ff;outline-offset:3px}
 .recharge-entry .live-notice{font-size:14px;margin-top:16px;padding:12px 14px;line-height:1.6}
 .recharge-unavailable{border-top:1px solid #e2e8f0;padding-top:16px;margin:28px 0 0;font-size:13px;color:#637087}
