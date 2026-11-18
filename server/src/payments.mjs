@@ -127,12 +127,16 @@ function gateways(cfg,{alipay,wechat}){
 
 export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
  const gw=gateways(cfg,clients);
- const allowed=(customer,provider)=>Boolean(gw[provider])&&(!gw[provider].allowedEmails?.size||gw[provider].allowedEmails.has(customer.email.toLowerCase()));
+ const allowed=(customer,provider)=>Boolean(gw[provider])&&
+  (provider!=='wechat_native'||!cfg.wechat?.pilotEnabled||cfg.wechat.allowedEmails?.has(customer.email.toLowerCase()))&&(!gw[provider].allowedEmails?.size||gw[provider].allowedEmails.has(customer.email.toLowerCase()));
 
  async function createOrder(req,res,provider,ownerColumn,ownerValue){
   const name=CHANNELS[provider].name;
   if(!allowed(req.customer,provider))throw new HttpError(403,`${name}充值尚未对当前账户开放`);
   const face=parseRechargeFen(req.body?.face_fen??req.body?.amount_fen),key=req.body?.idempotency_key;
+  if(provider==='wechat_native'&&cfg.wechat?.pilotEnabled&&face!==RECHARGE_MIN_FEN)
+   throw new HttpError(400,'微信支付验收订单限 ¥5.00');
+
   if(typeof key!=='string'||!/^[A-Za-z0-9_-]{16,64}$/.test(key))throw new HttpError(400,'请刷新页面后重试');
   const account=await accountFor(pool,req.customer.id,ownerColumn==='organization_id'?ownerValue:null,{create:true});
   const saved=await transaction(pool,async db=>{
