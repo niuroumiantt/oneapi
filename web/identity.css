@@ -253,6 +253,9 @@ select option{font-size:14px}
 .pc-sidebar .ui-icon{--icon-size:23px}.pc-sidebar [data-tab=models] .ui-icon{color:#9a35f3}.pc-sidebar [data-tab=keys] .ui-icon{color:#f28c16}.pc-sidebar [data-tab=usage] .ui-icon{color:#25bc50}.pc-sidebar [data-nav=billing] .ui-icon{color:#9840ef}.pc-sidebar [data-nav=settings] .ui-icon{color:#656b7a}
 .pc-sidebar nav button.active,.pc-sidebar nav a.active{color:#8e2deb;background:#efe4ff}.pc-sidebar nav button:hover,.pc-sidebar nav a:hover{background:#ececf7}
 .pc-stage{grid-column:2;grid-row:2;display:flex;flex-direction:column;min-height:0;min-width:0;overflow:auto;padding:0 12px 0 13px}
+.pc-stage:has(.workspace-compare-frame){overflow:hidden;padding:0}
+.pc-stage:has(.workspace-compare-frame) [data-personal-content]{flex:1;min-height:0;display:flex}
+.workspace-compare-frame{width:100%;height:100%;min-height:0;flex:1;border:0;background:#f6f7fb}
 .personal-console-tabs{display:flex;align-items:end;gap:36px;height:60px;min-height:60px;padding:0 15px;border-bottom:1px solid #e0e3ec;background:transparent}
 .personal-console-tabs button{height:49px;padding:0 8px;border:0;border-bottom:3px solid transparent;background:transparent;color:#404557;font:600 15px/1.2 inherit;cursor:pointer;white-space:nowrap}
 .personal-console-tabs button.active{border-color:#a238f7;color:#1c1e29}
