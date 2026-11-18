@@ -4,7 +4,7 @@
  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const ico=n=>`<span data-icon="${n}"></span>`;
  const assetBase=new URL('.',document.currentScript.src);
- const standalone=!!document.querySelector('[data-site-header="skills"]');
+ const standalone=!!document.querySelector('[data-site-header="skills"],[data-site-header="compare"]');
  const root=standalone?new URL('index.html',assetBase).href:'';
  const skills=new URL(assetBase.pathname.endsWith('/web/')?'../prototypes/skills/':'skills/',assetBase).href;
  function accountMenu(user,kind='customer',settingsHref='#security'){
@@ -17,8 +17,10 @@
   const links=[['universe','首页',root+'#universe'],['market','模型广场',root+'#market'],['skills','Skills 广场',skills],['docs','文档',root+'#docs'],['workspace','工作台',root+'#workspace']];
   return `<header class="site-header ${className}"><div class="site-header-main"><a class="site-brand" href="${root}#universe" aria-label="semifly.ai 首页"><img src="${new URL('pinapi-wordmark.svg',assetBase)}" alt="semifly.ai" width="168" height="44"></a><nav class="site-nav" aria-label="主要导航">${links.map(([id,label,url])=>`<a href="${url}"${id===active?' aria-current="page"':''}>${label}</a>`).join('')}</nav><div class="site-account" ${account?'':'data-account-slot'}>${account||accountMenu(null)}</div></div>${tools?`<div class="site-tools">${tools}</div>`:''}</header>`;
  }
- window.SiteHeader={render,accountMenu};
- document.querySelectorAll('[data-site-header]').forEach(el=>el.outerHTML=render(el.dataset.siteHeader));
+ function footer(){return `<footer class="site-footer"><span>semifly.ai</span><span>深圳市格洛可半导体有限公司</span><a href="${root}#docs">使用文档</a></footer>`;}
+ window.SiteHeader={render,accountMenu,footer};
+ document.querySelectorAll('[data-site-footer]').forEach(el=>el.outerHTML=footer());
+ document.querySelectorAll('[data-site-header]').forEach(el=>el.outerHTML=render(el.dataset.siteHeader==='compare'?'workspace':el.dataset.siteHeader));
  if(standalone){
   const slot=document.querySelector('[data-account-slot]');
   const prefixLinks=()=>slot.querySelectorAll('a[href^="#"]').forEach(a=>a.href=root+a.getAttribute('href'));

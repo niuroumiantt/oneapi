@@ -39,6 +39,8 @@ def main():
         compare_html = compare_html.replace(f'"{name}"', f'"{target}"')
         assets[target] = content
         asset_names[name] = target
+    for source, target in asset_names.items():
+        compare_html = compare_html.replace(f'"{source}"', f'"{target}"')
     assets['compare.html'] = compare_html.encode()
 
     for name in ('pinapi-mark.svg', 'pinapi-wordmark.svg', 'semifly-email-logo.png', 'universe-speed-knob.png', 'favicon.svg', 'semifly-wordmark.svg', 'semifly-lockup.svg', 'THIRD-PARTY-LICENSES.txt'):

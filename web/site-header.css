@@ -84,3 +84,55 @@
 @media print{.site-header{display:none!important}}
 
 .site-tools .rt-pdf{min-height:40px;padding:8px 14px;border:1px solid var(--site-line);border-radius:8px;background:#fff;color:var(--site-ink);font:inherit;cursor:pointer}
+
+/* Shared page geometry. Route data never changes the global header's columns. */
+:root{--site-sidebar-width:220px;--site-footer-height:40px}
+html{scrollbar-gutter:stable}
+[hidden]{display:none!important}
+.site-header .site-header-main{grid-template-columns:minmax(168px,1fr) auto minmax(168px,1fr)}
+.site-header .site-account{width:168px;display:flex;justify-content:flex-end}
+.site-footer{box-sizing:border-box;display:flex;align-items:center;gap:24px;width:100%;max-width:none;min-height:var(--site-footer-height);margin:0;padding:8px var(--site-gutter);border-top:1px solid var(--site-line);background:#fff;color:var(--site-muted);flex-direction:row;justify-content:flex-start;font:12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;flex-shrink:0}
+.site-footer a{margin-left:auto;color:inherit;text-decoration:none}
+#site-boot{min-height:100dvh;background:#fff;color:var(--site-ink)}
+.site-boot-brand{height:72px;display:flex;align-items:center;padding:0 var(--site-gutter);border-bottom:1px solid var(--site-line)}
+#site-boot p,#site-boot>a,#site-boot noscript{margin:28px;display:block}
+.universe-active .welcome-page:has(>.site-header){padding:0;grid-template-rows:auto minmax(0,1fr) var(--site-footer-height)}
+.identity-active #identity-view:has(>.site-header){grid-template-rows:auto minmax(0,1fr) auto;padding:0}
+.personal-console-active #identity-view>.site-footer{display:none}
+.personal-console{grid-template-columns:var(--site-sidebar-width) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;min-height:0;height:100dvh}
+.personal-console>.site-footer{grid-column:1/-1;grid-row:3}
+.pc-sidebar{overflow:auto;padding:16px 12px}
+.pc-sidebar nav{align-items:stretch}
+.pc-sidebar nav button,.pc-sidebar nav a{width:100%;height:auto;min-height:44px;flex-direction:row;justify-content:flex-start;gap:12px;padding:10px 12px;font-size:13px;text-align:left}
+.pc-sidebar .ui-icon{--icon-size:20px}
+.pc-stage{width:100%;scrollbar-gutter:stable;padding:16px 24px}
+.doc-layout{max-width:none;grid-template-columns:var(--site-sidebar-width) minmax(0,1fr)}
+.doc-nav{border-right:1px solid var(--site-line);padding:16px 12px}
+.doc-main{max-width:1100px;padding:24px}
+.compare-page{height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+.compare-page>main{flex:1;min-height:0;height:auto;width:100%;max-width:none;padding:12px var(--site-gutter)}
+.compare-context{flex:none;border-bottom:1px solid var(--site-line)}
+.compare-context .nav{height:48px;max-width:none;padding:0 var(--site-gutter)}
+.compare-context .logo{display:none}
+.compare-context .nav-title{border:0;padding:0}
+@media(max-width:800px){
+ .personal-console{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr) auto}
+ .pc-sidebar{grid-row:2;grid-column:1;border-right:0;border-bottom:1px solid var(--site-line);padding:6px 12px}
+ .pc-sidebar nav{flex-direction:row;overflow:auto;gap:4px}
+ .pc-sidebar nav button,.pc-sidebar nav a{flex:none;width:auto;white-space:nowrap;min-height:44px}
+ .pc-stage{grid-column:1;grid-row:3;padding:12px 16px}
+ .personal-console>.site-footer{grid-row:4}
+ .doc-layout{grid-template-columns:minmax(0,1fr)}
+ .doc-nav{position:static;max-height:none;border-right:0}
+}
+@media(max-width:700px){
+ .site-header .site-header-main{grid-template-columns:1fr auto}
+ .site-header .site-account{width:138px}
+ .site-footer{gap:8px;font-size:10px;flex-wrap:wrap}
+ .compare-context .nav{height:44px}
+}
+/* Use the header's content edges on every public page. */
+.catalog-active .m-main{width:100%;max-width:none;padding:24px var(--site-gutter)}
+.identity-active #identity-view>.live-main{width:100%;max-width:none;padding:24px var(--site-gutter)}
+.personal-console-active.identity-active #identity-view>.live-main{padding:0}
+#console-view{position:relative;inset:auto;width:100%;height:100dvh}

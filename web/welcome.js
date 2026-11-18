@@ -29,7 +29,7 @@
 
     </section>
   </main>
-  <footer class="welcome-footer"><div class="universe-clock"><span>北京时间</span><time id="universe-clock" aria-live="off">--:--:--.---</time></div><span>semifly · 为好想法多走一步</span><span>深圳市格洛可半导体有限公司</span></footer>
+  ${window.SiteHeader.footer()}
 </div>
 `;
   }

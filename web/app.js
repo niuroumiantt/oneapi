@@ -14,7 +14,7 @@ function modelRatePreview(m){const [,rates]=modelRateGroups(m)[0];return `<div c
 window.SemiflyPrice={formatRate,discountedRate,modelRateGroups};
 const $=s=>document.querySelector(s);
 const $$=s=>[...document.querySelectorAll(s)];
-let family='all',selectedModel=models[0],selectedTool='Cursor';
+let family='all';
 const escapeHtml=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function renderModels(){
  const query=$('#model-search').value.toLowerCase().trim(),use=$('#model-use').value;
@@ -41,6 +41,7 @@ function updatePricingExample(){
  $('#pricing-example-breakdown').textContent=`输入未命中 ${input.toLocaleString('zh-CN')} × ${formatRate(inputRate)} / 1M + 输出 ${output.toLocaleString('zh-CN')} × ${formatRate(outputRate)} / 1M`;
 }
 function switchView(view){
+ document.getElementById("site-boot")?.remove();
  if(!view||view==='login')view='universe';
  if(window.ConsoleUI?.handles(view)){window.DocsUI?.hide();window.ConsoleUI.render(view);return;}
  window.ConsoleUI?.hide();
@@ -69,44 +70,27 @@ function switchView(view){
 }
 function showToast(message){$('#toast').textContent=message;$('#toast').classList.add('visible');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>$('#toast').classList.remove('visible'),3000);}
 function showDialog(content){$('#dialog-content').innerHTML=content;if(!$('#config-dialog').open)$('#config-dialog').showModal();}
-function showInfo(title,description,content=''){showDialog(`<div class="dialog-kicker">semifly.ai · DESIGN PREVIEW</div><h2 class="dialog-title">${title}</h2><p class="dialog-description">${description}</p>${content}<div class="dialog-bottom"><span>界面预览 · 不涉及真实交易</span><button class="primary button" data-close-dialog>知道了</button></div>`);}
-function openConfig(id,tool){selectedModel=models.find(m=>m.id===id)||selectedModel;selectedTool=tool||selectedTool;renderConfig(1);}
-function renderConfig(step){
- const heading=`<div class="dialog-kicker">CONNECT YOUR WORKFLOW</div><h2 class="dialog-title">把模型接入你的工具</h2><p class="dialog-description">选好工具，获取为你整理的配置。</p><div class="dialog-steps"><span class="${step===1?'active':''}">01 选择工具</span><span class="${step===2?'active':''}">02 确认配置</span><span class="${step===3?'active':''}">03 复制使用</span></div>`;
- if(step===1)showDialog(heading+`<label class="choice-label">你正在使用哪个工具？</label><div class="client-options">${['Cursor','TRAE','Qoder','WorkBuddy'].map(t=>`<button class="${selectedTool===t?'active':''}" data-select-tool="${t}">${t}<span style="float:right">${selectedTool===t?'<span data-icon=check></span>':'<span data-icon=arrow-up-right></span>'}</span></button>`).join('')}</div><label class="choice-label" for="config-model">选择模型</label><select class="dialog-field" id="config-model">${models.map(m=>`<option value="${m.id}" ${m.id===selectedModel.id?'selected':''}>${m.name}</option>`).join('')}</select><div class="info-box">这是配置向导的体验预览。具体工具版本、模型能力和协议需在正式接入时验证。</div><div class="dialog-bottom"><span>中国区 · 接入体验预览</span><button class="primary button" data-config-step="2">下一步 <span data-icon=arrow-right></span></button></div>`);
- if(step===2)showDialog(heading+`<div class="price-example"><span>当前工作区</span><b>Larry 的个人工作区</b></div><div class="price-example"><span>工具 / 模型</span><b>${selectedTool} / ${selectedModel.name}</b></div><div class="price-example"><span>输入 / 输出单价</span><b>待正式发布</b></div><div class="price-example"><span>配置状态</span><b>示例 · 待真实客户端验证</b></div><div class="info-box">接下来生成一份不可调用的示例配置，让你查看复制与接入的页面体验。不会创建真实 Key 或扣费。</div><div class="dialog-bottom"><button class="text-button" data-config-step="1"><span data-icon=arrow-left></span> 上一步</button><button class="primary button" data-config-step="3">生成示例配置 <span data-icon=arrow-right></span></button></div>`);
- if(step===3)showDialog(heading+`<div class="info-box"><span data-icon=check></span> 已生成 ${selectedTool} 示例配置。请勿把演示凭据用于真实服务。</div><pre class="config-code" id="config-code">Base URL: https://api.example.invalid/v1\nAPI Key: sk-demo-not-a-real-key\nModel: ${selectedModel.id}</pre><p class="demo-notice">正式产品将在这里展示对应工具版本的设置步骤，并等待首次真实调用。此预览不会修改本机客户端。</p><div class="dialog-bottom"><button class="text-button" data-config-step="1">重新选择</button><button class="primary button" id="copy-config">复制示例配置 <span data-icon=copy></span></button></div>`);
-}
 const actions={
  'reset-catalog':()=>{family='all';$('#model-search').value='';$('#model-use').value='all';renderModels();},
- readiness:()=>showInfo('五个模块，逐步落地','当前进度以已上线的真实功能为准。',`<div class="price-example"><span>员工与客户登录、权限</span><b>已上线 · 个人、企业及员工真实身份与权限</b></div><div class="price-example"><span>供应商与产品验证</span><b>内部可用 · 档案、证据与验收报告；待真实供应接入</b></div><div class="price-example"><span>模型广场与接入</span><b>内部商品、价格及复核流程；客户目录仍是预览</b></div><div class="price-example"><span>付费</span><b>企业预算界面与付费准备台；真实收款未开放</b></div><div class="price-example"><span>促销</span><b>内部活动草稿已保存；兑换与佣金未开放</b></div><div class="info-box">真实订单、模型调用、用量账本和优惠结算尚未启用。旧平台 api.glocalstorage.cn 独立运行。</div>`),
- tools:()=>openConfig(),
+ tools:()=>{location.hash='docs/tools';},
  pricing:()=>{$('#config-dialog').close();$('#how-pricing-works').scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});},
  'model-personal':async button=>{if(!window.IdentityUI?.chooseModelIntent(button.dataset.modelId,'personal'))return;$('#config-dialog').close();location.hash=await window.IdentityUI.customerSignedIn()?'personal':'register';},
  'model-enterprise':async button=>{if(!window.IdentityUI?.chooseModelIntent(button.dataset.modelId,'enterprise'))return;$('#config-dialog').close();location.hash=await window.IdentityUI.customerSignedIn()?'enterprise':'enterprise-register';},
- docs:()=>showInfo('从充值到第一笔用量','这里预览正式产品的接入路径。',`<div class="price-example"><span>01</span><b>充值到个人或企业空间</b></div><div class="price-example"><span>02</span><b>选择型号并确认公开价格</b></div><div class="price-example"><span>03</span><b>创建平台 API Key</b></div><div class="price-example"><span>04</span><b>部署应用并完成一次调用</b></div><div class="price-example"><span>05</span><b>查看用量、费用与剩余余额</b></div><div class="info-box">目前真实充值、客户 API Key 和调用尚未开放。</div>`),
  account:()=>{location.hash='personal';},
 };
 document.addEventListener('click',event=>{
  const b=event.target.closest('button,a,tr');if(!b)return;
  if(b.dataset.view){if(location.hash==='#'+b.dataset.view)switchView(b.dataset.view);else location.hash=b.dataset.view;}
- if(b.dataset.scenario){$('#model-use').value=b.dataset.scenario;renderModels();$('#catalog').scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});}
- if(b.hasAttribute('data-market-motion')){const stopped=$('.m-hero').classList.toggle('m-motion-paused');b.setAttribute('aria-pressed',String(stopped));b.setAttribute('aria-label',stopped?'播放模型广场装饰动效':'暂停模型广场装饰动效');b.textContent=stopped?'播放动效':'暂停动效';}
  if(b.dataset.family){family=b.dataset.family;$$('[data-family]').forEach(x=>x.classList.toggle('active',x===b));renderModels();}
  if(b.dataset.model)openModelDetail(b.dataset.model);
- if(b.dataset.tool)openConfig(null,b.dataset.tool);
- if(b.dataset.selectTool){selectedTool=b.dataset.selectTool;selectedModel=models.find(m=>m.id===$('#config-model').value)||selectedModel;renderConfig(1);}
- if(b.dataset.configStep){if($('#config-model'))selectedModel=models.find(m=>m.id===$('#config-model').value)||selectedModel;renderConfig(Number(b.dataset.configStep));}
  if(b.hasAttribute('data-close-dialog'))$('#config-dialog').close();
  if(b.dataset.action)actions[b.dataset.action]?.(b);
 });
 $('#model-search').addEventListener('input',renderModels);$('#model-use').addEventListener('change',renderModels);$('#pricing-input-tokens').addEventListener('input',updatePricingExample);$('#pricing-output-tokens').addEventListener('input',updatePricingExample);updatePricingExample();
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();if(!$('#market-view').hidden)$('#model-search').focus();}});
-document.addEventListener('click',async e=>{if(e.target.closest('#copy-config')){try{await navigator.clipboard.writeText($('#config-code').textContent);showToast('示例配置已复制');}catch{showToast('当前浏览器未允许复制，请选中配置文字手动复制。');}}});
 window.addEventListener('hashchange',()=>{switchView(location.hash.slice(1));});
 renderModels();
 
-fetch('release.json', {cache:'no-store'}).then(r=>r.ok?r.json():null).then(r=>{if(r?.source_sha)document.querySelector('#release-version').textContent='PREVIEW · '+r.source_sha.slice(0,7);}).catch(()=>{});
 
 async function refreshPublishedCatalog(){const host=document.getElementById('published-catalog');if(!host)return;try{const r=await fetch('/api/catalog/published',{cache:'no-store'});if(!r.ok)return;const data=await r.json();host.hidden=!data.products?.length;host.innerHTML='<h3>已发布产品与批准售价</h3>'+data.products.map(p=>`<article style="padding:16px;border:1px solid #ded9eb;border-radius:10px;margin:10px 0"><b>${escapeHtml(p.name)}</b> · <code>${escapeHtml(p.model_id)}</code><p>${escapeHtml(p.summary)}</p><span>输入 ¥${escapeHtml(p.input_yuan_per_m)} / 输出 ¥${escapeHtml(p.output_yuan_per_m)} · 每百万 Token</span><small style="display:block">目录已发布 · 正式购买和调用待开放；缓存及其他价格条件以正式报价为准。</small></article>`).join('')}catch{host.hidden=true}}
 addEventListener('hashchange',()=>{if(['#market','#catalog'].includes(location.hash))void refreshPublishedCatalog()});void refreshPublishedCatalog();

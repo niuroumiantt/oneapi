@@ -1,7 +1,7 @@
 (()=>{'use strict';
 const technical=location.pathname.includes('/lab/'),workspace=technical?'technical':'business';
 if(window.parent===window){location.replace('/#console/'+workspace+'/'+location.hash.slice(1)+(technical&&new URLSearchParams(location.search).get('supplier')?'?supplier='+encodeURIComponent(new URLSearchParams(location.search).get('supplier')):''));return}
-document.documentElement.classList.add('framed');{const st=document.createElement('style');st.textContent='html.framed body>header{display:none!important}html.framed .side{min-height:calc(100vh - 50px)}';document.head.append(st)}
+document.documentElement.classList.add('framed');{const st=document.createElement('style');st.textContent='html.framed body>header{display:none!important}html.framed .shell,html.framed .layout{max-width:none;width:100%;height:100dvh;min-height:0;margin:0;grid-template-columns:220px minmax(0,1fr)}html.framed .side{min-height:0;height:100%;overflow:auto}html.framed .main{min-height:0;overflow:auto;padding:16px 24px}@media(max-width:800px){html.framed .shell,html.framed .layout{display:block;height:auto}html.framed .side{height:auto}html.framed .main{padding:12px 16px}}';document.head.append(st)}
 function position(){parent.postMessage({type:'workspace-position',section:location.hash.slice(1)||'overview'},location.origin)}
 addEventListener('hashchange',position);addEventListener('workspace-position',position);
 addEventListener('message',e=>{if(e.origin!==location.origin||e.source!==parent||e.data?.type!=='workspace-navigate')return;const section=e.data.section;if(typeof section==='string'&&/^[a-z]+$/.test(section)&&location.hash!=='#'+section)location.hash=section});

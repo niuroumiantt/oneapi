@@ -55,7 +55,7 @@
    const existingOrg=host.querySelector('.org-shell'),nextOrg=template.content.querySelector('.org-shell');
    existingOrg.querySelector('.org-sidebar').innerHTML=nextOrg.querySelector('.org-sidebar').innerHTML;
    existingOrg.querySelector('.org-content').replaceWith(nextOrg.querySelector('.org-content'));
-  }else host.innerHTML=header()+`<main class="live-main">${content}</main><footer class="live-footer"><span>semifly.ai · 深圳市格洛可半导体有限公司</span><span>中国区 · 独立身份与工作空间</span></footer>`;
+  }else host.innerHTML=header()+`<main class="live-main">${content}</main>${window.SiteHeader.footer()}`;
   if(!wasIdentityActive){document.querySelectorAll('#market-view,#login-view').forEach(el=>el.hidden=true);window.LandingUI?.hide();}
   host.hidden=false;document.body.classList.remove('market-active','welcome-active','universe-active','ops-active','catalog-active','identity-context-personal','identity-context-enterprise','identity-context-staff');document.body.classList.add('identity-active','identity-context-'+contextKind());document.body.classList.toggle('personal-console-active',content.includes('class="personal-console"'));window.UniverseScene?.setActive(false);document.title='semifly.ai · '+({personal:'个人工作台',enterprise:'企业管理工作台',staff:'内部工作台'}[contextKind()]);
   document.body.classList.remove('identity-route-pending');
@@ -401,7 +401,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
    (!org?link('billing','#billing/personal','receipt-text','账单'):manager?link('billing','#billing/organization/'+id,'receipt-text','账单'):'')+
    (org?tab('support','circle-alert','支持')+tab('settings','settings','设置'):link('support','#support','circle-alert','支持')+link('settings','#security','settings','设置'));
  }
- const panelPage=(org,active,stage)=>`<div class="personal-console">${customerHeader(org)}<aside class="pc-sidebar"><nav aria-label="工作台导航">${panelNav(org,active)}</nav></aside><div class="pc-stage">${stage}</div></div>`;
+ const panelPage=(org,active,stage)=>`<div class="personal-console">${customerHeader(org)}<aside class="pc-sidebar"><nav aria-label="工作台导航">${panelNav(org,active)}</nav></aside><div class="pc-stage">${stage}</div>${window.SiteHeader.footer()}</div>`;
  const panelBody=content=>`<div data-personal-content>${content}</div>`;
  const panelLoading='<p class="personal-model-empty">正在读取…</p>';
  const settingRow=(label,value)=>`<div class="org-setting-row"><span>${label}</span><b>${value}</b></div>`;
@@ -788,7 +788,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
    catch(e){if(ticket===generation){if(e.status===401){me=null;lastOrg=null;lastOrgBilling=null;authForm();}else if(e.status===403||e.status===404){lastOrg=null;lastOrgBilling=null;mount(hero('YOUR WORKSPACE','暂时无法打开这个空间。','请核对账号及企业权限。')+note(e.message,true)+'<a class="live-button" href="#workspace">返回工作台</a>');}}}
    return;
   }
-  const staffView=view==='staff-account'||view==='admin'||view.startsWith('ops/');if(!host.innerHTML.trim())host.innerHTML='<div class="live-loading" role="status">正在打开你的工作空间…</div>';
+  const staffView=view==='staff-account'||view==='admin'||view.startsWith('ops/');if(!host.innerHTML.trim())host.innerHTML=header()+'<main class="live-loading" role="status">正在打开你的工作空间…</main>'+window.SiteHeader.footer();
   // Coming from another view (console, landing): show this frame at once with a loading bar, instead of leaving the old page visible until data arrives.
   if(!wasIdentityActive){document.querySelectorAll('#market-view,#login-view').forEach(el=>el.hidden=true);window.LandingUI?.hide();window.UniverseScene?.setActive(false);document.body.classList.remove('market-active','welcome-active','universe-active','catalog-active');document.body.classList.add('identity-active');host.hidden=false;host.classList.add('route-loading');}
   if(wasIdentityActive&&staff&&view.startsWith('ops/')){
