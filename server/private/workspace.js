@@ -71,6 +71,45 @@ function notify(text, ok = false) { const n = $('#notice'); n.textContent = text
 const currentPage = () => { let page = ALIASES[location.hash.slice(1)] || location.hash.slice(1) || 'overview'; return PAGES[page] ? page : 'overview'; };
 const options = (map, selected, blank) => (blank === undefined ? '' : `<option value="">${blank}</option>`) + Object.entries(map).map(([k, v]) => `<option value="${att(k)}" ${k === selected ? 'selected' : ''}>${esc(v)}</option>`).join('');
 const table = (head, rows, empty = '暂无记录。') => `<div class="panel"><table><thead><tr>${head.map(h => Array.isArray(h) ? `<th class="num">${h[0]}</th>` : `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${head.length}" class="empty">${empty}</td></tr>`}</tbody></table></div>`;
+const paymentOrderWidths = new Map();
+function paymentOrderTable(rows) {
+ const labels = ['订单', '账户', '金额', '状态', '操作'];
+ const headers = labels.map((label, index) => {
+  const width = paymentOrderWidths.get(index);
+  return `<th class="${index === 2 ? 'num' : ''}"${width ? ` style="width:${width}px;min-width:${width}px"` : ''}>${label}<button type="button" class="payment-column-grip" data-column="${index}" aria-label="调整${label}列宽" title="拖动调整列宽，也可用左右方向键"></button></th>`;
+ }).join('');
+ return `<div class="panel payment-order-scroll"><table class="payment-order-table"><thead><tr>${headers}</tr></thead><tbody>${rows || '<tr><td colspan="5" class="empty">还没有付款订单。</td></tr>'}</tbody></table></div>`;
+}
+function resizePaymentColumn(grip, requestedWidth) {
+ const header = grip.closest('th');
+ const index = Number(grip.dataset.column);
+ const minWidth = [160, 140, 90, 180, 130][index];
+ const width = Math.round(Math.max(minWidth, Math.min(720, requestedWidth)));
+ paymentOrderWidths.set(index, width);
+ header.style.width = header.style.minWidth = width + 'px';
+}
+document.addEventListener('pointerdown', event => {
+ const grip = event.target.closest('.payment-column-grip');
+ if (!grip || event.button !== 0) return;
+ event.stopPropagation();
+ const start = event.clientX;
+ const width = grip.closest('th').getBoundingClientRect().width;
+ grip.setPointerCapture(event.pointerId);
+ const move = e => resizePaymentColumn(grip, width + e.clientX - start);
+ grip.addEventListener('pointermove', move);
+ grip.addEventListener('lostpointercapture', () => grip.removeEventListener('pointermove', move), {once:true});
+});
+document.addEventListener('click', event => {
+ if (event.target.closest('.payment-column-grip')) event.stopPropagation();
+}, true);
+document.addEventListener('keydown', event => {
+ const grip = event.target.closest('.payment-column-grip');
+ if (!grip || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+ event.preventDefault();
+ event.stopPropagation();
+ resizePaymentColumn(grip, grip.closest('th').getBoundingClientRect().width + (event.key === 'ArrowRight' ? 20 : -20));
+});
+
 const num = (text, sort) => `<td class="num"${sort === undefined ? '' : ` data-sort="${att(sort)}"`}>${text}</td>`;
 const metric = (label, value, hint = '', negative = false) => `<div class="metric"><span>${label}</span><strong class="${negative ? 'neg' : ''}">${value}</strong><small>${hint}</small></div>`;
 const section = (title, body, tools = '', lead = '') => `<section><div class="heading"><h2>${title}</h2><div class="tools">${tools}</div></div>${lead ? `<p>${lead}</p>` : ''}${body}</section>`;
@@ -178,7 +217,7 @@ pages.payments = p => {
   const left = Number(o.amount_fen) - Number(o.refunded_fen), pending = o.refunds.find(r => r.status === 'pending'), find = [o.out_trade_no, o.provider_trade_no, o.account_name, o.owner_email, o.payer_email].join(' ').toLowerCase();
   return `<tr data-find="${att(find)}"><td><b>${esc(o.out_trade_no)}</b><small>${when(o.paid_at || o.created_at)}${' · ' + esc(LABEL.channel[o.provider] || o.provider)}${o.provider_trade_no ? ' ' + esc(o.provider_trade_no) : ''}</small></td><td>${esc(o.account_name)}${request?`<small>客户申请退款：${esc(request.reason)}</small>`:''}<small>${o.account_kind === 'organization' ? '企业' : '个人'} · 付款人 ${esc(o.payer_email)} · 实付余额 ${fen(o.account_balance_fen)} · 官价额度 ${fen(o.list_credit_fen)}</small></td>${num(fen(o.amount_fen) + (Number(o.refunded_fen) ? `<small>已退 ${fen(o.refunded_fen)}</small>` : ''), o.amount_fen)}<td>${pill('order', o.status)}${o.refunds.map(r => `<small>退款 ${fen(r.amount_fen)} · ${esc(LABEL.refund[r.status])} · ${esc(r.reason)}${r.waiver_reason?` · 特批服务费 ${r.service_fee_percent}%（减免 ${fen(r.waived_fen)}） · ${esc(r.waiver_reason)} · 审批人 ${esc(r.waiver_approved_by)} · ${when(r.waiver_approved_at)}`:''}${r.status !== 'succeeded' && r.error_code ? ' · ' + esc(r.error_code) : ''}</small>`).join('')}</td><td>${pending ? `<button data-act="refund-retry" data-id="${att(pending.id)}">确认退款结果</button>` : o.status === 'paid' && o.refundable && left > 0 && p.channels?.includes(o.provider) ? `<button data-act="refund" data-id="${att(o.id)}" data-channel="${att(LABEL.channel[o.provider] || '')}" data-left="${left}" data-balance="${att(o.account_balance_fen)}">原路退款</button>` : '—'}${o.status==='paid'?`<button data-act="channel-fee" data-id="${att(o.id)}" data-version="${o.channel_fee_version}" data-fee="${o.channel_fee_fen??''}">${o.channel_fee_fen===null?'登记渠道费':`渠道费 ${fen(o.channel_fee_fen)}`}</button><small>${esc(o.channel_fee_issue||o.channel_fee_evidence||'待次日账单自动核对')}</small>`:''}</td></tr>`;
  }).join('');
- return billSyncView(p.bill_sync)+billSyncView(p.wechat_bill_sync,'wechat','微信')+`<div class="metrics">${(p.summary||[]).map(s=>metric(LABEL.channel[s.provider],`${s.transactions} 笔 / ${fen(s.received_fen)}`,`累计实退 ${fen(s.refunded_fen)} · 已核对渠道成本 ${fen(s.channel_fee_fen)} · ${s.fees_unreconciled} 笔待核对`)).join('')}</div>`+section('按付款客户汇总（全部已付款）',table(['客户','渠道',['交易次数'],['累计付款']],(p.customers||[]).map(c=>`<tr><td>${esc(c.email)}</td><td>${esc(LABEL.channel[c.provider])}</td>${num(c.transactions)}${num(fen(c.received_fen))}</tr>`).join('')))+section('在线支付订单与退款', table(['订单', '账户', ['金额'], '状态', '操作'], rows, '还没有付款订单。'), '<input id="find" type="search" placeholder="订单号 / 客户 / 邮箱" aria-label="搜索订单">', (p.refund_policy || '退款按实际付款金额，扣除已使用官价额度对应比例后，再收取 15% 手续费；已开具销项发票的不退款。') + ' 原路退回付款人的支付宝或微信。发起时先从账户扣出；渠道明确拒绝时自动冲回。')
+ return billSyncView(p.bill_sync)+billSyncView(p.wechat_bill_sync,'wechat','微信')+`<div class="metrics">${(p.summary||[]).map(s=>metric(LABEL.channel[s.provider],`${s.transactions} 笔 / ${fen(s.received_fen)}`,`累计实退 ${fen(s.refunded_fen)} · 已核对渠道成本 ${fen(s.channel_fee_fen)} · ${s.fees_unreconciled} 笔待核对`)).join('')}</div>`+section('按付款客户汇总（全部已付款）',table(['客户','渠道',['交易次数'],['累计付款']],(p.customers||[]).map(c=>`<tr><td>${esc(c.email)}</td><td>${esc(LABEL.channel[c.provider])}</td>${num(c.transactions)}${num(fen(c.received_fen))}</tr>`).join('')))+section('在线支付订单与退款', paymentOrderTable(rows), '<input id="find" type="search" placeholder="订单号 / 客户 / 邮箱" aria-label="搜索订单">', (p.refund_policy || '退款按实际付款金额，扣除已使用官价额度对应比例后，再收取 15% 手续费；已开具销项发票的不退款。') + ' 原路退回付款人的支付宝或微信。发起时先从账户扣出；渠道明确拒绝时自动冲回。')
   + '<div class="callout">对公转账请到「对公入账」：财务登记实付与官价面额，复核后入账。</div>';
 };
 
