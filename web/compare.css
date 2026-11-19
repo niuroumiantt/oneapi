@@ -40,5 +40,8 @@ header{height:56px}.nav{max-width:1600px;padding:0 24px}.logo{width:145px;height
  .platform-panel .model-field{margin:0}
  .platform-panel .connection-foot{flex-direction:row;flex-wrap:wrap}
 }
-.compare-page.compare-embedded>[data-site-header],.compare-page.compare-embedded>.site-header,.compare-page.compare-embedded>.compare-context,.compare-page.compare-embedded>[data-site-footer],.compare-page.compare-embedded>.site-footer{display:none}
-.compare-page.compare-embedded>main{padding:10px 14px}
+html.compare-embedded .compare-page>[data-site-header],html.compare-embedded .compare-page>.site-header,html.compare-embedded .compare-page>.compare-context,html.compare-embedded .compare-page>[data-site-footer],html.compare-embedded .compare-page>.site-footer{display:none}
+html.compare-embedded .compare-page>main{padding:10px 14px}
+
+/* Embedded workspaces must not animate in after each tab navigation. */
+html.compare-embedded .compare-page :is(.connection,.composer,.result){animation:none}

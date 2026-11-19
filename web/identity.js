@@ -48,7 +48,17 @@
   const existing=host.querySelector('.supply-shell');
   const template=document.createElement('template');template.innerHTML=content;
   const next=template.content.querySelector('.supply-shell');
-  if(wasIdentityActive&&current.startsWith('ops/')&&existing&&next){
+  const oldPanel=host.querySelector('.personal-console'),newPanel=template.content.querySelector('.personal-console');
+  if(wasIdentityActive&&oldPanel&&newPanel&&oldPanel.dataset.workspaceScope===newPanel.dataset.workspaceScope){
+   // Keep the chrome mounted; asynchronous data must not rebuild the whole workspace.
+   const newHeader=newPanel.querySelector('.site-header');
+   if(oldPanel.headerMarkup&&oldPanel.headerMarkup!==newHeader.outerHTML)oldPanel.querySelector('.site-header').replaceWith(newHeader.cloneNode(true));
+   const oldNav=oldPanel.querySelector('.pc-sidebar nav'),newNav=newPanel.querySelector('.pc-sidebar nav');
+   if(oldNav.innerHTML!==newNav.innerHTML)oldNav.innerHTML=newNav.innerHTML;
+   const oldStage=oldPanel.querySelector('.pc-stage'),newStage=newPanel.querySelector('.pc-stage');
+   const sameCompare=oldStage.querySelector('.workspace-compare-frame')&&newStage.querySelector('.workspace-compare-frame');
+   if(!sameCompare){oldStage.className=newStage.className;replacePanelContent(oldStage,newStage.innerHTML);}
+  }else if(wasIdentityActive&&current.startsWith('ops/')&&existing&&next){
    existing.querySelector('.supply-side').innerHTML=next.querySelector('.supply-side').innerHTML;
    existing.querySelector('.supply-content').replaceWith(next.querySelector('.supply-content'));
   }else if(wasIdentityActive&&current.startsWith('organization/')&&host.querySelector('.org-shell')&&template.content.querySelector('.org-shell')){
@@ -56,6 +66,7 @@
    existingOrg.querySelector('.org-sidebar').innerHTML=nextOrg.querySelector('.org-sidebar').innerHTML;
    existingOrg.querySelector('.org-content').replaceWith(nextOrg.querySelector('.org-content'));
   }else host.innerHTML=header()+`<main class="live-main">${content}</main>${window.SiteHeader.footer()}`;
+  if(newPanel){const mounted=host.querySelector('.personal-console');if(mounted)mounted.headerMarkup=newPanel.querySelector('.site-header').outerHTML;}
   if(!wasIdentityActive){document.querySelectorAll('#market-view,#login-view').forEach(el=>el.hidden=true);window.LandingUI?.hide();}
   host.hidden=false;document.body.classList.remove('market-active','welcome-active','universe-active','ops-active','catalog-active','identity-context-personal','identity-context-enterprise','identity-context-staff');document.body.classList.add('identity-active','identity-context-'+contextKind());document.body.classList.toggle('personal-console-active',content.includes('class="personal-console"'));window.UniverseScene?.setActive(false);document.title='semifly.ai · '+({personal:'个人工作台',enterprise:'企业管理工作台',staff:'内部工作台'}[contextKind()]);
   document.body.classList.remove('identity-route-pending');
@@ -382,9 +393,18 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   const usageViews=[['models','模型用量'],['ledger','资金流水'],['recent','最近调用']];
   return tabbedPage('personal-usage',usageViews,pageView('personal-usage',usageViews)==='recent'?personalRecent():pageView('personal-usage',usageViews)==='ledger'?`<section class="personal-ledger"><div class="personal-section-title"><h2>资金流水</h2><a href="#billing/personal">查看全部 ${ico('arrow-right')}</a></div>${entries.length?`<div class="personal-table-wrap"><table><thead><tr><th>时间</th><th>事项</th><th>金额</th><th>结余</th></tr></thead><tbody>${entries.map(e=>`<tr><td>${new Date(e.created_at).toLocaleString('zh-CN')}</td><td>${esc({recharge:'充值',usage:'模型使用',refund:'退款',reversal:'冲正'}[e.kind]||'资金变动')}</td><td>${personalMoney(e.amount_fen)}</td><td>${personalMoney(e.balance_after_fen)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="personal-empty-ledger">暂无真实资金流水。</p>'}</section>`:modelUsagePanel('personal',personalBilling?.usage_by_model||[]));
  }
+ function replacePanelContent(target,html){
+  if(target.innerHTML===html)return;
+  const selectors=['.pc-stage','.personal-table-wrap','.personal-connect-panel','[data-personal-content]'];
+  const saved=selectors.flatMap(selector=>[...(target.matches(selector)?[target]:target.querySelectorAll(selector))].map((el,index)=>({selector,index,top:el.scrollTop,left:el.scrollLeft})));
+  const top=target.scrollTop,left=target.scrollLeft;
+  target.innerHTML=html;
+  target.scrollTop=top;target.scrollLeft=left;
+  for(const pos of saved){const el=target.matches(pos.selector)?target:target.querySelectorAll(pos.selector)[pos.index];if(el){el.scrollTop=pos.top;el.scrollLeft=pos.left;}}
+ }
  function updatePersonalDashboard(){
   const content=host?.querySelector('[data-personal-content]');if(!content)return;
-  content.innerHTML=personalDashboardContent();
+  if(personalTab!=='compare'||!content.querySelector('.workspace-compare-frame'))replacePanelContent(content,personalDashboardContent());
   if(!panelOrg){const row=host.querySelector('.personal-console-stats');if(row)row.hidden=['overview','compare'].includes(personalTab);}
   host.querySelectorAll('[data-personal-tab]').forEach(b=>{const active=b.dataset.tab===personalTab;b.classList.toggle('active',active);if(b.getAttribute('role')==='tab')b.setAttribute('aria-selected',String(active));else b.setAttribute('aria-current',active?'page':'false');});
  }
@@ -402,7 +422,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   const usage=personalBilling?.usage_by_model||[];
   const pilotCalls=personalPilot?.enabled?(personalPilot.usage_by_model||[]).reduce((sum,row)=>sum+Number(row.successful_calls||0),0):0;
   const callCount=pilotCalls?pilotCalls.toLocaleString('zh-CN'):usage.length?usage.reduce((sum,row)=>sum+Number(row.calls||0),0).toLocaleString('zh-CN'):'—';
-  panelRedraw=null;mount(panelPage(null,personalTab,`<div class="personal-console-stats" ${personalTab==='overview'?'hidden':''}><div class="pc-stat-balance">${ico('server')}<span>官价额度</span><strong>${personalMoney(personalBilling?.list_credit_fen??personalBilling?.cash_balance_fen)}</strong></div><div class="pc-stat-spent">${ico('receipt-text')}<span>累计已用</span><strong>${personalMoney(personalBilling?.total_spent_fen)}</strong></div><div class="pc-stat-calls">${ico('chart-no-axes-combined')}<span>模型调用</span><strong>${callCount}</strong></div><div class="pc-stat-budget">${ico('clock')}<span>调用状态</span><strong>${personalPilot?.enabled?'限量测试':paidCredit?.enabled?'付费通道':'待开放'}</strong></div></div>${employeeCreditBand()}<div data-personal-content>${personalDashboardContent()}</div>`));
+  panelRedraw=null;mount(panelPage(null,personalTab,`<div class="personal-console-stats" ${['overview','compare'].includes(personalTab)?'hidden':''}><div class="pc-stat-balance">${ico('server')}<span>官价额度</span><strong>${personalMoney(personalBilling?.list_credit_fen??personalBilling?.cash_balance_fen)}</strong></div><div class="pc-stat-spent">${ico('receipt-text')}<span>累计已用</span><strong>${personalMoney(personalBilling?.total_spent_fen)}</strong></div><div class="pc-stat-calls">${ico('chart-no-axes-combined')}<span>模型调用</span><strong>${callCount}</strong></div><div class="pc-stat-budget">${ico('clock')}<span>调用状态</span><strong>${personalPilot?.enabled?'限量测试':paidCredit?.enabled?'付费通道':'待开放'}</strong></div></div>${employeeCreditBand()}<div data-personal-content>${personalDashboardContent()}</div>`));
  }
  // 同一套页眉和目录：个人与企业只差权限，不差页面。
  let paidCredit=null;
@@ -424,7 +444,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
    (!org?link('billing','#billing/personal','receipt-text','账单'):manager?link('billing','#billing/organization/'+id,'receipt-text','账单'):'')+
    (org?tab('support','circle-alert','支持')+tab('settings','settings','设置'):link('support','#support','circle-alert','支持')+link('settings','#security','settings','设置'));
  }
- const panelPage=(org,active,stage)=>`<div class="personal-console">${customerHeader(org)}<aside class="pc-sidebar"><nav aria-label="工作台导航">${panelNav(org,active)}</nav></aside><div class="pc-stage ${active==='billing'?'billing-stage':''}">${stage}</div>${window.SiteHeader.footer()}</div>`;
+ const panelPage=(org,active,stage)=>`<div class="personal-console" data-workspace-scope="${org?esc(org.id):'personal'}">${customerHeader(org)}<aside class="pc-sidebar"><nav aria-label="工作台导航">${panelNav(org,active)}</nav></aside><div class="pc-stage ${active==='billing'?'billing-stage':''}">${stage}</div>${window.SiteHeader.footer()}</div>`;
  const comparePanel=()=>'<iframe class="workspace-compare-frame" title="API 对比台" src="/compare.html?embedded=1"></iframe>';
  const panelBody=content=>`<div data-personal-content>${content}</div>`;
  const panelLoading='<p class="personal-model-empty">正在读取…</p>';
