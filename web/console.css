@@ -12,8 +12,8 @@ body.console-active>*:not(#console-view):not(.toast):not(dialog):not(script){dis
 .cs-tabs a[aria-selected=true]{background:#fff;color:#7a26d9;box-shadow:0 1px 2px rgba(20,24,40,.12)}
 #console-view.technical .cs-tabs a[aria-selected=true]{background:#1b3425;color:#bbff7a}
 .cs-tabs a[hidden]{display:none}
-.cs-live{margin-left:auto;min-width:0;overflow:hidden;color:#46614e;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
-.cs-link{padding:6px 10px;border:1px solid #d9dce7;border-radius:8px;background:#fff9;color:#2c3040;font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap}
+.cs-live{margin-left:auto;min-width:0;overflow:hidden;color:#46614e;font-size:var(--ui-small,13px);text-overflow:ellipsis;white-space:nowrap}
+.cs-link{padding:6px 10px;border:1px solid #d9dce7;border-radius:8px;background:#fff9;color:#2c3040;font-size:var(--ui-small,13px);font-weight:600;text-decoration:none;white-space:nowrap}
 .cs-panes{position:relative;flex:1;min-height:0}
 .cs-panes iframe{display:block;width:100%;height:100%;border:0;background:#f4f6f8}
 .cs-panes iframe[hidden]{display:none}
@@ -26,6 +26,6 @@ body.console-active>*:not(#console-view):not(.toast):not(dialog):not(script){dis
  .cs-top{height:auto;display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px;padding:6px 8px}
  #console-view .cs-brand img{width:84px}
  .cs-tabs{grid-area:2 / 1 / auto / -1;margin:0;justify-content:center;padding:2px}
- .cs-tabs a,.cs-link{padding:6px 4px;font-size:11px}
+ .cs-tabs a,.cs-link{padding:6px 4px;font-size:var(--ui-small,13px)}
  .cs-link:last-child{display:block}
 }
