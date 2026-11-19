@@ -1,3 +1,4 @@
+import {quoteCW,consumeCW} from './cw-ledger.mjs';
 import {HttpError,transaction} from './core.mjs';
 // All decimal arithmetic stays in PostgreSQL. Cash is recognised cumulatively per pack,
 // so repeated sub-cent calls neither disappear nor round up into overcharging.
@@ -11,9 +12,11 @@ export async function accountFor(db,userId,orgId,{create=false}={}){
  if(create)await db.query(`INSERT INTO billing_accounts(${col}) VALUES($1) ON CONFLICT(${col}) WHERE ${col} IS NOT NULL DO NOTHING`,[value]);
  return (await db.query(`SELECT * FROM billing_accounts WHERE ${col}=$1`,[value])).rows[0];
 }
-export async function quotePack(db,account,faceFen,promo=''){
+export async function quotePack(db,account,faceFen,promo='',options={}){
  if(!Number.isSafeInteger(faceFen)||faceFen<500||faceFen>5000000)throw new HttpError(400,'额度包面额须为 ¥5 至 ¥50,000');
  promo=String(promo||'').trim().toUpperCase();if(!/^[A-Z0-9_-]{0,40}$/.test(promo))throw new HttpError(400,'促销码格式不正确');
+ const cw=await quoteCW(db,account,faceFen,promo,options);if(cw)return cw;
+ if(options.cashFen!==undefined&&options.cashFen!==null)throw new HttpError(400,'实付金额模式需要有效的 CW 推广码');
  const grants=(await db.query(`SELECT d.* FROM discount_grants d LEFT JOIN customers c ON c.id=d.customer_id
  WHERE d.status='active' AND now()>=d.starts_at AND now()<d.ends_at AND d.model_id IS NULL
  AND (d.promo_code IS NULL OR upper(d.promo_code)=$3) AND
@@ -46,6 +49,7 @@ export async function settlePaidCall(pool,callId,amount,usage,source,requestId,l
    if(Number(need)<=0)break;
    const part=(await db.query(`UPDATE credit_packs SET remaining_fen=remaining_fen-least(remaining_fen,$2::numeric),consumed_cash_fen=floor((face_fen-(remaining_fen-least(remaining_fen,$2::numeric)))*cash_fen/face_fen) WHERE id=$1 RETURNING $3::numeric-remaining_fen AS face,consumed_cash_fen-$4::bigint AS cash`,[pack.id,need,pack.remaining_fen,pack.consumed_cash_fen])).rows[0];
    await db.query('INSERT INTO credit_consumptions(call_id,pack_id,face_fen,cash_fen) VALUES($1,$2,$3,$4)',[callId,pack.id,part.face,part.cash]);
+   await consumeCW(db,pack.id,callId);
    cash+=BigInt(part.cash);need=(await db.query('SELECT $1::numeric-$2::numeric AS n',[need,part.face])).rows[0].n;
   }
   if(Number(need)>0)throw Error('CREDIT_PACK_BALANCE_MISMATCH');

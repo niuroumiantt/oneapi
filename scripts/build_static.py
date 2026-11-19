@@ -23,7 +23,7 @@ def main():
     html = git('show', 'HEAD:web/index.html').decode()
     assets = {}
     asset_names = {}
-    for name in ('styles.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'identity.js', 'identity.css', 'home.css', 'landings.css', 'landings.js', 'brand.css', 'icons.js', 'model-catalog.js', 'app.js', 'welcome.js', 'table-sort.js', 'docs.js', 'docs.css', 'console.js', 'console.css', 'realtesting.js', 'realtesting.css', 'select-menu.js', 'site-header.js', 'site-header.css'):
+    for name in ('styles.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'identity.js', 'identity.css', 'home.css', 'landings.css', 'landings.js', 'brand.css', 'icons.js', 'model-catalog.js', 'app.js', 'welcome.js', 'table-sort.js', 'docs.js', 'docs.css', 'console.js', 'console.css', 'realtesting.js', 'realtesting.css', 'select-menu.js', 'site-header.js', 'site-header.css', 'cw.css', 'cw.js'):
         content = git('show', f'HEAD:web/{name}')
         stem, extension = name.rsplit('.', 1)
         target = f'{stem}.{hashlib.sha256(content).hexdigest()[:12]}.{extension}'
@@ -45,6 +45,14 @@ def main():
 
     for name in ('pinapi-mark.svg', 'pinapi-wordmark.svg', 'semifly-email-logo.png', 'universe-speed-knob.png', 'favicon.svg', 'semifly-wordmark.svg', 'semifly-lockup.svg', 'THIRD-PARTY-LICENSES.txt'):
         assets[name] = git('show', f'HEAD:web/{name}')
+    for name in ('cw.html', 'cw-terms.html'):
+        content = git('show', f'HEAD:web/{name}')
+        if name.endswith('.html'):
+            text = content.decode()
+            for source, target in asset_names.items():
+                text = text.replace(f'"{source}"', f'"{target}"')
+            content = text.encode()
+        assets[name] = content
     # Explicit publication manifest: no arbitrary repository/runtime files.
     skill_files = json.loads(git('show', 'HEAD:prototypes/skills/public-files.json'))
     for name in skill_files:

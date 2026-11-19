@@ -1,0 +1,122 @@
+import { HttpError } from './core.mjs';
+export const CW_RATE_BPS = 1000;
+export const commissionFen = (cash) => (BigInt(cash) * BigInt(CW_RATE_BPS)) / 10000n;
+export const normalizedCode = (value) =>
+  String(value || '')
+    .normalize('NFKC')
+    .trim()
+    .toUpperCase();
+// Called inside the same payment transaction. The order snapshot, never current code settings, determines attribution.
+export async function creditCW(db, order, pack) {
+  const s = order.discount_snapshot?.cw;
+  if (!s) return;
+  await db.query(
+    `INSERT INTO cw_commissions(order_id,pack_id,partner_id,code_id,cash_fen,rate_bps,expected_fen)
+ VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(order_id) DO NOTHING`,
+    [
+      order.id,
+      pack.id,
+      s.partner_id,
+      s.code_id,
+      order.amount_fen,
+      s.rate_bps,
+      commissionFen(order.amount_fen).toString(),
+    ],
+  );
+  await db.query(
+    `INSERT INTO cw_commission_events(order_id,event_key,kind,cash_fen,commission_fen) VALUES($1,$2,'paid',$3,$4) ON CONFLICT(event_key) DO NOTHING`,
+    [order.id, 'paid:' + order.id, order.amount_fen, commissionFen(order.amount_fen).toString()],
+  );
+}
+// Cumulate before rounding, so many sub-cent API calls earn the same commission as one call.
+export async function consumeCW(db, packId, callId) {
+  const c = (
+    await db.query(
+      'SELECT c.*,p.consumed_cash_fen FROM cw_commissions c JOIN credit_packs p ON p.id=c.pack_id WHERE c.pack_id=$1 FOR UPDATE OF c',
+      [packId],
+    )
+  ).rows[0];
+  if (!c) return;
+  const delta = commissionFen(c.consumed_cash_fen) - BigInt(c.unlocked_fen),
+    cash = BigInt(c.consumed_cash_fen) - BigInt(c.used_cash_fen);
+  if (cash <= 0n) return;
+  await db.query(
+    `INSERT INTO cw_commission_events(order_id,event_key,kind,cash_fen,commission_fen,occurred_at) VALUES($1,$2,'used',$3,$4,(SELECT created_at FROM customer_calls WHERE id=$5))`,
+    [c.order_id, 'used:' + callId + ':' + packId, cash.toString(), delta.toString(), callId],
+  );
+  await db.query('UPDATE cw_commissions SET used_cash_fen=$2,unlocked_fen=$3 WHERE order_id=$1', [
+    c.order_id,
+    c.consumed_cash_fen,
+    commissionFen(c.consumed_cash_fen).toString(),
+  ]);
+}
+// Existing refund flow returns all unused credit in this pack; already-used cash is not refunded by that flow.
+export async function refundCW(db, refund) {
+  const c = (await db.query('SELECT * FROM cw_commissions WHERE order_id=$1 FOR UPDATE', [refund.order_id]))
+    .rows[0];
+  if (!c) return;
+  const cancelled = BigInt(c.expected_fen) - BigInt(c.unlocked_fen);
+  const inserted = await db.query(
+    `INSERT INTO cw_commission_events(order_id,event_key,kind,cash_fen,commission_fen) VALUES($1,$2,'refund',$3,$4) ON CONFLICT(event_key) DO NOTHING RETURNING id`,
+    [c.order_id, 'refund:' + refund.id, refund.gross_fen || refund.amount_fen, (-cancelled).toString()],
+  );
+  if (inserted.rowCount)
+    await db.query('UPDATE cw_commissions SET expected_fen=unlocked_fen WHERE order_id=$1', [c.order_id]);
+}
+export async function quoteCW(
+  db,
+  account,
+  faceFen,
+  promo,
+  { cashFen = null, buyerId = null, cwEnabled = false } = {},
+) {
+  const code = normalizedCode(promo);
+  if (!code) return null;
+  const c = (
+    await db.query(
+      `SELECT c.*,p.status AS partner_status,p.user_id,
+ EXISTS(SELECT 1 FROM cw_contracts k WHERE k.partner_id=p.id AND k.expires_at>now()) AS signed
+ FROM cw_codes c JOIN cw_partners p ON p.id=c.partner_id WHERE c.code=$1 FOR SHARE OF c,p`,
+      [code],
+    )
+  ).rows[0];
+  if (!c) return null;
+  if (!cwEnabled) throw new HttpError(400, '推广合作活动尚未开放');
+  if (
+    c.status !== 'active' ||
+    c.partner_status !== 'active' ||
+    !c.signed ||
+    new Date(c.starts_at) > new Date() ||
+    new Date(c.ends_at) <= new Date()
+  )
+    throw new HttpError(400, '推广码未生效或已停用');
+  // Direct and company-member self-purchases do not qualify for partner offers.
+  if (
+    c.user_id === account.owner_id ||
+    c.user_id === buyerId ||
+    (account.organization_id &&
+      (
+        await db.query(
+          "SELECT 1 FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",
+          [account.organization_id, c.user_id],
+        )
+      ).rowCount)
+  )
+    throw new HttpError(400, '不能使用自己的推广码购买额度');
+  const face =
+    cashFen === null ? faceFen : Number((BigInt(cashFen) * 100n) / BigInt(c.customer_price_percent));
+  const cash =
+    cashFen === null ? Number((BigInt(face) * BigInt(c.customer_price_percent) + 99n) / 100n) : cashFen;
+  if (!Number.isSafeInteger(face) || face < 500 || face > 5000000 || cash < 500 || cash > 5000000)
+    throw new HttpError(400, '本次实付或到账额度超出范围');
+  return {
+    face_fen: face,
+    amount_fen: cash,
+    discount_snapshot: {
+      percent: c.customer_price_percent,
+      promo_code: c.code,
+      cw: { partner_id: c.partner_id, code_id: c.id, rate_bps: c.commission_bps },
+      ...(cashFen !== null ? { requested_cash_fen: cashFen } : {}),
+    },
+  };
+}

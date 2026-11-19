@@ -1,0 +1,289 @@
+:root {
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    'Microsoft YaHei',
+    'PingFang SC',
+    sans-serif;
+  color: #20283d;
+  background: #f6f7fa;
+  font-size: 16px;
+  line-height: 1.6;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+button,
+input,
+select {
+  font: inherit;
+}
+button,
+.cw-button {
+  border: 1px solid #b6bece;
+  border-radius: 8px;
+  background: #fff;
+  color: #263147;
+  min-height: 40px;
+  padding: 8px 14px;
+  cursor: pointer;
+  text-decoration: none;
+}
+button:hover {
+  background: #eef1f7;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+a {
+  color: #6430bb;
+  text-underline-offset: 3px;
+}
+input,
+select {
+  border: 1px solid #b6bece;
+  border-radius: 8px;
+  padding: 9px 12px;
+  min-height: 42px;
+  max-width: 100%;
+  width: 100%;
+  background: #fff;
+  color: inherit;
+}
+input[type='checkbox'] {
+  width: auto;
+  min-height: auto;
+}
+label {
+  display: block;
+  margin: 12px 0;
+}
+label input,
+label select {
+  display: block;
+  margin-top: 6px;
+}
+.cw-check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.cw-check input {
+  margin-top: 7px;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #7640ce;
+  outline-offset: 3px;
+}
+.cw-app {
+  width: 100%;
+  max-width: 1600px;
+  margin: auto;
+  padding: 20px 28px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cw-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.cw-heading h1 {
+  font-size: 24px;
+  line-height: 1.4;
+  margin: 0;
+}
+.cw-heading p {
+  font-size: 14px;
+  margin: 8px 0;
+  color: #4b5871;
+}
+#cw-nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #d5dae5;
+  padding: 12px 0;
+}
+#cw-nav button[aria-current='page'] {
+  background: #eee7fa;
+  color: #5c25ad;
+  border-color: #ad90d8;
+}
+#cw-message {
+  margin: 8px 0;
+  color: #8b2525;
+}
+#cw-content {
+  min-height: 0;
+  overflow: auto;
+  flex: 1;
+  background: #fff;
+  padding: 20px;
+  border: 1px solid #d5dae5;
+  border-radius: 8px;
+}
+h2 {
+  font-size: 20px;
+  margin: 0 0 12px;
+}
+h3 {
+  font-size: 17px;
+}
+p {
+  margin: 8px 0 16px;
+}
+.cw-metrics {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+.cw-metrics dl {
+  margin: 0;
+  min-width: 140px;
+}
+.cw-metrics dt {
+  color: #4b5871;
+  font-size: 14px;
+}
+.cw-metrics dd {
+  font-size: 24px;
+  font-weight: 650;
+  margin: 4px 0;
+}
+.cw-table {
+  overflow: auto;
+  width: 100%;
+  margin: 16px 0;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 960px;
+  font-size: 14px;
+}
+th,
+td {
+  border-bottom: 1px solid #dde2eb;
+  text-align: left;
+  padding: 12px;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+th {
+  background: #f5f6fa;
+  position: sticky;
+  top: 0;
+  white-space: nowrap;
+}
+td small {
+  display: block;
+  color: #4b5871;
+}
+.cw-form {
+  max-width: 620px;
+}
+.cw-inline {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.cw-inline select {
+  width: auto;
+  max-width: 400px;
+}
+.cw-muted {
+  color: #4b5871;
+  font-size: 14px;
+}
+.cw-status {
+  color: #5c25ad;
+  font-weight: 600;
+}
+.cw-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+details {
+  margin: 18px 0;
+}
+summary {
+  cursor: pointer;
+}
+#cw-footer {
+  flex: none;
+}
+.cw-proof {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #f4f6fa;
+  padding: 16px;
+}
+#cw-header .site-header {
+  width: 100%;
+}
+@media (max-width: 700px) {
+  .cw-app {
+    padding: 14px 12px;
+  }
+  .cw-heading {
+    align-items: flex-start;
+  }
+  .cw-heading h1 {
+    font-size: 22px;
+  }
+  #cw-content {
+    padding: 14px;
+  }
+  .cw-metrics {
+    gap: 16px;
+  }
+  .cw-metrics dd {
+    font-size: 21px;
+  }
+  #cw-nav {
+    gap: 6px;
+  }
+  #cw-nav button {
+    padding: 7px 10px;
+  }
+}
+
+.cw-qr {
+  display: block;
+  width: 160px;
+  height: 160px;
+  max-width: 100%;
+  background: #fff;
+  margin-top: 8px;
+}
+
+#refresh {
+  flex: none;
+  white-space: nowrap;
+}
+.cw-proof dd {
+  margin: 0 0 12px;
+  font-weight: 500;
+}
+.cw-proof dt {
+  color: #4b5871;
+}
