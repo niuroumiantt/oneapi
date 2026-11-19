@@ -5,7 +5,7 @@
  const ico=n=>`<span data-icon="${n}"></span>`;
  const assetBase=new URL('.',document.currentScript.src);
  const standalone=!!document.querySelector('[data-site-header="skills"],[data-site-header="compare"]');
- const root=standalone?new URL('index.html',assetBase).href:'';
+ const root=(standalone||/\/cw(?:-terms)?\.html$/.test(location.pathname))?new URL('index.html',assetBase).href:'';
  const skills=new URL(assetBase.pathname.endsWith('/web/')?'../prototypes/skills/':'skills/',assetBase).href;
  function accountMenu(user,kind='customer',settingsHref='#security'){
   if(!user)return `<a class="live-signin" href="#workspace">${ico('user-round')}<span>登录 / 注册</span></a>`;
