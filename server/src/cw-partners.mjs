@@ -247,7 +247,10 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
         'UPDATE cw_partners SET bank_cipher=$2,bank_last4=$3,bank_version=bank_version+1,bank_verified_version=NULL WHERE id=$1',
         [p.id, box.seal({ holder, bank, number }), number.slice(-4)],
       );
-      await audit(db, req.actor, 'cw.bank_changed', null, p.id, {});
+      await audit(db, req.actor, 'cw.bank_changed', null, p.id, {
+        consent_version: 'cw-bank-v1',
+        bank_version: p.bank_version + 1,
+      });
     });
     res.json({ ok: true });
   });
