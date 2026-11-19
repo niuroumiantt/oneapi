@@ -35,7 +35,10 @@
     account: `<a href="${staff ? '/#console/business/overview' : '/#workspace'}">${staff ? '返回商务后台' : '我的工作台'}</a>`,
   });
   $('#cw-footer').innerHTML = window.SiteHeader.footer();
-  if (staff) $('#cw-title').textContent = 'CW 合作伙伴管理';
+  if (staff) {
+    $('#cw-title').textContent = 'CW 合作伙伴管理';
+    document.title = 'CW 合作伙伴管理 · semifly.ai';
+  }
   async function api(path, body) {
     const r = await fetch(path, {
       credentials: 'same-origin',
@@ -43,10 +46,11 @@
         ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
         : {}),
     });
-    const d = await r.json();
+    const d = await r.json().catch(() => ({ error: '服务暂时不可用，请稍后刷新重试。' }));
     if (!r.ok) {
       const e = Error(d.error || '请求失败');
       e.status = r.status;
+      if (r.status === 401) clearView(e);
       throw e;
     }
     return d;
@@ -64,7 +68,21 @@
   const privateDetails = (r) =>
     `<dl class="cw-proof">${r.contact ? `<dt>联系方式</dt><dd>${esc(r.contact.contact)}</dd>` : ''}${r.bank ? `<dt>收款人</dt><dd>${esc(r.bank.holder)}</dd><dt>开户银行</dt><dd>${esc(r.bank.bank)}</dd><dt>银行卡号</dt><dd>${esc(r.bank.number)}</dd>` : '<dt>银行卡</dt><dd>尚未填写</dd>'}${r.bank_version !== undefined ? `<dt>银行卡版本</dt><dd>${r.bank_version}</dd>` : ''}${r.net_fen !== undefined ? `<dt>应付税后金额</dt><dd>${money(r.net_fen)}</dd>` : ''}</dl>`;
   const stat = (title, value) => `<dl><dt>${title}</dt><dd>${money(value)}</dd></dl>`;
+  function clearView(error) {
+    data = null;
+    selected = null;
+    ++viewVersion;
+    ++loadVersion;
+    $('#cw-content').inert = false;
+    $('#cw-content').removeAttribute('aria-busy');
+    $('#cw-nav').replaceChildren();
+    $('#cw-message').textContent = error.message;
+    $('#cw-content').innerHTML = error.status === 401
+      ? `<h2>登录已过期</h2><p>请先${staff ? '完成员工登录' : '注册或登录个人账户'}，再刷新此页。</p><a class="cw-button" href="${staff ? '/api/staff/login?next=business' : '/?cw_join=' + encodeURIComponent(new URLSearchParams(location.search).get('invite') || '1') + '#register'}">${staff ? '员工登录' : '注册／登录'}</a>`
+      : `<h2>${error.status === 403 ? '暂时无法访问' : '加载未完成'}</h2><p>${error.status === 403 ? '请确认当前员工账号具有商务权限。' : '请点击右上角“刷新”重试。'}</p>`;
+  }
   function nav() {
+    const focused = $('#cw-nav').contains(document.activeElement) ? document.activeElement.dataset.tab : null;
     const items = staff
       ? [
           ['overview', '合作伙伴'],
@@ -82,29 +100,37 @@
     $('#cw-nav').innerHTML = items
       .map(([k, v]) => `<button data-tab="${k}" aria-current="${tab === k ? 'page' : 'false'}">${v}</button>`)
       .join('');
+    if (focused) $('#cw-nav').querySelector(`[data-tab="${focused}"]`)?.focus({ preventScroll: true });
   }
   async function load() {
     const version = ++loadVersion;
+    const partnerId = selected;
+    const content = $('#cw-content');
+    content.setAttribute('aria-busy', 'true');
+    content.inert = true;
     try {
       $('#cw-message').textContent = '';
       const result = await api(staff ? base : base + '/me');
       if (version !== loadVersion) return;
-      data = result;
-      if (staff && selected) {
-        const detail = await api(base + '/' + selected);
+      if (staff && partnerId) {
+        result.detail = await api(base + '/' + partnerId);
         if (version !== loadVersion) return;
-        data.detail = detail;
       }
+      data = result;
       await draw();
     } catch (e) {
-      $('#cw-message').textContent = e.message;
-      if (e.status === 401)
-        $('#cw-content').innerHTML =
-          `<p>请先${staff ? '完成员工登录' : '注册或登录个人账户'}。</p><a class="cw-button" href="${staff ? '/api/staff/login?next=business' : '/?cw_join=' + encodeURIComponent(new URLSearchParams(location.search).get('invite') || '1') + '#register'}">${staff ? '员工登录' : '注册／登录'}</a>`;
-      else if (e.status === 503) $('#cw-content').textContent = '推广合作伙伴申请尚未开放，请稍后再来。';
+      if (version !== loadVersion) return;
+      clearView(e);
+      if (e.status === 503) content.textContent = '推广合作伙伴申请尚未开放，请稍后再来。';
+    } finally {
+      if (version === loadVersion) {
+        content.removeAttribute('aria-busy');
+        content.inert = false;
+      }
     }
   }
   async function draw() {
+    if (!data) return;
     const version = ++viewVersion;
     nav();
     const c = $('#cw-content');
@@ -141,15 +167,15 @@
     }
     const d = data.detail;
     if (!d) {
-      c.innerHTML = '<p>请先在合作伙伴列表选择一名 CW。</p>';
+      c.innerHTML = `<h2>${tab === 'manage' ? '档案与推广码' : '月结与提现'}</h2><p>${data.partners.length ? '请先选择要管理的 CW，再查看其档案、推广码和结算记录。' : '目前还没有 CW 申请记录。收到申请后，可在合作伙伴列表选择并管理。'}</p><button data-tab="overview">返回合作伙伴列表</button>`;
       return;
     }
     const p = d.partner;
-    c.innerHTML = `<h2>${esc(p.legal_name)} · ${p.public_code}</h2><p>合作状态：${labels[p.status]} · 可提现（税前）：${money(d.available_fen)}</p>`;
+    c.innerHTML = `<button data-tab="overview">返回合作伙伴列表</button><h2 class="cw-partner-title">${esc(p.legal_name)} · ${p.public_code}</h2><p>合作状态：${labels[p.status]} · 可提现（税前）：${money(d.available_fen)}</p>`;
     if (tab === 'manage')
-      c.innerHTML += `${table(['推广码／名称', '客户价格', '有效期', '状态', '实付／实用', '预计／解锁佣金', '审核'], d.codes.map((k) => `<tr><td>${k.code}<small>${esc(k.name)}</small></td><td>${k.customer_price_percent}%</td><td>${when(k.starts_at)} 至 ${when(k.ends_at)}</td><td>${labels[k.status]}</td><td>${money(k.paid_fen)} / ${money(k.used_fen)}</td><td>${money(k.expected_fen)} / ${money(k.unlocked_fen)}</td><td><button data-code-review="${k.id}">审核／停用</button></td></tr>`).join(''))}<div id="code-editor"></div>${table(['合同版本', '文件摘要', '核验人／时间', '有效期'], d.contracts.map((k) => `<tr><td>${esc(k.template_version)}</td><td>${esc(k.document_sha256)}</td><td>${esc(k.verified_by)}<small>${when(k.verified_at)}</small></td><td>${when(k.expires_at)}</td></tr>`).join(''))}<details><summary>合同与身份核验（管理员）</summary><p>请核验真实签约服务凭证，不能把提交申请视为已签约。</p>${form('contract', field('template_version', '正式合同版本') + field('document_sha256', '已签署文件 SHA-256', 'text', 'pattern="[a-f0-9]{64}"') + field('signature_reference', '签约服务商及凭证编号') + field('identity_reference', '实名核验服务及凭证编号') + field('expires_at', '合同截止时间', 'datetime-local') + `<label class="cw-check"><input type="checkbox" required>已核验双方签署证据和合作人身份</label>`, '登记签署证据并激活')}</details><details><summary>收款账户与联系资料（财务）</summary>${form('private', field('reason', '查看原因'), '查看敏感资料')}<div id="private-details"></div>${form('bank-verify', field('bank_version', '已核验银行卡版本', 'number', 'min="1"') + field('evidence', '本人账户核验凭证编号'), '确认核验')}</details><details><summary>暂停合作</summary>${form('suspend', field('reason', '暂停原因'), '暂停新推广与提现')}</details>`;
+      c.innerHTML += `<h3>专属推广码</h3>${table(['推广码／名称', '客户价格', '有效期', '状态', '实付／实用', '预计／解锁佣金', '审核'], d.codes.map((k) => `<tr><td>${k.code}<small>${esc(k.name)}</small></td><td>${k.customer_price_percent}%</td><td>${when(k.starts_at)} 至 ${when(k.ends_at)}</td><td>${labels[k.status]}</td><td>${money(k.paid_fen)} / ${money(k.used_fen)}</td><td>${money(k.expected_fen)} / ${money(k.unlocked_fen)}</td><td><button data-code-review="${k.id}">审核／停用</button></td></tr>`).join(''))}<div id="code-editor"></div><h3>签约记录</h3>${table(['合同版本', '文件摘要', '核验人／时间', '有效期'], d.contracts.map((k) => `<tr><td>${esc(k.template_version)}</td><td>${esc(k.document_sha256)}</td><td>${esc(k.verified_by)}<small>${when(k.verified_at)}</small></td><td>${when(k.expires_at)}</td></tr>`).join(''))}<details><summary>合同与身份核验（管理员）</summary><p>请核验真实签约服务凭证，不能把提交申请视为已签约。</p>${form('contract', field('template_version', '正式合同版本') + field('document_sha256', '已签署文件 SHA-256', 'text', 'pattern="[a-f0-9]{64}"') + field('signature_reference', '签约服务商及凭证编号') + field('identity_reference', '实名核验服务及凭证编号') + field('expires_at', '合同截止时间', 'datetime-local') + `<label class="cw-check"><input type="checkbox" required>已核验双方签署证据和合作人身份</label>`, '登记签署证据并激活')}</details><details><summary>收款账户与联系资料（财务）</summary>${form('private', field('reason', '查看原因'), '查看敏感资料')}<div id="private-details"></div>${form('bank-verify', field('bank_version', '已核验银行卡版本', 'number', 'min="1"') + field('evidence', '本人账户核验凭证编号'), '确认核验')}</details><details><summary>暂停合作</summary>${form('suspend', field('reason', '暂停原因'), '暂停新推广与提现')}</details>`;
     if (tab === 'settlement')
-      c.innerHTML += `<p class="cw-muted">最近 200 笔成交</p>${table(['客户／付款订单', '推广码', '付款时间', '客户实付／实用', '预计／解锁佣金', '客户计费账户'], d.orders.map((o) => `<tr><td>${esc(o.customer_email)}<small>${esc(o.out_trade_no)}</small></td><td>${o.code}</td><td>${when(o.paid_at)}</td><td>${money(o.cash_fen)} / ${money(o.used_cash_fen)}</td><td>${money(o.expected_fen)} / ${money(o.unlocked_fen)}</td><td>${o.account_id}${o.channel_fee_issue ? '<small>' + esc(o.channel_fee_issue) + '</small>' : ''}</td></tr>`).join(''))}${table(['时间', '码／付款订单', '事件', '实付／实用', '预计／解锁变化'], d.events.map((e) => `<tr><td>${when(e.occurred_at)}</td><td>${e.code}<small>${esc(e.out_trade_no)}</small></td><td>${e.kind === 'paid' ? '充值实付' : labels[e.kind]}</td><td>${money(e.cash_fen)}</td><td>${money(e.commission_fen)}</td></tr>`).join(''))}<details><summary>确认客户月结（财务）</summary><p>自然月已结束、调用结算与支付账单核对完成，并已与客户完成结算，才可确认。</p>${form('close', `<label>客户计费账户<select name="account_id" required><option value="">请选择客户账户</option>${[...new Map(d.orders.map((o) => [o.account_id, o])).values()].map((o) => `<option value="${o.account_id}">${esc(o.customer_email)} · ${o.account_id}</option>`).join('')}</select></label>` + field('month', '结算月份', 'month') + field('evidence', '客户结算单／确认凭证编号'), '确认客户月结')}${table(['已结月份', '客户账户', '结算凭证', '确认时间'], d.closes.map((x) => `<tr><td>${x.month}</td><td>${x.account_id}</td><td>${esc(x.evidence)}</td><td>${when(x.closed_at)}</td></tr>`).join(''))}</details>${table(['申请时间', '税前／代扣税', '状态', '银行卡', '操作'], d.payouts.map((r) => `<tr><td>${when(r.created_at)}</td><td>${money(r.gross_fen)} / ${money(r.withholding_fen)}</td><td>${labels[r.status]}</td><td>尾号 ${r.bank_last4}</td><td>${r.status === 'requested' ? `<button data-payout-review="${r.id}">审核</button>` : r.status === 'approved' ? `<button data-payout-complete="${r.id}">付款与结果确认</button>` : ''}</td></tr>`).join(''))}<div id="payout-editor"></div>`;
+      c.innerHTML += `<h3>客户付款订单</h3><p class="cw-muted">最近 200 笔成交</p>${table(['客户／付款订单', '推广码', '付款时间', '客户实付／实用', '预计／解锁佣金', '客户计费账户'], d.orders.map((o) => `<tr><td>${esc(o.customer_email)}<small>${esc(o.out_trade_no)}</small></td><td>${o.code}</td><td>${when(o.paid_at)}</td><td>${money(o.cash_fen)} / ${money(o.used_cash_fen)}</td><td>${money(o.expected_fen)} / ${money(o.unlocked_fen)}</td><td>${o.account_id}${o.channel_fee_issue ? '<small>' + esc(o.channel_fee_issue) + '</small>' : ''}</td></tr>`).join(''))}<h3>付款与使用明细</h3>${table(['时间', '码／付款订单', '事件', '实付／实用', '预计／解锁变化'], d.events.map((e) => `<tr><td>${when(e.occurred_at)}</td><td>${e.code}<small>${esc(e.out_trade_no)}</small></td><td>${e.kind === 'paid' ? '充值实付' : labels[e.kind]}</td><td>${money(e.cash_fen)}</td><td>${money(e.commission_fen)}</td></tr>`).join(''))}<details><summary>确认客户月结（财务）</summary><p>自然月已结束、调用结算与支付账单核对完成，并已与客户完成结算，才可确认。</p>${form('close', `<label>客户计费账户<select name="account_id" required><option value="">请选择客户账户</option>${[...new Map(d.orders.map((o) => [o.account_id, o])).values()].map((o) => `<option value="${o.account_id}">${esc(o.customer_email)} · ${o.account_id}</option>`).join('')}</select></label>` + field('month', '结算月份', 'month') + field('evidence', '客户结算单／确认凭证编号'), '确认客户月结')}${table(['已结月份', '客户账户', '结算凭证', '确认时间'], d.closes.map((x) => `<tr><td>${x.month}</td><td>${x.account_id}</td><td>${esc(x.evidence)}</td><td>${when(x.closed_at)}</td></tr>`).join(''))}</details><h3>提现申请与付款结果</h3>${table(['申请时间', '税前／代扣税', '状态', '银行卡', '操作'], d.payouts.map((r) => `<tr><td>${when(r.created_at)}</td><td>${money(r.gross_fen)} / ${money(r.withholding_fen)}</td><td>${labels[r.status]}</td><td>尾号 ${r.bank_last4}</td><td>${r.status === 'requested' ? `<button data-payout-review="${r.id}">审核</button>` : r.status === 'approved' ? `<button data-payout-complete="${r.id}">付款与结果确认</button>` : ''}</td></tr>`).join(''))}<div id="payout-editor"></div>`;
   }
   document.addEventListener('click', async (e) => {
     const b = e.target.closest('button');
@@ -158,11 +184,14 @@
       if (b.dataset.tab) {
         tab = b.dataset.tab;
         await draw();
+        $('#cw-content').scrollTop = 0;
       } else if (b.id === 'refresh') await load();
       else if (b.dataset.partner) {
         selected = b.dataset.partner;
         tab = 'manage';
+        $('#cw-content').textContent = '正在加载合作伙伴资料…';
         await load();
+        $('#cw-content').scrollTop = 0;
       } else if (b.dataset.copy) {
         await navigator.clipboard.writeText(b.dataset.copy);
         $('#cw-message').textContent = '链接已复制。';
