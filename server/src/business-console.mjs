@@ -522,6 +522,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
   // The platform administrator's own grants take effect at once; everyone else's wait for a second person.
   const status = isAdmin(req.staff) ? 'active' : 'pending';
   const row = await transaction(pool, async db => {
+   if(promo){await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',['cw-code:'+promo]);if((await db.query('SELECT 1 FROM cw_codes WHERE code=$1 UNION ALL SELECT 1 FROM cw_partners WHERE public_code=$1',[promo])).rowCount)throw new HttpError(409,'此码已被 CW 保留');}
    if (customer && !(await db.query('SELECT 1 FROM customers WHERE id=$1', [customer])).rowCount) throw new HttpError(404, '客户不存在');
    const created = (await db.query(`INSERT INTO discount_grants(name,audience,customer_id,tag,model_id,customer_price_percent,cap_fen,starts_at,ends_at,reason,status,created_by,decided_by,decided_at)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id,status`, [name, audience, customer, tag, model, percent, cap, starts, ends, reason, status, req.staff.subject, status === 'active' ? req.staff.subject : null, status === 'active' ? new Date() : null])).rows[0];

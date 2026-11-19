@@ -1,3 +1,4 @@
+import {creditCW,refundCW} from './cw-ledger.mjs';
 import {syncWechatBill} from './wechat-bills.mjs';
 import {syncAlipayBill,billDay} from './alipay-bills.mjs';
 import {addPack,accountFor,quotePack,refundQuote} from './pack-ledger.mjs';
@@ -46,7 +47,8 @@ export async function creditPaidOrder(pool,outTradeNoValue,{provider,tradeNo,tot
   // The signed payment must match locked cash; credit the independently locked face value.
   const account=(await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen+$2,list_credit_fen=list_credit_fen+$3 WHERE id=$1 RETURNING cash_balance_fen,list_credit_fen,organization_id',[o.account_id,o.amount_fen,o.face_fen])).rows[0];
   await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'recharge',$2,$3,'payment',$4)",[o.account_id,o.amount_fen,account.cash_balance_fen,o.id]);
-  await addPack(db,{accountId:o.account_id,sourceKind:'payment',sourceId:o.id,faceFen:o.face_fen,cashFen:o.amount_fen});
+  const pack=await addPack(db,{accountId:o.account_id,sourceKind:'payment',sourceId:o.id,faceFen:o.face_fen,cashFen:o.amount_fen});
+  await creditCW(db,o,pack);
   const order=(await db.query("UPDATE payment_orders SET status='paid',provider_trade_no=$2,paid_at=now(),updated_at=now() WHERE id=$1 RETURNING *",[o.id,tradeNo])).rows[0];
   await audit(db,{kind:'system',id:source},`billing.recharge.${CHANNELS[provider].audit}_paid`,account.organization_id,o.id,{amount_fen:String(o.amount_fen),face_fen:String(o.face_fen),provider_trade_no:tradeNo});
   return {order,credited:true};
@@ -133,7 +135,7 @@ export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
  async function createOrder(req,res,provider,ownerColumn,ownerValue){
   const name=CHANNELS[provider].name;
   if(!allowed(req.customer,provider))throw new HttpError(403,`${name}充值尚未对当前账户开放`);
-  const face=parseRechargeFen(req.body?.face_fen??req.body?.amount_fen),key=req.body?.idempotency_key;
+  const cashInput=req.body?.cash_fen===undefined?null:parseRechargeFen(req.body.cash_fen),face=parseRechargeFen(req.body?.face_fen??cashInput??req.body?.amount_fen),key=req.body?.idempotency_key;
   if(provider==='wechat_native'&&cfg.wechat?.pilotEnabled&&face!==RECHARGE_MIN_FEN)
    throw new HttpError(400,'微信支付验收订单限 ¥5.00');
 
@@ -142,9 +144,11 @@ export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
   const saved=await transaction(pool,async db=>{
    await db.query('SELECT id FROM billing_accounts WHERE id=$1 FOR UPDATE',[account.id]);
    const existing=(await db.query('SELECT * FROM payment_orders WHERE created_by=$1 AND idempotency_key=$2',[req.customer.id,key])).rows[0];
-   if(existing){if(existing.account_id!==account.id||Number(existing.face_fen)!==face||existing.provider!==provider||String(existing.discount_snapshot.requested_code||'')!==String(req.body?.promo_code||'').trim().toUpperCase())throw new HttpError(409,'订单信息已变化，请重新下单');return {order:existing,created:false};}
-   const quote=await quotePack(db,account,face,req.body?.promo_code);
+   if(existing){if((req.body?.expected_face_fen!==undefined&&Number(req.body.expected_face_fen)!==Number(existing.face_fen))||(req.body?.expected_cash_fen!==undefined&&Number(req.body.expected_cash_fen)!==Number(existing.amount_fen))||(cashInput===null)!==(existing.discount_snapshot.requested_cash_fen===undefined)||existing.account_id!==account.id||(cashInput===null?Number(existing.face_fen)!==face:Number(existing.discount_snapshot.requested_cash_fen)!==cashInput)||existing.provider!==provider||String(existing.discount_snapshot.requested_code||'')!==String(req.body?.promo_code||'').trim().toUpperCase())throw new HttpError(409,'订单信息已变化，请重新下单');return {order:existing,created:false};}
+   const quote=await quotePack(db,account,face,req.body?.promo_code,{cashFen:cashInput,buyerId:req.customer.id,cwEnabled:!!cfg.cw?.enabled});
    if(req.body?.expected_cash_fen!==undefined&&Number(req.body.expected_cash_fen)!==quote.amount_fen)throw new HttpError(409,'优惠已变化，请重新查看实付金额');
+   if(req.body?.expected_face_fen!==undefined&&Number(req.body.expected_face_fen)!==quote.face_fen)throw new HttpError(409,'到账额度已变化，请重新确认');
+   if(cashInput!==null&&req.body?.expected_face_fen===undefined)throw new HttpError(400,'请先确认本次到账额度');
    quote.discount_snapshot.requested_code=String(req.body?.promo_code||'').trim().toUpperCase();
    const order=(await db.query(`INSERT INTO payment_orders(out_trade_no,account_id,created_by,provider,amount_fen,face_fen,discount_snapshot,idempotency_key,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+make_interval(mins=>$9)) RETURNING *`,[outTradeNo(),account.id,req.customer.id,provider,quote.amount_fen,quote.face_fen,quote.discount_snapshot,key,ORDER_TTL_MINUTES])).rows[0];
    return {order,created:true};
@@ -159,7 +163,7 @@ export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
  }
  app.post('/api/billing/quote',requireCustomer,async(req,res)=>{
   const account=await accountFor(pool,req.customer.id,req.body?.organization_id?id(req.body.organization_id):null,{create:true});
-  res.json(await transaction(pool,db=>quotePack(db,account,parseRechargeFen(req.body?.face_fen),req.body?.promo_code)));
+  res.json(await transaction(pool,db=>quotePack(db,account,parseRechargeFen(req.body?.face_fen??req.body?.cash_fen),req.body?.promo_code,{cashFen:req.body?.cash_fen===undefined?null:parseRechargeFen(req.body.cash_fen),buyerId:req.customer.id,cwEnabled:!!cfg.cw?.enabled})));
  });
  for(const provider of Object.keys(CHANNELS)){
   const path=CHANNELS[provider].path;
@@ -247,6 +251,7 @@ export async function finishRefund(pool,refundId,{outcome,code},source){
     await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'usage',$2,$3,'usage',$4)",[o.account_id,String(-BigInt(cur.fee_fen)),a.cash_balance_fen,'refund-fee:'+cur.id]);
    }
    await db.query("UPDATE payment_refunds SET status='succeeded',error_code=NULL,completed_at=now() WHERE id=$1",[cur.id]);
+   await refundCW(db,cur);
    if(cur.pack_id)await db.query("UPDATE credit_refund_requests SET status='completed' WHERE pack_id=$1 AND status='processing'",[cur.pack_id]);
    await audit(db,{kind:'system',id:source},`billing.refund.${ch}_succeeded`,null,cur.id,{order_id:o.id,amount_fen:String(cur.amount_fen)});
    return 'succeeded';
