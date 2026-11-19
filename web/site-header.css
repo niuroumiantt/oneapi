@@ -1,5 +1,5 @@
 /* Site chrome: one source for logo, navigation, account and tool rows. */
-:root{--site-ink:#1c2541;--site-muted:#596579;--site-line:#e3e7ee;--site-accent:#d93527;--site-header-height:72px;--site-gutter:28px}
+:root{--site-ink:#1c2541;--site-muted:#596579;--site-line:#e3e7ee;--site-accent:#d93527;--site-header-height:64px;--site-gutter:24px;--ui-font:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;--ui-body:15px;--ui-small:13px;--ui-radius:8px}
 .account-menu{position:relative;color:#1C2541;font-size:12px;z-index:60;text-align:left}.account-menu summary{list-style:none;display:flex;align-items:center;gap:10px;cursor:pointer;padding:7px 10px;border:1px solid #1c254119;border-radius:30px;background:#fffdf8;min-height:44px}.account-menu summary::-webkit-details-marker{display:none}.account-menu summary:focus-visible,.live-signin:focus-visible{outline:2px solid #E43C2F;outline-offset:4px}.account-avatar{position:relative;display:grid;place-items:center;width:32px;height:32px;flex-shrink:0;border-radius:50%;background:#1C2541;color:#fff5e7;font-size:14px;font-weight:600}.account-avatar i{position:absolute;width:9px;height:9px;background:#27836a;bottom:0;right:-1px;border-radius:50%;border:2px solid #fffdf8}.account-label{display:flex;flex-direction:column;gap:3px;max-width:105px}.account-label b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:600}.account-label small{font-size:9px;color:#527568}.account-menu .ui-icon{width:16px;height:16px}.account-popover{position:absolute;top:calc(100% + 10px);right:0;width:245px;padding:8px;border:1px solid #e6e3dc;border-radius:16px;background:#fffdf8;box-shadow:0 16px 50px #111b3220;color:#1C2541}.account-person{padding:12px;border-bottom:1px solid #e8e6df;margin-bottom:5px;display:grid;gap:5px}.account-person b,.account-person small{overflow-wrap:anywhere}.account-person small{font-size:11px;color:#858b99}.account-popover a,.account-popover button{display:flex!important;align-items:center;gap:10px;width:100%;padding:11px 12px!important;border:0;background:transparent;border-radius:9px;font:inherit;color:#1C2541!important;text-decoration:none;cursor:pointer}.account-popover a:hover,.account-popover button:hover{background:#f0eee9}.account-popover button{border-top:1px solid #e8e6df;margin-top:5px}.live-signin{display:inline-flex;align-items:center;gap:8px;color:#1C2541!important;font-size:12px;background:#fffdf8;border:1px solid #e4e0d7;border-radius:24px;padding:12px 16px;white-space:nowrap}.live-signin .ui-icon{width:16px;height:16px}
 .site-header,.site-header *{box-sizing:border-box}
 .site-header{display:block;position:relative;z-index:80;width:100%;height:auto;margin:0;padding:0;border:0;border-bottom:1px solid var(--site-line);background:#fff;color:var(--site-ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
@@ -11,14 +11,14 @@
 .site-header .site-nav a:hover{color:var(--site-ink);border-bottom-color:#c9ced7}
 .site-header .site-nav a[aria-current="page"]{color:var(--site-ink);border-bottom-color:var(--site-accent);font-weight:650}
 .site-header .site-account{justify-self:end;min-width:0}
-.site-header .account-menu summary{min-height:44px;padding:5px 10px;border:1px solid var(--site-line);border-radius:24px;background:#fff;gap:8px}
+.site-header .account-menu summary{min-height:44px;padding:5px 10px;border:1px solid var(--site-line);border-radius:var(--ui-radius);background:#fff;gap:8px}
 .site-header .account-avatar{width:30px;height:30px;background:var(--site-ink);color:#fff}
 .site-header .account-label{display:flex;max-width:100px}
 .site-header .account-label small{display:none}
 .site-header .account-menu summary>.ui-icon-wrap{display:flex}
 .site-header .account-popover{background:#fff;border-color:var(--site-line);border-radius:12px}
 .site-header .account-popover a,.site-header .account-popover button{min-height:44px}
-.site-header .live-signin{display:flex;min-height:44px;padding:10px 14px;border-radius:24px;background:#fff;border-color:var(--site-line);font-size:13px;text-decoration:none}
+.site-header .live-signin{display:flex;min-height:44px;padding:10px 14px;border-radius:var(--ui-radius);background:#fff;border-color:var(--site-line);font-size:13px;text-decoration:none}
 .site-header .ui-icon{width:18px;height:18px}
 .site-header a:focus-visible,.site-header button:focus-visible,.site-header summary:focus-visible{outline:2px solid var(--site-accent);outline-offset:3px}
 .site-tools{display:flex;align-items:center;gap:20px;min-height:56px;padding:8px var(--site-gutter);border-top:1px solid var(--site-line);background:#fafbfd;font-size:14px}
@@ -103,7 +103,7 @@ html{scrollbar-gutter:stable}
 .personal-console>.site-footer{grid-column:1/-1;grid-row:3}
 .pc-sidebar{overflow:auto;padding:16px 12px}
 .pc-sidebar nav{align-items:stretch}
-.pc-sidebar nav button,.pc-sidebar nav a{width:100%;height:auto;min-height:44px;flex-direction:row;justify-content:flex-start;gap:12px;padding:10px 12px;font-size:13px;text-align:left}
+.pc-sidebar nav button,.pc-sidebar nav a{width:100%;height:auto;min-height:44px;flex-direction:row;justify-content:flex-start;gap:12px;padding:10px 12px;font-size:16px;text-align:left}
 .pc-sidebar .ui-icon{--icon-size:20px}
 .pc-stage{width:100%;max-width:none;scrollbar-gutter:stable;padding:16px 24px}
 .doc-layout{max-width:none;grid-template-columns:var(--site-sidebar-width) minmax(0,1fr)}
@@ -136,3 +136,20 @@ html{scrollbar-gutter:stable}
 .identity-active #identity-view>.live-main{width:100%;max-width:none;padding:24px var(--site-gutter)}
 .personal-console-active.identity-active #identity-view>.live-main{padding:0}
 #console-view{position:relative;inset:auto;width:100%;height:100dvh}
+
+/* Shared navigation and form geometry; no per-page font shrinking. */
+.site-header{font-family:var(--ui-font)}
+.site-header .site-nav a{font-size:15px}
+.site-header .account-menu,.site-header .account-label b{font-size:14px}
+.site-tools{min-height:56px;gap:16px}
+.site-tools :is(.pc-workspace,.personal-recharge,.pc-global-search){box-sizing:border-box;height:40px;min-height:40px;margin-top:0;margin-bottom:0;border:1px solid #cbd2dd;border-radius:var(--ui-radius);background:#fff;font-size:14px}
+.site-tools .pc-workspace{padding:0 10px}
+.site-tools .pc-workspace select{height:36px;min-height:0;padding:0 22px 0 0;font:inherit}
+.site-tools .pc-global-search input{font-size:14px}
+.site-tools .personal-recharge{padding:0 12px}
+.pc-sidebar nav :is(button,a){font-family:var(--ui-font);font-size:16px;line-height:1.5;border-radius:var(--ui-radius)}
+.pc-sidebar nav :is(button,a) span{font-size:inherit}
+.site-footer{font-family:var(--ui-font);font-size:13px}
+.personal-console input::placeholder{color:#606c80;opacity:1}
+@media(max-width:800px){.pc-sidebar nav :is(button,a){font-size:15px;padding:8px 10px}}
+@media(max-width:700px){.site-header .site-nav a{font-size:14px}.site-footer{font-size:12px}.site-tools .pc-product-title{display:none}.site-tools .pc-workspace{max-width:100%;min-width:0}.site-tools .pc-topbar-actions{margin:0}.site-tools .pc-global-search{width:100%;min-width:0;flex-basis:100%}}
