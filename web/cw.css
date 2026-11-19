@@ -176,7 +176,8 @@ table {
   border-collapse: collapse;
   width: 100%;
   min-width: 960px;
-  font-size: 14px;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
 }
 th,
 td {
@@ -193,6 +194,7 @@ th {
   white-space: nowrap;
 }
 td small {
+  font-size: 13px;
   display: block;
   color: #4b5871;
 }
@@ -286,4 +288,11 @@ summary {
 }
 .cw-proof dt {
   color: #4b5871;
+}
+
+.cw-partner-title {
+  margin-top: 20px;
+}
+#cw-content[aria-busy="true"] {
+  cursor: progress;
 }
