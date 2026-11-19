@@ -75,7 +75,7 @@
  document.addEventListener('click', event => { const th = event.target.closest?.('th.is-sortable');if (th) toggle(th); });
  document.addEventListener('keydown', event => { if ((event.key === 'Enter' || event.key === ' ') && event.target.matches?.('th.is-sortable')) { event.preventDefault();toggle(event.target); } });
  const style = document.createElement('style');
- style.textContent = 'th.is-sortable{cursor:pointer;user-select:none}th.is-sortable:hover{color:#7740b6}th.is-sortable::after{content:"↕";margin-left:4px;font-size:10px;opacity:.35}th[aria-sort=ascending]::after{content:"↑";opacity:1;color:#7740b6}th[aria-sort=descending]::after{content:"↓";opacity:1;color:#7740b6}';
+ style.textContent = 'th.is-sortable{cursor:pointer;user-select:none}th.is-sortable:hover{color:#7740b6}th.is-sortable::after{content:"↕";margin-left:4px;font-size:var(--ui-small,13px);opacity:.35}th[aria-sort=ascending]::after{content:"↑";opacity:1;color:#7740b6}th[aria-sort=descending]::after{content:"↓";opacity:1;color:#7740b6}';
  document.head.append(style);
  new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
  schedule();

@@ -222,7 +222,7 @@ ${note('工作台“模型 → 接入配置”里选择工具，会显示带截�
   window.IdentityUI?.refreshPublic();
   document.title = `${page.title} · semifly.ai 文档`;
   const target = anchor ? host.querySelector(`#err-${CSS.escape(anchor)}`) || host.querySelector(`#${CSS.escape(anchor)}`) : null;
-  if (target) { target.closest('tr')?.classList.add('doc-hit');target.scrollIntoView({ block: 'center' }); } else window.scrollTo(0, 0);
+  if (target) { target.closest('tr')?.classList.add('doc-hit');target.scrollIntoView({ block: 'center' }); } else host.querySelector('.doc-main')?.scrollTo({top:0});
  }
  function hide() { if (host) host.hidden = true;document.body.classList.remove('docs-active'); }
  document.addEventListener('click', e => {

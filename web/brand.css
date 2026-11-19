@@ -9,7 +9,7 @@
 /* Official outlined SVG masters supplied by the user, 2026-11-06 v1. */
 :root{--brand-red:#E43C2F;--brand-navy:#1C2541;--brand-cream:#fff8e9;--blue:#d93527}
 .welcome-brand img{width:151px;height:50px;margin-left:0}.welcome-brand>span{color:#1C2541;font-size:13px;font-weight:600}.welcome-choices button[aria-pressed=true]{border-color:#E43C2F55;background:#fbece8;color:#b72d24}.welcome-page{--welcome-ink:#1C2541;--welcome-orange:#E43C2F}.welcome-main{border-color:#e7e8ec}.welcome-cta{background:#d93527!important;color:#fff8ef!important}.welcome-cta:hover{background:#bd2d23!important}.m-hero .m-primary{color:#fff8ef}.m-header .m-enter{border-color:#dcdfe5;color:#1C2541}.m-footer>a{color:#1C2541}.m-hero h1{color:#fff6e7}#config-dialog .primary{background:#d93527}.spectrum-dot{background:#E43C2F}.preview-bar{background:#f0f1f4}.primary{background:#d93527}.view-switch button.active{color:#1C2541}.m-hero-copy>a,.m-hero-copy .m-hero-primary{color:inherit}.welcome-brand:before{content:"";display:inline-block;width:27px;height:34px;background:url('pinapi-mark.svg') center/contain no-repeat;margin-right:2px}.welcome-header .welcome-brand{gap:8px}.sidebar>.brand{gap:4px;flex-wrap:wrap}
-@media(max-width:700px){.welcome-brand img{width:120px;height:40px}.welcome-brand:before{width:21px;height:27px;margin-right:0}.welcome-brand>span{padding-left:10px;font-size:11px}.welcome-header .welcome-brand{gap:5px}.m-header .welcome-brand{gap:5px}.m-header .welcome-brand>span{padding-left:9px}}
+@media(max-width:700px){.welcome-brand img{width:120px;height:40px}.welcome-brand:before{width:21px;height:27px;margin-right:0}.welcome-brand>span{padding-left:10px;font-size:var(--ui-small,13px)}.welcome-header .welcome-brand{gap:5px}.m-header .welcome-brand{gap:5px}.m-header .welcome-brand>span{padding-left:9px}}
 
 .welcome-brand:before{flex-shrink:0}.welcome-continue{background:#1C2541}.welcome-continue-arrow{color:#fff8e9}.universe-active .welcome-copy h1>span{color:#fff3da}.universe-active .welcome-underline{stroke:#E43C2F}.m-hero-cta{color:#fff8e9}.m-hero h1 span{color:#fff3da}.m-hero h1 span:after{border-color:#E43C2F}
 @media(max-width:700px){.welcome-header .welcome-brand img{width:104px}.welcome-header .welcome-brand>span{padding-left:7px}.welcome-header .welcome-brand{gap:4px}.welcome-header nav{gap:10px}.welcome-header nav .welcome-staff{padding-left:10px}}
@@ -22,4 +22,4 @@
 .brand-ai{font-style:normal;color:#E43C2F}
 
 /* Public footer type and spacing shared by the landing and comparison pages. */
-:root .m-footer,:root .compare-footer{font-size:12px;line-height:1.7;gap:12px;padding-block:16px;flex-wrap:wrap}
+:root .m-footer,:root .compare-footer{font-size:var(--ui-small,13px);line-height:1.7;gap:12px;padding-block:16px;flex-wrap:wrap}
