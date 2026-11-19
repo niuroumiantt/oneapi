@@ -237,7 +237,7 @@ select option{font-size:14px}
 .personal-console-active.identity-active{background:#f6f7fb;color:#1d2130}
 .personal-console-active .live-header,.personal-console-active .live-footer{display:none}
 .personal-console-active .live-main{max-width:none;margin:0;padding:0}
-.personal-console{display:grid;grid-template-columns:86px minmax(0,1fr);grid-template-rows:55px minmax(0,1fr);width:100%;height:100dvh;min-height:670px;overflow:hidden;background:radial-gradient(ellipse at 70% 0,#f0f0f9 0,#f7f8fb 54%,#f8f9fc 100%);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:#1b1e2d}
+.personal-console{display:grid;grid-template-columns:86px minmax(0,1fr);grid-template-rows:55px minmax(0,1fr);width:100%;height:100dvh;min-height:670px;overflow:hidden;background:radial-gradient(ellipse at 70% 0,#f0f0f9 0,#f7f8fb 54%,#f8f9fc 100%);font-family:var(--ui-font);color:#1b1e2d}
 .pc-topbar{grid-column:1/-1;display:flex;align-items:center;gap:19px;min-width:0;padding:0 18px 0 24px;border-bottom:1px solid #e0e2ec;background:linear-gradient(180deg,#f8f9fd,#f4f5fa)}
 .pc-brand{display:flex;align-items:center;gap:14px;flex:none;color:#10131f;font-size:18px;font-weight:750;white-space:nowrap}.pc-brand .ui-icon{--icon-size:26px;color:#8737ed}
 .pc-title-divider{height:24px;width:1px;background:#b5b9c8}.pc-product-title{font-size:17px;font-weight:700;letter-spacing:.1px;white-space:nowrap}
@@ -356,7 +356,7 @@ select option{font-size:14px}
 .pilot-secret{display:block;margin:12px 0;padding:13px;border:1px solid #dcd4e8;border-radius:7px;background:#f7f1fd;color:#251835;font-size:13px}
 
 /* One customer shell, enterprise capabilities appear according to server permissions. */
-.pc-workspace select{font:inherit;max-width:220px;border:0;color:inherit;background:transparent;padding:3px;outline-offset:3px}.pc-enterprise-stage{gap:12px}.pc-enterprise-heading{display:flex;justify-content:space-between;gap:16px;font-size:14px;padding:0 8px}.pc-enterprise-heading span{font-size:12px;color:#667085}.pc-enterprise-content{min-height:0;overflow:auto;padding:0 3px 12px}.pc-enterprise-content .org-card{border-color:#e1dfee;background:#fff}.pc-enterprise-content .org-kpis{margin-bottom:12px}.pc-enterprise-content .org-overview-grid{grid-template-columns:1fr}.pc-enterprise-content .org-kpis article{padding:12px}.pc-enterprise-content .org-kpis strong{font-size:23px}.pc-enterprise-content .org-card{padding:16px}.pc-enterprise-content .org-table-wrap{max-height:calc(100dvh - 350px);overflow:auto}.pc-sidebar nav button span{font-size:10px}
+.pc-workspace select{font:inherit;max-width:220px;border:0;color:inherit;background:transparent;padding:3px;outline-offset:3px}.pc-enterprise-stage{gap:12px}.pc-enterprise-heading{display:flex;justify-content:space-between;gap:16px;font-size:14px;padding:0 8px}.pc-enterprise-heading span{font-size:12px;color:#667085}.pc-enterprise-content{min-height:0;overflow:auto;padding:0 3px 12px}.pc-enterprise-content .org-card{border-color:#e1dfee;background:#fff}.pc-enterprise-content .org-kpis{margin-bottom:12px}.pc-enterprise-content .org-overview-grid{grid-template-columns:1fr}.pc-enterprise-content .org-kpis article{padding:12px}.pc-enterprise-content .org-kpis strong{font-size:23px}.pc-enterprise-content .org-card{padding:16px}.pc-enterprise-content .org-table-wrap{max-height:calc(100dvh - 350px);overflow:auto}.pc-sidebar nav button span{font-size:inherit}
 @media(max-width:560px){.pc-topbar .pc-workspace{display:flex}.pc-workspace select{max-width:150px;font-size:11px}.pc-enterprise-heading{flex-direction:column;gap:4px}}
 
 /* Same personal workspace: real usage charts, bounded to the viewport. */
@@ -885,7 +885,7 @@ td>.live-dot:first-child{margin-right:5px}
 
 .personal-console-stats{grid-template-columns:repeat(4,minmax(0,1fr))}@media(max-width:560px){.personal-console-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 /* Recharge is a focused checkout, including Windows CJK fallback and scaled desktops. */
-#identity-view,.personal-console{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei UI","Microsoft YaHei","PingFang SC",Arial,sans-serif}
+#identity-view,.personal-console{font-family:var(--ui-font)}
 .personal-console .billing-stage{width:100%;max-width:1280px;margin-inline:auto;overflow:auto;padding-bottom:32px}
 .billing-stage [data-personal-content]{flex:0 0 auto;overflow:visible}
 .billing-stage .pc-tab-page{flex:none;min-height:0}
@@ -931,3 +931,71 @@ td>.live-dot:first-child{margin-right:5px}
 .billing-stage>.personal-console-stats,.billing-stage>.billing-policy{flex-shrink:0}
 .billing-stage>.personal-console-stats>span{display:none}
 @media(max-width:800px){.billing-stage>.personal-console-stats{min-height:96px}.billing-stage>.personal-console-stats>div{min-height:48px}}
+
+/* Workspace surfaces use the shared typography and control scale. */
+.personal-console{font-size:var(--ui-body);line-height:1.5;background:#f6f7f9;color:var(--site-ink)}
+.pc-sidebar{background:#f8f9fb}
+.personal-console :is(.personal-model-panel,.personal-connect-panel,.personal-recent,.personal-state-panel,.personal-ledger,.personal-console-stats){background:#fff;box-shadow:none;border-radius:var(--ui-radius)}
+.personal-console :is(.personal-table-wrap table,.personal-console-stats span,.personal-connect-panel p,.personal-state-panel p,.live-form label,.pc-view-tabs button){font-size:var(--ui-body)}
+.personal-console :is(.personal-table-wrap th small,.personal-table-wrap td small,.personal-section-title>span,.personal-console-note,.personal-console-foot,.recharge-help){font-size:var(--ui-small);color:var(--site-muted)}
+.personal-console :is(input,select,textarea,button){font-family:var(--ui-font)}
+.personal-console .live-form{margin:0;max-width:640px;gap:16px}
+.personal-console .live-form :is(input,select,textarea){border:1px solid var(--site-line);border-radius:var(--ui-radius);background:#fff;color:var(--site-ink);font-size:var(--ui-body);padding:10px 12px}
+.personal-console .live-form textarea{width:100%;min-height:96px;resize:vertical}
+.personal-console .live-form label{color:var(--site-muted)}
+.personal-console :is(.pc-tab-page,.org-card){border-radius:var(--ui-radius);box-shadow:none}
+.personal-console .pc-view-tabs button{min-height:40px;line-height:1.5}
+.personal-console .personal-section-title{height:52px;flex-shrink:0}
+.personal-console .personal-console-grid{min-height:0}
+.personal-console .personal-model-panel,.personal-console .personal-connect-panel{overflow:auto}
+.personal-console .billing-stage{max-width:none;margin:0;padding-bottom:16px}
+.billing-stage .pc-tab-body{padding:20px 24px}
+.billing-stage .billing-policy{margin-bottom:8px}
+.recharge-checkout{max-width:1100px}
+.recharge-checkout .billing-pay-head{margin-bottom:16px}
+.recharge-checkout .panel-title{font-size:22px;margin-bottom:4px}
+.recharge-layout{gap:24px}
+.recharge-amount{min-height:64px;padding:8px 16px;border-width:1px;border-radius:var(--ui-radius)}
+.recharge-amount input{font-size:30px}
+.recharge-presets{margin-top:16px}
+.recharge-presets .alipay-preset{min-height:40px;font-size:15px;border-radius:var(--ui-radius)}
+.recharge-promo{margin-top:16px}
+.recharge-payment{padding:20px;border-radius:var(--ui-radius);background:#f4f7fc}
+.recharge-payment[data-provider="wechat"]{background:#f0f8f3}
+.recharge-provider strong{font-size:22px}
+.recharge-provider span{font-size:var(--ui-small)}
+.payment-brand-icon,.alipay-brand-icon{display:block;width:48px;height:48px;flex:none}
+.wechat-brand-icon{color:#07a653}
+.recharge-steps{margin:16px 0;font-size:var(--ui-body);line-height:1.5}
+.recharge-steps li+li{margin-top:6px}
+.personal-console .recharge-payment .recharge-submit{min-height:44px;margin-top:16px;padding:10px 12px;font-size:15px;border-radius:var(--ui-radius)}
+.personal-console .recharge-payment[data-provider="wechat"] .recharge-submit{background:#087f45;border-color:#087f45}
+.pay-channels{margin-bottom:16px;gap:8px}
+.pay-channels .alipay-preset{display:inline-flex;align-items:center;gap:8px;min-height:40px;font-size:15px;border-radius:var(--ui-radius)}
+.pay-channels svg{width:24px;height:24px}
+@media(min-width:801px){
+ .personal-console .pc-stage{overflow:hidden}
+ .personal-console .pc-stage>[data-personal-content]{overflow:auto}
+ .personal-console .pc-stage>.pc-tab-page{overflow:hidden}
+ .personal-console .billing-stage [data-personal-content]{flex:1;min-height:0;overflow:auto}
+ .personal-console .billing-stage .pc-tab-page{flex:1;min-height:0}
+ .personal-console .billing-stage .pc-tab-body{overflow:auto}
+}
+@media(max-width:800px){
+ .personal-console{height:100dvh;min-height:0;overflow:hidden}
+ .personal-console .pc-stage{min-height:0;overflow:auto}
+ .personal-console .pc-stage>[data-personal-content]{flex:none}
+ .personal-console .pc-tab-page{flex:none}
+ .personal-console .pc-tab-body{overflow:visible}
+ .recharge-layout{grid-template-columns:1fr;gap:16px}
+ .billing-stage .pc-tab-body{padding:16px}
+}
+
+.personal-console :is(.live-form button,.live-button){font-size:15px;min-height:40px;border-radius:var(--ui-radius)}
+.personal-console :is(.pc-tab-body>p,.live-hint,.personal-model-empty){font-size:13px;color:var(--site-muted);line-height:1.6}
+.recharge-instructions{margin-top:12px;font-size:13px;color:#364a63}
+.recharge-instructions summary{cursor:pointer;min-height:28px}
+.recharge-payment>.recharge-help{margin-top:8px}
+.billing-stage .pc-tab-body{padding-top:16px;padding-bottom:16px}
+.recharge-checkout .billing-pay-head{margin-bottom:12px}
+.recharge-checkout .recharge-help{margin-top:6px}

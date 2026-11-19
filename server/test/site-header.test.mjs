@@ -9,10 +9,10 @@ function header(){
 }
 test('shared navigation preserves order and marks exactly the active destination',()=>{
  const ui=header();
- for(const active of ['universe','market','skills','docs','workspace']){
+ for(const active of ['universe','market','skills','docs']){
   const html=ui.render(active);
   assert.equal((html.match(/aria-current="page"/g)||[]).length,1);
-  assert.match(html,/首页<\/a>.*模型广场<\/a>.*Skills 广场<\/a>.*文档<\/a>.*工作台<\/a>/);
+  assert.match(html,/首页<\/a>.*模型广场<\/a>.*Skills 广场<\/a>.*文档<\/a>/);
   assert.match(html,/href="https:\/\/example.test\/skills\/"/);
  }
 });
@@ -40,4 +40,11 @@ test('navigating from a report to console clears report visibility before render
  vm.runInContext(source+';switchView("console/technical");',context);
  assert.ok(calls.indexOf('hide-report')>=0);
  assert.ok(calls.indexOf('hide-report')<calls.indexOf('console'));
+});
+
+test('workspace entry is available only inside the signed-in account menu',()=>{
+ const ui=header();
+ assert.doesNotMatch(ui.render('workspace'),/>工作台<\/a>/);
+ assert.doesNotMatch(ui.accountMenu(null),/我的工作台/);
+ assert.match(ui.accountMenu({name:'Customer'}),/我的工作台/);
 });
