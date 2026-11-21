@@ -56,7 +56,9 @@ export function tagList(value) {
  if (tags.some(t => !t || t.length > 30 || /[,，\s]/.test(t))) throw new HttpError(400, '标签须为 1–30 个字，且不含空格和逗号');
  return tags;
 }
-/** What a customer may still be invoiced: money actually received, less refunds, less invoices already requested or issued. */
+/** What a customer may still be invoiced: cash actually received, less refunds, less invoices already requested or issued.
+ *  Owner policy 2026-11-21: recharge is invoiceable at the cash price; issuing an invoice locks out refunds.
+ *  If the customer refunds the unused red instead, the consumed cash remains invoiceable. The two never overlap. */
 export const invoiceable = ({ recharged_fen, refunded_fen, invoiced_fen }) => Number(recharged_fen) - Number(refunded_fen) - Number(invoiced_fen);
 
 const SH = "AT TIME ZONE 'Asia/Shanghai'";
@@ -116,7 +118,8 @@ async function lockInvoiceAccount(db,customerId){
  if(a&&(await db.query("SELECT 1 FROM payment_refunds f JOIN payment_orders o ON o.id=f.order_id WHERE o.account_id=$1 AND f.status='pending'",[a.id])).rowCount)throw new HttpError(409,'退款处理中，请完成退款后再申请或开具发票');
 }
 
-/** Money received and already invoiced for one customer. Pending refunds count as refunded, to stay on the safe side. */
+/** Money received and already invoiced for one customer. Refunded money is not invoiceable;
+ *  pending refunds count as refunded to stay on the safe side. Owner policy 2026-11-21. */
 async function invoiceLimit(db, customerId) {
  const row = (await db.query(`SELECT
   coalesce((SELECT sum(l.amount_fen) FROM billing_ledger l WHERE l.account_id=b.id AND l.kind='recharge'),0)::bigint AS recharged_fen,
@@ -282,7 +285,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
     if (!(await db.query('SELECT 1 FROM customers WHERE id=$1 FOR UPDATE', [target])).rowCount) throw new HttpError(404, '客户不存在');
     await lockInvoiceAccount(db,target);
     const limit = await invoiceLimit(db, target);
-    if (amount > limit.available_fen && b.allow_over_limit !== true) throw new HttpError(409, `超出可开票金额 ¥${(limit.available_fen / 100).toFixed(2)}。先票后款请勾选“允许超出实收”。`);
+    if (amount > limit.available_fen && b.allow_over_limit !== true) throw new HttpError(409, `超出可开票金额 ¥${(limit.available_fen / 100).toFixed(2)}，按实付扣除退款和已开票计算；确需超额请勾选“允许超出实收”（特批）`);
    } else if (!(await db.query('SELECT 1 FROM suppliers WHERE id=$1', [target])).rowCount) throw new HttpError(404, '供应商不存在');
    const created = (await db.query(`INSERT INTO tax_invoices(direction,customer_id,supplier_id,invoice_type,title,tax_number,email,amount_fen,status,invoice_number,issued_on,note,created_by_staff,handled_by)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id,status`,
@@ -637,7 +640,7 @@ export function customerBusinessRoutes(app, pool, requireCustomer) {
   if ((await db.query("SELECT count(*)::int AS n FROM tax_invoices WHERE customer_id=$1 AND status='requested'", [customer.id])).rows[0].n >= 5) throw new HttpError(429, '待处理的开票申请过多，请等待财务处理');
   await lockInvoiceAccount(db,customer.id);
   const limit = await invoiceLimit(db, customer.id);
-  if (amount > limit.available_fen) throw new HttpError(409, `可开票金额为 ¥${(limit.available_fen / 100).toFixed(2)}，按实际付款扣除退款和已申请的发票计算`);
+  if (amount > limit.available_fen) throw new HttpError(409, `可开票金额为 ¥${(limit.available_fen / 100).toFixed(2)}，按实付扣除已退款和已申请/已开具发票计算。开票后不可退款；未开票可申请退红条实付剩余`);
   const created = (await db.query(`INSERT INTO tax_invoices(direction,customer_id,invoice_type,title,tax_number,email,amount_fen,status,note,requested_by_user) VALUES('output',$1,$2,$3,$4,$5,$6,'requested',$7,$8) RETURNING id,status,amount_fen,created_at`,
    [customer.id, type, title, taxNumber, email, amount, optional(b.note, '备注', 500), req.customer.id])).rows[0];
   await audit(db, req.actor, 'tax_invoice.requested', column === 'organization_id' ? value : null, created.id, { amount_fen: amount });

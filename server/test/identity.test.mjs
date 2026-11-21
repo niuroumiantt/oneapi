@@ -153,7 +153,7 @@ test('managers keep one department list that members and join requests must use'
 });
 test('real billing reads are isolated and cannot credit funds without a merchant',async()=>{
  assert.equal((await jar().call('/api/billing/personal')).status,401);
- const personal=await owner.j.call('/api/billing/personal');assert.equal(personal.status,200);assert.equal(personal.data.scope,'personal');assert.equal(personal.data.cash_balance_fen,'0');assert.equal(personal.data.list_credit_fen,'0');assert.equal(personal.data.total_recharged_fen,'0');assert.deepEqual(personal.data.entries,[]);assert.deepEqual(personal.data.usage_by_model,[]);assert.equal(personal.data.recharge.enabled,false);assert.equal(personal.data.recharge.minimum_fen,500);assert.match(personal.data.refund.policy,/15%/);assert.equal(personal.data.bank_transfer,undefined);
+ const personal=await owner.j.call('/api/billing/personal');assert.equal(personal.status,200);assert.equal(personal.data.scope,'personal');assert.equal(personal.data.cash_balance_fen,'0');assert.equal(personal.data.list_credit_fen,'0');assert.equal(personal.data.total_recharged_fen,'0');assert.deepEqual(personal.data.entries,[]);assert.deepEqual(personal.data.usage_by_model,[]);assert.equal(personal.data.recharge.enabled,false);assert.equal(personal.data.recharge.minimum_fen,500);assert.match(personal.data.refund.policy,/无手续费/);assert.equal(personal.data.refund.fee_percent,0);assert.equal(personal.data.bank_transfer,undefined);
  const org=await owner.j.call(`/api/billing/organizations/${orgA.id}`);assert.equal(org.status,200);assert.equal(org.data.scope,'organization');assert.equal(org.data.cash_balance_fen,'0');assert.equal(org.data.list_credit_fen,'0');assert.equal(org.data.refund.enabled,true);assert.equal(org.data.bank_transfer.enabled,true);assert.equal(org.data.bank_transfer.account_number,'0000000000000000');
  assert.equal((await other.j.call(`/api/billing/organizations/${orgA.id}`)).status,403);
  assert.equal((await owner.j.call(`/api/billing/organizations/${orgB.id}`)).status,403);
@@ -1110,25 +1110,53 @@ test('back office: two switches, one-way enterprise upgrade, tickets, channel pa
    assert.equal((await jar().call('/api/staff/lab/identity')).status,401);
   }finally{pilotFetch=saved;}}
 });
-test('pack refunds return the unused proportion less 15%, survive rejection and replay',async()=>{
+test('pack refunds return only red cash with no fee, forfeit green, survive rejection and replay',async()=>{
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
  const buyer=await user('refund-buyer');appCfg.alipay.allowedEmails.add(buyer.email);
+ // Full-price pack ¥30: face 3000, cash 3000, no gift. Green forfeiture is covered in the discounted-flow test.
  const order=(await buyer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:3000,idempotency_key:'refund-order-key-0001'}})).data.order;
  const out=(await pool.query('SELECT out_trade_no,account_id FROM payment_orders WHERE id=$1',[order.id])).rows[0],trade=seedAlipayTrade(out.out_trade_no,'30.00');trade.status='TRADE_SUCCESS';
  assert.equal((await buyer.j.call('/api/billing/alipay-orders/'+order.id)).data.order.status,'paid');
- const balance=async()=>(await buyer.j.call('/api/billing/personal')).data,path=`/api/staff/payments/orders/${order.id}/refunds`;
- const ask=(amount,key)=>admin.call(path,{method:'POST',body:{amount_fen:amount,reason:'退回剩余额度',idempotency_key:key}});
- assert.equal((await buyer.j.call(path,{method:'POST',body:{amount_fen:2550}})).status,401);
- assert.equal((await ask(3000,'pack-over-refund-0001')).status,409);
- const quote=(await admin.call(`/api/staff/payments/orders/${order.id}/refund-quote`)).data;assert.equal(quote.net_fen,'2550');assert.equal(quote.fee_fen,'450');
- alipayRefundMode='reject';const rejected=await ask(2550,'pack-reject-00000001');alipayRefundMode='ok';assert.equal(rejected.data.status,'failed');assert.equal((await balance()).list_credit_fen,'3000');assert.equal((await balance()).cash_balance_fen,'3000');
- alipayRefundMode='timeout';const pending=await ask(2550,'pack-pending-0000001');assert.equal(pending.data.status,'pending');assert.equal((await balance()).list_credit_fen,'0');assert.equal((await balance()).cash_balance_fen,'450');
- assert.equal((await ask(2550,'pack-blocked-0000001')).status,409);
+ const balance=async()=>(await buyer.j.call('/api/billing/personal')).data;
+ const pack=(await balance()).packs[0],selfPath=`/api/customer-credit/packs/${pack.id}/refund`;
+ const ask=key=>buyer.j.call(selfPath,{method:'POST',body:{reason:'退回红色实付',idempotency_key:key}});
+ // No discount: all remaining credit is red, refundable, zero fee.
+ const split=(await balance()).credit_split;assert.equal(split.red_fen,'3000');assert.equal(split.green_fen,'0');assert.equal(split.refundable_fen,'3000');
+ const quote=(await admin.call(`/api/staff/payments/orders/${order.id}/refund-quote`)).data;assert.equal(quote.net_fen,'3000');assert.equal(quote.fee_fen,'0');assert.equal(quote.bonus_fen,'0');
+ assert.equal((await jar().call(selfPath,{method:'POST',body:{reason:'x',idempotency_key:'pack-anon-00000001'}})).status,401);
+ alipayRefundMode='reject';const rejected=await ask('pack-reject-00000001');alipayRefundMode='ok';assert.equal(rejected.data.status,'failed');assert.equal((await balance()).list_credit_fen,'3000');assert.equal((await balance()).cash_balance_fen,'3000');
+ alipayRefundMode='timeout';const pending=await ask('pack-pending-0000001');assert.equal(pending.data.status,'pending');assert.equal((await balance()).list_credit_fen,'0');assert.equal((await balance()).cash_balance_fen,'0');
+ assert.equal((await ask('pack-blocked-0000001')).status,409);
  assert.equal((await buyer.j.call('/api/billing/personal/invoices',{method:'POST',body:{invoice_type:'general',title:'测试个人',email:buyer.email,amount_yuan:'1'}})).status,409,'invoice must wait for pending refund');
  alipayRefundMode='ok';assert.equal((await admin.call(`/api/staff/payments/refunds/${pending.data.refund_id}/retry`,{method:'POST',body:{}})).data.status,'succeeded');
- assert.equal((await balance()).cash_balance_fen,'0');assert.equal(trade.refundedFen,2550);
- const replay=await ask(2550,'pack-pending-0000001');assert.equal(replay.data.refund_id,pending.data.refund_id);assert.equal(trade.refundedFen,2550);
- const ledger=(await balance()).entries;assert.equal(ledger.filter(e=>e.reference_id?.startsWith('refund-fee:')).length,1);
+ assert.equal((await balance()).cash_balance_fen,'0');assert.equal(trade.refundedFen,3000);
+ const replay=await ask('pack-pending-0000001');assert.equal(replay.data.refund_id,pending.data.refund_id);assert.equal(trade.refundedFen,3000);
+ const ledger=(await balance()).entries;assert.equal(ledger.filter(e=>e.reference_id?.startsWith('refund-fee:')).length,0,'no refund fee ledger');
+});
+
+test('invoicing a recharge locks out refunds; voiding the invoice releases them',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
+ const buyer=await user('invoice-lock-buyer');appCfg.alipay.allowedEmails.add(buyer.email);
+ const order=(await buyer.j.call('/api/billing/personal/alipay-orders',{method:'POST',body:{amount_fen:3000,idempotency_key:'invoice-lock-order-001'}})).data.order;
+ const out=(await pool.query('SELECT out_trade_no FROM payment_orders WHERE id=$1',[order.id])).rows[0];seedAlipayTrade(out.out_trade_no,'30.00').status='TRADE_SUCCESS';
+ assert.equal((await buyer.j.call('/api/billing/alipay-orders/'+order.id)).data.order.status,'paid');
+ const balance=async()=>(await buyer.j.call('/api/billing/personal')).data;
+ const pack=(await balance()).packs[0],selfPath=`/api/customer-credit/packs/${pack.id}/refund`;
+ const ask=key=>buyer.j.call(selfPath,{method:'POST',body:{reason:'test',idempotency_key:key}});
+ // Recharge is invoiceable at the cash price even with zero usage.
+ const inv=async()=>(await buyer.j.call('/api/billing/personal/invoices')).data;
+ assert.equal((await inv()).available_fen,'3000');
+ const applied=await buyer.j.call('/api/billing/personal/invoices',{method:'POST',body:{invoice_type:'general',title:'测试个人',email:buyer.email,amount_yuan:'30'}});
+ assert.equal(applied.status,201);assert.equal((await inv()).available_fen,'0');
+ // A requested (not yet issued) invoice already locks the refund.
+ const blocked=await ask('invoice-lock-refund-001');assert.equal(blocked.status,409);assert.match(JSON.stringify(blocked.data),/发票/);
+ const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(new Date());
+ assert.equal((await admin.call(`/api/staff/business/invoices/${applied.data.id}/issue`,{method:'POST',body:{invoice_number:'26112000000099991',issued_on:day}})).status,200);
+ assert.equal((await ask('invoice-lock-refund-002')).status,409,'issued invoice still blocks refund');
+ // Red-reversing the invoice restores both invoiceable balance and refundability.
+ assert.equal((await admin.call(`/api/staff/business/invoices/${applied.data.id}/reverse`,{method:'POST',body:{note:'红冲后退款'}})).status,200);
+ assert.equal((await inv()).available_fen,'3000');
+ alipayRefundMode='ok';const ok=await ask('invoice-lock-refund-003');assert.equal(ok.data.status,'succeeded');assert.equal(ok.data.amount_fen,'3000');
 });
 
 test('sign out revokes persistent customer session',async()=>{assert.equal((await owner.j.call('/api/auth/sign-out',{method:'POST',body:{}})).status,200);assert.equal((await owner.j.call('/api/platform/me')).status,401);});
@@ -1498,13 +1526,14 @@ test('business console helpers parse money, months and tags strictly',async()=>{
  assert.equal(invoiceable({recharged_fen:'3000',refunded_fen:'500',invoiced_fen:'2000'}),500);
 });
 test('list-credit refund formula and dual-approval bank transfer',async()=>{
- const {refundCashFen,REFUND_POLICY_ZH}=await import('../src/list-credit.mjs');
- assert.match(REFUND_POLICY_ZH,/15%/);assert.match(REFUND_POLICY_ZH,/已开具销项发票/);
- assert.deepEqual(refundCashFen({faceFen:10000,cashPaidFen:3000,remainingFen:5000,hasIssuedInvoice:false}),{ok:true,grossFen:1500,feeFen:225,netFen:1275});
- assert.equal(refundCashFen({faceFen:10000,cashPaidFen:3000,remainingFen:5000,hasIssuedInvoice:true}).code,'invoice_blocks_refund');
- assert.equal(refundCashFen({faceFen:10000,cashPaidFen:3000,remainingFen:0,hasIssuedInvoice:false}).code,'nothing_to_refund');
- assert.equal(refundCashFen({faceFen:100,cashPaidFen:30,remainingFen:4,hasIssuedInvoice:false}).netFen,1);
- assert.equal(refundCashFen({faceFen:100,cashPaidFen:100,remainingFen:1,hasIssuedInvoice:false}).netFen,1);
+ const {refundCashFen,REFUND_POLICY_ZH,INVOICE_POLICY_ZH}=await import('../src/list-credit.mjs');
+ assert.match(REFUND_POLICY_ZH,/无手续费/);assert.match(REFUND_POLICY_ZH,/整条收回/);assert.match(REFUND_POLICY_ZH,/已申请或已开具发票的账户不可退款/);
+ assert.match(INVOICE_POLICY_ZH,/充值即可按实际付款金额申请开票/);assert.match(INVOICE_POLICY_ZH,/30 天内/);assert.match(INVOICE_POLICY_ZH,/已消耗的那部分实付仍可开票/);
+ // 3折买100，用掉10官价后 red left 2000, green 7000, no fee.
+ assert.deepEqual(refundCashFen({faceFen:10000,cashPaidFen:3000,remainingFen:9000,consumedCashFen:1000,hasIssuedInvoice:false}),{ok:true,faceFen:10000,redLeftFen:2000,greenFen:7000,netFen:2000,feeFen:0});
+ assert.equal(refundCashFen({faceFen:10000,cashPaidFen:3000,remainingFen:9000,consumedCashFen:1000,hasIssuedInvoice:true}).code,'invoice_blocks_refund');
+ assert.equal(refundCashFen({faceFen:10000,cashPaidFen:3000,remainingFen:7000,consumedCashFen:3000,hasIssuedInvoice:false}).code,'red_exhausted');
+ assert.equal(refundCashFen({faceFen:100,cashPaidFen:30,remainingFen:90,consumedCashFen:10,hasIssuedInvoice:false}).netFen,20);
 
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
  identity={sub:'finance-a',email:'finance-a@example.test',name:'Finance A',staff_approved:true};const fa=jar();await staffLogin(fa);
@@ -1525,7 +1554,7 @@ test('list-credit refund formula and dual-approval bank transfer',async()=>{
  assert.equal((await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,payer_name:'Bank Xfer Co',cash_yuan:'100',face_yuan:'50',received_on:day})).status,400,'face below cash');
  const reg=await post(fa,'/api/staff/business/bank-transfers',{customer_id:enterprise.id,payer_name:'Bank Xfer Co',cash_yuan:'40',face_yuan:'100',received_on:day,reference:'BT-1',note:'合同价'});
  assert.equal(reg.status,201,JSON.stringify(reg.data));assert.equal(reg.data.status,'pending');
- const pending=await fa.call('/api/staff/business/bank-transfers');assert.equal(pending.data.entries[0].id,reg.data.id);assert.match(pending.data.refund_policy,/15%/);
+ const pending=await fa.call('/api/staff/business/bank-transfers');assert.equal(pending.data.entries[0].id,reg.data.id);assert.match(pending.data.refund_policy,/无手续费/);
  assert.equal((await admin.call('/api/staff/business/dashboard')).data.counts.bank_transfers_pending>=1,true);
  assert.equal((await post(fa,`/api/staff/business/bank-transfers/${reg.data.id}/approve`)).status,403,'registrar cannot approve');
  const bal=async()=>{const a=(await pool.query('SELECT cash_balance_fen::int,list_credit_fen::int FROM billing_accounts WHERE organization_id=$1',[org.id])).rows[0];return a||{cash_balance_fen:0,list_credit_fen:0};};
@@ -1647,12 +1676,16 @@ test('ordinary customer: discounted purchase, signed payment, scoped key, shared
  const pack=(await wallet()).packs[0];assert.match((await refundQuote(pool,pack.id)).blocked,/调用/);
  assert.equal((await call({model:'deepseek-flash',messages:[{role:'user',content:'hi'}],max_tokens:32768})).status,402);
  await pool.query("UPDATE customer_calls SET status='failed' WHERE id=$1",[reserved]);
- const q=await refundQuote(pool,pack.id);assert.equal(q.blocked,null);assert.ok(Number(q.net_fen)<2550&&Number(q.net_fen)>2500);
- const asked=await post(buyer.j,'/api/customer-credit/packs/'+pack.id+'/refund-request',{reason:'测试退款'});assert.equal(asked.status,200);
- assert.equal((await post(other.j,'/api/customer-credit/packs/'+pack.id+'/refund-request',{reason:'foreign'})).status,404);
+ const q=await refundQuote(pool,pack.id);assert.equal(q.blocked,null);assert.equal(q.fee_fen,'0');
+ assert.equal(Number(q.refundable_fen)+Number(q.consumed_cash_fen),3000,'red left + red spent = cash paid');
+ assert.equal(q.net_fen,q.refundable_fen);assert.equal(Number(q.bonus_fen),Math.round(Number(q.remaining_fen)-Number(q.refundable_fen)),'green = remaining - red left');
  seedAlipayTrade(order.out_trade_no,'30.00').status='TRADE_SUCCESS';
- const refunded=await post(admin,`/api/staff/payments/orders/${order.id}/refunds`,{amount_fen:Number(q.net_fen),reason:'客户申请',idempotency_key:'paid-pack-refund-001'});assert.equal(refunded.data.status,'succeeded',JSON.stringify(refunded.data));
+ const asked=await post(buyer.j,'/api/customer-credit/packs/'+pack.id+'/refund',{reason:'测试退款',idempotency_key:'paid-self-refund-001'});assert.equal(asked.status,201,JSON.stringify(asked.data));assert.equal(asked.data.status,'succeeded');
+ assert.equal((await post(other.j,'/api/customer-credit/packs/'+pack.id+'/refund',{reason:'foreign',idempotency_key:'paid-self-refund-002'})).status,404);
  assert.equal((await wallet()).list_credit_fen,'0');assert.equal((await wallet()).cash_balance_fen,'0');
+ // Owner policy: after refund, the consumed cash is still invoiceable; the refunded red is not.
+ const invAfter=(await buyer.j.call('/api/billing/personal/invoices')).data;
+ assert.equal(invAfter.available_fen,q.consumed_cash_fen,'invoiceable = cash paid - refunded red = consumed cash');
  assert.equal((await call({model:'deepseek-flash',messages:[{role:'user',content:'hi'}],max_tokens:10})).status,402);
  await post(buyer.j,'/api/customer-credit/keys/'+made.data.key.id+'/revoke');assert.equal((await call({model:'deepseek-flash',messages:[{role:'user',content:'hi'}],max_tokens:10})).status,401);
  // Re-running migrations must not recreate refunded credit or restore spent amounts.
@@ -1673,7 +1706,7 @@ test('payment rounding, actual channel cost isolation and audited admin waiver',
  const wallet=async()=>(await buyer.j.call('/api/billing/personal')).data;
  assert.equal((await wallet()).list_credit_fen,'500');assert.equal((await wallet()).list_credit_exact_fen,'499.9959000000');
  const path='/api/staff/payments/orders/'+order.id;
- const quote=(await admin.call(path+'/refund-quote')).data;assert.equal(quote.net_fen,'425');
+ const quote=(await admin.call(path+'/refund-quote')).data;assert.equal(quote.net_fen,'500');assert.equal(quote.fee_fen,'0');
  const fee=body=>admin.call(path+'/channel-fee',{method:'POST',body});
  assert.equal((await buyer.j.call(path+'/channel-fee',{method:'POST',body:{amount_fen:3,version:0,evidence:'test statement'}})).status,401);
  assert.equal((await fee({amount_fen:3,version:0,evidence:'test statement row 1'})).status,200);
@@ -1685,23 +1718,19 @@ test('payment rounding, actual channel cost isolation and audited admin waiver',
  const listing=(await admin.call('/api/staff/payments/orders')).data;
  assert.equal(listing.customers.find(c=>c.email===buyer.email).transactions,1);
  assert.equal(listing.customers.find(c=>c.email===buyer.email).received_fen,'500');
+ // No fee percentage or waiver anymore: refund is always the full red remainder.
  assert.equal((await admin.call(path+'/refund-quote?fee_percent=0')).data.net_fen,'500');
- assert.equal((await admin.call(path+'/refund-quote?fee_percent=-1')).status,400);
- assert.equal((await admin.call(path+'/refund-quote?fee_percent=5')).data.net_fen,'475');
  identity={sub:'fee-finance-fixture',email:'fee-finance@example.test',name:'Finance',staff_approved:true};const financeStaff=jar();await staffLogin(financeStaff);
  await admin.call('/api/staff/members/fee-finance-fixture',{method:'PATCH',body:{role:'operations',status:'active'}});
  await admin.call('/api/staff/members/fee-finance-fixture/finance-access',{method:'PUT',body:{enabled:true}});await staffLogin(financeStaff);
  assert.equal((await financeStaff.call(path+'/refund-quote')).status,200);
- assert.equal((await financeStaff.call(path+'/refund-quote?fee_percent=0')).status,403);
- assert.equal((await financeStaff.call(path+'/refunds',{method:'POST',body:{amount_fen:500,service_fee_percent:0,waiver_reason:'not authorised',reason:'test',idempotency_key:'not-authorised-waive'}})).status,403);
 
- assert.equal((await admin.call(path+'/refunds',{method:'POST',body:{amount_fen:500,service_fee_percent:0,reason:'test',idempotency_key:'waiver-missing-reason'}})).status,400);
- const body={amount_fen:500,service_fee_percent:0,waiver_reason:'acceptance goodwill',reason:'unused funds',idempotency_key:'waiver-rounding-000001'};
+ const body={reason:'unused funds',idempotency_key:'rounding-refund-000001'};
  const result=await admin.call(path+'/refunds',{method:'POST',body});assert.equal(result.data.status,'succeeded',JSON.stringify(result.data));
  assert.equal((await admin.call(path+'/refunds',{method:'POST',body})).data.refund_id,result.data.refund_id);
- const record=(await pool.query('SELECT * FROM payment_refunds WHERE id=$1',[result.data.refund_id])).rows[0];assert.equal(record.service_fee_percent,0);assert.equal(record.standard_net_fen,'425');assert.equal(record.waiver_reason,'acceptance goodwill');assert.equal(record.waiver_approved_by,'staff-owner');assert.ok(record.waiver_approved_at);
+ const record=(await pool.query('SELECT * FROM payment_refunds WHERE id=$1',[result.data.refund_id])).rows[0];assert.equal(record.amount_fen,'500');assert.equal(record.fee_fen,'0');assert.equal(Number(record.bonus_fen),0);
  assert.equal((await wallet()).cash_balance_fen,'0');assert.equal((await wallet()).list_credit_fen,'0');
- assert.equal((await admin.call(path+'/refunds',{method:'POST',body:{...body,service_fee_percent:15,amount_fen:425}})).status,409,'idempotency key cannot change approved terms');
+ assert.equal((await admin.call(path+'/refunds',{method:'POST',body:{reason:'changed',idempotency_key:'rounding-refund-000001'}})).data.refund_id,result.data.refund_id,'idempotency key replays same refund');
  assert.equal((await fee({amount_fen:0,version:1,evidence:'statement correction: fee waived by channel'})).status,200);
  assert.equal((await fee({amount_fen:3,version:1,evidence:'stale correction'})).status,409);
  assert.equal((await fee({amount_fen:3,version:2,evidence:'corrected actual channel fee'})).status,200);

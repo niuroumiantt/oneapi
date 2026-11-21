@@ -2,7 +2,7 @@ import {transferNotices} from './bank-transfers.mjs';
 import {refundQuote} from './pack-ledger.mjs';
 import { HttpError,id } from './core.mjs';
 import { isManager } from './organizations.mjs';
-import { REFUND_POLICY_ZH } from './list-credit.mjs';
+import { REFUND_POLICY_ZH, INVOICE_POLICY_ZH } from './list-credit.mjs';
 
 function disabled(account,entries,scope,totalRecharged,channels=[]){
  return {
@@ -15,7 +15,8 @@ function disabled(account,entries,scope,totalRecharged,channels=[]){
   list_credit_exact_fen:String(account?.list_credit_fen||0),
   entries,usage_by_model:[],
   recharge:{enabled:channels.length>0,minimum_fen:500,maximum_fen:5000000,channels},
-  refund:{enabled:true,fee_percent:15,policy:REFUND_POLICY_ZH},
+  refund:{enabled:true,fee_percent:0,policy:REFUND_POLICY_ZH},
+  invoice:{policy:INVOICE_POLICY_ZH},
   payments_enabled:channels.length>0
  };
 }
@@ -27,11 +28,29 @@ export function billingRoutes(app,pool,requireCustomer,cfg,payments){
    pool.query("SELECT COALESCE(SUM(amount_fen),0) AS total_recharged_fen FROM billing_ledger WHERE account_id=$1 AND kind='recharge'",[account.id])
   ]):[{rows:[]},{rows:[{total_recharged_fen:0}]}];
   const packs=account?(await pool.query(`SELECT p.*,r.status AS refund_request_status FROM credit_packs p LEFT JOIN credit_refund_requests r ON r.pack_id=p.id AND r.status IN ('requested','processing') WHERE account_id=$1 ORDER BY p.created_at DESC LIMIT 100`,[account.id])).rows:[];
-  const packViews=[];for(const p of packs){const q=await refundQuote(pool,p.id);packViews.push({...p,net_fen:q.net_fen,fee_fen:q.fee_fen,refund_blocked:q.blocked});}
+  const packViews=[];
+  // Aggregate red/green for one dashboard progress bar. Red = remaining paid cash (refundable),
+  // green = remaining gift. Spent = paid cash already consumed. Only active packs count.
+  let redFen=0n,greenFen=0n,spentRedFen=0n,paidFen=0n,faceFen=0n;
+  for(const p of packs){
+   const q=await refundQuote(pool,p.id);
+   packViews.push({...p,net_fen:q.refundable_fen,red_fen:q.refundable_fen,refundable_fen:q.refundable_fen,bonus_fen:q.bonus_fen,fee_fen:'0',refund_blocked:q.blocked});
+   if(!p.refund_id){
+    const red=BigInt(q.refundable_fen),green=BigInt(q.bonus_fen);
+    redFen+=red;greenFen+=green;paidFen+=BigInt(p.cash_fen);faceFen+=BigInt(p.face_fen);
+    spentRedFen+=BigInt(p.cash_fen)-BigInt(p.consumed_cash_fen)-red;
+   }
+  }
+  const creditSplit={
+   face_fen:String(faceFen),paid_fen:String(paidFen),
+   red_fen:String(redFen),green_fen:String(greenFen),spent_red_fen:String(spentRedFen),
+   remaining_fen:String(redFen+greenFen),refundable_fen:String(redFen),
+   gift_fen:String(faceFen-paidFen)
+  };
   const usage=account?(await pool.query(`SELECT model_id,count(*)::int AS calls,coalesce(sum(input_tokens),0) AS input_tokens,coalesce(sum(output_tokens),0) AS output_tokens,coalesce(sum(charged_yuan),0) AS charged_yuan FROM customer_calls WHERE account_id=$1 GROUP BY model_id`,[account.id])).rows:[];
   const summary=disabled(account,entries.rows,scope,totalRecharged.rows[0].total_recharged_fen,channels);
   summary.recharge.channel_status=Object.fromEntries([['alipay_f2f',cfg.alipay],['wechat_native',cfg.wechat]].map(([key,config])=>[key,channels.includes(key)?'available':config?.enabled?'restricted':'unavailable']));
-  res.json({...summary,packs:packViews,usage_by_model:usage,...(bankTransfer?{bank_transfer:bankTransfer}:{})});
+  res.json({...summary,packs:packViews,credit_split:creditSplit,usage_by_model:usage,...(bankTransfer?{bank_transfer:bankTransfer}:{})});
  }
  app.get('/api/billing/personal',requireCustomer,async(req,res)=>{
   const account=(await pool.query('SELECT id,cash_balance_fen,list_credit_fen,total_spent_fen FROM billing_accounts WHERE owner_id=$1',[req.customer.id])).rows[0];

@@ -229,6 +229,33 @@ export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
   res.status(204).end();
  });
 
+ // Customer self-service refund (owner decision 2026-11-21): refundable red cash only, no fee.
+ // The whole green gift is forfeited and the pack closes. Bank transfers stay with finance.
+ app.post('/api/customer-credit/packs/:pack/refund',requireCustomer,async(req,res)=>{
+  const packId=id(req.params.pack),reason=text(req.body?.reason,'退款原因',200),key=req.body?.idempotency_key;
+  if(typeof key!=='string'||!/^[A-Za-z0-9_-]{16,64}$/.test(key))throw new HttpError(400,'请刷新页面后重试');
+  const p=(await pool.query(`SELECT p.*,o.id AS order_id,o.status AS order_status,o.provider,a.owner_id,a.organization_id
+   FROM credit_packs p JOIN payment_orders o ON p.source_kind='payment' AND o.id=p.source_id
+   JOIN billing_accounts a ON a.id=p.account_id WHERE p.id=$1`,[packId])).rows[0];
+  if(!p||p.owner_id!==req.customer.id)throw new HttpError(404,'额度包不存在');
+  if(p.source_kind!=='payment')throw new HttpError(409,'对公转账退款请联系财务人工处理');
+  if(p.order_status!=='paid')throw new HttpError(409,'订单未完成支付，无法退款');
+  await refundChannel(gw,pool,p.order_id);
+  const existing=(await pool.query('SELECT id,order_id,status,amount_fen FROM payment_refunds WHERE idempotency_key=$1',[key])).rows[0];
+  if(existing&&existing.order_id!==p.order_id)throw new HttpError(409,'该退款请求已用于其他订单，请刷新页面');
+  let refundId,already=false;
+  if(existing){refundId=existing.id;already=true;}
+  else refundId=await transaction(pool,async db=>{
+   const o=(await db.query('SELECT * FROM payment_orders WHERE id=$1 FOR UPDATE',[p.order_id])).rows[0];
+   if(!o||o.status!=='paid')throw new HttpError(409,'订单状态已变化，请刷新后重试');
+   if((await db.query("SELECT 1 FROM payment_refunds WHERE order_id=$1 AND status='pending'",[o.id])).rowCount)throw new HttpError(409,'该订单有一笔退款正在处理，请稍后查看结果');
+   return createPackRefund(db,{order:o,packId,reason,requestedBy:req.customer.id,key});
+  });
+  const status=already?existing.status:await settleRefund(gw,pool,refundId);
+  const quote=await refundQuote(pool,packId);
+  res.status(already?200:201).json({refund_id:refundId,status,amount_fen:already?String(existing.amount_fen):String(quote.refundable_fen),bonus_fen:already?undefined:quote.bonus_fen});
+ });
+
  return {channelsFor:customer=>Object.keys(gw).filter(p=>allowed(customer,p))};
 }
 
@@ -246,10 +273,8 @@ export async function finishRefund(pool,refundId,{outcome,code},source){
   const cur=(await db.query('SELECT * FROM payment_refunds WHERE id=$1 FOR UPDATE',[refundId])).rows[0];if(cur.status!=='pending')return cur.status;
   const o=(await db.query('SELECT * FROM payment_orders WHERE id=$1 FOR UPDATE',[cur.order_id])).rows[0],ch=CHANNELS[o.provider].audit;
   if(outcome==='succeeded'){
-   if(cur.pack_id&&BigInt(cur.fee_fen||0)>0n){
-    const a=(await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen-$2 WHERE id=$1 RETURNING cash_balance_fen',[o.account_id,cur.fee_fen])).rows[0];
-    await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'usage',$2,$3,'usage',$4)",[o.account_id,String(-BigInt(cur.fee_fen)),a.cash_balance_fen,'refund-fee:'+cur.id]);
-   }
+   // No refund fee: the customer gets back exactly the remaining red (paid) cash.
+   // The green gift was forfeited at request time by zeroing the pack's remaining credit.
    await db.query("UPDATE payment_refunds SET status='succeeded',error_code=NULL,completed_at=now() WHERE id=$1",[cur.id]);
    await refundCW(db,cur);
    if(cur.pack_id)await db.query("UPDATE credit_refund_requests SET status='completed' WHERE pack_id=$1 AND status='processing'",[cur.pack_id]);
@@ -266,6 +291,39 @@ export async function finishRefund(pool,refundId,{outcome,code},source){
  });
 }
 
+// Shared refund plumbing, used by both the customer self-service route and the finance route.
+// Freezes the pack, books the refund and closes the pack (the whole green gift is forfeited).
+// Must run inside a transaction that has already locked the order (and, for finance, the account).
+// Returns the new refund id; a definitive channel rejection later releases the hold in finishRefund.
+async function createPackRefund(db,{order,packId,reason,requestedBy,key}){
+ const q=await refundQuote(db,packId);
+ if(q.blocked)throw new HttpError(409,q.blocked);
+ if(q.account_id!==order.account_id)throw new HttpError(409,'额度包与订单不属于同一账户');
+ const amount=Number(q.refundable_fen);
+ const acct=(await db.query('SELECT * FROM billing_accounts WHERE id=$1 FOR UPDATE',[order.account_id])).rows[0];
+ const refund=(await db.query('INSERT INTO payment_refunds(order_id,out_request_no,amount_fen,reason,requested_by,idempotency_key) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',[order.id,'RF'+new Date().toISOString().replace(/\D/g,'').slice(0,14)+randomBytes(6).toString('hex'),amount,reason,requestedBy,key])).rows[0];
+ // Red is refunded; green (bonus_fen) is forfeited in full and the pack is closed.
+ // face_fen = frozen remaining list credit, gross_fen = red cash, bonus_fen = gift reclaimed.
+ await db.query('UPDATE payment_refunds SET pack_id=$2,face_fen=$3,gross_fen=$4,fee_fen=0,bonus_fen=$5 WHERE id=$1',[refund.id,packId,q.remaining_fen,String(amount),q.bonus_fen]);
+ await db.query('UPDATE credit_packs SET remaining_fen=0,refund_id=$2 WHERE id=$1',[packId,refund.id]);
+ const after=(await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen-$2,list_credit_fen=list_credit_fen-$3 WHERE id=$1 RETURNING cash_balance_fen',[acct.id,amount,q.remaining_fen])).rows[0];
+ await db.query("UPDATE credit_refund_requests SET status='processing' WHERE pack_id=$1 AND status='requested'",[packId]);
+ await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'refund',$2,$3,'refund',$4)",[acct.id,-amount,after.cash_balance_fen,refund.id]);
+ await db.query('UPDATE payment_orders SET refunded_fen=refunded_fen+$2,updated_at=now() WHERE id=$1',[order.id,amount]);
+ await audit(db,{kind:'system',id:requestedBy},'billing.refund.requested',acct.organization_id,refund.id,{order_id:order.id,amount_fen:String(amount),reason,bonus_fen:q.bonus_fen});
+ return refund.id;
+}
+async function settleRefund(gw,pool,refundId){
+ const r=(await pool.query('SELECT r.*,o.out_trade_no,o.provider,o.amount_fen AS order_amount_fen FROM payment_refunds r JOIN payment_orders o ON o.id=r.order_id WHERE r.id=$1',[refundId])).rows[0];
+ if(r.status!=='pending')return r.status;
+ let result;
+ try{result=await gw[r.provider].refund(r);}
+ catch(e){result={outcome:'pending',code:e.message};console.error(JSON.stringify({event:'refund_unconfirmed',provider:r.provider,code:e.message}));}
+ if(result.outcome==='pending'){await pool.query("UPDATE payment_refunds SET error_code=$2 WHERE id=$1 AND status='pending'",[r.id,String(result.code||'UNKNOWN').slice(0,120)]);return 'pending';}
+ return finishRefund(pool,r.id,result,CHANNELS[r.provider].audit+'-refund');
+}
+const refundChannel=async(gw,pool,orderId)=>{const o=(await pool.query('SELECT provider FROM payment_orders WHERE id=$1',[orderId])).rows[0];if(!o)throw new HttpError(404,'订单不存在');if(!gw[o.provider])throw new HttpError(503,`${CHANNELS[o.provider].name}未启用，无法发起原路退款`);};
+
 // Staff refunds (商务后台). The refund amount is held from the balance up front so the customer
 // cannot spend money that is on its way back to them; a definitive channel rejection releases it.
 export function staffPaymentRoutes(app,pool,requireStaff,requireFinance,cfg,clients){
@@ -274,7 +332,6 @@ export function staffPaymentRoutes(app,pool,requireStaff,requireFinance,cfg,clie
  app.post('/api/staff/payments/alipay-bills/sync',requireStaff,async(req,res)=>{
   requireFinance(req);res.json(await syncAlipayBill(pool,clients.alipay,req.body?.day,{actor:req.actor,fetchImpl:cfg.alipayBillFetch||fetch}));
  });
- const waiver=(req,value,reason)=>{const percent=value===undefined?15:value;if(!Number.isInteger(percent)||percent<0||percent>15)throw new HttpError(400,'服务费比例须为 0 至 15 的整数');if(percent<15){if(req.staff.role!=='platform_admin')throw new HttpError(403,'特批减免需要平台管理员');if(reason!==undefined)text(reason,'特批原因',200);}return percent;};
  app.post('/api/staff/payments/orders/:order/channel-fee',requireStaff,async(req,res)=>{
   requireFinance(req);const amount=req.body?.amount_fen,version=req.body?.version,evidence=text(req.body?.evidence,'支付宝账单凭据或核对说明',200);
   if(!Number.isSafeInteger(amount)||amount<0||!Number.isSafeInteger(version)||version<0)throw new HttpError(400,'费用或版本不正确');
@@ -284,65 +341,37 @@ export function staffPaymentRoutes(app,pool,requireStaff,requireFinance,cfg,clie
  });
  const view=async(where,params=[])=>(await pool.query(`SELECT o.id,o.provider,o.out_trade_no,o.provider_trade_no,o.amount_fen::text,o.refunded_fen::text,o.face_fen::text,o.status,o.created_at,o.paid_at,o.channel_fee_fen::text,o.channel_fee_evidence,o.channel_fee_version,o.channel_fee_source,o.channel_fee_issue,EXISTS(SELECT 1 FROM credit_packs cp WHERE cp.source_kind='payment' AND cp.source_id=o.id AND cp.refund_id IS NULL AND cp.remaining_fen>0) AS refundable,a.cash_balance_fen::text AS account_balance_fen,a.list_credit_fen::text AS list_credit_fen,
    coalesce(g.name,u.name) AS account_name,CASE WHEN a.organization_id IS NULL THEN 'personal' ELSE 'organization' END AS account_kind,u.email AS owner_email,p.email AS payer_email,
-   coalesce((SELECT json_agg(json_build_object('id',r.id,'amount_fen',r.amount_fen::text,'reason',r.reason,'status',r.status,'error_code',r.error_code,'requested_by',r.requested_by,'service_fee_percent',r.service_fee_percent,'waived_fen',CASE WHEN r.standard_net_fen IS NOT NULL THEN r.amount_fen-r.standard_net_fen END,'waiver_reason',r.waiver_reason,'waiver_approved_by',r.waiver_approved_by,'waiver_approved_at',r.waiver_approved_at,'created_at',r.created_at,'completed_at',r.completed_at) ORDER BY r.created_at) FROM payment_refunds r WHERE r.order_id=o.id),'[]') AS refunds
+   coalesce((SELECT json_agg(json_build_object('id',r.id,'amount_fen',r.amount_fen::text,'reason',r.reason,'status',r.status,'error_code',r.error_code,'requested_by',r.requested_by,'bonus_fen',r.bonus_fen::text,'created_at',r.created_at,'completed_at',r.completed_at) ORDER BY r.created_at) FROM payment_refunds r WHERE r.order_id=o.id),'[]') AS refunds
   FROM payment_orders o JOIN billing_accounts a ON a.id=o.account_id LEFT JOIN organizations g ON g.id=a.organization_id LEFT JOIN "user" u ON u.id=a.owner_id JOIN "user" p ON p.id=o.created_by
   ${where} ORDER BY o.created_at DESC LIMIT 200`,params)).rows;
  app.get('/api/staff/payments/orders/:order/refund-quote',requireStaff,async(req,res)=>{
-  requireFinance(req);const p=(await pool.query("SELECT id FROM credit_packs WHERE source_kind='payment' AND source_id=$1",[id(req.params.order)])).rows[0];if(!p)throw new HttpError(409,'没有可退额度包');res.json({...await refundQuote(pool,p.id,waiver(req,req.query.fee_percent===undefined?undefined:Number(req.query.fee_percent))),can_waive:req.staff.role==='platform_admin'});
+  requireFinance(req);const p=(await pool.query("SELECT id FROM credit_packs WHERE source_kind='payment' AND source_id=$1",[id(req.params.order)])).rows[0];if(!p)throw new HttpError(409,'没有可退额度包');res.json(await refundQuote(pool,p.id));
  });
  app.get('/api/staff/payments/orders',requireStaff,async(req,res)=>{requireFinance(req);res.json({wechat_bill_sync:{enabled:!!clients.wechatBills?.billDownloadUrl,yesterday:billDay(new Date(Date.now()-86400000)),days:(await pool.query("SELECT to_char(bill_date,'YYYY-MM-DD') AS day,status,checked_at,matched,exceptions,ignored,error_code FROM wechat_bill_days ORDER BY bill_date DESC LIMIT 7")).rows},bill_sync:{enabled:!!clients.alipay?.billDownloadUrl,yesterday:billDay(new Date(Date.now()-86400000)),days:(await pool.query("SELECT to_char(bill_date,'YYYY-MM-DD') AS day,status,checked_at,matched,exceptions,error_code FROM alipay_bill_days ORDER BY bill_date DESC LIMIT 7")).rows},summary:(await pool.query("SELECT provider,count(*)::int AS transactions,sum(amount_fen)::text AS received_fen,sum(refunded_fen)::text AS refunded_fen,coalesce(sum(channel_fee_fen),0)::text AS channel_fee_fen,count(*) FILTER(WHERE channel_fee_fen IS NULL OR channel_fee_issue IS NOT NULL)::int AS fees_unreconciled FROM payment_orders WHERE status='paid' GROUP BY provider")).rows,customers:(await pool.query("SELECT o.provider,u.email,count(*)::int AS transactions,sum(o.amount_fen)::text AS received_fen FROM payment_orders o JOIN \"user\" u ON u.id=o.created_by WHERE o.status='paid' GROUP BY o.provider,u.email ORDER BY sum(o.amount_fen) DESC")).rows,enabled:Object.keys(gw).length>0,channels:Object.keys(gw),refund_policy:REFUND_POLICY_ZH,requests:(await pool.query("SELECT r.id,r.reason,r.status,p.source_id AS order_id FROM credit_refund_requests r JOIN credit_packs p ON p.id=r.pack_id WHERE r.status IN ('requested','processing')")).rows,orders:await view("WHERE o.status='paid' OR o.created_at>now()-interval '7 days'")});});
 
- // Sends (or resends — same request number) the refund and settles the local record.
- async function settle(refundId){
-  const r=(await pool.query('SELECT r.*,o.out_trade_no,o.provider,o.amount_fen AS order_amount_fen FROM payment_refunds r JOIN payment_orders o ON o.id=r.order_id WHERE r.id=$1',[refundId])).rows[0];
-  if(r.status!=='pending')return r.status;
-  let result;
-  try{result=await gw[r.provider].refund(r);}
-  catch(e){result={outcome:'pending',code:e.message};console.error(JSON.stringify({event:'refund_unconfirmed',provider:r.provider,code:e.message}));}
-  if(result.outcome==='pending'){await pool.query("UPDATE payment_refunds SET error_code=$2 WHERE id=$1 AND status='pending'",[r.id,String(result.code||'UNKNOWN').slice(0,120)]);return 'pending';}
-  return finishRefund(pool,r.id,result,CHANNELS[r.provider].audit+'-refund');
- }
- const channelOf=async orderId=>{const o=(await pool.query('SELECT provider FROM payment_orders WHERE id=$1',[orderId])).rows[0];if(!o)throw new HttpError(404,'订单不存在');if(!gw[o.provider])throw new HttpError(503,`${CHANNELS[o.provider].name}未启用，无法发起原路退款`);};
-
  app.post('/api/staff/payments/orders/:order/refunds',requireStaff,async(req,res)=>{
   requireFinance(req);
-  const orderId=id(req.params.order),amount=req.body?.amount_fen,reason=text(req.body?.reason,'退款原因',200),key=req.body?.idempotency_key;
-  await channelOf(orderId);
-  const feePercent=waiver(req,req.body?.service_fee_percent,req.body?.waiver_reason);
-  const waiverReason=feePercent<15?text(req.body?.waiver_reason,'特批原因',200):null;
-  if(!Number.isSafeInteger(amount)||amount<=0)throw new HttpError(400,'退款金额不正确');
+  const orderId=id(req.params.order),reason=text(req.body?.reason,'退款原因',200),key=req.body?.idempotency_key;
+  await refundChannel(gw,pool,orderId);
   if(typeof key!=='string'||!/^[A-Za-z0-9_-]{16,64}$/.test(key))throw new HttpError(400,'请刷新页面后重试');
-  const existing=(await pool.query('SELECT id,order_id,amount_fen,service_fee_percent,waiver_reason FROM payment_refunds WHERE idempotency_key=$1',[key])).rows[0];
-  let refundId=existing?.id;
-  if(existing&&(existing.order_id!==orderId||Number(existing.amount_fen)!==amount||existing.service_fee_percent!==feePercent||existing.waiver_reason!==waiverReason))throw new HttpError(409,'该退款请求已用于其他订单，请刷新页面');
+  const existing=(await pool.query('SELECT id,order_id FROM payment_refunds WHERE idempotency_key=$1',[key])).rows[0];
+  if(existing&&existing.order_id!==orderId)throw new HttpError(409,'该退款请求已用于其他订单，请刷新页面');
+  let refundId=existing?.id,already=false;
   if(!existing)refundId=await transaction(pool,async db=>{
    const o=(await db.query('SELECT * FROM payment_orders WHERE id=$1 FOR UPDATE',[orderId])).rows[0];
    if(!o)throw new HttpError(404,'订单不存在');if(o.status!=='paid')throw new HttpError(409,'只有已付款的订单可以退款');
    if((await db.query("SELECT 1 FROM payment_refunds WHERE order_id=$1 AND status='pending'",[o.id])).rowCount)throw new HttpError(409,'该订单有一笔退款正在处理，请先确认其结果');
-   const acct=(await db.query('SELECT * FROM billing_accounts WHERE id=$1 FOR UPDATE',[o.account_id])).rows[0];
    const pack=(await db.query("SELECT id FROM credit_packs WHERE source_kind='payment' AND source_id=$1 FOR UPDATE",[o.id])).rows[0];
    if(!pack)throw new HttpError(409,'旧订单尚未完成额度批次核对');
-   const q=await refundQuote(db,pack.id,feePercent);if(q.blocked)throw new HttpError(409,q.blocked);
-   if(amount!==Number(q.net_fen))throw new HttpError(409,'额度或退款金额已变化，请重新预览退款');
-   const gross=BigInt(q.cash_fen)-BigInt(q.consumed_cash_fen),fee=gross-BigInt(q.net_fen);
-   const refund=(await db.query('INSERT INTO payment_refunds(order_id,out_request_no,amount_fen,reason,requested_by,idempotency_key) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',[o.id,'RF'+new Date().toISOString().replace(/\D/g,'').slice(0,14)+randomBytes(6).toString('hex'),amount,reason,req.staff.subject,key])).rows[0];
-   await db.query('UPDATE payment_refunds SET service_fee_percent=$2,waiver_reason=$3,waiver_approved_by=$4,waiver_approved_at=CASE WHEN $3::text IS NOT NULL THEN now() END,standard_net_fen=$5 WHERE id=$1',[refund.id,feePercent,waiverReason,waiverReason?req.staff.subject:null,q.standard_net_fen]);
-   await db.query('UPDATE payment_refunds SET pack_id=$2,face_fen=$3,gross_fen=$4,fee_fen=$5 WHERE id=$1',[refund.id,q.id,q.remaining_fen,gross.toString(),fee.toString()]);
-   await db.query('UPDATE credit_packs SET remaining_fen=0,refund_id=$2 WHERE id=$1',[q.id,refund.id]);
-   const after=(await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen-$2,list_credit_fen=list_credit_fen-$3 WHERE id=$1 RETURNING cash_balance_fen',[acct.id,amount,q.remaining_fen])).rows[0];
-   await db.query("UPDATE credit_refund_requests SET status='processing' WHERE pack_id=$1 AND status='requested'",[q.id]);
-   await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'refund',$2,$3,'refund',$4)",[acct.id,-amount,after.cash_balance_fen,refund.id]);
-   await db.query('UPDATE payment_orders SET refunded_fen=refunded_fen+$2,updated_at=now() WHERE id=$1',[o.id,amount]);
-   await audit(db,req.actor,'billing.refund.requested',acct.organization_id,refund.id,{order_id:o.id,amount_fen:String(amount),reason,service_fee_percent:feePercent,waiver_reason:waiverReason,standard_net_fen:q.standard_net_fen});
-   return refund.id;
-  });
-  const status=await settle(refundId);
-  res.status(existing?200:201).json({refund_id:refundId,status,orders:await view('WHERE o.id=$1',[orderId])});
+   return createPackRefund(db,{order:o,packId:pack.id,reason,requestedBy:req.staff.subject,key});
+  });else already=true;
+  const status=already?(await pool.query('SELECT status FROM payment_refunds WHERE id=$1',[refundId])).rows[0].status:await settleRefund(gw,pool,refundId);
+  res.status(already?200:201).json({refund_id:refundId,status,orders:await view('WHERE o.id=$1',[orderId])});
  });
  app.post('/api/staff/payments/refunds/:refund/retry',requireStaff,async(req,res)=>{
   requireFinance(req);
   const refundId=id(req.params.refund),row=(await pool.query('SELECT order_id FROM payment_refunds WHERE id=$1',[refundId])).rows[0];if(!row)throw new HttpError(404,'退款记录不存在');
-  await channelOf(row.order_id);
-  res.json({refund_id:refundId,status:await settle(refundId)});
+  await refundChannel(gw,pool,row.order_id);
+  res.json({refund_id:refundId,status:await settleRefund(gw,pool,refundId)});
  });
 }
