@@ -11,6 +11,13 @@ export function id(value){if(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-
 export async function transaction(pool,fn){const c=await pool.connect();try{await c.query('BEGIN');const result=await fn(c);await c.query('COMMIT');return result;}catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}}
 export function vault(secret){const key=Buffer.from(hkdfSync('sha256',secret,'oneapi','private-payload-v1',32));return {seal(value){const iv=randomBytes(12),c=createCipheriv('aes-256-gcm',key,iv);const data=Buffer.concat([c.update(JSON.stringify(value)),c.final()]);return Buffer.concat([iv,c.getAuthTag(),data]).toString('base64url');},open(value){const b=Buffer.from(value,'base64url'),d=createDecipheriv('aes-256-gcm',key,b.subarray(0,12));d.setAuthTag(b.subarray(12,28));return JSON.parse(Buffer.concat([d.update(b.subarray(28)),d.final()]).toString());}};}
 export async function audit(db,actor,action,org=null,subject=null,detail={}){await db.query('INSERT INTO audit_events(actor_kind,actor_id,organization_id,action,subject_id,detail) VALUES($1,$2,$3,$4,$5,$6)',[actor.kind,actor.id,org,action,subject,JSON.stringify(detail)]);}
+function smsConfig(env){
+ const {SMS_LOGIN_ENABLED,PNVS_ACCESS_KEY_ID,PNVS_ACCESS_KEY_SECRET,PNVS_SIGN_NAME,PNVS_TEMPLATE_CODE,PNVS_SCHEME_NAME,SMS_PHONE_HASH_SECRET}=env;
+ if(SMS_LOGIN_ENABLED!=='true'||!PNVS_ACCESS_KEY_ID||!PNVS_ACCESS_KEY_SECRET||!PNVS_SIGN_NAME||!PNVS_TEMPLATE_CODE||!(SMS_PHONE_HASH_SECRET?.length>=32))return null;
+ return {accessKeyId:PNVS_ACCESS_KEY_ID,accessKeySecret:PNVS_ACCESS_KEY_SECRET,signName:PNVS_SIGN_NAME,
+  templateCode:PNVS_TEMPLATE_CODE,schemeName:PNVS_SCHEME_NAME,phoneHashSecret:SMS_PHONE_HASH_SECRET};
+}
+
 export function config(env=process.env){
  const origin=env.APP_ORIGIN||'http://127.0.0.1:4180';const production=env.NODE_ENV==='production';
  if(!env.DATABASE_URL||!env.BETTER_AUTH_SECRET||env.BETTER_AUTH_SECRET.length<32)throw Error('DATABASE_URL and strong BETTER_AUTH_SECRET are required');
@@ -23,5 +30,5 @@ export function config(env=process.env){
 
  // Holidays: built-in State Council 放假 days ∪ EMPLOYEE_CREDIT_HOLIDAYS (env only adds temporary dates).
  const envHolidays=(env.EMPLOYEE_CREDIT_HOLIDAYS||'').split(',').map(x=>x.trim()).filter(Boolean);
- return {origin,production,alipay,wechat,cw:{enabled:env.CW_ENABLED==='true'},customerPaid:{enabled:env.CUSTOMER_PAID_ENABLED==='true',models:(env.CUSTOMER_PAID_MODELS||'').split(',').map(x=>x.trim()).filter(Boolean)},employeeCredit:{organizationId:env.EMPLOYEE_CREDIT_ORG_ID||'',holidays:mergeHolidays(envHolidays)},pilot:{emails:new Set((env.PILOT_USER_EMAILS||'').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean)),keyFile:env.PILOT_DEEPSEEK_KEY_FILE||''},secret:env.BETTER_AUTH_SECRET,databaseURL:env.DATABASE_URL,port:Number(env.PORT||4180),staffIssuer:env.STAFF_OIDC_ISSUER,staffClientId:env.STAFF_OIDC_CLIENT_ID,staffClientSecret:env.STAFF_OIDC_CLIENT_SECRET,bootstrapSub:env.STAFF_BOOTSTRAP_SUB||'',bankTransfer,smtp:{host:env.SMTP_HOST,port:Number(env.SMTP_PORT||465),secure:env.SMTP_PORT!=='587',auth:{user:env.SMTP_USER,pass:env.SMTP_PASSWORD}},mailFrom:env.SMTP_FROM||env.SMTP_USER,source:env.SOURCE_SHA||'local'};
+ return {origin,production,alipay,wechat,sms:smsConfig(env),cw:{enabled:env.CW_ENABLED==='true'},customerPaid:{enabled:env.CUSTOMER_PAID_ENABLED==='true',models:(env.CUSTOMER_PAID_MODELS||'').split(',').map(x=>x.trim()).filter(Boolean)},employeeCredit:{organizationId:env.EMPLOYEE_CREDIT_ORG_ID||'',holidays:mergeHolidays(envHolidays)},pilot:{emails:new Set((env.PILOT_USER_EMAILS||'').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean)),keyFile:env.PILOT_DEEPSEEK_KEY_FILE||''},secret:env.BETTER_AUTH_SECRET,databaseURL:env.DATABASE_URL,port:Number(env.PORT||4180),staffIssuer:env.STAFF_OIDC_ISSUER,staffClientId:env.STAFF_OIDC_CLIENT_ID,staffClientSecret:env.STAFF_OIDC_CLIENT_SECRET,bootstrapSub:env.STAFF_BOOTSTRAP_SUB||'',bankTransfer,smtp:{host:env.SMTP_HOST,port:Number(env.SMTP_PORT||465),secure:env.SMTP_PORT!=='587',auth:{user:env.SMTP_USER,pass:env.SMTP_PASSWORD}},mailFrom:env.SMTP_FROM||env.SMTP_USER,source:env.SOURCE_SHA||'local'};
 }

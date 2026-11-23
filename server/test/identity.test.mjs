@@ -63,6 +63,7 @@ function wxNotify(event_type,resource,signOpts){
  return fetch(origin+'/api/payments/wechat/notify',{method:'POST',headers:{'Content-Type':'application/json',...wxSign(body,signOpts)},body});
 }
 let pool,appServer,idpServer,service,origin,idpOrigin,appCfg,pilotDir,pilotFetch=fetch,compareFetch=fetch,identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true},revoked=false;
+const smsSent=new Map();
 const sent=[],codes=new Map(),access=new Map();let serial=1;
 const password='Local-only!Testing-1842';
 function jar(ip='192.0.2.'+(serial++)){const cookies=new Map();return {cookies,async call(path,{method='GET',body,headers={}}={}){
@@ -95,6 +96,9 @@ before(async()=>{
  const cfg=config({APP_ORIGIN:origin,DATABASE_URL:databaseURL,BETTER_AUTH_SECRET:'test-only-strong-secret-932847239847293847',STAFF_OIDC_ISSUER:idpOrigin,STAFF_OIDC_CLIENT_ID:'oneapi-test-staff',STAFF_OIDC_CLIENT_SECRET:'test-client-secret',STAFF_BOOTSTRAP_SUB:'staff-owner',BANK_TRANSFER_VERIFIED:'true',BANK_TRANSFER_ACCOUNT_NAME:'Company Test',BANK_TRANSFER_BANK_NAME:'Test Bank Branch',BANK_TRANSFER_ACCOUNT_NUMBER:'0000000000000000'});
  cfg.alipay={...cfg.alipay,enabled:true,appId:'2021000000000001',sellerId:'2088000000000001',privateKey:pem(appKeys.privateKey),publicKey:pem(alipayKeys.publicKey),allowedEmails:new Set(['nobody@example.test'])};cfg.alipayFetch=fakeAlipay;
  cfg.wechat={...cfg.wechat,enabled:true,mchId:WX.mchId,appId:WX.appId,certSerial:WX.certSerial,privateKey:pem(wxMerchant.privateKey),publicKeyId:WX.publicKeyId,publicKey:pem(wxPlatform.publicKey),apiV3Key:wxApiV3Key,allowedEmails:new Set(['nobody@example.test'])};cfg.wechatFetch=fakeWechat;
+ cfg.sms={phoneHashSecret:'test-only-phone-hash-secret-3874918734'};
+ cfg.smsProvider={send:async(phone,challenge)=>{smsSent.set(challenge,phone);return true;},
+  verify:async(phone,challenge,code)=>smsSent.get(challenge)===phone&&code==='123456'};
  appCfg=cfg;cfg.pilotFetch=(...args)=>pilotFetch(...args);cfg.compareReferenceFetch=(...args)=>compareFetch(...args);
  service=createApp(pool,cfg,{sendMail:async m=>{sent.push(m);return {};},verify:async()=>true});await migrate(pool,service.auth);await pool.query('TRUNCATE "user",staff_members,staff_oidc_states,mail_outbox,request_limits,"rateLimit",channel_states,upstream_model_flags,upstream_watch_runs,upstream_watch_events,acceptance_profiles,agents,published_reports,identity_check_runs,identity_check_items CASCADE');appServer.on('request',service.app);
 });
@@ -2054,10 +2058,57 @@ test('allocated employees can compare without purchases and use their ordinary l
 });
 
 
-test('new passwords enforce the same policy on registration, change and reset; unavailable methods remain disabled',async()=>{
- const methods=await jar().call('/api/public/auth-methods');assert.equal(methods.status,200);assert.equal(methods.data.password.minLength,8);assert.equal(methods.data.methods.phoneCode,false);assert.equal(methods.data.methods.wechat,false);assert.equal(methods.data.methods.alipay,false);
+test('new passwords enforce the same policy on registration, change and reset; only configured methods are enabled',async()=>{
+ const methods=await jar().call('/api/public/auth-methods');assert.equal(methods.status,200);assert.equal(methods.data.password.minLength,8);assert.equal(methods.data.methods.phoneCode,true);assert.equal(methods.data.methods.wechat,false);assert.equal(methods.data.methods.alipay,false);
  for(const [path,body] of [['sign-up/email',{email:'weak-policy@example.test',name:'Policy',password:'abcdefghijk!'}],['change-password',{currentPassword:password,newPassword:'Abcdefghijkl'}],['reset-password',{token:'invalid',newPassword:'Abcdefghijkl'}]]){
   const r=await jar().call('/api/auth/'+path,{method:'POST',body});assert.equal(r.status,400);assert.equal(r.data.code,'PASSWORD_POLICY');
  }
  const r=await jar().call('/api/auth/sign-up/email',{method:'POST',body:{email:'short-policy@example.test',name:'Policy',password:'Abcdefg!'}});assert.equal(r.status,200,JSON.stringify(r.data));
+});
+
+
+test('duplicate registration gives a direct recovery path only with proof of the account password',async()=>{
+ while(await service.mail.drain()){}
+ const known=await user('register-again'),client=jar();
+ const post=body=>client.call('/api/auth/sign-up/email',{method:'POST',body:{name:'Register Again',email:known.email,...body}});
+ const originalCount=sent.filter(m=>m.to===known.email).length;
+ const mismatch=await post({password:'Another!NewPassword'});
+ assert.equal(mismatch.status,200);
+ assert.equal(mismatch.data.token,null);
+ const match=await post({password});
+ assert.equal(match.status,409);
+ assert.equal(match.data.code,'ACCOUNT_ALREADY_REGISTERED');
+ await service.mail.drain();
+ assert.equal(sent.filter(m=>m.to===known.email).length,originalCount);
+ assert.equal((await client.call('/api/platform/me')).status,401);
+});
+
+test('SMS only signs into a bound account and cannot reuse or exchange challenges',async()=>{
+ while(await service.mail.drain()){}
+ const owner=await user('sms-owner'),client=jar(),phone='19900000047';
+ const post=(j,kind,body)=>j.call('/api/auth/sms/'+kind,{method:'POST',body:{phone,...body}});
+ assert.equal((await client.call('/api/auth/sms/binding')).status,401);
+ const unbound=await post(client,'send',{phone:'19900000049',purpose:'login'});
+ assert.equal(unbound.status,200,JSON.stringify(unbound.data));
+ assert.equal(smsSent.has(unbound.data.challenge),false);
+ const wrong=await post(owner.j,'send',{phone:'19900000048',purpose:'bind',password:'Wrong!Password'});
+ assert.equal(wrong.status,403,JSON.stringify(wrong.data));
+ const bind=await post(owner.j,'send',{purpose:'bind',password});
+ assert.equal(bind.status,200,JSON.stringify(bind.data));
+ assert.equal(smsSent.get(bind.data.challenge),phone);
+ const proof={challenge:bind.data.challenge,code:'123456'};
+ assert.equal((await post(client,'verify',{purpose:'login',...proof})).status,400);
+ assert.equal((await post(owner.j,'verify',{purpose:'bind',...proof,code:'000000'})).status,400);
+ const bound=await post(owner.j,'verify',{purpose:'bind',...proof});
+ assert.equal(bound.status,200,JSON.stringify(bound.data));
+ assert.deepEqual((await owner.j.call('/api/auth/sms/binding')).data,{lastFour:'0047'});
+ assert.equal((await post(owner.j,'verify',{purpose:'bind',...proof})).status,400);
+ assert.equal((await post(client,'send',{purpose:'login'})).status,429);
+ await pool.query("UPDATE request_limits SET expires_at=now()-interval '1 second'");
+ const login=await post(client,'send',{purpose:'login'});
+ assert.equal(login.status,200,JSON.stringify(login.data));
+ const loginProof={purpose:'login',challenge:login.data.challenge,code:'123456'};
+ assert.equal((await post(client,'verify',loginProof)).status,200);
+ assert.equal((await client.call('/api/platform/me')).data.user.id,owner.user.id);
+ assert.equal((await post(jar(),'verify',loginProof)).status,400);
 });
