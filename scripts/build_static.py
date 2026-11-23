@@ -6,16 +6,42 @@ import io
 import json
 import subprocess
 import tarfile
+from html import escape
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+LEGACY_DOMAIN = 'oneapi.glocalstorage.cn'
+CN_DOMAIN = 'semifly.cn'
+CN_ICP_NUMBER = '沪ICP备2024050749号-3'
 
 def git(*args):
     return subprocess.check_output(['git', '-C', str(ROOT), *args])
 
+def apply_cn_filing(assets):
+    number = escape(CN_ICP_NUMBER)
+    link = f'<a class="site-filing" href="https://beian.miit.gov.cn/">{number}</a>'
+    for name in ('index.html', 'compare.html', 'cw.html', 'cw-terms.html', 'skills/index.html'):
+        text = assets[name].decode()
+        root = '<html lang="zh-CN">'
+        if text.count(root) != 1:
+            raise ValueError(f'Expected one document root in {name}')
+        text = text.replace(root, f'<html lang="zh-CN" data-icp-filing="{number}">', 1)
+        if '<div data-site-footer></div>' in text:
+            text = text.replace('<div data-site-footer></div>', f'<div data-site-footer>{link}</div>')
+        elif '<div id="cw-footer"></div>' in text:
+            text = text.replace('<div id="cw-footer"></div>', f'<div id="cw-footer">{link}</div>')
+        elif name == 'cw-terms.html':
+            text = text.replace('</main>', f'</main><footer class="cw-app">{link}</footer>', 1)
+        else:
+            raise ValueError(f'Missing footer in {name}')
+        if name == 'index.html':
+            text = text.replace('</noscript>', f'<footer>{link}</footer></noscript>', 1)
+        assets[name] = text.encode()
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--domain', choices=(LEGACY_DOMAIN, CN_DOMAIN), default=LEGACY_DOMAIN)
     args = parser.parse_args()
     if git('status', '--porcelain', '--', 'web', 'prototypes/skills', 'scripts/build_static.py').strip():
         raise SystemExit('Commit web and builder changes before packaging.')
@@ -70,9 +96,11 @@ def main():
         elif name == 'skills.js':
             content = content.decode().replace('semifly.ai 本地目录', 'semifly.ai').replace('每天 09:00 本地更新（需本机与 Codex 运行）', '每天 09:00 更新（北京时间）').encode()
         assets['skills/' + name] = content
+    if args.domain == CN_DOMAIN:
+        apply_cn_filing(assets)
     release = {
         'app': 'oneapi', 'source_sha': sha, 'stage': 'identity-live',
-        'domain': 'oneapi.glocalstorage.cn', 'transactions_enabled': False,
+        'domain': args.domain, 'transactions_enabled': False,
         'customer_registration_enabled': True, 'staff_login_enabled': True, 'inference_enabled': False,
         'status': 'ok', 'business_ready': False,
     }

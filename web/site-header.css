@@ -93,6 +93,8 @@ html{scrollbar-gutter:stable}
 .site-header .site-account{width:168px;display:flex;justify-content:flex-end}
 .site-footer{box-sizing:border-box;display:flex;align-items:center;gap:24px;width:100%;max-width:none;min-height:var(--site-footer-height);margin:0;padding:8px var(--site-gutter);border-top:1px solid var(--site-line);background:#fff;color:var(--site-muted);flex-direction:row;justify-content:flex-start;font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;flex-shrink:0}
 .site-footer a{margin-left:auto;color:inherit;text-decoration:none}
+.site-footer a.site-filing{white-space:nowrap;text-decoration:underline;text-underline-offset:2px}
+@media(max-width:700px){html[data-icp-filing] .universe-active .welcome-page:has(>.site-header){grid-template-rows:auto minmax(0,1fr) auto}}
 #site-boot{min-height:100dvh;background:#fff;color:var(--site-ink)}
 .site-boot-brand{height:72px;display:flex;align-items:center;padding:0 var(--site-gutter);border-bottom:1px solid var(--site-line)}
 #site-boot p,#site-boot>a,#site-boot noscript{margin:28px;display:block}

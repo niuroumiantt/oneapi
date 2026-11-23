@@ -3,10 +3,16 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../../web/site-header.js',import.meta.url),'utf8');
-function header(){
- const context=vm.createContext({URL,window:{},document:{currentScript:{src:'https://example.test/site-header.123.js'},querySelector:()=>null,querySelectorAll:()=>[]}});
+function header(icpFiling){
+ const context=vm.createContext({URL,window:{},location:{pathname:'/'},document:{documentElement:{dataset:{icpFiling}},currentScript:{src:'https://example.test/site-header.123.js'},querySelector:()=>null,querySelectorAll:()=>[]}});
  vm.runInContext(source,context);return context.window.SiteHeader;
 }
+test('the shared footer displays the build-provided ICP number and links to MIIT',()=>{
+ const number='沪ICP备2024050749号-3';
+ assert.match(header(number).footer(),/href="https:\/\/beian\.miit\.gov\.cn\/">沪ICP备2024050749号-3<\/a>/);
+ assert.doesNotMatch(header().footer(),/beian\.miit\.gov\.cn|2024050749/);
+ assert.match(header('<example>').footer(),/&lt;example&gt;/);
+});
 test('shared navigation preserves order and marks exactly the active destination',()=>{
  const ui=header();
  for(const active of ['universe','market','skills','docs']){
