@@ -5,20 +5,48 @@ import {z} from 'zod';
 import {transaction} from './core.mjs';
 import {rpcBody} from './aliyun-readonly.mjs';
 
+function ecsCredentials(roleName,fetcher){
+ const metadata='http://100.100.100.200/latest';
+ let credentials, refresh;
+ async function load(){
+  const metaFetch=(path,options)=>fetcher(metadata+path,{...options,redirect:'error',signal:AbortSignal.timeout(2500)});
+  const token=await metaFetch('/api/token',{method:'PUT',headers:{'X-aliyun-ecs-metadata-token-ttl-seconds':'60'}});
+  if(!token.ok)throw Error('ECS metadata token unavailable');
+  const response=await metaFetch('/meta-data/ram/security-credentials/'+encodeURIComponent(roleName),{
+   headers:{'X-aliyun-ecs-metadata-token':await token.text()},
+  });
+  if(!response.ok)throw Error('ECS role credentials unavailable');
+  const data=await response.json(),expiresAt=Date.parse(data.Expiration);
+  if(data.Code!=='Success'||!data.AccessKeyId||!data.AccessKeySecret||!data.SecurityToken||!(expiresAt>Date.now()+60000)){
+   throw Error('ECS role credentials invalid');
+  }
+  return {accessKeyId:data.AccessKeyId,accessKeySecret:data.AccessKeySecret,securityToken:data.SecurityToken,expiresAt};
+ }
+ return async()=>{
+  if(credentials?.expiresAt>Date.now()+60000)return credentials;
+  refresh??=load().then(next=>credentials=next).finally(()=>{refresh=null;});
+  return refresh;
+ };
+}
+
 export function pnvsSms(config,fetcher=fetch){
+ const credentials=config.roleName?ecsCredentials(config.roleName,fetcher):async()=>config;
  async function request(action,phone,challenge,fields){
-  const params={Action:action,Version:'2017-05-25',AccessKeyId:config.accessKeyId,Format:'JSON',
+  const {accessKeyId,accessKeySecret,securityToken}=await credentials();
+  const params={Action:action,Version:'2017-05-25',AccessKeyId:accessKeyId,Format:'JSON',
    SignatureMethod:'HMAC-SHA1',SignatureNonce:randomUUID(),SignatureVersion:'1.0',
    Timestamp:new Date().toISOString().replace(/\.\d{3}Z$/,'Z'),CountryCode:'86',PhoneNumber:phone,OutId:challenge,...fields};
   if(config.schemeName)params.SchemeName=config.schemeName;
+  if(securityToken)params.SecurityToken=securityToken;
   const response=await fetcher('https://dypnsapi.aliyuncs.com/',{method:'POST',redirect:'error',
-   headers:{'Content-Type':'application/x-www-form-urlencoded'},body:rpcBody(params,config.accessKeySecret),signal:AbortSignal.timeout(8000)});
+   headers:{'Content-Type':'application/x-www-form-urlencoded'},body:rpcBody(params,accessKeySecret),signal:AbortSignal.timeout(8000)});
   const body=await response.json();
   return response.ok&&body.Code==='OK'&&body.Success===true?body.Model:null;
  }
  return {
-  async send(phone,challenge){
-   const model=await request('SendSmsVerifyCode',phone,challenge,{SignName:config.signName,TemplateCode:config.templateCode,
+  async send(phone,challenge,purpose){
+   const template=purpose==='bind'&&config.bindTemplateCode?config.bindTemplateCode:config.templateCode;
+   const model=await request('SendSmsVerifyCode',phone,challenge,{SignName:config.signName,TemplateCode:template,
     TemplateParam:JSON.stringify({code:'##code##',min:'5'}),CodeLength:6,CodeType:1,ValidTime:300,DuplicatePolicy:1,Interval:60,ReturnVerifyCode:false,AutoRetry:0});
    return !!model;
   },
@@ -53,8 +81,8 @@ async function enabledCustomer(ctx){
 export function customerSmsAuth(pool,config,provider=pnvsSms(config)){
  const key=value=>createHmac('sha256',config.phoneHashSecret).update(value).digest('hex');
  const phoneKey=phone=>key('sms-phone:'+phone);
- const deliver=async(phone,challenge)=>{
-  try{return await provider.send(phone,challenge);}
+ const deliver=async(phone,challenge,purpose)=>{
+  try{return await provider.send(phone,challenge,purpose);}
   catch{return false;}
  };
  const check=async(phone,challenge,code)=>{
@@ -90,7 +118,10 @@ export function customerSmsAuth(pool,config,provider=pnvsSms(config)){
     userId=bound?.user_id;
    }
    await pool.query('DELETE FROM customer_sms_challenges WHERE expires_at<=now()');
-   if(userId&&await deliver(phone,challenge)){
+   if(userId){
+    await limit(pool,key('sms-paid-day'),config.dailySendLimit??50,86400);
+   }
+   if(userId&&await deliver(phone,challenge,purpose)){
     await pool.query(`INSERT INTO customer_sms_challenges(id,phone_hash,purpose,user_id) VALUES($1,$2,$3,$4)`,
      [challenge,digest,purpose,userId]);
    }else if(purpose==='bind'){

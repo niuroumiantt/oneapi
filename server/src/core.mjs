@@ -1,4 +1,5 @@
 import { createHash, randomBytes, createCipheriv, createDecipheriv, hkdfSync } from 'node:crypto';
+import { isIP } from 'node:net';
 import { mergeHolidays } from './china-holidays.mjs';
 export class HttpError extends Error { constructor(status,message,code){super(message);this.status=status;if(code)this.code=code;} }
 // Back-office access is two switches: business (any assigned role) and technical.
@@ -12,10 +13,16 @@ export async function transaction(pool,fn){const c=await pool.connect();try{awai
 export function vault(secret){const key=Buffer.from(hkdfSync('sha256',secret,'oneapi','private-payload-v1',32));return {seal(value){const iv=randomBytes(12),c=createCipheriv('aes-256-gcm',key,iv);const data=Buffer.concat([c.update(JSON.stringify(value)),c.final()]);return Buffer.concat([iv,c.getAuthTag(),data]).toString('base64url');},open(value){const b=Buffer.from(value,'base64url'),d=createDecipheriv('aes-256-gcm',key,b.subarray(0,12));d.setAuthTag(b.subarray(12,28));return JSON.parse(Buffer.concat([d.update(b.subarray(28)),d.final()]).toString());}};}
 export async function audit(db,actor,action,org=null,subject=null,detail={}){await db.query('INSERT INTO audit_events(actor_kind,actor_id,organization_id,action,subject_id,detail) VALUES($1,$2,$3,$4,$5,$6)',[actor.kind,actor.id,org,action,subject,JSON.stringify(detail)]);}
 function smsConfig(env){
- const {SMS_LOGIN_ENABLED,PNVS_ACCESS_KEY_ID,PNVS_ACCESS_KEY_SECRET,PNVS_SIGN_NAME,PNVS_TEMPLATE_CODE,PNVS_SCHEME_NAME,SMS_PHONE_HASH_SECRET}=env;
- if(SMS_LOGIN_ENABLED!=='true'||!PNVS_ACCESS_KEY_ID||!PNVS_ACCESS_KEY_SECRET||!PNVS_SIGN_NAME||!PNVS_TEMPLATE_CODE||!(SMS_PHONE_HASH_SECRET?.length>=32))return null;
- return {accessKeyId:PNVS_ACCESS_KEY_ID,accessKeySecret:PNVS_ACCESS_KEY_SECRET,signName:PNVS_SIGN_NAME,
-  templateCode:PNVS_TEMPLATE_CODE,schemeName:PNVS_SCHEME_NAME,phoneHashSecret:SMS_PHONE_HASH_SECRET};
+ const {SMS_LOGIN_ENABLED,PNVS_ECS_ROLE_NAME,PNVS_ACCESS_KEY_ID,PNVS_ACCESS_KEY_SECRET,PNVS_SIGN_NAME,
+  PNVS_TEMPLATE_CODE,PNVS_BIND_TEMPLATE_CODE,PNVS_SCHEME_NAME,SMS_PHONE_HASH_SECRET,SMS_DAILY_SEND_LIMIT,SMS_PILOT_IP}=env;
+ const dailySendLimit=Number(SMS_DAILY_SEND_LIMIT||50);
+ if(SMS_LOGIN_ENABLED!=='true'||!PNVS_SIGN_NAME||!PNVS_TEMPLATE_CODE||!(SMS_PHONE_HASH_SECRET?.length>=32))return null;
+ if(PNVS_ECS_ROLE_NAME?!/^[A-Za-z0-9-]{1,64}$/.test(PNVS_ECS_ROLE_NAME):!(PNVS_ACCESS_KEY_ID&&PNVS_ACCESS_KEY_SECRET))return null;
+ if(!Number.isSafeInteger(dailySendLimit)||dailySendLimit<1)return null;
+ if(SMS_PILOT_IP&&!isIP(SMS_PILOT_IP))return null;
+ return {roleName:PNVS_ECS_ROLE_NAME,accessKeyId:PNVS_ACCESS_KEY_ID,accessKeySecret:PNVS_ACCESS_KEY_SECRET,signName:PNVS_SIGN_NAME,
+  templateCode:PNVS_TEMPLATE_CODE,bindTemplateCode:PNVS_BIND_TEMPLATE_CODE,schemeName:PNVS_SCHEME_NAME,
+  phoneHashSecret:SMS_PHONE_HASH_SECRET,dailySendLimit,pilotIp:SMS_PILOT_IP};
 }
 
 export function config(env=process.env){

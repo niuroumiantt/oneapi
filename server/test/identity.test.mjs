@@ -2112,3 +2112,17 @@ test('SMS only signs into a bound account and cannot reuse or exchange challenge
  assert.equal((await client.call('/api/platform/me')).data.user.id,owner.user.id);
  assert.equal((await post(jar(),'verify',loginProof)).status,400);
 });
+
+test('a staged SMS rollout hides the UI and API from requests outside the pilot IP',async()=>{
+ const pilot=jar('192.0.2.240'),visitor=jar('192.0.2.241');
+ appCfg.sms.pilotIp='192.0.2.240';
+ try{
+  assert.equal((await pilot.call('/api/public/auth-methods')).data.methods.phoneCode,true);
+  assert.equal((await visitor.call('/api/public/auth-methods')).data.methods.phoneCode,false);
+  assert.equal((await pilot.call('/api/auth/sms/binding')).status,401);
+  assert.equal((await visitor.call('/api/auth/sms/binding')).status,404);
+  assert.equal((await visitor.call('/api/auth/sms/send',{method:'POST',body:{phone:'19900000047',purpose:'login'}})).status,404);
+ }finally{
+  delete appCfg.sms.pilotIp;
+ }
+});

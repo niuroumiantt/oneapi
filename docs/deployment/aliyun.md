@@ -21,7 +21,9 @@ OneAPI 的生产站点是 [semifly.cn](https://semifly.cn/)。GitHub 的 `niurou
 
 ## 账号登录
 
-短信登录使用阿里云号码认证 PNVS。仅在提供 `PNVS_ACCESS_KEY_ID`、`PNVS_ACCESS_KEY_SECRET`、`PNVS_SIGN_NAME`、`PNVS_TEMPLATE_CODE`、至少 32 字符的稳定 `SMS_PHONE_HASH_SECRET`，并显式设置 `SMS_LOGIN_ENABLED=true` 时启用。`PNVS_SCHEME_NAME` 可选。凭据仅配置在上海环境中，RAM 权限仅需发送和核验验证码。先用授权测试号码验证真实发送和核验，再公开入口。既有用户登录邮箱账号后可绑定中国大陆手机号。号码散列密钥变更会使既有手机号绑定失效。
+短信登录使用阿里云号码认证 PNVS。上海用 `PNVS_ECS_ROLE_NAME` 从 IMDSv2 获取临时凭据。为 ECS 启用仅加固模式的元数据访问。RAM 角色只需 `dypns:SendSmsVerifyCode` 和 `dypns:CheckSmsVerifyCode` 权限。已有的 `PNVS_ACCESS_KEY_ID` 与 `PNVS_ACCESS_KEY_SECRET` 配置也受支持。
+
+启用需要 `PNVS_SIGN_NAME`、登录用的 `PNVS_TEMPLATE_CODE`、至少 32 字符的稳定 `SMS_PHONE_HASH_SECRET` 和 `SMS_LOGIN_ENABLED=true`。可用 `PNVS_BIND_TEMPLATE_CODE` 指定绑定手机号的模板，`PNVS_SCHEME_NAME` 可选。`SMS_DAILY_SEND_LIMIT` 限制首条付费尝试起 24 小时内的发送尝试数，默认 50。站内验收时设置 `SMS_PILOT_IP` 为测试人员的公网 IP，只向该 IP 提供短信入口和 API，验收通过后清空该配置。客户登录邮箱账号后可绑定中国大陆手机号。号码散列密钥变更会使既有手机号绑定失效。
 
 [阿里云号码认证接入指引](https://help.aliyun.com/zh/pnvs/developer-reference/the-server-integration-1) · [上海切换记录](../handoff/semifly-cn-shanghai-cutover-20261123.md)
 
