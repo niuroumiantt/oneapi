@@ -50,10 +50,12 @@ export function createApp(pool,cfg,transport){
   const r=(await pool.query("INSERT INTO request_limits(key,count,expires_at) VALUES($1,1,now()+interval '1 minute') ON CONFLICT(key) DO UPDATE SET count=CASE WHEN request_limits.expires_at<now() THEN 1 ELSE request_limits.count+1 END,expires_at=CASE WHEN request_limits.expires_at<now() THEN now()+interval '1 minute' ELSE request_limits.expires_at END RETURNING count",[key])).rows[0];
   if(r.count>120){res.set('Retry-After','60');return res.status(429).json({error:'操作频繁，请稍后再试。'});}next();
  });
- app.get('/api/public/auth-methods',(_req,res)=>res.json({password:passwordPolicy,methods:{emailPassword:true,emailRegistration:mail.ready,emailRecovery:mail.ready,phoneCode:Boolean(cfg.sms),wechat:false,alipay:false}}));
+ // Caddy replaces X-Real-IP and the API container is reachable only on the private Compose network.
+ const smsAvailable=req=>Boolean(cfg.sms&&(!cfg.sms.pilotIp||req.get('x-real-ip')===cfg.sms.pilotIp));
+ app.get('/api/public/auth-methods',(req,res)=>res.json({password:passwordPolicy,methods:{emailPassword:true,emailRegistration:mail.ready,emailRecovery:mail.ready,phoneCode:smsAvailable(req),wechat:false,alipay:false}}));
  const allowed=new Set(['sign-up/email','sign-in/email','sign-out','get-session','verify-email','send-verification-email','request-password-reset','reset-password','change-password','list-sessions','revoke-session','revoke-other-sessions']);
- if(cfg.sms)for(const path of ['sms/binding','sms/send','sms/verify'])allowed.add(path);
- app.all('/api/auth/*path',(req,res,next)=>{const path=req.path.slice('/api/auth/'.length);if(!allowed.has(path))return res.status(404).json({error:'接口不存在'});if(!mail.ready&&['sign-up/email','request-password-reset','send-verification-email'].includes(path))return res.status(503).json({error:'邮件服务暂时不可用，请稍后再试。'});next();},toNodeHandler(auth));
+ const smsPaths=new Set(['sms/binding','sms/send','sms/verify']);
+ app.all('/api/auth/*path',(req,res,next)=>{const path=req.path.slice('/api/auth/'.length);if(!allowed.has(path)&&!(smsPaths.has(path)&&smsAvailable(req)))return res.status(404).json({error:'接口不存在'});if(!mail.ready&&['sign-up/email','request-password-reset','send-verification-email'].includes(path))return res.status(503).json({error:'邮件服务暂时不可用，请稍后再试。'});next();},toNodeHandler(auth));
  const gate=createGate(),seat=createSeatGate();
  employeeInferenceRoutes(app,pool,cfg,cfg.pilotFetch||fetch,gate,seat);
  employeeInferenceRoutes(app,pool,cfg,cfg.pilotFetch||fetch,gate,seat,paidBackend(pool,cfg));
