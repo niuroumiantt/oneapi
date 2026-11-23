@@ -58,7 +58,8 @@ export function pnvsSms(config,fetcher=fetch){
 }
 
 const phoneInput=z.string().trim().max(32);
-const purposeInput=z.enum(['login','bind']);
+const purposeInput=z.enum(['login','bind','register']);
+export const phoneAccountEmailDomain='phone-account.invalid';
 const invalidCode=()=>new APIError('BAD_REQUEST',{code:'SMS_CODE_INVALID',message:'验证码无效或已过期，请重试。'});
 function recipient(value){
  const number=value.replace(/[ -]/g,'').replace(/^(?:\+86|0086)/,'');
@@ -72,10 +73,36 @@ async function limit(db,key,max,seconds){
   WHERE request_limits.expires_at<=now() OR request_limits.count<$2 RETURNING count`,[key,max,seconds]);
  if(!row)throw new APIError('TOO_MANY_REQUESTS',{code:'SMS_THROTTLED',message:'短信请求太频繁，请稍后重试。'});
 }
-async function enabledCustomer(ctx){
+async function enabledCustomer(ctx,requireEmail=false){
  const current=await getAuthoritativeSessionFromCtx(ctx);
- if(!current?.user?.emailVerified||current.user.disabled)throw new APIError('UNAUTHORIZED',{message:'请先登录已验证的邮箱账号。'});
- return current.user;
+ const user=current?.user;
+ if(!user||user.disabled||(!user.emailVerified&&(requireEmail||!user.phoneOnly))){
+  throw new APIError('UNAUTHORIZED',{message:requireEmail?'请先登录已验证的邮箱账号。':'请先登录。'});
+ }
+ return user;
+}
+
+async function finishPhoneRegistration(pool,challenge,digest,phone){
+ const duplicate=()=>new APIError('CONFLICT',{code:'SMS_PHONE_ALREADY_REGISTERED',message:'该手机号已注册，请直接短信登录。'});
+ try{
+  const userId=await transaction(pool,async db=>{
+   const consumed=await db.query('DELETE FROM customer_sms_challenges WHERE id=$1 AND expires_at>now() RETURNING id',[challenge]);
+   if(!consumed.rowCount)throw invalidCode();
+   const existing=await db.query('SELECT user_id FROM customer_sms_phones WHERE phone_hash=$1',[digest]);
+   if(existing.rowCount)return null;
+   const id=randomUUID();
+   // Better Auth requires a unique email field. This address is internal and cannot receive mail.
+   await db.query(`INSERT INTO "user" (id,name,email,"emailVerified","phoneOnly",disabled,"createdAt","updatedAt")
+    VALUES($1,'OneAPI 用户',$2,false,true,false,now(),now())`,[id,`phone-${id}@${phoneAccountEmailDomain}`]);
+   await db.query('INSERT INTO customer_sms_phones(user_id,phone_hash,last_four) VALUES($1,$2,$3)',[id,digest,phone.slice(-4)]);
+   return id;
+  });
+  if(!userId)throw duplicate();
+  return userId;
+ }catch(error){
+  if(error.code==='23505'&&error.constraint==='customer_sms_phones_phone_hash_key')throw duplicate();
+  throw error;
+ }
 }
 
 export function customerSmsAuth(pool,config,provider=pnvsSms(config)){
@@ -103,28 +130,33 @@ export function customerSmsAuth(pool,config,provider=pnvsSms(config)){
     await limit(db,key('sms-interval:'+digest),1,60);
     await limit(db,key('sms-number:'+digest),5,3600);
     await limit(db,key('sms-total'),100,3600);
+    if(purpose==='register'){
+     await limit(db,key('sms-register-ip:'+ip),5,3600);
+     await limit(db,key('sms-register-number:'+digest),3,86400);
+    }
    });
    let userId;
    if(purpose==='bind'){
-    const user=await enabledCustomer(ctx);
+    const user=await enabledCustomer(ctx,true);
     const account=(await ctx.context.internalAdapter.findAccounts(user.id)).find(a=>a.providerId==='credential');
     if(!account?.password||!password||!await ctx.context.password.verify({hash:account.password,password})){
      throw new APIError('FORBIDDEN',{code:'INVALID_PASSWORD',message:'当前密码不正确。'});
     }
     userId=user.id;
-   }else{
+   }else if(purpose==='login'){
     const {rows:[bound]}=await pool.query(`SELECT b.user_id FROM customer_sms_phones b JOIN "user" u ON u.id=b.user_id
-     WHERE b.phone_hash=$1 AND u."emailVerified" AND NOT u.disabled`,[digest]);
+     WHERE b.phone_hash=$1 AND (u."emailVerified" OR u."phoneOnly") AND NOT u.disabled`,[digest]);
     userId=bound?.user_id;
    }
    await pool.query('DELETE FROM customer_sms_challenges WHERE expires_at<=now()');
-   if(userId){
+   const canSend=Boolean(userId)||purpose==='register';
+   if(canSend){
     await limit(pool,key('sms-paid-day'),config.dailySendLimit??50,86400);
    }
-   if(userId&&await deliver(phone,challenge,purpose)){
+   if(canSend&&await deliver(phone,challenge,purpose)){
     await pool.query(`INSERT INTO customer_sms_challenges(id,phone_hash,purpose,user_id) VALUES($1,$2,$3,$4)`,
-     [challenge,digest,purpose,userId]);
-   }else if(purpose==='bind'){
+     [challenge,digest,purpose,userId??null]);
+   }else if(purpose!=='login'){
     throw new APIError('SERVICE_UNAVAILABLE',{message:'短信暂时无法发送，请稍后重试。'});
    }
    return ctx.json({challenge,retryAfter:60});
@@ -132,12 +164,16 @@ export function customerSmsAuth(pool,config,provider=pnvsSms(config)){
   smsVerify:createAuthEndpoint('/sms/verify',{method:'POST',body:z.object({phone:phoneInput,purpose:purposeInput,
    challenge:z.uuid(),code:z.string().regex(/^\d{6}$/)})},async ctx=>{
    const {purpose,challenge,code}=ctx.body,phone=recipient(ctx.body.phone),digest=phoneKey(phone);
-   const actor=purpose==='bind'?await enabledCustomer(ctx):null;
+   const actor=purpose==='bind'?await enabledCustomer(ctx,true):null;
    const {rows:[attempt]}=await pool.query(`UPDATE customer_sms_challenges SET attempts=attempts+1
     WHERE id=$1 AND phone_hash=$2 AND purpose=$3 AND expires_at>now() AND attempts<5
      AND ($4::text IS NULL OR user_id=$4)
     RETURNING user_id`,[challenge,digest,purpose,actor?.id||null]);
    if(!attempt||!await check(phone,challenge,code))throw invalidCode();
+   if(purpose==='register'){
+    const userId=await finishPhoneRegistration(pool,challenge,digest,phone);
+    return signIn(ctx,userId);
+   }
    const {rows:[consumed]}=await pool.query(`DELETE FROM customer_sms_challenges WHERE id=$1 AND expires_at>now() RETURNING user_id`,[challenge]);
    if(!consumed)throw invalidCode();
    if(actor){
@@ -152,12 +188,17 @@ export function customerSmsAuth(pool,config,provider=pnvsSms(config)){
     return ctx.json({ok:true,lastFour:phone.slice(-4)});
    }
    const {rows:[binding]}=await pool.query('SELECT user_id FROM customer_sms_phones WHERE phone_hash=$1 AND user_id=$2',[digest,attempt.user_id]);
-   const user=binding&&await ctx.context.internalAdapter.findUserById(binding.user_id);
-   if(!user?.emailVerified||user.disabled)throw invalidCode();
-   const session=await ctx.context.internalAdapter.createSession(user.id);
-   if(!session)throw new APIError('INTERNAL_SERVER_ERROR',{message:'暂时无法登录，请稍后重试。'});
-   await setSessionCookie(ctx,{session,user});
-   return ctx.json({ok:true});
+   if(!binding)throw invalidCode();
+   return signIn(ctx,binding.user_id);
   }),
  }};
+}
+
+async function signIn(ctx,userId){
+ const user=await ctx.context.internalAdapter.findUserById(userId);
+ if(!(user?.emailVerified||user?.phoneOnly)||user.disabled)throw invalidCode();
+ const session=await ctx.context.internalAdapter.createSession(user.id);
+ if(!session)throw new APIError('INTERNAL_SERVER_ERROR',{message:'暂时无法登录，请稍后重试。'});
+ await setSessionCookie(ctx,{session,user});
+ return ctx.json({ok:true});
 }

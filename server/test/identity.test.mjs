@@ -2113,16 +2113,83 @@ test('SMS only signs into a bound account and cannot reuse or exchange challenge
  assert.equal((await post(jar(),'verify',loginProof)).status,400);
 });
 
+test('phone registration proves ownership before creating a new customer and permits later SMS login',async()=>{
+ const phone='19900000052',digits='0052',client=jar();
+ const post=(j,kind,body)=>j.call('/api/auth/sms/'+kind,{method:'POST',body:{phone,...body}});
+ const methods=await client.call('/api/public/auth-methods');
+ assert.equal(methods.data.methods.phoneRegistration,true);
+ const send=await post(client,'send',{phone:'+86 '+phone,purpose:'register'});
+ assert.equal(send.status,200,JSON.stringify(send.data));
+ assert.equal(smsSent.get(send.data.challenge),phone);
+ assert.equal((await pool.query('SELECT 1 FROM customer_sms_phones WHERE last_four=$1',[digits])).rowCount,0);
+ const proof={purpose:'register',challenge:send.data.challenge,code:'123456'};
+ assert.equal((await post(client,'verify',{...proof,purpose:'login'})).status,400);
+ assert.equal((await post(client,'verify',{...proof,code:'000000'})).status,400);
+ assert.equal((await client.call('/api/platform/me')).status,401);
+ const concurrent=jar();
+ const verified=await Promise.all([post(client,'verify',proof),post(concurrent,'verify',proof)]);
+ assert.deepEqual(verified.map(r=>r.status).sort(),[200,400]);
+ const owner=verified[0].status===200?client:concurrent;
+ const account=(await owner.call('/api/platform/me')).data.user;
+ assert.equal(account.phoneOnly,true);
+ assert.equal(account.emailVerified,false);
+ assert.equal(account.email,'');
+ assert.equal((await owner.call('/api/billing/personal')).status,200);
+ assert.deepEqual((await owner.call('/api/auth/sms/binding')).data,{lastFour:digits});
+ const stored=(await pool.query('SELECT email FROM "user" WHERE id=$1',[account.id])).rows[0].email;
+ assert.ok(stored.endsWith('@phone-account.invalid'));
+ assert.ok(!stored.includes(phone));
+ for(const path of ['sign-up/email','sign-in/email','request-password-reset','send-verification-email']){
+  const result=await client.call('/api/auth/'+path,{method:'POST',body:{email:stored,name:'Reserved',password}});
+  assert.equal(result.status,400,JSON.stringify(result.data));
+ }
+ await pool.query("UPDATE request_limits SET expires_at=now()-interval '1 second'");
+ const duplicate=await post(jar(),'send',{purpose:'register'});
+ assert.equal(duplicate.status,200,JSON.stringify(duplicate.data));
+ const newProof={...proof,challenge:duplicate.data.challenge};
+ const duplicateVerify=await post(jar(),'verify',newProof);
+ assert.equal(duplicateVerify.status,409);
+ assert.equal(duplicateVerify.data.code,'SMS_PHONE_ALREADY_REGISTERED');
+ assert.equal((await post(jar(),'verify',newProof)).status,400);
+ assert.equal((await pool.query('SELECT 1 FROM customer_sms_phones WHERE last_four=$1',[digits])).rowCount,1);
+ await pool.query("UPDATE request_limits SET expires_at=now()-interval '1 second'");
+ const returnUser=jar(),login=await post(returnUser,'send',{purpose:'login'});
+ assert.equal(login.status,200);
+ assert.equal((await post(returnUser,'verify',{...proof,purpose:'login',challenge:login.data.challenge})).status,200);
+ assert.equal((await returnUser.call('/api/platform/me')).data.user.id,account.id);
+});
+
 test('a staged SMS rollout hides the UI and API from requests outside the pilot IP',async()=>{
  const pilot=jar('192.0.2.240'),visitor=jar('192.0.2.241');
  appCfg.sms.pilotIp='192.0.2.240';
  try{
   assert.equal((await pilot.call('/api/public/auth-methods')).data.methods.phoneCode,true);
   assert.equal((await visitor.call('/api/public/auth-methods')).data.methods.phoneCode,false);
+  assert.equal((await visitor.call('/api/public/auth-methods')).data.methods.phoneRegistration,false);
   assert.equal((await pilot.call('/api/auth/sms/binding')).status,401);
   assert.equal((await visitor.call('/api/auth/sms/binding')).status,404);
   assert.equal((await visitor.call('/api/auth/sms/send',{method:'POST',body:{phone:'19900000047',purpose:'login'}})).status,404);
  }finally{
   delete appCfg.sms.pilotIp;
+ }
+});
+
+test('SMS registration and login share the paid sending cap',async()=>{
+ const client=jar(),original=appCfg.sms.dailySendLimit;
+ const phone='19900000053';
+ const send=(number,purpose)=>client.call('/api/auth/sms/send',{method:'POST',body:{phone:number,purpose}});
+ await pool.query("UPDATE request_limits SET expires_at=now()-interval '1 second'");
+ appCfg.sms.dailySendLimit=1;
+ try{
+  const signup=await send(phone,'register');
+  assert.equal(signup.status,200,JSON.stringify(signup.data));
+  assert.equal(smsSent.get(signup.data.challenge),phone);
+  const dispatches=smsSent.size;
+  const login=await send('19900000052','login');
+  assert.equal(login.status,429);
+  assert.equal(login.data.code,'SMS_THROTTLED');
+  assert.equal(smsSent.size,dispatches);
+ }finally{
+  appCfg.sms.dailySendLimit=original;
  }
 });
