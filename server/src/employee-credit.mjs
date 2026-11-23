@@ -412,7 +412,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
   const secret=keyPattern.exec(req.get('authorization'))[1];
   const key=(await pool.query(`SELECT k.id AS key_id,k.owner_id,k.model_ids,k.limit_yuan,k.max_concurrent,k.per_minute,k.purpose,m.organization_id FROM employee_api_keys k JOIN "user" u ON u.id=k.owner_id
    JOIN memberships m ON m.user_id=k.owner_id AND m.organization_id=$2 AND m.status='active'
-   WHERE k.secret_hash=$1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND u."emailVerified" AND NOT coalesce(u.disabled,false)`,[hash(secret),cfg.employeeCredit.organizationId])).rows[0];
+   WHERE k.secret_hash=$1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND (u."emailVerified" OR u."phoneOnly") AND NOT coalesce(u.disabled,false)`,[hash(secret),cfg.employeeCredit.organizationId])).rows[0];
   if(!key)throw new HttpError(401,'平台 Key 无效或已停用');
   req.employeeAuth=key;
   return key;

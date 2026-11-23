@@ -12,7 +12,7 @@ export function paidBackend(pool,cfg){return {
  async authenticate(req){
   if(!paidEnabled(cfg))throw new HttpError(503,'客户付费调用尚未开放');
   const k=(await pool.query(`SELECT k.id AS key_id,k.*,a.organization_id,a.owner_id AS account_owner FROM customer_api_keys k JOIN billing_accounts a ON a.id=k.account_id JOIN "user" u ON u.id=k.owner_id
-   WHERE k.secret_hash=$1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND u."emailVerified" AND NOT coalesce(u.disabled,false)`,[hash(pattern.exec(req.get('authorization'))[1])])).rows[0];
+   WHERE k.secret_hash=$1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND (u."emailVerified" OR u."phoneOnly") AND NOT coalesce(u.disabled,false)`,[hash(pattern.exec(req.get('authorization'))[1])])).rows[0];
   if(!k)throw new HttpError(401,'平台 Key 无效或已停用');
   // Revalidate membership on every request; a key never carries permanent company authority.
   if(!(await accountFor(pool,k.owner_id,k.organization_id))?.id||(!k.organization_id&&k.account_owner!==k.owner_id))throw new HttpError(401,'账户权限已失效');

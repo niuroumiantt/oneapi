@@ -52,14 +52,17 @@ export function createApp(pool,cfg,transport){
  });
  // Caddy replaces X-Real-IP and the API container is reachable only on the private Compose network.
  const smsAvailable=req=>Boolean(cfg.sms&&(!cfg.sms.pilotIp||req.get('x-real-ip')===cfg.sms.pilotIp));
- app.get('/api/public/auth-methods',(req,res)=>res.json({password:passwordPolicy,methods:{emailPassword:true,emailRegistration:mail.ready,emailRecovery:mail.ready,phoneCode:smsAvailable(req),wechat:false,alipay:false}}));
+ app.get('/api/public/auth-methods',(req,res)=>res.json({password:passwordPolicy,methods:{emailPassword:true,emailRegistration:mail.ready,emailRecovery:mail.ready,phoneCode:smsAvailable(req),phoneRegistration:smsAvailable(req),phonePassword:smsAvailable(req),wechat:false,alipay:false}}));
  const allowed=new Set(['sign-up/email','sign-in/email','sign-out','get-session','verify-email','send-verification-email','request-password-reset','reset-password','change-password','list-sessions','revoke-session','revoke-other-sessions']);
- const smsPaths=new Set(['sms/binding','sms/send','sms/verify']);
+ const smsPaths=new Set(['sms/binding','sms/send','sms/verify','sms/sign-in-password']);
  app.all('/api/auth/*path',(req,res,next)=>{const path=req.path.slice('/api/auth/'.length);if(!allowed.has(path)&&!(smsPaths.has(path)&&smsAvailable(req)))return res.status(404).json({error:'接口不存在'});if(!mail.ready&&['sign-up/email','request-password-reset','send-verification-email'].includes(path))return res.status(503).json({error:'邮件服务暂时不可用，请稍后再试。'});next();},toNodeHandler(auth));
  const gate=createGate(),seat=createSeatGate();
  employeeInferenceRoutes(app,pool,cfg,cfg.pilotFetch||fetch,gate,seat);
  employeeInferenceRoutes(app,pool,cfg,cfg.pilotFetch||fetch,gate,seat,paidBackend(pool,cfg));
- const requireCustomer=async(req,res,next)=>{const session=await auth.api.getSession({headers:fromNodeHeaders(req.headers)});if(!session?.user)throw new HttpError(401,'请先登录');if(!session.user.emailVerified)throw new HttpError(403,'请先验证邮箱');if(session.user.disabled)throw new HttpError(403,'账户已停用');req.customer={id:session.user.id,name:session.user.name,email:session.user.email,emailVerified:true};req.actor={kind:'customer',id:session.user.id};next();};
+ const requireCustomer=async(req,res,next)=>{const session=await auth.api.getSession({headers:fromNodeHeaders(req.headers)});if(!session?.user)throw new HttpError(401,'请先登录');const {id,name,email,emailVerified,phoneOnly,disabled}=session.user;
+  if(disabled)throw new HttpError(403,'账户已停用');
+  if(!emailVerified&&!phoneOnly)throw new HttpError(403,'请先验证邮箱');
+  req.customer={id,name,email:phoneOnly?'':email,emailVerified,...(phoneOnly?{phoneOnly:true}:{})};req.actor={kind:'customer',id:session.user.id};next();};
  customerCompareRoutes(app,pool,cfg,requireCustomer);
  app.use(express.json({limit:'16kb',verify:(req,_res,buf)=>{if(req.originalUrl==='/api/payments/wechat/notify')req.rawBody=buf;}}));
  bankTransferCustomerRoutes(app,pool,requireCustomer,cfg);customerCreditRoutes(app,pool,cfg,requireCustomer);agentCompareGateway(app,pool,cfg,cfg.pilotFetch||fetch);employeeCreditRoutes(app,pool,cfg,requireCustomer,cfg.pilotFetch||fetch);pilotInferenceRoutes(app,pool,cfg,requireCustomer);organizationRoutes(app,pool,cfg,requireCustomer);demoJourneyRoutes(app,pool,requireCustomer);billingRoutes(app,pool,requireCustomer,cfg,paymentRoutes(app,pool,requireCustomer,cfg,payClients));const staff=staffRoutes(app,pool,cfg);workspaceRoutes(app,pool,staff.requireStaff,cfg);serverObservationRoutes(app,pool,staff.requireStaff,cfg);aliyunRoutes(app,pool,staff.requireStaff);capacityRoutes(app,pool,staff.requireStaff);gatewayLimitRoutes(app,pool,staff.requireStaff,gate);supplierRoutes(app,pool,staff.requireStaff);validationRoutes(app,pool,staff.requireStaff);supplierLabRoutes(app,pool,staff.requireStaff);pricingRoutes(app,pool,staff.requireStaff);productReviewRoutes(app,pool,staff.requireStaff);promotionRoutes(app,pool,staff.requireStaff);
