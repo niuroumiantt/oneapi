@@ -20,7 +20,8 @@
  function footer(){
   const number=document.documentElement?.dataset.icpFiling;
   const filing=number?`<a class="site-filing" href="https://beian.miit.gov.cn/">${esc(number)}</a>`:'';
-  return `<footer class="site-footer"><span>semifly.ai</span><span>深圳市格洛可半导体有限公司</span>${filing}<a href="${root}#docs">使用文档</a></footer>`;
+  const organizer=number?'上海艾泽可科技有限公司':'深圳市格洛可半导体有限公司';
+  return `<footer class="site-footer"><span>semifly.ai</span><span>${organizer}</span><a href="${root}#docs">使用文档</a>${filing}</footer>`;
  }
  window.SiteHeader={render,accountMenu,footer};
  document.querySelectorAll('[data-site-footer]').forEach(el=>el.outerHTML=footer());
