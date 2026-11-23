@@ -24,3 +24,7 @@ OneAPI 的生产站点是 [semifly.cn](https://semifly.cn/)。GitHub 的 `niurou
 短信登录使用阿里云号码认证 PNVS。仅在提供 `PNVS_ACCESS_KEY_ID`、`PNVS_ACCESS_KEY_SECRET`、`PNVS_SIGN_NAME`、`PNVS_TEMPLATE_CODE`、至少 32 字符的稳定 `SMS_PHONE_HASH_SECRET`，并显式设置 `SMS_LOGIN_ENABLED=true` 时启用。`PNVS_SCHEME_NAME` 可选。凭据仅配置在上海环境中，RAM 权限仅需发送和核验验证码。先用授权测试号码验证真实发送和核验，再公开入口。既有用户登录邮箱账号后可绑定中国大陆手机号。号码散列密钥变更会使既有手机号绑定失效。
 
 [阿里云号码认证接入指引](https://help.aliyun.com/zh/pnvs/developer-reference/the-server-integration-1) · [上海切换记录](../handoff/semifly-cn-shanghai-cutover-20261123.md)
+
+## 维护任务
+
+上海的监控、备份和 Skills 使用 [systemd 单元](../../scripts/shanghai/systemd/) 中的 `oneapi-sh-*`。监控采集器由 [上海监控安装脚本](../../scripts/install-oneapi-monitor.sh) 安装。备份在上海数据盘 `/srv/oneapi-data/backups`，每日执行且在应用发布前额外执行。历史生成回执和恢复验证记录按数据盘原路径保留。[Skills 维护说明](../../scripts/skills-deploy/README.md)

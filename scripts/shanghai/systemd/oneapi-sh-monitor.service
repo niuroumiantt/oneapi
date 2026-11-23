@@ -1,0 +1,16 @@
+[Unit]
+Description=Shanghai OneAPI read-only host observation
+After=docker.service network-online.target
+ConditionPathExists=/srv/oneapi-data/oneapi-cutover-q72dymap/production-active
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /srv/oneapi-data/oneapi-cutover-q72dymap/collect-shanghai-metrics.py
+TimeoutStartSec=35
+User=root
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/oneapi-data/oneapi-cutover-q72dymap/metrics /var/lib/oneapi-sh-monitor

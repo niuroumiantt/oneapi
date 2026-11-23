@@ -1,0 +1,11 @@
+[Unit]
+Description=Back up the Shanghai OneAPI PostgreSQL database
+Requires=docker.service
+After=docker.service
+ConditionPathExists=/srv/oneapi-data/oneapi-cutover-q72dymap/production-active
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /srv/oneapi-data/oneapi-cutover-q72dymap/shanghai-backup.py
+UMask=0077
+Nice=10

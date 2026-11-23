@@ -1,34 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Run on the host after copying the reviewed collector to this runtime directory.
-install -d -m 0755 /srv/oneapi-runtime/metrics
-install -d -m 0700 /var/lib/oneapi-monitor
-cat > /etc/systemd/system/oneapi-monitor.service <<'UNIT'
-[Unit]
-Description=OneAPI read-only host observation
-After=docker.service network-online.target
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/python3 /srv/oneapi-runtime/collect-oneapi-metrics.py
-TimeoutStartSec=35
-User=root
-UMask=0077
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectHome=yes
-ProtectSystem=strict
-ReadWritePaths=/srv/oneapi-runtime/metrics /var/lib/oneapi-monitor
-UNIT
-cat > /etc/systemd/system/oneapi-monitor.timer <<'UNIT'
-[Unit]
-Description=Sample OneAPI host every 15 seconds
-[Timer]
-OnBootSec=15
-OnUnitInactiveSec=15
-AccuracySec=1
-[Install]
-WantedBy=timers.target
-UNIT
+here=$(cd "$(dirname "$0")" && pwd)
+runtime=/srv/oneapi-data/oneapi-cutover-q72dymap
+if [[ ! -f "$runtime/production/compose.yml" ]] || ! docker container inspect oneapi-sh-api >/dev/null 2>&1; then
+  echo 'Run this installer on the Shanghai OneAPI ECS.' >&2
+  exit 1
+fi
+install -d -m 0755 "$runtime/metrics"
+install -d -m 0700 /var/lib/oneapi-sh-monitor
+install -m 0644 "$here/collect-oneapi-metrics.py" "$runtime/collect-shanghai-metrics.py"
+for unit in oneapi-sh-monitor.service oneapi-sh-monitor.timer; do
+  install -m 0644 "$here/shanghai/systemd/$unit" "/etc/systemd/system/$unit"
+done
 systemctl daemon-reload
-systemctl enable --now oneapi-monitor.timer
-systemctl start oneapi-monitor.service
+systemctl enable --now oneapi-sh-monitor.timer
+systemctl start oneapi-sh-monitor.service

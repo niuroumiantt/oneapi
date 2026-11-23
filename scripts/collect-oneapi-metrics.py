@@ -2,15 +2,14 @@
 """Host-only, read-only metrics collector. Never export environment or logs."""
 import datetime as dt
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
 import time
 
-OUTPUT = Path('/srv/oneapi-runtime/metrics/snapshot.json')
-STATE = Path('/var/lib/oneapi-monitor/counters.json')
-SERVICES = [('api', 'oneapi-api-1'), ('database', 'oneapi-db-1'), ('edge', 'mainland-caddy-1')]
+OUTPUT = Path('/srv/oneapi-data/oneapi-cutover-q72dymap/metrics/snapshot.json')
+STATE = Path('/var/lib/oneapi-sh-monitor/counters.json')
+SERVICES = [('api', 'oneapi-sh-api'), ('database', 'oneapi-sh-db'), ('edge', 'oneapi-sh-edge')]
 
 def delta_metrics(previous, current):
     elapsed = current['clock'] - previous.get('clock', current['clock'])
@@ -50,8 +49,8 @@ def command(args, timeout=5):
 def probe(path):
     try:
         raw = command(['curl', '--silent', '--fail', '--max-time', '4', '--resolve',
-                       'oneapi.glocalstorage.cn:443:127.0.0.1', '--write-out', '\n%{time_total}',
-                       'https://oneapi.glocalstorage.cn' + path])
+                       'semifly.cn:443:127.0.0.1', '--write-out', '\n%{time_total}',
+                       'https://semifly.cn' + path])
         payload, seconds = raw.rsplit('\n', 1)
         return json.loads(payload), round(float(seconds) * 1000, 2)
     except (ValueError, OSError, subprocess.SubprocessError):
@@ -66,7 +65,7 @@ def atomic_json(path, value, mode):
 def project_network():
     """Actual container bytes, including internal traffic; NOT billable public egress."""
     try:
-        identity, pid, started = command(['docker', 'inspect', '--format', '{{.Id}}|{{.State.Pid}}|{{.State.StartedAt}}', 'oneapi-api-1']).split('|')
+        identity, pid, started = command(['docker', 'inspect', '--format', '{{.Id}}|{{.State.Pid}}|{{.State.StartedAt}}', 'oneapi-sh-api']).split('|')
         if int(pid) <= 0:
             return None
         rows = Path('/proc', pid, 'net/dev').read_text().splitlines()[2:]
@@ -88,11 +87,12 @@ def backup_inventory():
     """Only completed local OneAPI dumps; no contents or filenames exported."""
     try:
         sizes, modified = [], []
-        with os.scandir('/srv/oneapi-backups') as entries:
-            for entry in entries:
-                if entry.name.startswith('oneapi-') and entry.name.endswith('.dump') and entry.is_file(follow_symlinks=False):
-                    st = entry.stat(follow_symlinks=False)
-                    sizes.append(st.st_size); modified.append(st.st_mtime)
+        for directory in Path('/srv/oneapi-data/backups').glob('oneapi-*'):
+            dump = directory / 'oneapi.dump'
+            if not directory.is_symlink() and (directory / 'receipt.json').is_file() and dump.is_file() and not dump.is_symlink():
+                st = dump.stat()
+                sizes.append(st.st_size)
+                modified.append(st.st_mtime)
         return dict(status='ok', source='local_completed_database_dumps', bytes=sum(sizes), files=len(sizes),
                     latest_at=dt.datetime.fromtimestamp(max(modified),dt.timezone.utc).isoformat() if modified else None)
     except OSError:
@@ -135,7 +135,7 @@ def collect():
     current['project_network'] = project_network()
     current['usage_meter'] = update_usage(previous, current, dt.datetime.now(dt.timezone.utc).isoformat())
     memory = {row.split(':')[0]: int(row.split()[1]) * 1024 for row in Path('/proc/meminfo').read_text().splitlines()}
-    disk = shutil.disk_usage('/')
+    disk = shutil.disk_usage('/srv/oneapi-data')
     services = []
     fmt = '{{json .State.Status}}|{{if .State.Health}}{{json .State.Health.Status}}{{else}}null{{end}}|{{.RestartCount}}|{{json .State.StartedAt}}|{{json .Config.Image}}'
     for name, container in SERVICES:
