@@ -35,3 +35,9 @@
 - infra 迁移分支提交 `024afee` 已保存旧域兼容路由，供后续共享入口发布沿用。该提交保留在本地迁移分支。
 - 上海首份正式备份为 `/srv/oneapi-data/backups/oneapi-20261123T074208Z`。备份已从生产快照独立恢复，SHA-256 和账本摘要均已核对，完成回执为目录下的 `restore-verified.json`。48 小时线上观察从本次切换开始。
 - 上海安全组的快捷表单为同一组 80/443 同时生成两条私网网段规则，范围已由两条公网规则包含。数据库和内部 API 容器运行在 Docker 私网，端口发布仅用于 Caddy 入口。
+
+## 青岛 OneAPI 退役和后续发布
+
+- 青岛的 `oneapi-api-1` 和 `oneapi-db-1` 已停止，自动重启策略已关闭。其监控、备份与 Skills 定时器均已停用。冻结数据和历史备份留作回退凭据。
+- 青岛保留旧 OneAPI 域名的转发。共享 Caddy、中文官网、Authentik、OA、其他应用和独立的 `api.glocalstorage.cn` 沿用青岛部署。OneAPI 正常访问、支付处理、备份、Skills 和监控在上海执行。
+- [上海发布说明](../deployment/aliyun.md) 是后续应用发布入口。使用同一 Git 提交构建前端与 API。
