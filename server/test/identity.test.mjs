@@ -2135,7 +2135,7 @@ test('phone registration proves ownership before creating a new customer and per
  assert.equal(account.emailVerified,false);
  assert.equal(account.email,'');
  assert.equal((await owner.call('/api/billing/personal')).status,200);
- assert.deepEqual((await owner.call('/api/auth/sms/binding')).data,{lastFour:digits});
+ assert.deepEqual((await owner.call('/api/auth/sms/binding')).data,{lastFour:digits,hasPassword:false});
  const stored=(await pool.query('SELECT email FROM "user" WHERE id=$1',[account.id])).rows[0].email;
  assert.ok(stored.endsWith('@phone-account.invalid'));
  assert.ok(!stored.includes(phone));
@@ -2192,4 +2192,51 @@ test('SMS registration and login share the paid sending cap',async()=>{
  }finally{
   appCfg.sms.dailySendLimit=original;
  }
+});
+
+test('phone password setup and reset require a matching SMS and preserve the customer account',async()=>{
+ const phone='19900000056',otherPhone='19900000057',owner=jar(),second=jar(),visitor=jar();
+ const post=(client,path,body)=>client.call('/api/auth/'+path,{method:'POST',body});
+ const send=(client,purpose,number=phone)=>post(client,'sms/send',{phone:number,purpose});
+ const verify=(client,purpose,challenge,more={})=>post(client,'sms/verify',{phone,purpose,challenge,code:'123456',...more});
+ const clearLimits=()=>pool.query("UPDATE request_limits SET expires_at=now()-interval '1 second'");
+ await clearLimits();
+ const registration=await send(owner,'register');
+ assert.equal((await verify(owner,'register',registration.data.challenge)).status,200);
+ const original=(await owner.call('/api/platform/me')).data.user.id;
+ await clearLimits();
+ const login=await send(second,'login');
+ assert.equal((await verify(second,'login',login.data.challenge)).status,200);
+ await clearLimits();
+ assert.equal((await send(visitor,'password')).status,401);
+ assert.equal((await send(owner,'password',otherPhone)).status,403);
+ const setup=await send(owner,'password');
+ assert.equal(setup.status,200,JSON.stringify(setup.data));
+ await migrate(pool,service.auth);
+ assert.equal((await verify(owner,'login',setup.data.challenge)).status,400);
+ const newPassword='Testing!Phone-Pass';
+ assert.equal((await verify(visitor,'password',setup.data.challenge,{newPassword})).status,401);
+ assert.equal((await verify(owner,'password',setup.data.challenge,{newPassword:'weak'})).data.code,'PASSWORD_POLICY');
+ assert.equal((await verify(owner,'password',setup.data.challenge,{newPassword,code:'123000'})).status,400);
+ assert.equal((await verify(owner,'password',setup.data.challenge,{newPassword})).status,200);
+ assert.equal((await verify(owner,'password',setup.data.challenge,{newPassword})).status,400);
+ assert.equal((await second.call('/api/platform/me')).status,401);
+ assert.deepEqual((await owner.call('/api/auth/sms/binding')).data,{lastFour:'0056',hasPassword:true});
+ const phoneLogin=(client,password)=>post(client,'sms/sign-in-password',{phone:'+86 '+phone,password});
+ assert.equal((await phoneLogin(visitor,'Wrong!Password')).status,401);
+ assert.equal((await phoneLogin(visitor,newPassword)).status,200);
+ assert.equal((await visitor.call('/api/platform/me')).data.user.id,original);
+ const changed='Changed!Phone-Pass';
+ assert.equal((await post(owner,'change-password',{currentPassword:newPassword,newPassword:changed,revokeOtherSessions:true})).status,200);
+ assert.equal((await visitor.call('/api/platform/me')).status,401);
+ assert.equal((await phoneLogin(visitor,newPassword)).status,401);
+ assert.equal((await phoneLogin(visitor,changed)).status,200);
+ await clearLimits();
+ const reset=await send(owner,'password');
+ assert.equal(reset.status,200,JSON.stringify(reset.data));
+ assert.equal((await verify(owner,'password',reset.data.challenge,{newPassword})).status,200);
+ assert.equal((await visitor.call('/api/platform/me')).status,401);
+ assert.equal((await phoneLogin(visitor,changed)).status,401);
+ assert.equal((await phoneLogin(visitor,newPassword)).status,200);
+ assert.equal((await visitor.call('/api/platform/me')).data.user.id,original);
 });

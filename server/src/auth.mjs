@@ -2,9 +2,7 @@ import { accountEmail } from './email-template.mjs';
 import { betterAuth, APIError } from 'better-auth';
 import { createAuthMiddleware } from 'better-auth/api';
 import { customerSmsAuth, phoneAccountEmailDomain } from './sms-auth.mjs';
-import { validPassword,passwordMessage } from './password-policy.mjs';
-// A valid scrypt hash for equal-cost credential checks when no account matches.
-const registrationDummyHash='d83c3867cafb35497467ed489dadb1c4:ca7ac48314289f3a1f2fdf6502a26196dc7003cbcc3e6f067d6ebe98f60cd4206d0c634c376bd9d24e2df513f0cab8bab40312e860aca047b432ae37862ae626';
+import { validPassword,passwordMessage,dummyPasswordHash } from './password-policy.mjs';
 export function customerAuth(pool,cfg,mail){
  return betterAuth({
   appName:'semifly.ai',baseURL:cfg.origin,basePath:'/api/auth',secret:cfg.secret,database:pool,trustedOrigins:[cfg.origin],
@@ -29,7 +27,7 @@ export function customerAuth(pool,cfg,mail){
     const {rows:[account]}=await pool.query(`SELECT a.password FROM "user" u
      JOIN "account" a ON a."userId"=u.id AND a."providerId"='credential'
      WHERE u.email=$1 AND u."emailVerified" AND NOT u.disabled LIMIT 1`,[email]);
-    const matches=await ctx.context.password.verify({hash:account?.password||registrationDummyHash,password:ctx.body.password});
+    const matches=await ctx.context.password.verify({hash:account?.password||dummyPasswordHash,password:ctx.body.password});
     if(account?.password&&matches)throw new APIError('CONFLICT',{code:'ACCOUNT_ALREADY_REGISTERED',message:'该邮箱已经注册。'});
    }
   })},

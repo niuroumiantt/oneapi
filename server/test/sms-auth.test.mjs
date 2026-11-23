@@ -17,7 +17,8 @@ test('PNVS signs requests with cached IMDSv2 role credentials and uses the bindi
  const sms=pnvsSms({roleName:'oneapi-shanghai-pnvs',signName:'测试签名',templateCode:'100001',bindTemplateCode:'100004'},mock);
  assert.equal(await sms.send('19900000047','binding-test','bind'),true);
  assert.equal(await sms.verify('19900000047','binding-test','123456'),true);
- assert.equal(calls.length,4);
+ assert.equal(await sms.send('19900000047','password-test','password'),true);
+ assert.equal(calls.length,5);
  assert.deepEqual(calls.slice(0,2).map(c=>c.url),[
   'http://100.100.100.200/latest/api/token',
   'http://100.100.100.200/latest/meta-data/ram/security-credentials/oneapi-shanghai-pnvs',
@@ -26,6 +27,7 @@ test('PNVS signs requests with cached IMDSv2 role credentials and uses the bindi
  assert.equal(calls[1].options.headers['X-aliyun-ecs-metadata-token'],'test-imds-token');
  const sent=new URLSearchParams(calls[2].options.body),verified=new URLSearchParams(calls[3].options.body);
  assert.equal(sent.get('TemplateCode'),'100004');
+ assert.equal(new URLSearchParams(calls[4].options.body).get('TemplateCode'),'100003');
  assert.equal(sent.get('ReturnVerifyCode'),'false');
  for(const request of [sent,verified]){
   assert.equal(request.get('AccessKeyId'),'temporary-key');

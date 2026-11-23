@@ -52,9 +52,9 @@ export function createApp(pool,cfg,transport){
  });
  // Caddy replaces X-Real-IP and the API container is reachable only on the private Compose network.
  const smsAvailable=req=>Boolean(cfg.sms&&(!cfg.sms.pilotIp||req.get('x-real-ip')===cfg.sms.pilotIp));
- app.get('/api/public/auth-methods',(req,res)=>res.json({password:passwordPolicy,methods:{emailPassword:true,emailRegistration:mail.ready,emailRecovery:mail.ready,phoneCode:smsAvailable(req),phoneRegistration:smsAvailable(req),wechat:false,alipay:false}}));
+ app.get('/api/public/auth-methods',(req,res)=>res.json({password:passwordPolicy,methods:{emailPassword:true,emailRegistration:mail.ready,emailRecovery:mail.ready,phoneCode:smsAvailable(req),phoneRegistration:smsAvailable(req),phonePassword:smsAvailable(req),wechat:false,alipay:false}}));
  const allowed=new Set(['sign-up/email','sign-in/email','sign-out','get-session','verify-email','send-verification-email','request-password-reset','reset-password','change-password','list-sessions','revoke-session','revoke-other-sessions']);
- const smsPaths=new Set(['sms/binding','sms/send','sms/verify']);
+ const smsPaths=new Set(['sms/binding','sms/send','sms/verify','sms/sign-in-password']);
  app.all('/api/auth/*path',(req,res,next)=>{const path=req.path.slice('/api/auth/'.length);if(!allowed.has(path)&&!(smsPaths.has(path)&&smsAvailable(req)))return res.status(404).json({error:'接口不存在'});if(!mail.ready&&['sign-up/email','request-password-reset','send-verification-email'].includes(path))return res.status(503).json({error:'邮件服务暂时不可用，请稍后再试。'});next();},toNodeHandler(auth));
  const gate=createGate(),seat=createSeatGate();
  employeeInferenceRoutes(app,pool,cfg,cfg.pilotFetch||fetch,gate,seat);

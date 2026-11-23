@@ -75,11 +75,12 @@
  }
  async function staffContext(ticket){if(!staff){const info=await api('/api/staff/me');if(ticket!==generation)return false;staff=info.staff;}me=null;return true;}
  const note=(message,error=false)=>`<div class="live-notice ${error?'error':''}" role="${error?'alert':'status'}">${esc(message)}</div>`;
- let phoneLoginAvailable=false,phoneRegistrationAvailable=false,authMethodsRequest;
+ let phoneLoginAvailable=false,phoneRegistrationAvailable=false,phonePasswordAvailable=false,authMethodsRequest;
  function loadAuthMethods(){
   return authMethodsRequest??=api('/api/public/auth-methods').then(result=>{
    phoneLoginAvailable=Boolean(result.methods.phoneCode);
    phoneRegistrationAvailable=Boolean(result.methods.phoneRegistration);
+   phonePasswordAvailable=Boolean(result.methods.phonePassword);
   }).catch(()=>{authMethodsRequest=undefined;});
  }
  function registrationActions(){
@@ -102,38 +103,57 @@
  document.addEventListener('click',e=>{const b=e.target.closest('[data-password-toggle]');if(!b)return;const input=b.parentElement.querySelector('input'),show=input.type==='password';input.type=show?'text':'password';b.textContent=show?'隐藏':'显示';b.setAttribute('aria-pressed',String(show));b.setAttribute('aria-label',show?'隐藏密码':'显示密码');});
  document.addEventListener('input',e=>{if(e.target.id!=='alipay-yuan')return;const value=e.target.value.trim(),fen=/^\d+(?:\.\d{1,2})?$/.test(value)?Math.round(Number(value)*100):NaN;host?.querySelectorAll('[data-live="alipay-amount"]').forEach(b=>{const selected=Number(b.dataset.fen)===fen;b.classList.toggle('active',selected);b.setAttribute('aria-pressed',String(selected));});const message=host?.querySelector('#live-form-message');if(message)message.innerHTML='';});
  document.addEventListener('input',e=>{const input=e.target;if(!input.matches('[data-password-new]'))return;input.setCustomValidity(input.value&&!passwordValid(input.value)?passwordRules:'');const checks=input.closest('label').querySelector('[data-password-checks]');if(checks)checks.textContent=input.value?(passwordValid(input.value)?'已满足密码要求':'尚未满足全部要求'):'';});
+ const phoneField=()=>'<label>中国大陆手机号<input name="phone" type="tel" autocomplete="tel" placeholder="11 位手机号，+86 可省略" maxlength="32" required></label>';
  function smsFields(binding=false){
-  return `${binding?passwordField('password','当前密码'):''}<label>中国大陆手机号<input name="phone" type="tel" autocomplete="tel" placeholder="11 位手机号，+86 可省略" maxlength="32" required></label>${btn('发送验证码','sms-send','type="button"','quiet')}<label>短信验证码<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>`;
+  return `${binding?passwordField('password','当前密码'):''}${phoneField()}
+   <div class="live-sms-code-row">
+    <label>短信验证码<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>
+    ${btn('发送验证码','sms-send','type="button"','quiet')}
+   </div>`;
  }
  function authForm(){
   const phoneSignup=phoneRegistrationAvailable&&['register','phone-register'].includes(authMode);
   const emailSignup=authMode==='email-register'||(authMode==='register'&&!phoneSignup);
-  const registration=phoneSignup||emailSignup,recovery=authMode==='recover',smsLogin=authMode==='sms'&&phoneLoginAvailable;
+  const registration=phoneSignup||emailSignup;
+  const recovery=authMode==='recover';
+  const phonePassword=authMode==='phone-password'&&phonePasswordAvailable;
+  const smsLogin=authMode==='sms'&&phoneLoginAvailable;
+  const phoneLogin=phonePassword||smsLogin;
   const modeButton=(label,mode,selected)=>btn(label,'auth-mode',`type="button" data-mode="${mode}" aria-pressed="${selected}"`,selected?'selected':'');
-  const tabs=recovery?'':`<div class="live-tabs" role="group" aria-label="账号入口">
-   ${modeButton(phoneLoginAvailable?'邮箱登录':'登录','login',!registration&&!smsLogin)}
-   ${phoneLoginAvailable?modeButton('短信登录','sms',smsLogin):''}
-   ${modeButton('注册','register',registration)}</div>`;
-  const registerTabs=registration&&phoneRegistrationAvailable?`<div class="live-tabs" role="group" aria-label="注册方式">
-   ${modeButton('手机号注册','phone-register',phoneSignup)}${modeButton('邮箱注册','email-register',emailSignup)}</div>`:'';
-  const form=phoneSignup||smsLogin?`<form class="live-form" id="live-sms-${phoneSignup?'register':'login'}" data-sms-purpose="${phoneSignup?'register':'login'}">
-   <p class="live-small">${phoneSignup?'输入中国大陆手机号和短信验证码，即可创建账号。':'已开通短信登录的账号可使用手机号登录。'}</p>
-   ${smsFields()}<div id="live-form-message" role="status"></div>
-   <button class="live-button primary" type="submit">${phoneSignup?'验证并注册':'登录'}</button></form>`:`
-   <form class="live-form" id="live-auth-form">
-    ${emailSignup?'<label>怎么称呼你<input name="name" autocomplete="name" required maxlength="80" placeholder="你的名字"></label>':''}
+  const textButton=(label,mode)=>btn(label,'auth-mode',`type="button" data-mode="${mode}"`,'quiet');
+  const showTabs=!recovery&&(registration?phoneRegistrationAvailable:phoneLoginAvailable);
+  const tabs=showTabs?`<div class="live-tabs" role="group" aria-label="${registration?'注册方式':'登录方式'}">
+   ${modeButton('手机号',registration?'phone-register':phonePassword?'phone-password':'sms',phoneSignup||phoneLogin)}
+   ${modeButton('邮箱',registration?'email-register':'login',emailSignup||!phoneLogin&&!registration)}</div>`:'';
+
+  const form=phoneSignup||phoneLogin?`<form class="live-form" id="live-${phoneSignup?'sms-register':phonePassword?'phone-password-login':'sms-login'}"
+    ${phonePassword?'':`data-sms-purpose="${phoneSignup?'register':'login'}"`}>
+    ${phonePassword?phoneField()+passwordField('password','密码'):smsFields()}
+    <div id="live-form-message" role="status"></div>
+    <button class="live-button primary" type="submit">${phoneSignup?'注册并登录':'登录'}</button>
+   </form>`:`<form class="live-form" id="live-auth-form">
+    ${emailSignup?'<label>姓名或昵称<input name="name" autocomplete="name" required maxlength="80"></label>':''}
     <label>邮箱<input name="email" type="email" autocomplete="email" required maxlength="254" placeholder="you@example.com"></label>
     ${recovery?'':passwordField('password','密码',emailSignup)}
     <div id="live-form-message" role="status"></div>
-    <button class="live-button primary" type="submit">${recovery?'发送重设链接':emailSignup?'注册并验证邮箱':'登录工作台'}${ico('arrow-right')}</button></form>`;
-  const help=phoneSignup?'':`<div class="live-auth-help">
-   ${btn(recovery?'返回登录':'找回密码','auth-mode',`data-mode="${recovery?'login':'recover'}"`,'quiet')}
-   ${!registration&&!recovery&&!smsLogin?btn('重发验证邮件','resend','','quiet'):''}</div>`;
-  mount(`<div class="live-auth-layout"><section class="live-auth-story"><span class="live-eyebrow">YOUR IDEAS. YOUR SPACE.</span><h1>让灵感，<br>有个落脚的地方。</h1><p>选一个喜欢的模型，<br>把“如果可以”变成“已经做到”。</p><img src="pinapi-mark.svg" alt="" aria-hidden="true"><small>semifly.ai, It's your API.</small></section><section class="live-auth-card">
-   <span class="live-eyebrow">${recovery?'FIND YOUR WAY BACK':registration?'NICE TO MEET YOU':'WELCOME BACK'}</span>
-   <h2>${recovery?'找回你的密码':registration?'创建账号':'登录工作台'}</h2>
-   <p>${recovery?'我们会向你的注册邮箱发送重设链接。':'一个账号使用个人和企业空间。企业管理功能按权限显示。'}</p>
-   ${tabs}${registerTabs}${form}${help}</section></div>`);
+    <button class="live-button primary" type="submit">${recovery?'发送重设链接':emailSignup?'注册并验证邮箱':'登录'}</button>
+   </form>`;
+
+  const help=phoneLogin&&phonePasswordAvailable
+   ?textButton(phonePassword?'用短信验证码登录':'用密码登录',phonePassword?'sms':'phone-password')
+   :!registration&&!recovery&&!phoneLogin
+    ?textButton('忘记密码','recover')+btn('重发验证邮件','resend','type="button"','quiet')
+    :'';
+  const switchMode=recovery?textButton('返回登录','login')
+   :registration?`已有账号？${textButton('去登录',phoneSignup&&phoneLoginAvailable?'sms':'login')}`
+    :`新用户？${textButton('去注册','register')}`;
+  mount(`<div class="live-auth-layout"><section class="live-auth-story"><h1>让灵感，<br>有个落脚的地方。</h1><p>选一个喜欢的模型，<br>把“如果可以”变成“已经做到”。</p><img src="pinapi-mark.svg" alt="" aria-hidden="true"><small>semifly.ai, It's your API.</small></section><section class="live-auth-card">
+   <h2>${recovery?'找回密码':registration?'创建账号':'登录工作台'}</h2>
+   ${recovery?'<p>重设链接会发送到你的注册邮箱。</p>':''}
+   ${tabs}${form}
+   ${help?`<div class="live-auth-help">${help}</div>`:''}
+   <div class="live-auth-switch">${switchMode}</div>
+   </section></div>`);
  }
  const creditActive=()=>Boolean(panelOrg&&employeeCredit?.enabled&&panelOrg.organization.id===employeeCredit.organization_id);
  const cwAuthQuery=()=>{const p=new URLSearchParams(location.search),q=new URLSearchParams();for(const key of ['cw','cw_join']){const v=p.get(key);if(v&&(key==='cw_join'&&v==='1'||/^[A-Z]{8}$/i.test(v)))q.set(key,v);}return q.size?'?'+q.toString():'';};
@@ -501,16 +521,40 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   const create=`<form id="live-ticket" class="live-form panel-form"><p class="live-small">描述现象、模型和时间，我们会在这里回复。请不要填写 API Key。</p><label>问题类型<select name="category">${Object.entries(categories).map(([key,label])=>`<option value="${key}">${label}</option>`).join('')}</select></label><label>标题<input name="subject" required maxlength="120"></label><label>问题描述<textarea name="body" required maxlength="4000" rows="5"></textarea></label><div id="live-form-message" role="status"></div><button class="live-button primary" type="submit">提交工单</button></form>`;
   return tabbedPage('support',views,view==='list'?list:view==='faq'?faq:create);
  }
+ let phonePasswordReset=false;
+ function passwordSettings(binding){
+  const byPhone=me.user.phoneOnly;
+  if(byPhone&&!phonePasswordAvailable)return '<p class="live-small">手机号密码暂时不可用。你可以继续使用短信验证码登录。</p>';
+  if(byPhone&&typeof binding?.hasPassword!=='boolean'){
+   const error=panelData['error:smsBinding'];
+   return error?note(error,true):panelLoading;
+  }
+  const sms=byPhone&&(!binding.hasPassword||phonePasswordReset);
+  const title=sms?(binding.hasPassword?'用短信重设密码':'设置密码'):'修改密码';
+  return `<form id="live-${sms?'phone-password-settings':'password-form'}" class="live-form panel-form" ${sms?'data-sms-purpose="password"':''}>
+   <h2 class="panel-title">${title}</h2>
+   ${sms?`<p class="live-small">用绑定的手机号验证身份。保存后可用手机号和密码登录。</p>${smsFields()}`:passwordField('currentPassword','当前密码')}
+   ${passwordField('newPassword','新密码',true)}
+   <div id="live-form-message" role="status"></div>
+   <button class="live-button primary" type="submit">保存并退出其他设备</button>
+   ${byPhone&&binding.hasPassword?btn(sms?'用当前密码修改':'忘记密码？用短信重设','password-method','type="button"','quiet'):''}
+  </form>`;
+ }
+ function redrawPasswordSettings(){
+  if(panelOrg&&lastOrg)organizationV2(lastOrg);else securityPage();
+ }
  function settingsContent(org=null){
   const manager=Boolean(org&&lastOrg?.permissions?.manager),role=lastOrg?.membership?.role,list=panelData.sessions,u=me.upgrade;
   const depts=org?lastOrg?.departments||[]:[];
-  const views=[['account',org?'企业与账户':'账户资料'],...(manager?[['departments',`部门 · ${depts.length}`]]:[]),...(me.user.phoneOnly?[]:[['password','修改密码']]),['sessions',`登录会话${list?' · '+list.length:''}`]],view=pageView('settings',views);
+  const views=[['account',org?'企业与账户':'账户资料'],...(manager?[['departments',`部门 · ${depts.length}`]]:[]),['password','登录密码'],['sessions',`登录会话${list?' · '+list.length:''}`]],view=pageView('settings',views);
   const canUpgrade=!org&&!(me.organizations||[]).length;
   const upgrade=canUpgrade?(u?.status==='pending'?settingRow('企业升级','审核中'):`<div class="panel-setting-action"><a class="live-button primary" href="#upgrade">升级为企业账号</a></div>`):'';
   const smsBinding=panelData.smsBinding;
   const phone=phoneLoginAvailable&&!org?`${settingRow('短信登录',smsBinding?.lastFour?'手机号尾号 '+esc(smsBinding.lastFour):smsBinding?'未绑定手机号':panelData['error:smsBinding']?'暂时无法读取':'正在读取…')}${me.user.phoneOnly?'':`<div class="panel-setting-action">${btn(smsBinding?.lastFour?'更换手机号':'绑定手机号','sms-bind','','quiet')}</div>`}`:'';
-  const account=`<div class="panel-settings">${phone}${settingRow('姓名',esc(me.user.name||'—'))}${settingRow('登录邮箱',esc(me.user.email||'未绑定邮箱'))}${org?settingRow('企业',esc(org.name))+settingRow('我的身份',customerRoles[role]||'企业成员')+settingRow('权限范围',manager?'管理全公司的员工、额度和用量':'使用自己的额度和 Key')+settingRow('服务区域',org.region==='CN'?'中国区':esc(org.region||'中国区')):settingRow('账户类型','个人账号')}${upgrade}${manager&&teamUsage?settingRow('调用摘要记录',teamUsage.summaries_enabled?'已开启 · 保存最后一条提问的前 60 个字，30 天后删除':'未开启 · 只记录时间、模型、来源和费用'):''}${manager?`<div class="panel-setting-action">${teamUsage?btn(teamUsage.summaries_enabled?'关闭调用摘要':'开启调用摘要','toggle-summaries','','quiet'):''}${btn('查看操作记录','org-audit','','quiet')}</div>`:''}</div>`;
-  const password=`<form id="live-password-form" class="live-form panel-form">${passwordField('currentPassword','当前密码')}${passwordField('newPassword','新密码',true)}<div id="live-form-message" role="status"></div><button class="live-button primary" type="submit">修改并退出其他设备</button></form>`;
+  const passwordLabel=me.user.phoneOnly&&!smsBinding?.hasPassword?'设置密码':'修改密码';
+  const passwordAction=btn(passwordLabel,'page-view','type="button" data-group="settings" data-page-view="password"','quiet');
+  const account=`<div class="panel-settings">${phone}${settingRow('登录密码',passwordAction)}${settingRow('姓名',esc(me.user.name||'—'))}${settingRow('登录邮箱',esc(me.user.email||'未绑定邮箱'))}${org?settingRow('企业',esc(org.name))+settingRow('我的身份',customerRoles[role]||'企业成员')+settingRow('权限范围',manager?'管理全公司的员工、额度和用量':'使用自己的额度和 Key')+settingRow('服务区域',org.region==='CN'?'中国区':esc(org.region||'中国区')):settingRow('账户类型','个人账号')}${upgrade}${manager&&teamUsage?settingRow('调用摘要记录',teamUsage.summaries_enabled?'已开启 · 保存最后一条提问的前 60 个字，30 天后删除':'未开启 · 只记录时间、模型、来源和费用'):''}${manager?`<div class="panel-setting-action">${teamUsage?btn(teamUsage.summaries_enabled?'关闭调用摘要':'开启调用摘要','toggle-summaries','','quiet'):''}${btn('查看操作记录','org-audit','','quiet')}</div>`:''}</div>`;
+  const password=passwordSettings(smsBinding);
   const devices=panelData['error:sessions']?`<p class="live-small" role="status">${esc(panelData['error:sessions'])}</p>`:!list?panelLoading:`<p class="live-small">${list.length} 个有效会话。需要时可一次退出其他设备。</p>${btn('退出其他设备','revoke-others','','quiet')}<div class="live-session-list">${list.map(s=>`<article><b>${esc((s.userAgent||'未知设备').slice(0,100))}</b><small>创建于 ${new Date(s.createdAt).toLocaleString('zh-CN')}</small></article>`).join('')}</div>`;
   const departments=`<div class="dept-panel"><p class="live-small">员工申请加入、管理者编辑成员时，只能从这里选部门。改名会同步到所有成员；改成已有部门的名字会把两个部门合并；删除后，成员回到“未分组”。</p><form id="live-dept-create" class="dept-add"><input name="name" maxlength="40" required placeholder="新部门名称，例如：销售部" aria-label="新部门名称"><button class="live-button primary" type="submit">添加部门</button><div role="status"></div></form><div class="dept-list">${depts.map(d=>`<div class="dept-row"><span><b>${esc(d.name)}</b><small>${d.members} 位成员</small></span>${btn('改名','dept-rename',`data-id="${esc(d.id)}" data-name="${esc(d.name)}"`,'quiet')}${btn('删除','dept-delete',`data-id="${esc(d.id)}" data-name="${esc(d.name)}" data-members="${d.members}"`,'quiet')}</div>`).join('')||'<p class="personal-model-empty">还没有部门。添加后，员工和管理者就能从列表中选择。</p>'}</div></div>`;
   return tabbedPage('settings',views,view==='password'?password:view==='sessions'?devices:view==='departments'&&manager?departments:account);
@@ -634,7 +678,11 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   if(['overview','models'].includes(orgTab))loadModelHealth(()=>{if(panelOrg&&lastOrg?.organization?.id===o.id&&['overview','models'].includes(orgTab))organizationV2(lastOrg);});
   const manager=Boolean(p.manager),credit=creditActive(),team=credit&&manager?teamUsage:null;
   const pending=data.joinRequests||[],joinLink=(data.joinLinks||[])[0],active=members.filter(person=>person.status==='active').length;
-  panelRedraw=null;if(orgTab==='support'){loadPanelData('tickets','/api/support/tickets',()=>organizationV2(lastOrg));loadPanelData('answers','/api/support/answers',()=>organizationV2(lastOrg));}if(orgTab==='settings')loadPanelData('sessions','/api/auth/list-sessions',()=>organizationV2(lastOrg));
+  panelRedraw=null;if(orgTab==='support'){loadPanelData('tickets','/api/support/tickets',()=>organizationV2(lastOrg));loadPanelData('answers','/api/support/answers',()=>organizationV2(lastOrg));}if(orgTab==='settings'){
+   const redraw=()=>{if(orgTab==='settings'&&lastOrg?.organization.id===o.id)organizationV2(lastOrg);};
+   loadPanelData('sessions','/api/auth/list-sessions',redraw);
+   if(me.user.phoneOnly&&phonePasswordAvailable)loadPanelData('smsBinding','/api/auth/sms/binding',redraw);
+  }
   if(![...'overview models keys compare usage support settings'.split(' '),...(manager?['people']:[])].includes(orgTab))orgTab='overview';
   const usageOf=person=>{const row=team?.members.find(x=>x.user_id===person.user_id);return row?`<span class="usage-cell"><span>${employeeYuan(row.spent_yuan)} / ${employeeYuan(row.granted_yuan)}</span>${usageBar(row.spent_yuan,row.granted_yuan)}</span>`:'—';};
   const memberRow=(person,index)=>{const self=person.user_id===me.user.id,on=person.status==='active';return `<tr><td><button type="button" class="member-link" data-live="member-detail" data-user="${esc(person.user_id)}">${esc(person.name)}</button>${self?' <span class="live-pill muted">当前账号</span>':''}<small>${esc(person.email)}</small></td><td>${customerRoles[person.role]||'企业成员'}</td><td>${esc(person.department)||'未分组'}</td><td><span class="live-pill ${on?'':'muted'}">${on?'已启用':'已停用'}</span></td><td class="org-usage-cell" data-sort="${(r=>r?usageShare(r.spent_yuan,r.granted_yuan).pct:'')(team?.members.find(x=>x.user_id===person.user_id))}">${usageOf(person)}</td><td class="org-actions">${credit&&on?btn('调整额度','team-quota',`data-user="${esc(person.user_id)}" data-name="${esc(person.name)}"`,'quiet'):''}${btn('管理','edit-member',`data-index="${index}"`,'quiet')}${self?'':btn(on?'停用':'启用','member-toggle',`data-index="${index}"`,'quiet')}</td></tr>`;};
@@ -911,7 +959,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
    if(view==='staff-account'||view==='admin'||view.startsWith('ops/')){try{await staffAccount(ticket);}catch(e){if(ticket!==generation)return;me=null;staff=null;staffLogin();host.querySelector('.live-staff-entry').insertAdjacentHTML('afterbegin',note(e.message,e.status!==401));}return;}
    if(view.startsWith('join/')){staff=null;const apply=view.endsWith('/apply'),joinToken=view.slice(5,apply?-6:undefined);joinPreview=await api('/api/platform/join-links/preview?token='+encodeURIComponent(joinToken));try{me=await api('/api/platform/me');}catch(e){if(e.status!==401)throw e;me=null;authMode=apply?'login':'register';}if(ticket!==generation)return;if(apply&&me?.user){await api('/api/platform/join-requests',{token:joinToken});if(ticket!==generation)return;current='join/'+joinToken;mount(hero('JOIN REQUEST','入企申请已提交，等待企业管理者审批。','获批前没有企业预算、模型权限或 API Key。')+'<a class="live-button" href="#workspace">返回个人空间</a>');history.replaceState(null,'',location.pathname+'#'+current);return;}joinPage();return;}
    const methods=loadAuthMethods();staff=null;if(!me?.user)me=await api('/api/platform/me').catch(async error=>{await methods;throw error;});
-   if(view==='security')await methods;if(ticket!==generation)return;
+   if(view==='security'||view.endsWith('/settings'))await methods;if(ticket!==generation)return;
    if(['workspace','account','register','enterprise'].includes(view)){const q=new URLSearchParams(cwAuthQuery());if(q.has('cw_join')){location.replace('/cw.html'+(q.get('cw_join')==='1'?'':'?invite='+encodeURIComponent(q.get('cw_join'))));return;}location.replace('#'+(q.has('cw')?'billing/personal':workspaceTarget(view)));return;}
    const personalTarget=personalRedirect(view);if(personalTarget){location.replace('#'+personalTarget);return;}
    if(view==='billing/personal'||view.startsWith('billing/organization/'))await billingPage(ticket,earlyBilling);
@@ -993,6 +1041,11 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
    else if(action==='registration-email'){
     authMode=current.startsWith('join/')?'register':'email-register';await (current.startsWith('join/')?joinPage():authForm());host.querySelector('[name=email]')?.focus();
    }
+   else if(action==='password-method'){
+    phonePasswordReset=!phonePasswordReset;
+    redrawPasswordSettings();
+    host.querySelector('#live-phone-password-settings input,#live-password-form input')?.focus();
+   }
    else if(action==='sms-bind'){
     form('绑定短信登录手机号',smsFields(true),'live-sms-bind','验证并绑定');
    }
@@ -1011,7 +1064,8 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
     }
     form.dataset.smsPhone=phoneValue;form.dataset.smsChallenge=result.challenge;form.dataset.smsRetryAt=String(Date.now()+result.retryAfter*1000);
     form.elements.code.value='';form.elements.code.focus();
-    status.innerHTML=note(purpose==='login'?'已受理验证码请求。首次使用请选择「注册」。':'验证码已发送，有效期 5 分钟。');
+    b.textContent='重新发送';
+    status.innerHTML=note(purpose==='login'?'已受理验证码请求。首次使用请选择「去注册」。':'验证码已发送，有效期 5 分钟。');
    }
    else if(action==='refresh-join-requests'){await route(current);}
    else if(action==='resend'){const email=host.querySelector('[name=email]').value;if(!email)throw Error('请先填写邮箱。');await api('/api/auth/send-verification-email',{email,callbackURL:location.origin+'/'+cwAuthQuery()+'#'+current});message.innerHTML=verificationHelp(false);}
@@ -1096,10 +1150,22 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
    if(form.dataset.smsPurpose||formId==='live-sms-bind'){
     if(!form.dataset.smsChallenge||form.dataset.smsPhone!==values.phone)throw Error('请先为这个手机号获取验证码。');
     const binding=formId==='live-sms-bind';
-    const result=await api('/api/auth/sms/verify',{phone:values.phone,code:values.code,challenge:form.dataset.smsChallenge,purpose:binding?'bind':form.dataset.smsPurpose});
+    const purpose=binding?'bind':form.dataset.smsPurpose;
+    const result=await api('/api/auth/sms/verify',{phone:values.phone,code:values.code,
+     challenge:form.dataset.smsChallenge,purpose,newPassword:purpose==='password'?values.newPassword:undefined});
     if(binding){
      document.querySelector('#config-dialog').close();panelData.smsBinding={lastFour:result.lastFour};securityPage();showToast('已绑定短信登录手机号。');
+    }else if(purpose==='password'){
+     panelData.smsBinding={...panelData.smsBinding,hasPassword:true};
+     panelData.sessions=null;
+     panelData['loading:sessions']=false;
+     phonePasswordReset=false;
+     redrawPasswordSettings();
+     showToast('密码已保存，可以使用手机号和密码登录。');
     }else await route(current);
+   }else if(formId==='live-phone-password-login'){
+    await api('/api/auth/sms/sign-in-password',values);
+    await route(current);
    }else if(formId==='live-auth-form'){
     const emailSignup=authMode==='register'||authMode==='email-register';
     if(emailSignup){
@@ -1169,7 +1235,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
    if(formId==='live-auth-form'&&err.code==='ACCOUNT_ALREADY_REGISTERED'){
     message.innerHTML=note('该邮箱已经注册。请直接登录、找回密码，或换个邮箱注册。',true)+registrationActions();
    }else if(formId==='live-sms-register'&&err.code==='SMS_PHONE_ALREADY_REGISTERED'){
-    message.innerHTML=note(err.message,true)+btn('去短信登录','auth-mode','type="button" data-mode="sms"','quiet');
+    message.innerHTML=note(err.message,true)+btn('去登录','auth-mode','type="button" data-mode="sms"','quiet');
    }else message.innerHTML=note(err.message,true);
   }finally{button.disabled=false;}
  });
