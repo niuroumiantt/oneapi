@@ -1,0 +1,10 @@
+[Unit]
+Description=Sample Shanghai OneAPI host every 15 seconds
+
+[Timer]
+OnBootSec=15
+OnUnitInactiveSec=15
+AccuracySec=1
+
+[Install]
+WantedBy=timers.target

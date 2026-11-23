@@ -1,16 +1,7 @@
-# Skills production delivery
+# OneAPI Skills 上海生产维护
 
-The existing static builder publishes the explicit `prototypes/skills/public-files.json` list at `/skills/`, with root-site navigation links. It preserves synthetic trial files and honest test limits; no further Word/Excel/WeChat trial is required to publish.
+构建 OneAPI 前端时，`scripts/build_static.py` 按 `prototypes/skills/public-files.json` 发布静态文件。以后随 OneAPI 从 `scripts/publish_shanghai.sh` 统一发布。
 
-Daily public data is separate from immutable static releases:
+生产每天北京时间 09:00 由 `oneapi-sh-skills.timer` 更新市场快照。上海上的运行程序位于 `/srv/oneapi-data/oneapi-skills-runtime/scripts/update-market.py`，对应仓库中的 `prototypes/skills/scripts/update-market.py`。运行用户是 `oneapi-skills`，只写 `/srv/oneapi-data/oneapi-skills-data`。单元文件见 [上海 systemd 单元](../shanghai/systemd/)。Caddy 把 `/skills/market-live.json` 映射到该快照。
 
-- `/srv/sites/oneapi-skills-data/market-data.json` is the only mutable public snapshot (not secrets). Caddy already mounts `/srv/sites` read-only; the updater writes on the host as `deploy`.
-- `/srv/oneapi-skills/<source-sha>/` contains the pinned updater, sources and service/routing files; `current` points to it.
-- `oneapi-skills-update.timer`: 09:00 Asia/Shanghai, persistent catch-up, 30s jitter. Service uses no token and has write access only to its public snapshot directory.
-- `/skills/market-live.json` is mapped by the narrow Caddy snippet; `install-routing.py` validates the candidate, checks for concurrent edits, backs up the existing config and reloads only `mainland-caddy-1` via SIGUSR1.
-- Frontend fetches the live endpoint with no-store and falls back to the packaged snapshot. Source failures retain the last successful data and date, while the UI labels errors/stale data.
-- The former Codex automation is local only; production does not depend on it.
-
-Deployment follows infra's `push_static_candidate.sh oneapi <archive> <source-sha>` for static content. No API/database/container replacement is needed. Install the timer/service using systemctl, and run the service once to verify actual fetching. Check the live endpoint, timer next-run and journal; a source failure is not a successful refresh.
-
-Rollback static content with infra's publisher and the preceding artifact/source SHA at a higher sequence. To stop refresh, disable this timer. To remove the endpoint, remove only the BEGIN/END skills fragment after validating the candidate; do not restore an entire old Caddyfile over unrelated later changes. Keep the snapshot, archives and evidence.
+**[上海 ECS]** 可以用 `systemctl status oneapi-sh-skills.timer` 和 `journalctl -u oneapi-sh-skills.service` 验证。更新该采集器时保留其数据目录，并核对实时页面中的快照日期。

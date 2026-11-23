@@ -1,11 +1,10 @@
 [Unit]
-Description=Update semifly Skills daily at 09:00 Shanghai
+Description=Refresh the Shanghai Semifly Skills market at 09:00
 
 [Timer]
 OnCalendar=*-*-* 09:00:00 Asia/Shanghai
 Persistent=true
 RandomizedDelaySec=30
-Unit=oneapi-skills-update.service
 
 [Install]
 WantedBy=timers.target
