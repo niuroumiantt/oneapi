@@ -12,7 +12,7 @@ import { creditPaidOrder, paymentRoutes } from '../src/payments.mjs';
 import { refundCW, commissionFen } from '../src/cw-ledger.mjs';
 const url = process.env.TEST_CW_DATABASE_URL;
 let pool, server, origin, cfg;
-const ids = { a: randomUUID(), b: randomUUID(), buyer: randomUUID() };
+const ids = { a: randomUUID(), b: randomUUID(), buyer: randomUUID(), candidate: randomUUID() };
 const skip = !url;
 before(async () => {
   if (skip) return;
@@ -29,7 +29,7 @@ before(async () => {
   await pool.query('TRUNCATE "user",staff_members CASCADE');
   for (const [name, id] of Object.entries(ids))
     await pool.query(
-      'INSERT INTO "user"(id,name,email,"emailVerified","createdAt","updatedAt",disabled) VALUES($1,$2,$3,true,now(),now(),false)',
+      'INSERT INTO "user"(id,name,email,"emailVerified","createdAt","updatedAt",disabled,"phoneOnly") VALUES($1,$2,$3,true,now(),now(),false,false)',
       [id, name, name + '@cw.example.test'],
     );
   await pool.query(
@@ -90,7 +90,9 @@ test('CW commission uses cumulative cash precision (percent - 40) * 100', () => 
 test('CW application, code cap, payment, usage, month close and payout lifecycle', { skip }, async (t) => {
   let a, b, offer, order, account, pack;
   await t.test('application idempotency, no employee access, invitation alone earns nothing', async () => {
+    assert.equal((await staff('/invite-codes', { code: 'LEGACYTEST', max_uses: 2 })).status, 201);
     const first = await call('/api/cw/apply', {
+      invite_code: 'LEGACYTEST',
       legal_name: 'Test A',
       contact: 'a@cw.example.test',
       consent_version: 'cw-privacy-v1',
@@ -117,12 +119,15 @@ test('CW application, code cap, payment, usage, month close and payout lifecycle
       verified: true,
     };
     assert.equal((await staff('/' + a.id + '/contract', contract)).status, 200);
+    // Seed existing signed partners for the legacy commission and payout lifecycle.
+    await pool.query("UPDATE cw_partners SET status='active' WHERE id=$1", [a.id]);
     const r = await call(
       '/api/cw/apply',
       {
         legal_name: 'Test B',
         contact: 'b@cw.example.test',
         invite: a.public_code,
+        invite_code: 'LEGACYTEST',
         consent_version: 'cw-privacy-v1',
       },
       'b',
@@ -130,6 +135,7 @@ test('CW application, code cap, payment, usage, month close and payout lifecycle
     assert.equal(r.status, 201);
     b = r.data.partner;
     assert.equal((await staff('/' + b.id + '/contract', contract)).status, 200);
+    await pool.query("UPDATE cw_partners SET status='active' WHERE id=$1", [b.id]);
     assert.equal((await call('/api/cw/me')).data.totals.expected_fen, '0');
   });
   await t.test('concurrent code creation never exceeds 50 and code ownership is private', async () => {
@@ -271,13 +277,13 @@ test('CW application, code cap, payment, usage, month close and payout lifecycle
       ).rows[0].id;
       const c = (
         await pool.query(
-          "INSERT INTO customer_calls(account_id,key_id,owner_id,model_id,price_snapshot,status,hold_yuan) VALUES($1,$2,$3,'deepseek-flash','{}','pending',80) RETURNING id",
+          "INSERT INTO customer_calls(account_id,key_id,owner_id,model_id,price_snapshot,status,hold_yuan) VALUES($1,$2,$3,'deepseek-flash','{}','pending',40) RETURNING id",
           [account.id, key, ids.buyer],
         )
       ).rows[0].id;
       await pool.query("UPDATE customer_calls SET created_at='2025-01-15T08:30:00+08:00' WHERE id=$1", [c]);
-      await settlePaidCall(pool, c, 80, null, 'test', null, null);
-      await settlePaidCall(pool, c, 80, null, 'test', null, null);
+      await settlePaidCall(pool, c, 40, null, 'test', null, null);
+      await settlePaidCall(pool, c, 40, null, 'test', null, null);
       let p = (await call('/api/cw/me', null, 'b')).data;
       assert.equal(p.totals.used_fen, '4000');
       assert.equal(p.totals.unlocked_fen, '400');
@@ -365,6 +371,10 @@ test('CW application, code cap, payment, usage, month close and payout lifecycle
       const financePrivate = await staff('/' + b.id + '/private', { reason: 'payout review' });
       assert.equal(financePrivate.status, 200);
       assert.ok(financePrivate.data.bank?.number);
+      const bankOnly = await staff('/' + b.id + '/private', { reason: 'payout review', scope: 'bank' });
+      assert.equal(bankOnly.status, 200);
+      assert.equal(bankOnly.data.contact, undefined);
+      assert.equal(bankOnly.data.bank.number, '1111222233334444');
       assert.equal(
         (await staff('/' + b.id + '/bank-verify', { bank_version: 2, evidence: 'stale' })).status,
         409,
@@ -462,7 +472,7 @@ test('CW application, code cap, payment, usage, month close and payout lifecycle
 });
 test('sales activates formal VIP after verifying discount recharge ≥ ¥100', { skip }, async () => {
   assert.equal(
-    (await staff('/invite-codes', { code: 'OPSINVITE1', max_uses: 5, note: 'ops' }, 'operations')).status,
+    (await staff('/invite-codes', { code: 'OPSINVITE1', max_uses: 5 }, 'operations')).status,
     201,
   );
   assert.equal(
@@ -473,15 +483,31 @@ test('sales activates formal VIP after verifying discount recharge ≥ ¥100', {
     '/api/cw/apply',
     {
       legal_name: 'Ops Candidate',
-      contact: 'ops-cand@cw.example.test',
+      contact: '13800000000',
       consent_version: 'cw-privacy-v1',
       invite_code: 'OPSINVITE1',
     },
-    'buyer',
+    'candidate',
   );
   assert.equal(applied.status, 201);
   assert.equal(applied.data.partner.status, 'pending');
   const pid = applied.data.partner.id;
+  const profile = await call('/api/cw/me', null, 'candidate');
+  assert.equal(profile.data.partner.legal_name, 'Ops Candidate');
+  assert.ok(profile.data.partner.created_at);
+  assert.doesNotMatch(JSON.stringify(profile.data), /13800000000/);
+  const path = '/' + pid + '/private';
+  const request = { reason: '电话面试', scope: 'contact' };
+  assert.equal((await call('/api/staff/cw' + path, request, 'candidate')).status, 401);
+  assert.equal((await staff(path, request, 'pending')).status, 403);
+  for (const role of ['operations', 'platform_admin']) {
+    const contact = await staff(path, request, role);
+    assert.equal(contact.status, 200);
+    assert.equal(contact.data.contact.contact, '13800000000');
+    assert.equal(contact.data.bank, null);
+    assert.equal(contact.data.bank_version, undefined);
+  }
+  assert.equal((await staff(path, { ...request, scope: 'bank' }, 'operations')).status, 403);
   assert.equal((await staff('/' + pid + '/confirm', {}, 'pending')).status, 403);
   assert.equal((await staff('/' + pid + '/confirm', {}, 'operations')).status, 200);
   assert.equal(
@@ -496,16 +522,16 @@ test('sales activates formal VIP after verifying discount recharge ≥ ¥100', {
   );
   assert.equal(issued.status, 201);
   const account = (
-    await pool.query('INSERT INTO billing_accounts(owner_id) VALUES($1) RETURNING *', [ids.buyer])
+    await pool.query('INSERT INTO billing_accounts(owner_id) VALUES($1) RETURNING *', [ids.candidate])
   ).rows[0];
   // Below ¥100: payment succeeds but sales still cannot activate.
   const low = await transaction(pool, (db) =>
-    quotePack(db, account, 10000, 'OPSDISC50', { cashFen: 5000, buyerId: ids.buyer, cwEnabled: true }),
+    quotePack(db, account, 10000, 'OPSDISC50', { cashFen: 5000, buyerId: ids.candidate, cwEnabled: true }),
   );
   const lowOrder = (
     await pool.query(
       "INSERT INTO payment_orders(out_trade_no,account_id,created_by,provider,amount_fen,face_fen,discount_snapshot,idempotency_key,expires_at) VALUES($1,$2,$3,'wechat_native',$4,$5,$6,$7,now()+interval '15 minutes') RETURNING *",
-      ['VIPLOW' + Date.now(), account.id, ids.buyer, low.amount_fen, low.face_fen, low.discount_snapshot, randomUUID()],
+      ['VIPLOW' + Date.now(), account.id, ids.candidate, low.amount_fen, low.face_fen, low.discount_snapshot, randomUUID()],
     )
   ).rows[0];
   await creditPaidOrder(
@@ -521,13 +547,13 @@ test('sales activates formal VIP after verifying discount recharge ≥ ¥100', {
   assert.equal((await staff('/' + pid + '/activate', {}, 'operations')).status, 409);
   // ≥ ¥100 discount recharge: sales can activate.
   const q = await transaction(pool, (db) =>
-    quotePack(db, account, 20000, 'OPSDISC50', { cashFen: 10000, buyerId: ids.buyer, cwEnabled: true }),
+    quotePack(db, account, 20000, 'OPSDISC50', { cashFen: 10000, buyerId: ids.candidate, cwEnabled: true }),
   );
   assert.equal(q.amount_fen, 10000);
   const order = (
     await pool.query(
       "INSERT INTO payment_orders(out_trade_no,account_id,created_by,provider,amount_fen,face_fen,discount_snapshot,idempotency_key,expires_at) VALUES($1,$2,$3,'wechat_native',$4,$5,$6,$7,now()+interval '15 minutes') RETURNING *",
-      ['VIPACT' + Date.now(), account.id, ids.buyer, q.amount_fen, q.face_fen, q.discount_snapshot, randomUUID()],
+      ['VIPACT' + Date.now(), account.id, ids.candidate, q.amount_fen, q.face_fen, q.discount_snapshot, randomUUID()],
     )
   ).rows[0];
   await creditPaidOrder(

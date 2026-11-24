@@ -516,8 +516,8 @@ select option{font-size:14px}
 .overview-page{flex:1;min-height:0;margin-top:8px;gap:10px;grid-template-rows:auto minmax(0,1fr);overflow:auto}
 .overview-hero{padding:9px 18px}
 .overview-balance strong{font-size:26px}
-.overview-grid{min-height:0;gap:10px;grid-template-rows:auto auto;align-content:start}
-.overview-grid>section{display:flex;flex-direction:column;min-height:0;overflow:visible}
+.overview-grid{min-height:0;gap:10px;align-content:start}
+.overview-grid>.personal-pilot-log{display:flex;flex-direction:column;min-height:0;overflow:visible}
 .overview-grid .personal-section-title{flex:none;height:36px}
 .overview-grid .team-bars{flex:1;height:auto;min-height:120px;margin-top:6px;padding:0 10px}
 .overview-grid .chart-legend{flex:none}

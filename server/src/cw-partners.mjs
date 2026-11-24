@@ -5,6 +5,8 @@ import { requireFinance, hasFinance } from './business-console.mjs';
 import { commissionBps, VIP_SELF_PERCENT, VIP_ACTIVATE_MIN_CASH_FEN } from './cw-ledger.mjs';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const code = () => Array.from({ length: 8 }, () => ALPHABET[randomInt(ALPHABET.length)]).join('');
+const optionalNote = (value, max) =>
+  value == null || (typeof value === 'string' && !value.trim()) ? '' : text(value, '备注', max);
 const normalizedInvite = (v) =>
   String(v || '')
     .normalize('NFKC')
@@ -381,7 +383,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     const inviteCode = normalizedInvite(b.code);
     if (!/^[A-Z0-9_-]{2,32}$/.test(inviteCode)) throw new HttpError(400, '邀请码格式不正确');
     const maxUses = integer(b.max_uses ?? 1, 1, 100000, '使用次数上限');
-    const note = text(b.note ?? '', '备注', 200);
+    const note = optionalNote(b.note, 200);
     const r = await transaction(pool, async (db) => {
       const dup = (
         await db.query('SELECT 1 FROM vip_invite_codes WHERE code=$1', [inviteCode])
@@ -537,7 +539,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         [pid, req.staff.subject],
       );
       await audit(db, req.actor, 'cw.confirmed', null, pid, {
-        note: text(req.body.note ?? '', '备注', 300),
+        note: optionalNote(req.body?.note, 300),
       });
     });
     res.json({ ok: true });
@@ -580,7 +582,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         order_id: paid.id,
         amount_fen: paid.amount_fen,
         out_trade_no: paid.out_trade_no,
-        note: text(req.body?.note ?? '', '备注', 300),
+        note: optionalNote(req.body?.note, 300),
       });
       return paid;
     });
@@ -610,7 +612,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
            VALUES($1,$2,$3,$4,$5,$6)
            ON CONFLICT(code) DO UPDATE SET customer_price_percent=EXCLUDED.customer_price_percent,status='active',ends_at=EXCLUDED.ends_at,note=EXCLUDED.note
            RETURNING id,code,customer_price_percent,status,starts_at,ends_at`,
-          [pid, taskCode, percent, req.staff.subject, end, text(b.note ?? '', '备注', 200)],
+          [pid, taskCode, percent, req.staff.subject, end, optionalNote(b.note, 200)],
         )
       ).rows[0];
       await audit(db, req.actor, 'cw.task_code_issued', null, row.id, {
@@ -684,16 +686,19 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
   // Bank details stay finance-only.
   app.post('/api/staff/cw/:partner/private', requireStaff, async (req, res) => {
     business(req);
-    const finance = hasFinance(req.staff);
+    const scope = req.body.scope;
+    if (scope === 'bank') requireFinance(req);
+    const finance = scope !== 'contact' && hasFinance(req.staff);
     const pid = id(req.params.partner),
       p = (await pool.query('SELECT * FROM cw_partners WHERE id=$1', [pid])).rows[0];
     if (!p) throw new HttpError(404, 'VIP 不存在');
     await audit(pool, req.actor, 'cw.private_viewed', null, pid, {
       reason: text(req.body.reason, '查看原因', 200),
-      scope: finance ? 'contact+bank' : 'contact',
+      scope: scope === 'bank' ? 'bank' : finance ? 'contact+bank' : 'contact',
     });
+    res.set('Cache-Control', 'no-store');
     res.json({
-      contact: box.open(p.contact_cipher),
+      contact: scope === 'bank' ? undefined : box.open(p.contact_cipher),
       bank: finance && p.bank_cipher ? box.open(p.bank_cipher) : null,
       bank_version: finance ? p.bank_version : undefined,
     });
