@@ -52,7 +52,7 @@ infra 分支 codex-oneapi-aliyun 位于 ~/.worktrees/infra/oneapi-aliyun；两�
 
 m5 的 aliyun SSH 别名仍配置旧密钥，部署显式使用 ~/.ssh/id_ed25519；没有修改全局 SSH 配置。静态发布使用 MAINLAND_SSH_IDENTITY 和 STATIC_PYTHON=/Users/m5/.local/bin/python3.12，复用 infra/scripts/push_static_candidate.sh。
 
-参考：docs/deployment/aliyun.md、docs/phase-1/09-enterprise-workspace.md、design/spectrum/README.md。网站 https://oneapi.glocalstorage.cn 当前源码版本与后续纯文档提交可能不同，以 /release.json 为准。
+参考：docs/deployment/shanghai.md、docs/phase-1/09-enterprise-workspace.md、design/spectrum/README.md。网站 https://oneapi.glocalstorage.cn 当前源码版本与后续纯文档提交可能不同，以 /release.json 为准。
 
 ## 最新界面发布验证
 

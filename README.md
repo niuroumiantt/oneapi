@@ -1,6 +1,6 @@
 # OneAPI / semifly.ai
 
-面向个人与企业的模型 API 平台。仓库规范名为 `oneapi`，中国区生产入口为 https://semifly.cn，部署在阿里云上海。oneapi.glocalstorage.cn 保留旧客户端和支付回调兼容。发布入口见 [上海部署说明](docs/deployment/aliyun.md)。
+面向个人与企业的模型 API 平台。仓库规范名为 `oneapi`，中国区生产入口为 https://semifly.cn，部署在阿里云上海。oneapi.glocalstorage.cn 保留旧客户端和支付回调兼容。发布入口见 [上海部署说明](docs/deployment/shanghai.md)。
 
 ## 当前状态（2026-11-14）
 

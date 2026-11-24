@@ -4,7 +4,7 @@
 
 ## 环境
 
-- 源机为青岛 OneAPI `47.104.143.95`，操作入口是 m4 上的 `aliyun` SSH 配置。目标是上海 OneAPI `47.101.153.99`，ECS `i-uf6b0ral8kav1la89x8h`，应用数据盘挂载在 `/srv/oneapi-data`。
+- 源机为青岛 OneAPI `47.104.143.95`，操作入口是 m4 上的 `qingdao` SSH 配置（原 `aliyun` 别名）。目标是上海 OneAPI `47.101.153.99`，ECS `i-uf6b0ral8kav1la89x8h`，应用数据盘挂载在 `/srv/oneapi-data`。
 - 生产数据传输为青岛 → m4 → 上海。m5 负责操作和验证。快照及运行配置仅在各端受限目录中存放。
 - 上海保留生产 API `8e53711f03ee56bd1d9cb2830f9a23c9439431a2` 和 PostgreSQL `16.10`。候选前端 `025d0cff7a244a37f520e9ee5b330053d7ebfb7c` 由 `scripts/build_static.py --domain semifly.cn` 生成。上海逐文件校验了 189 个静态文件。
 - 阿里云控制台显示管局于 2026-11-23 11:56 审核通过。网站主办单位是上海艾泽可科技有限公司。首页底部居中挂 `沪ICP备2024050749号-3` 并链接工信部。充值页的备案域名与备案号随域名配置，收款方沿用原商户。按开通日期办理公安联网备案，取得编号后再挂对应的公安备案链接。
@@ -40,4 +40,4 @@
 
 - 青岛的 `oneapi-api-1` 和 `oneapi-db-1` 已停止，自动重启策略已关闭。其监控、备份与 Skills 定时器均已停用。冻结数据和历史备份留作回退凭据。
 - 青岛保留旧 OneAPI 域名的转发。共享 Caddy、中文官网、Authentik、OA、其他应用和独立的 `api.glocalstorage.cn` 沿用青岛部署。OneAPI 正常访问、支付处理、备份、Skills 和监控在上海执行。
-- [上海发布说明](../deployment/aliyun.md) 是后续应用发布入口。使用同一 Git 提交构建前端与 API。
+- [上海发布说明](../deployment/shanghai.md) 是后续应用发布入口。使用同一 Git 提交构建前端与 API。
