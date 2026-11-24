@@ -20,9 +20,15 @@ def git(*args):
 def apply_cn_filing(assets):
     number = escape(CN_ICP_NUMBER)
     link = f'<a class="site-filing" href="https://beian.miit.gov.cn/">{number}</a>'
-    for name in ('index.html', 'compare.html', 'cw.html', 'cw-terms.html', 'skills/index.html'):
+    for name in ('index.html', 'compare.html', 'cw.html', 'cw-terms.html', 'promotion/vip.html', 'skills/index.html'):
         text = assets[name].decode()
         root = '<html lang="zh-CN">'
+        if name == 'cw.html':
+            # Legacy redirect stub — keep ICP on the document root only.
+            if root in text:
+                text = text.replace(root, f'<html lang="zh-CN" data-icp-filing="{number}">', 1)
+            assets[name] = text.encode()
+            continue
         if text.count(root) != 1:
             raise ValueError(f'Expected one document root in {name}')
         text = text.replace(root, f'<html lang="zh-CN" data-icp-filing="{number}">', 1)
@@ -73,12 +79,17 @@ def main():
         assets[name] = git('show', f'HEAD:web/{name}')
     for name in ('cw.html', 'cw-terms.html'):
         content = git('show', f'HEAD:web/{name}')
-        if name.endswith('.html'):
+        if name.endswith('.html') and name != 'cw.html':
             text = content.decode()
             for source, target in asset_names.items():
                 text = text.replace(f'"{source}"', f'"{target}"')
             content = text.encode()
         assets[name] = content
+    # VIP portal lives under /promotion/vip.html; assets remain at site root.
+    vip_html = git('show', 'HEAD:web/promotion/vip.html').decode()
+    for source, target in asset_names.items():
+        vip_html = vip_html.replace(f'"../{source}"', f'"../{target}"')
+    assets['promotion/vip.html'] = vip_html.encode()
     # Explicit publication manifest: no arbitrary repository/runtime files.
     skill_files = json.loads(git('show', 'HEAD:prototypes/skills/public-files.json'))
     for name in skill_files:
