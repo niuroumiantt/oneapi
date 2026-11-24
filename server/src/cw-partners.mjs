@@ -34,6 +34,7 @@ const publicPartner = (p) =>
         legal_name: p.legal_name,
         bank_last4: p.bank_last4,
         bank_verified: p.bank_verified_version !== null && p.bank_verified_version === p.bank_version,
+        confirmed_at: p.confirmed_at,
         created_at: p.created_at,
       }
     : null;
@@ -61,7 +62,7 @@ async function uniqueCode(db) {
     if (
       !(
         await db.query(
-          'SELECT 1 FROM cw_codes WHERE code=$1 UNION ALL SELECT 1 FROM cw_partners WHERE public_code=$1 UNION ALL SELECT 1 FROM discount_grants WHERE upper(promo_code)=$1',
+          'SELECT 1 FROM cw_codes WHERE code=$1 UNION ALL SELECT 1 FROM cw_partners WHERE public_code=$1 UNION ALL SELECT 1 FROM discount_grants WHERE upper(promo_code)=$1 UNION ALL SELECT 1 FROM vip_task_codes WHERE code=$1',
           [c],
         )
       ).rowCount
@@ -70,7 +71,7 @@ async function uniqueCode(db) {
   }
   throw new HttpError(503, '暂时无法分配推广码，请重试');
 }
-export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
+export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
   const box = vault(cfg.secret + ':cw-private-v1');
   const enabled = (_req, _res, next) => {
     if (!cfg.cw?.enabled) throw new HttpError(503, 'VIP 合作伙伴功能尚未开放');
@@ -80,14 +81,24 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
     res.json({ enabled: !!cfg.cw?.enabled, code_limit: 50, base_percent: 40, self_percent: 50 }),
   );
   app.get('/api/cw/offers/:code', enabled, async (req, res) => {
+    const code = String(req.params.code).toUpperCase();
+    // Task code: a VIP's own self-purchase discount. The quote path enforces self-use;
+    // here we only surface the discount ratio so the top-up form can switch to "pay amount" mode.
+    const task = (
+      await pool.query(
+        `SELECT t.code,t.customer_price_percent FROM vip_task_codes t JOIN cw_partners p ON p.id=t.partner_id WHERE t.code=$1 AND t.status='active' AND p.status='active' AND t.starts_at<=now() AND (t.ends_at IS NULL OR t.ends_at>now())`,
+        [code],
+      )
+    ).rows[0];
+    if (task) return res.json({ ...task, kind: 'task' });
     const r = (
       await pool.query(
         `SELECT c.code,c.customer_price_percent FROM cw_codes c JOIN cw_partners p ON p.id=c.partner_id WHERE c.code=$1 AND c.status='active' AND p.status='active' AND c.starts_at<=now() AND c.ends_at>now() AND EXISTS(SELECT 1 FROM cw_contracts k WHERE k.partner_id=p.id AND k.expires_at>now())`,
-        [String(req.params.code).toUpperCase()],
+        [code],
       )
     ).rows[0];
     if (!r) throw new HttpError(404, '推广码未生效');
-    res.json(r);
+    res.json({ ...r, kind: 'referral' });
   });
   app.post('/api/cw/apply', requireCustomer, enabled, async (req, res) => {
     const b = req.body || {},
@@ -121,7 +132,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
       }
       const row = (
         await db.query(
-          'INSERT INTO cw_partners(user_id,public_code,invited_by,legal_name,contact_cipher,consent_version) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',
+          "INSERT INTO cw_partners(user_id,public_code,invited_by,legal_name,contact_cipher,consent_version,status) VALUES($1,$2,$3,$4,$5,$6,'pending') RETURNING *",
           [
             req.customer.id,
             await uniqueCode(db),
@@ -136,6 +147,29 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
         invited_by: invited?.id || null,
         invite_code: inviteCode,
       });
+      // The customer has only applied. A sales person must confirm them before they are a VIP,
+      // so no self-code / task code is issued here. Notify all platform admins to follow up.
+      const admins = (
+        await db.query("SELECT email FROM staff_members WHERE role='platform_admin' AND status='active' AND email<>''", [])
+      ).rows;
+      for (const a of admins) {
+        try {
+          await mail.queue({
+            to: a.email,
+            subject: `semifly VIP 新申请待确认：${name}`,
+            text:
+              `有一位客户通过邀请码申请成为 VIP 合作伙伴，等待销售联系并确认。\n\n` +
+              `申请人：${name}\n` +
+              `VIP 编号：${row.public_code}\n` +
+              `邀请码：${inviteCode}\n` +
+              `申请时间：${new Date().toLocaleString('zh-CN', { hour12: false })}\n\n` +
+              `请主动联系客户；确认通过后，客户才成为 VIP，并获得任务码（自购折扣码，当前计划 5 折）。\n` +
+              `处理入口：商务后台 → VIP 合作伙伴管理 → 待确认。`,
+          });
+        } catch {
+          /* mail may be unconfigured; the pending list still surfaces the application */
+        }
+      }
       return row;
     });
     res.status(201).json({ partner: publicPartner(p) });
@@ -182,6 +216,12 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
       )
     ).rows;
     for (const k of codes) k.available_fen = perCode.find((r) => r.code_id === k.id)?.amount || '0';
+    const taskCodes = (
+      await pool.query(
+        "SELECT id,code,customer_price_percent,status,starts_at,ends_at,note FROM vip_task_codes WHERE partner_id=$1 AND status='active' AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) ORDER BY created_at DESC LIMIT 50",
+        [p.id],
+      )
+    ).rows;
     res.json({
       partner: publicPartner(p),
       totals: { ...totals, available_fen: await available(pool, p.id) },
@@ -189,6 +229,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
       contracts,
       payouts,
       invited,
+      task_codes: taskCodes,
     });
   });
   app.get('/api/cw/events', requireCustomer, enabled, async (req, res) => {
@@ -308,7 +349,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
   app.get('/api/staff/cw', requireStaff, async (req, res) => {
     business(req);
     const partners = (
-      await pool.query(`SELECT p.id,p.public_code,p.legal_name,p.status,p.created_at,u.email,i.public_code AS invited_by,
+      await pool.query(`SELECT p.id,p.public_code,p.legal_name,p.status,p.confirmed_by,p.confirmed_at,p.created_at,u.email,i.public_code AS invited_by,
    (SELECT count(*)::int FROM cw_codes k WHERE k.partner_id=p.id) AS code_count,
    (SELECT coalesce(sum(cash_fen),0)::text FROM cw_commissions c WHERE c.partner_id=p.id) AS paid_fen,
    (SELECT coalesce(sum(used_cash_fen),0)::text FROM cw_commissions c WHERE c.partner_id=p.id) AS used_fen,
@@ -404,6 +445,12 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
         [pid],
       )
     ).rows;
+    const taskCodes = (
+      await pool.query(
+        'SELECT id,code,customer_price_percent,status,starts_at,ends_at,note,created_by,created_at FROM vip_task_codes WHERE partner_id=$1 ORDER BY created_at DESC LIMIT 100',
+        [pid],
+      )
+    ).rows;
     res.json({
       partner: publicPartner(p),
       codes,
@@ -412,6 +459,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
       events,
       payouts,
       closes,
+      task_codes: taskCodes,
       available_fen: await available(pool, pid),
     });
   });
@@ -434,23 +482,75 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
         'INSERT INTO cw_contracts(partner_id,template_version,document_sha256,signature_reference,identity_reference,expires_at,verified_by) VALUES($1,$2,$3,$4,$5,$6,$7)',
         [pid, version, sha, reference, identity, expires, req.staff.subject],
       );
-      await db.query("UPDATE cw_partners SET status='active' WHERE id=$1", [pid]);
-      // Issue the VIP self-code (cost price 50%, no commission) on first activation.
-      await db.query(
-        `INSERT INTO cw_codes(partner_id,code,name,customer_price_percent,commission_bps,is_self_code,status,starts_at,ends_at)
-         SELECT $1,$2,'VIP 专属 5 折码',$3,0,true,'active',now(),now()+interval '10 years'
-         WHERE NOT EXISTS(SELECT 1 FROM cw_codes WHERE partner_id=$1 AND is_self_code=true)`,
-        [pid, await uniqueCode(db), VIP_SELF_PERCENT],
-      );
+      // Contract signing alone does NOT activate the partner. The sales confirmation
+      // (POST /:partner/confirm) is what turns a pending application into an active VIP,
+      // and the task code is issued separately by an approver after confirmation.
       await audit(db, req.actor, 'cw.contract_verified', null, pid, { version, document_sha256: sha });
     });
     res.json({ ok: true });
   });
+
+  // Sales confirmation: a pending application becomes an active VIP only after a sales person
+  // contacts the applicant and confirms them. This is the gate that grants VIP identity.
+  app.post('/api/staff/cw/:partner/confirm', requireStaff, async (req, res) => {
+    admin(req);
+    const pid = id(req.params.partner);
+    await transaction(pool, async (db) => {
+      const p = (await db.query('SELECT id,status FROM cw_partners WHERE id=$1 FOR UPDATE', [pid])).rows[0];
+      if (!p) throw new HttpError(404, 'VIP 不存在');
+      if (p.status === 'active') throw new HttpError(409, '该申请已是 VIP，无需重复确认');
+      await db.query(
+        "UPDATE cw_partners SET status='active',confirmed_by=$2,confirmed_at=now() WHERE id=$1",
+        [pid, req.staff.subject],
+      );
+      await audit(db, req.actor, 'cw.confirmed', null, pid, {
+        note: text(req.body.note ?? '', '备注', 300),
+      });
+    });
+    res.json({ ok: true });
+  });
+
+  // Issue a task code (self-purchase discount code) to a confirmed VIP. The discount is
+  // fixed by the approver (platform admin) at this step — planned 50% (5 折).
+  app.post('/api/staff/cw/:partner/task-code', requireStaff, async (req, res) => {
+    admin(req);
+    const b = req.body || {},
+      pid = id(req.params.partner),
+      percent = integer(b.customer_price_percent ?? VIP_SELF_PERCENT, 50, 100, '任务码折扣');
+    const c = await transaction(pool, async (db) => {
+      const p = (await db.query("SELECT id,status FROM cw_partners WHERE id=$1 FOR UPDATE", [pid])).rows[0];
+      if (!p) throw new HttpError(404, 'VIP 不存在');
+      if (p.status !== 'active') throw new HttpError(409, '请先确认客户成为 VIP，再发放任务码');
+      const code = normalizedInvite(b.code);
+      if (code && !/^[A-Z0-9_-]{2,32}$/.test(code)) throw new HttpError(400, '任务码格式不正确');
+      const taskCode = code || (await uniqueCode(db));
+      const end = b.ends_at ? new Date(b.ends_at) : null;
+      if (b.ends_at && (!Number.isFinite(end.getTime()) || end <= new Date()))
+        throw new HttpError(400, '任务码有效期不正确');
+      const row = (
+        await db.query(
+          `INSERT INTO vip_task_codes(partner_id,code,customer_price_percent,created_by,ends_at,note)
+           VALUES($1,$2,$3,$4,$5,$6)
+           ON CONFLICT(code) DO UPDATE SET customer_price_percent=EXCLUDED.customer_price_percent,status='active',ends_at=EXCLUDED.ends_at,note=EXCLUDED.note
+           RETURNING id,code,customer_price_percent,status,starts_at,ends_at`,
+          [pid, taskCode, percent, req.staff.subject, end, text(b.note ?? '', '备注', 200)],
+        )
+      ).rows[0];
+      await audit(db, req.actor, 'cw.task_code_issued', null, row.id, {
+        partner_id: pid,
+        percent,
+        code: taskCode,
+      });
+      return row;
+    });
+    res.status(201).json(c);
+  });
+
   app.post('/api/staff/cw/:partner/status', requireStaff, async (req, res) => {
     admin(req);
     const state = req.body?.status;
     if (!['suspended', 'rejected'].includes(state))
-      throw new HttpError(400, '仅可暂停或拒绝，启用须核验合同');
+      throw new HttpError(400, '仅可暂停或拒绝，启用须销售确认');
     await transaction(pool, async (db) => {
       await db.query('UPDATE cw_partners SET status=$2 WHERE id=$1', [id(req.params.partner), state]);
       await audit(db, req.actor, 'cw.status_changed', null, req.params.partner, {

@@ -11,8 +11,8 @@
   const staff = new URLSearchParams(location.search).get('staff') === '1',
     base = staff ? '/api/staff/cw' : '/api/cw',
     labels = {
-      pending: '待审核',
-      active: '已生效',
+      pending: '待销售确认',
+      active: '已确认',
       suspended: '已暂停',
       rejected: '未通过',
       paused: '已停用',
@@ -144,8 +144,14 @@
     }
     const p = data.partner,
       t = data.totals;
+    if (p.status === 'pending')
+      c.innerHTML = `<h2>申请已提交，等待销售确认</h2><p>你的 VIP 编号：<strong>${esc(p.public_code)}</strong></p><p>你的申请已通过邀请码提交。我们的销售会主动联系你；<strong>确认通过后</strong>，你才正式成为 VIP，并会获得一个<strong>任务码</strong>（自购折扣码，当前计划 5 折），用于给自己充值享折扣。请留意邮件或电话。</p><p><button data-tab="overview">刷新状态</button></p>`;
+    if (p.status === 'rejected')
+      c.innerHTML = `<h2>申请未通过</h2><p>很抱歉，你的 VIP 申请未通过。如有疑问请联系邀请你的员工或 sales。</p>`;
+    if (p.status !== 'active') return;
+    const taskCodes = data.task_codes || [];
     if (tab === 'overview')
-      c.innerHTML = `<h2>${esc(p.legal_name)} <span class="cw-status">${labels[p.status]}</span></h2><p>VIP 编号：<strong>${esc(p.public_code)}</strong></p><div class="cw-metrics">${stat('客户实付', t.paid_fen)}${stat('客户实用', t.used_fen)}${stat('预计总佣金（税前）', t.expected_fen)}${stat('已解锁佣金（税前）', t.unlocked_fen)}${stat('可提现（税前）', t.available_fen)}</div><p>预计佣金包含已解锁部分，不代表全部可提现。客户退款会取消未使用部分的预计佣金。已解锁佣金需待客户月结与收款对账确认后方可申请提现。</p><p>提成 = 卖出折扣 − 4 折。以 5 折卖出提成 10%、8 折卖出提成 40%，多卖多得。你可用专属 5 折码自购，不产生提成。</p>`;
+      c.innerHTML = `<h2>${esc(p.legal_name)} <span class="cw-status">${labels[p.status]}</span></h2><p>VIP 编号：<strong>${esc(p.public_code)}</strong></p><div class="cw-metrics">${stat('客户实付', t.paid_fen)}${stat('客户实用', t.used_fen)}${stat('预计总佣金（税前）', t.expected_fen)}${stat('已解锁佣金（税前）', t.unlocked_fen)}${stat('可提现（税前）', t.available_fen)}</div><p>预计佣金包含已解锁部分，不代表全部可提现。客户退款会取消未使用部分的预计佣金。已解锁佣金需待客户月结与收款对账确认后方可申请提现。</p><p>提成 = 卖出折扣 − 4 折。以 5 折卖出提成 10%、8 折卖出提成 40%，多卖多得。</p><h3>我的任务码（自购折扣码）</h3><p>任务码由你的 sales 经上司批复后发放，按批复时的折扣（当前计划 5 折）给自己充值，不产生提成。</p>${taskCodes.length ? table(['任务码', '自购折扣', '有效期'], taskCodes.map((k) => `<tr><td><strong>${esc(k.code)}</strong>${k.note ? `<small>${esc(k.note)}</small>` : ''}</td><td>${k.customer_price_percent}%（${(k.customer_price_percent / 10).toFixed(1)} 折）</td><td>${when(k.starts_at)} 至 ${k.ends_at ? when(k.ends_at) : '长期有效'}</td></tr>`).join('')) : '<p>暂无任务码，请联系你的 sales 申请。</p>'}`;
     if (tab === 'codes')
       c.innerHTML = `<h2>我的推广码 <small>${data.codes.length} / 50</small></h2><p>每个码可申请不同折扣（不低于 5 折），审核通过后生效。历史码保留，不转让、不删除。提成 = 卖出折扣 − 4 折。</p>${table(['名称／推广码', '状态／客户价格', '你的提成', '客户实付', '客户实用', '预计／已解锁／可提现', '推广'], data.codes.map((k) => `<tr><td>${esc(k.name)}${k.is_self_code ? '<small class="cw-self">专属自购码</small>' : ''}<small>${k.code}</small></td><td>${labels[k.status]}<small>客户价 ${k.customer_price_percent}%</small></td><td>${k.is_self_code ? '自购无提成' : (k.customer_price_percent - 40) + '%'}</td><td>${money(k.paid_fen)}</td><td>${money(k.used_fen)}</td><td>${money(k.expected_fen)} / ${money(k.unlocked_fen)} / ${money(k.available_fen)}</td><td>${k.status === 'active' ? `<button data-copy="${esc(location.origin + '/?cw=' + k.code + '#billing/personal')}">复制推广链接</button><details><summary>推广二维码</summary><img class="cw-qr" src="/api/cw/codes/${k.id}/qr" alt="推广码 ${k.code} 的二维码" loading="lazy"></details>` : '审核后可推广'}</td></tr>`).join(''))}${data.codes.length < 50 ? `<details><summary>申请新推广码</summary>${form('code', field('name', '推广码名称', 'text', 'maxlength="60"') + field('customer_price_percent', '申请客户价格比例（50 表示五折，最低 50）', 'number', 'min="50" max="100" value="50"'), '提交审核')}</details>` : ''}`;
     if (tab === 'events') {
@@ -163,7 +169,7 @@
   function drawStaff(c) {
     if (tab === 'overview') {
       const invites = data.invite_codes || [];
-      c.innerHTML = `<h2>VIP 合作伙伴</h2><p>申请入口：<a href="/cw.html">VIP 工作台</a> · 当前${data.enabled ? '已开放申请' : '尚未开放申请'}</p><h3>邀请码管理（管理员）</h3>${table(['邀请码', '使用次数', '状态', '备注', '创建人／时间', '操作'], invites.map((v) => `<tr><td>${esc(v.code)}</td><td>${v.used_count} / ${v.max_uses}</td><td>${v.status === 'active' ? '生效中' : '已停用'}</td><td>${esc(v.note || '')}</td><td>${esc(v.created_by)}<small>${when(v.created_at)}</small></td><td>${v.status === 'active' ? `<button data-invite-disable="${esc(v.code)}">停用</button>` : ''}</td></tr>`).join(''))}<details><summary>生成新邀请码</summary>${form('invite-code', field('code', '邀请码（如 VIP888）', 'text', 'maxlength="32"') + field('max_uses', '使用次数上限', 'number', 'min="1" value="1"') + field('note', '备注', 'text', 'maxlength="200"'), '生成邀请码')}</details><h3>伙伴列表</h3>${table(['姓名／VIP 编号', '登录邮箱', '邀请来源', '状态／码数', '实付／实用', '预计佣金', '管理'], data.partners.map((p) => `<tr><td>${esc(p.legal_name)}<small>${p.public_code}</small></td><td>${esc(p.email)}</td><td>${p.invited_by || '自主申请'}</td><td>${labels[p.status]} / ${p.code_count}</td><td>${money(p.paid_fen)} / ${money(p.used_fen)}</td><td>${money(p.expected_fen)}</td><td><button data-partner="${p.id}">管理</button></td></tr>`).join(''))}`;
+      c.innerHTML = `<h2>VIP 合作伙伴</h2><p>申请入口：<a href="/cw.html">VIP 工作台</a> · 当前${data.enabled ? '已开放申请' : '尚未开放申请'}</p><h3>邀请码管理（管理员）</h3>${table(['邀请码', '使用次数', '状态', '备注', '创建人／时间', '操作'], invites.map((v) => `<tr><td>${esc(v.code)}</td><td>${v.used_count} / ${v.max_uses}</td><td>${v.status === 'active' ? '生效中' : '已停用'}</td><td>${esc(v.note || '')}</td><td>${esc(v.created_by)}<small>${when(v.created_at)}</small></td><td>${v.status === 'active' ? `<button data-invite-disable="${esc(v.code)}">停用</button>` : ''}</td></tr>`).join(''))}<details><summary>生成新邀请码</summary>${form('invite-code', field('code', '邀请码（如 VIP888）', 'text', 'maxlength="32"') + field('max_uses', '使用次数上限', 'number', 'min="1" value="1"') + field('note', '备注', 'text', 'maxlength="200"'), '生成邀请码')}</details><h3>伙伴列表</h3><p>客户填写邀请码后进入「待销售确认」，销售主动联系并确认后，客户才成为 VIP 并获得任务码。</p>${table(['姓名／VIP 编号', '登录邮箱', '邀请来源', '状态／码数', '实付／实用', '预计佣金', '管理'], data.partners.map((p) => `<tr><td>${esc(p.legal_name)}<small>${p.public_code}</small></td><td>${esc(p.email)}</td><td>${p.invited_by || '自主申请'}</td><td>${labels[p.status]} / ${p.code_count}</td><td>${money(p.paid_fen)} / ${money(p.used_fen)}</td><td>${money(p.expected_fen)}</td><td>${p.status === 'pending' ? `<button data-confirm="${p.id}">确认</button>` : ''}<button data-partner="${p.id}">管理</button></td></tr>`).join(''))}`;
       return;
     }
     const d = data.detail;
@@ -173,8 +179,10 @@
     }
     const p = d.partner;
     c.innerHTML = `<button data-tab="overview">返回伙伴列表</button><h2 class="cw-partner-title">${esc(p.legal_name)} · ${p.public_code}</h2><p>合作状态：${labels[p.status]} · 可提现（税前）：${money(d.available_fen)}</p>`;
-    if (tab === 'manage')
-      c.innerHTML += `<h3>推广码</h3>${table(['推广码／名称', '客户价格', '提成', '有效期', '状态', '实付／实用', '预计／解锁佣金', '审核'], d.codes.map((k) => `<tr><td>${k.code}${k.is_self_code ? '<small>专属自购码</small>' : ''}<small>${esc(k.name)}</small></td><td>${k.customer_price_percent}%</td><td>${k.is_self_code ? '无' : (k.customer_price_percent - 40) + '%'}</td><td>${when(k.starts_at)} 至 ${when(k.ends_at)}</td><td>${labels[k.status]}</td><td>${money(k.paid_fen)} / ${money(k.used_fen)}</td><td>${money(k.expected_fen)} / ${money(k.unlocked_fen)}</td><td>${k.is_self_code ? '' : `<button data-code-review="${k.id}">审核／停用</button>`}</td></tr>`).join(''))}<div id="code-editor"></div><h3>签约记录</h3>${table(['合同版本', '文件摘要', '核验人／时间', '有效期'], d.contracts.map((k) => `<tr><td>${esc(k.template_version)}</td><td>${esc(k.document_sha256)}</td><td>${esc(k.verified_by)}<small>${when(k.verified_at)}</small></td><td>${when(k.expires_at)}</td></tr>`).join(''))}<details><summary>合同与身份核验（管理员）</summary><p>请核验真实签约服务凭证，不能把提交申请视为已签约。</p>${form('contract', field('template_version', '正式合同版本') + field('document_sha256', '已签署文件 SHA-256', 'text', 'pattern="[a-f0-9]{64}"') + field('signature_reference', '签约服务商及凭证编号') + field('identity_reference', '实名核验服务及凭证编号') + field('expires_at', '合同截止时间', 'datetime-local') + `<label class="cw-check"><input type="checkbox" required>已核验双方签署证据和合作人身份</label>`, '登记签署证据并激活')}</details><details><summary>收款账户与联系资料（财务）</summary>${form('private', field('reason', '查看原因'), '查看敏感资料')}<div id="private-details"></div>${form('bank-verify', field('bank_version', '已核验银行卡版本', 'number', 'min="1"') + field('evidence', '本人账户核验凭证编号'), '确认核验')}</details><details><summary>暂停合作</summary>${form('suspend', field('reason', '暂停原因'), '暂停新推广与提现')}</details>`;
+    if (tab === 'manage') {
+      const taskCodes = d.task_codes || [];
+      c.innerHTML += `${p.status === 'pending' ? `<p class="cw-callout">该客户已填写邀请码，等待销售主动联系并确认。确认后客户才成为 VIP，才能发放任务码。</p><button data-confirm="${p.id}">确认成为 VIP</button>` : ''}<h3>任务码（自购折扣码）</h3><p>任务码由 sales 经上司批复后发放，折扣在批复时确定（当前计划 5 折），VIP 用它自购充值，不产生提成。</p>${taskCodes.length ? table(['任务码', '自购折扣', '有效期', '状态', '发放人／时间'], taskCodes.map((k) => `<tr><td><strong>${esc(k.code)}</strong>${k.note ? `<small>${esc(k.note)}</small>` : ''}</td><td>${k.customer_price_percent}%（${(k.customer_price_percent / 10).toFixed(1)} 折）</td><td>${when(k.starts_at)} 至 ${k.ends_at ? when(k.ends_at) : '长期有效'}</td><td>${k.status === 'active' ? '生效中' : k.status === 'paused' ? '已停用' : '已收回'}</td><td>${esc(k.created_by)}<small>${when(k.created_at)}</small></td></tr>`).join('')) : '<p>尚未发放任务码。</p>'}<details><summary>批复新任务码</summary>${form('task-code', field('code', '任务码（留空自动生成）', 'text', 'maxlength="32"') + field('customer_price_percent', '自购折扣（50 表示五折，最低 50）', 'number', 'min="50" max="100" value="50"') + field('ends_at', '有效期至（可选）', 'datetime-local') + field('note', '备注', 'text', 'maxlength="200"'), '发放任务码')}</details><h3>推广码</h3>${table(['推广码／名称', '客户价格', '提成', '有效期', '状态', '实付／实用', '预计／解锁佣金', '审核'], d.codes.map((k) => `<tr><td>${k.code}${k.is_self_code ? '<small>专属自购码</small>' : ''}<small>${esc(k.name)}</small></td><td>${k.customer_price_percent}%</td><td>${k.is_self_code ? '无' : (k.customer_price_percent - 40) + '%'}</td><td>${when(k.starts_at)} 至 ${when(k.ends_at)}</td><td>${labels[k.status]}</td><td>${money(k.paid_fen)} / ${money(k.used_fen)}</td><td>${money(k.expected_fen)} / ${money(k.unlocked_fen)}</td><td>${k.is_self_code ? '' : `<button data-code-review="${k.id}">审核／停用</button>`}</td></tr>`).join(''))}<div id="code-editor"></div><h3>签约记录</h3>${table(['合同版本', '文件摘要', '核验人／时间', '有效期'], d.contracts.map((k) => `<tr><td>${esc(k.template_version)}</td><td>${esc(k.document_sha256)}</td><td>${esc(k.verified_by)}<small>${when(k.verified_at)}</small></td><td>${when(k.expires_at)}</td></tr>`).join(''))}<details><summary>合同与身份核验（管理员）</summary><p>请核验真实签约服务凭证，不能把提交申请视为已签约。</p>${form('contract', field('template_version', '正式合同版本') + field('document_sha256', '已签署文件 SHA-256', 'text', 'pattern="[a-f0-9]{64}"') + field('signature_reference', '签约服务商及凭证编号') + field('identity_reference', '实名核验服务及凭证编号') + field('expires_at', '合同截止时间', 'datetime-local') + `<label class="cw-check"><input type="checkbox" required>已核验双方签署证据和合作人身份</label>`, '登记签署证据')}</details><details><summary>收款账户与联系资料（财务）</summary>${form('private', field('reason', '查看原因'), '查看敏感资料')}<div id="private-details"></div>${form('bank-verify', field('bank_version', '已核验银行卡版本', 'number', 'min="1"') + field('evidence', '本人账户核验凭证编号'), '确认核验')}</details><details><summary>暂停合作</summary>${form('suspend', field('reason', '暂停原因'), '暂停新推广与提现')}</details>`;
+    }
     if (tab === 'settlement')
       c.innerHTML += `<h3>客户付款订单</h3><p class="cw-muted">最近 200 笔成交</p>${table(['客户／付款订单', '推广码', '付款时间', '客户实付／实用', '预计／解锁佣金', '客户计费账户'], d.orders.map((o) => `<tr><td>${esc(o.customer_email)}<small>${esc(o.out_trade_no)}</small></td><td>${o.code}</td><td>${when(o.paid_at)}</td><td>${money(o.cash_fen)} / ${money(o.used_cash_fen)}</td><td>${money(o.expected_fen)} / ${money(o.unlocked_fen)}</td><td>${o.account_id}${o.channel_fee_issue ? '<small>' + esc(o.channel_fee_issue) + '</small>' : ''}</td></tr>`).join(''))}<h3>付款与使用明细</h3>${table(['时间', '码／付款订单', '事件', '实付／实用', '预计／解锁变化'], d.events.map((e) => `<tr><td>${when(e.occurred_at)}</td><td>${e.code}<small>${esc(e.out_trade_no)}</small></td><td>${e.kind === 'paid' ? '充值实付' : labels[e.kind]}</td><td>${money(e.cash_fen)}</td><td>${money(e.commission_fen)}</td></tr>`).join(''))}<details><summary>确认客户月结（财务）</summary><p>自然月已结束、调用结算与支付账单核对完成，并已与客户完成结算，才可确认。</p>${form('close', `<label>客户计费账户<select name="account_id" required><option value="">请选择客户账户</option>${[...new Map(d.orders.map((o) => [o.account_id, o])).values()].map((o) => `<option value="${o.account_id}">${esc(o.customer_email)} · ${o.account_id}</option>`).join('')}</select></label>` + field('month', '结算月份', 'month') + field('evidence', '客户结算单／确认凭证编号'), '确认客户月结')}${table(['已结月份', '客户账户', '结算凭证', '确认时间'], d.closes.map((x) => `<tr><td>${x.month}</td><td>${x.account_id}</td><td>${esc(x.evidence)}</td><td>${when(x.closed_at)}</td></tr>`).join(''))}</details><h3>提现申请与付款结果</h3>${table(['申请时间', '税前／代扣税', '状态', '银行卡', '操作'], d.payouts.map((r) => `<tr><td>${when(r.created_at)}</td><td>${money(r.gross_fen)} / ${money(r.withholding_fen)}</td><td>${labels[r.status]}</td><td>尾号 ${r.bank_last4}</td><td>${r.status === 'requested' ? `<button data-payout-review="${r.id}">审核</button>` : r.status === 'approved' ? `<button data-payout-complete="${r.id}">付款与结果确认</button>` : ''}</td></tr>`).join(''))}<div id="payout-editor"></div>`;
   }
@@ -196,6 +204,11 @@
       } else if (b.dataset.copy) {
         await navigator.clipboard.writeText(b.dataset.copy);
         $('#cw-message').textContent = '链接已复制。';
+      } else if (b.dataset.confirm) {
+        b.disabled = true;
+        await api(base + '/' + b.dataset.confirm + '/confirm', {});
+        await load();
+        $('#cw-message').textContent = '已确认，客户现已成为 VIP。';
       } else if (b.dataset.inviteDisable) {
         await api(base + '/invite-codes/' + encodeURIComponent(b.dataset.inviteDisable) + '/status', { status: 'disabled' });
         await load();
@@ -312,6 +325,15 @@
       if (action === 'contract') {
         path = base + '/' + selected + '/contract';
         body = { ...b, verified: true, expires_at: new Date(b.expires_at).toISOString() };
+      }
+      if (action === 'task-code') {
+        path = base + '/' + selected + '/task-code';
+        body = {
+          ...b,
+          code: b.code || undefined,
+          customer_price_percent: Number(b.customer_price_percent),
+          ends_at: b.ends_at ? new Date(b.ends_at).toISOString() : undefined,
+        };
       }
       if (action === 'private') {
         const r = await api(base + '/' + selected + '/private', b);

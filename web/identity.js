@@ -157,7 +157,7 @@
  }
  const creditActive=()=>Boolean(panelOrg&&employeeCredit?.enabled&&panelOrg.organization.id===employeeCredit.organization_id);
  const cwAuthQuery=()=>{const p=new URLSearchParams(location.search),q=new URLSearchParams();for(const key of ['cw','cw_join']){const v=p.get(key);if(v&&(key==='cw_join'&&v==='1'||/^[A-Z]{8}$/i.test(v)))q.set(key,v);}return q.size?'?'+q.toString():'';};
- let cwOfferCode='',cwInputCode=new URLSearchParams(location.search).get('cw')||'';
+ let cwOfferCode='',cwOfferKind='',cwInputCode=new URLSearchParams(location.search).get('cw')||'';
  let alipayPay=null,alipayTimer=null,alipayFen=10000,payChannel='alipay_f2f';
   const PAY_CHANNELS={alipay_f2f:{name:'支付宝',path:'alipay',chip:'支付宝电脑网站支付'},wechat_native:{name:'微信支付',path:'wechat',chip:'微信支付 Native'}};
  let directPicked=new Set(),directIssued=null,panelOrg=null,teamUsage=null,personalBilling=null,personalPilot=null,employeeCredit=null,employeeIssuedKey=null,employeeKeyModel=null,agentToolId='workbuddy',personalTab='overview',personalFamily='all',personalUse='all',personalSearch='',personalSelected='deepseek-flash',personalPricePeriod='offpeak';
@@ -1289,12 +1289,12 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  window.addEventListener('focus',()=>{if(!document.body.classList.contains('identity-active'))refreshPublic();});
  let cwLookupVersion=0;
  async function lookupCWOffer(value){
-  cwInputCode=value.trim();const version=++cwLookupVersion;cwOfferCode='';
-  try{const r=cwInputCode?await fetch('/api/cw/offers/'+encodeURIComponent(cwInputCode),{credentials:'same-origin'}):null;if(version!==cwLookupVersion)return;if(r?.ok)cwOfferCode=cwInputCode;}catch{}
+  cwInputCode=value.trim();const version=++cwLookupVersion;cwOfferCode='';cwOfferKind='';
+  try{const r=cwInputCode?await fetch('/api/cw/offers/'+encodeURIComponent(cwInputCode),{credentials:'same-origin'}):null;if(version!==cwLookupVersion)return;if(r?.ok){cwOfferCode=cwInputCode;cwOfferKind=(await r.json()).kind||'';}}catch{}
   if(version!==cwLookupVersion)return;
   const label=document.querySelector('label[for="alipay-yuan"]'),help=document.querySelector('#cw-offer-help');
   if(label)label.textContent=cwOfferCode?'支付金额（元）':'充值额度（元）';
-  if(help)help.textContent=cwOfferCode?'已识别 VIP 推广码：上方输入实付金额，付款前确认到账官价额度。':'VIP 推广码按实付金额购买额度，付款前会显示实际到账官价额度。';
+  if(help)help.textContent=cwOfferCode?(cwOfferKind==='task'?'已识别你的任务码（自购折扣码）：上方输入实付金额，付款前确认到账官价额度。':'已识别 VIP 推广码：上方输入实付金额，付款前确认到账官价额度。'):'VIP 推广码按实付金额购买额度，付款前会显示实际到账官价额度。';
 }
  document.addEventListener('change',event=>{if(event.target.id==='pack-promo')lookupCWOffer(event.target.value);});
  if(cwInputCode)lookupCWOffer(cwInputCode);

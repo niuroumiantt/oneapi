@@ -55,7 +55,7 @@ before(async () => {
     req.actor = { kind: 'staff', id: 'cw-test-admin' };
     next();
   };
-  cwRoutes(app, pool, customer, staff, cfg);
+  cwRoutes(app, pool, customer, staff, cfg, { queue: async () => ({}) });
   paymentRoutes(app, pool, customer, cfg, {
     wechat: { native: async () => ({ status: 200, data: { code_url: 'weixin://local-test-only' } }) },
   });
@@ -80,10 +80,12 @@ async function call(path, body, user = 'a', role = null) {
   return { status: r.status, data: await r.json() };
 }
 const staff = (path, b, role = 'platform_admin') => call('/api/staff/cw' + path, b, 'a', role);
-test('CW commission uses cumulative cash precision', () => {
-  assert.equal(commissionFen('10000'), 1000n);
-  assert.equal(commissionFen('9'), 0n);
-  assert.equal(commissionFen('10'), 1n);
+test('CW commission uses cumulative cash precision (percent - 40) * 100', () => {
+  assert.equal(commissionFen('10000', 50), 1000n);
+  assert.equal(commissionFen('9', 50), 0n);
+  assert.equal(commissionFen('10', 50), 1n);
+  assert.equal(commissionFen('10000', 40), 0n);
+  assert.equal(commissionFen('10000', 80), 4000n);
 });
 test('CW application, code cap, payment, usage, month close and payout lifecycle', { skip }, async (t) => {
   let a, b, offer, order, account, pack;

@@ -78,6 +78,44 @@ export async function quoteCW(
 ) {
   const code = normalizedCode(promo);
   if (!code) return null;
+  // Task code: a VIP's own self-purchase discount code, issued by an approver after the
+  // VIP is confirmed. It only works for the VIP themselves (self-purchase) and earns no commission.
+  const task = (
+    await db.query(
+      `SELECT t.*,p.status AS partner_status,p.user_id
+       FROM vip_task_codes t JOIN cw_partners p ON p.id=t.partner_id
+       WHERE t.code=$1 AND t.status='active' AND t.starts_at<=now() AND (t.ends_at IS NULL OR t.ends_at>now())
+       FOR SHARE OF t,p`,
+      [code],
+    )
+  ).rows[0];
+  if (task) {
+    if (!cwEnabled) throw new HttpError(400, '推广合作活动尚未开放');
+    const isSelf = task.user_id === account.owner_id || task.user_id === buyerId;
+    if (!isSelf) throw new HttpError(400, '任务码仅限本人自购使用');
+    if (task.partner_status !== 'active') throw new HttpError(400, '任务码未生效或已停用');
+    const percent = task.customer_price_percent;
+    const face = cashFen === null ? faceFen : Number((BigInt(cashFen) * 100n) / BigInt(percent));
+    const cash = cashFen === null ? Number((BigInt(face) * BigInt(percent) + 99n) / 100n) : cashFen;
+    if (!Number.isSafeInteger(face) || face < 500 || face > 5000000 || cash < 500 || cash > 5000000)
+      throw new HttpError(400, '本次实付或到账额度超出范围');
+    return {
+      face_fen: face,
+      amount_fen: cash,
+      discount_snapshot: {
+        percent,
+        promo_code: task.code,
+        task_code: task.id,
+        cw: {
+          partner_id: task.partner_id,
+          is_self_code: true,
+          rate_bps: 0,
+          percent,
+        },
+        ...(cashFen !== null ? { requested_cash_fen: cashFen } : {}),
+      },
+    };
+  }
   const c = (
     await db.query(
       `SELECT c.*,p.status AS partner_status,p.user_id,
