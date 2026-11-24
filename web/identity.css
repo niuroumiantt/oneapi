@@ -503,6 +503,7 @@ select option{font-size:14px}
 .pay-preview .credit-bar-head{margin-bottom:6px}
 .pay-preview-note{font-size:11px;color:#7d8699;line-height:1.6;margin-top:6px}
 .overview-grid{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:14px}
+.overview-grid>.personal-pilot-log{min-width:0;min-height:0;overflow:visible}
 .overview-empty{display:grid;justify-items:start;gap:8px;padding:26px 16px;color:#5b6478;font-size:13px}.overview-empty p{margin:0}
 .overview-page button,.overview-page .personal-section-title button{border:1px solid #d0d4df;border-radius:6px;background:#fff;padding:6px 11px;font-size:var(--ui-small,13px);cursor:pointer}
 .overview-connect .overview-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-top:1px solid #eef0f6}.overview-row>div{display:grid;gap:3px;min-width:0}.overview-row small{font-size:var(--ui-small,13px);color:#7d8699}.overview-row code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}.overview-sample{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -513,11 +514,11 @@ select option{font-size:14px}
 .overview-models-cta>div{display:grid;gap:4px;min-width:0}.overview-models-cta b{display:inline-flex;align-items:center;gap:6px;font-size:14px}.overview-models-cta p{margin:0;font-size:13px;color:#5b6478;line-height:1.55}
 .overview-models-cta button{flex:none;white-space:nowrap}
 @media(min-width:851px){
-.overview-page{flex:1;min-height:0;margin-top:8px;gap:10px;grid-template-rows:auto minmax(0,1fr);overflow:auto}
+.overview-page{flex:none;margin-top:8px;gap:10px}
 .overview-hero{padding:9px 18px}
 .overview-balance strong{font-size:26px}
 .overview-grid{min-height:0;gap:10px;align-content:start}
-.overview-grid>.personal-pilot-log{display:flex;flex-direction:column;min-height:0;overflow:visible}
+.overview-grid>.personal-pilot-log{display:flex;flex-direction:column}
 .overview-grid .personal-section-title{flex:none;height:36px}
 .overview-grid .team-bars{flex:1;height:auto;min-height:120px;margin-top:6px;padding:0 10px}
 .overview-grid .chart-legend{flex:none}
