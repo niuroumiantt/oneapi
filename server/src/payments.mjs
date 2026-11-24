@@ -49,15 +49,8 @@ export async function creditPaidOrder(pool,outTradeNoValue,{provider,tradeNo,tot
   await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'recharge',$2,$3,'payment',$4)",[o.account_id,o.amount_fen,account.cash_balance_fen,o.id]);
   const pack=await addPack(db,{accountId:o.account_id,sourceKind:'payment',sourceId:o.id,faceFen:o.face_fen,cashFen:o.amount_fen});
   await creditCW(db,o,pack);
-  // Paying with a VIP self-purchase discount code activates formal VIP (confirmed → active).
-  const snap=o.discount_snapshot||{},cw=snap.cw||{};
-  if(cw.is_self_code&&cw.partner_id&&snap.task_code){
-   await db.query(
-    "UPDATE cw_partners SET status='active',activated_at=coalesce(activated_at,now()) WHERE id=$1 AND status='confirmed'",
-    [cw.partner_id],
-   );
-   await audit(db,{kind:'system',id:source},'cw.activated_by_discount_payment',account.organization_id,cw.partner_id,{order_id:o.id,task_code:snap.task_code});
-  }
+  // Discount-code recharge alone does NOT grant formal VIP. Sales verifies the payment, then
+  // activates via POST /api/staff/cw/:partner/activate.
   const order=(await db.query("UPDATE payment_orders SET status='paid',provider_trade_no=$2,paid_at=now(),updated_at=now() WHERE id=$1 RETURNING *",[o.id,tradeNo])).rows[0];
   await audit(db,{kind:'system',id:source},`billing.recharge.${CHANNELS[provider].audit}_paid`,account.organization_id,o.id,{amount_fen:String(o.amount_fen),face_fen:String(o.face_fen),provider_trade_no:tradeNo});
   return {order,credited:true};

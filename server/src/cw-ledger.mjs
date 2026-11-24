@@ -3,6 +3,9 @@ import { HttpError } from './core.mjs';
 // commission_bps = (customer_price_percent - 40) * 100. Sell at 50% -> 10%, at 80% -> 40%.
 export const VIP_BASE_PERCENT = 40;
 export const VIP_SELF_PERCENT = 50;
+// Provisional floor: sales may grant formal VIP only after verifying a discount-code
+// recharge of at least this cash amount. Change later when the business number is final.
+export const VIP_ACTIVATE_MIN_CASH_FEN = 10000;
 export const commissionBps = (percent) => Math.max(0, (percent - VIP_BASE_PERCENT) * 100);
 export const commissionFen = (cash, percent) => (BigInt(cash) * BigInt(commissionBps(percent))) / 10000n;
 export const normalizedCode = (value) =>

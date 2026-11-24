@@ -454,7 +454,7 @@ test('CW application, code cap, payment, usage, month close and payout lifecycle
     },
   );
 });
-test('interview confirms to confirmed; discount payment activates formal VIP', { skip }, async () => {
+test('sales activates formal VIP after verifying discount recharge ≥ ¥100', { skip }, async () => {
   assert.equal(
     (await staff('/invite-codes', { code: 'OPSINVITE1', max_uses: 5, note: 'ops' }, 'operations')).status,
     201,
@@ -482,49 +482,61 @@ test('interview confirms to confirmed; discount payment activates formal VIP', {
     (await pool.query('SELECT status FROM cw_partners WHERE id=$1', [pid])).rows[0].status,
     'confirmed',
   );
-  assert.equal((await call('/api/cw/me', null, 'buyer')).data.partner.status, 'confirmed');
-  assert.equal(
-    (await staff('/' + pid + '/task-code', { code: 'PENDDISC' }, 'pending')).status,
-    403,
-  );
+  assert.equal((await staff('/' + pid + '/activate', {}, 'operations')).status, 409);
   const issued = await staff(
     '/' + pid + '/task-code',
     { code: 'OPSDISC50', customer_price_percent: 50 },
     'operations',
   );
   assert.equal(issued.status, 201);
-  assert.equal(issued.data.code, 'OPSDISC50');
   const account = (
     await pool.query('INSERT INTO billing_accounts(owner_id) VALUES($1) RETURNING *', [ids.buyer])
   ).rows[0];
-  const q = await transaction(pool, (db) =>
+  // Below ¥100: payment succeeds but sales still cannot activate.
+  const low = await transaction(pool, (db) =>
     quotePack(db, account, 10000, 'OPSDISC50', { cashFen: 5000, buyerId: ids.buyer, cwEnabled: true }),
   );
-  assert.equal(q.amount_fen, 5000);
-  assert.equal(q.discount_snapshot.cw.is_self_code, true);
-  assert.ok(q.discount_snapshot.task_code);
+  const lowOrder = (
+    await pool.query(
+      "INSERT INTO payment_orders(out_trade_no,account_id,created_by,provider,amount_fen,face_fen,discount_snapshot,idempotency_key,expires_at) VALUES($1,$2,$3,'wechat_native',$4,$5,$6,$7,now()+interval '15 minutes') RETURNING *",
+      ['VIPLOW' + Date.now(), account.id, ids.buyer, low.amount_fen, low.face_fen, low.discount_snapshot, randomUUID()],
+    )
+  ).rows[0];
+  await creditPaidOrder(
+    pool,
+    lowOrder.out_trade_no,
+    { provider: 'wechat_native', tradeNo: 'vip-low-trade', totalFen: low.amount_fen },
+    'cw-vip-low',
+  );
+  assert.equal(
+    (await pool.query('SELECT status FROM cw_partners WHERE id=$1', [pid])).rows[0].status,
+    'confirmed',
+  );
+  assert.equal((await staff('/' + pid + '/activate', {}, 'operations')).status, 409);
+  // ≥ ¥100 discount recharge: sales can activate.
+  const q = await transaction(pool, (db) =>
+    quotePack(db, account, 20000, 'OPSDISC50', { cashFen: 10000, buyerId: ids.buyer, cwEnabled: true }),
+  );
+  assert.equal(q.amount_fen, 10000);
   const order = (
     await pool.query(
       "INSERT INTO payment_orders(out_trade_no,account_id,created_by,provider,amount_fen,face_fen,discount_snapshot,idempotency_key,expires_at) VALUES($1,$2,$3,'wechat_native',$4,$5,$6,$7,now()+interval '15 minutes') RETURNING *",
-      [
-        'VIPACT' + Date.now(),
-        account.id,
-        ids.buyer,
-        q.amount_fen,
-        q.face_fen,
-        q.discount_snapshot,
-        randomUUID(),
-      ],
+      ['VIPACT' + Date.now(), account.id, ids.buyer, q.amount_fen, q.face_fen, q.discount_snapshot, randomUUID()],
     )
   ).rows[0];
   await creditPaidOrder(
     pool,
     order.out_trade_no,
     { provider: 'wechat_native', tradeNo: 'vip-act-trade', totalFen: q.amount_fen },
-    'cw-vip-activate',
+    'cw-vip-pay',
   );
+  assert.equal(
+    (await pool.query('SELECT status FROM cw_partners WHERE id=$1', [pid])).rows[0].status,
+    'confirmed',
+    'payment alone must not activate VIP',
+  );
+  assert.equal((await staff('/' + pid + '/activate', {}, 'operations')).status, 200);
   const row = (await pool.query('SELECT status,activated_at FROM cw_partners WHERE id=$1', [pid])).rows[0];
   assert.equal(row.status, 'active');
   assert.ok(row.activated_at);
-  assert.equal((await call('/api/cw/me', null, 'buyer')).data.partner.status, 'active');
 });

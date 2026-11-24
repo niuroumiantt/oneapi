@@ -2,7 +2,7 @@ import qrcode from 'qrcode-generator';
 import { randomInt } from 'node:crypto';
 import { HttpError, id, text, transaction, audit, vault, hasBusiness } from './core.mjs';
 import { requireFinance } from './business-console.mjs';
-import { commissionBps, VIP_SELF_PERCENT } from './cw-ledger.mjs';
+import { commissionBps, VIP_SELF_PERCENT, VIP_ACTIVATE_MIN_CASH_FEN } from './cw-ledger.mjs';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const code = () => Array.from({ length: 8 }, () => ALPHABET[randomInt(ALPHABET.length)]).join('');
 const normalizedInvite = (v) =>
@@ -79,7 +79,13 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     next();
   };
   app.get('/api/cw/status', (_req, res) =>
-    res.json({ enabled: !!cfg.cw?.enabled, code_limit: 50, base_percent: 40, self_percent: 50 }),
+    res.json({
+      enabled: !!cfg.cw?.enabled,
+      code_limit: 50,
+      base_percent: 40,
+      self_percent: 50,
+      activate_min_cash_fen: VIP_ACTIVATE_MIN_CASH_FEN,
+    }),
   );
   app.get('/api/cw/offers/:code', enabled, async (req, res) => {
     const code = String(req.params.code).toUpperCase();
@@ -167,7 +173,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
               `VIP 编号：${row.public_code}\n` +
               `VIP 客户邀请码：${inviteCode}\n` +
               `申请时间：${new Date().toLocaleString('zh-CN', { hour12: false })}\n\n` +
-              `请主动电话面试；确认通过后发放 VIP 客户打折码。客户用打折码付款成功后，才成为正式 VIP。\n` +
+              `请主动电话面试；确认通过后发放 VIP 客户打折码。客户充值后，销售核验到账再点「确认正式 VIP」。\n` +
               `处理入口：商务后台 → VIP 合作伙伴管理 → 待确认。`,
           });
         } catch {
@@ -455,6 +461,24 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         [pid],
       )
     ).rows;
+    // Self-purchase discount-code payments — sales uses this list to verify recharge before activate.
+    const discountPayments = (
+      await pool.query(
+        `SELECT o.id,o.out_trade_no,o.amount_fen::text,o.face_fen::text,o.paid_at,o.status,
+                o.discount_snapshot->>'promo_code' AS promo_code
+           FROM payment_orders o
+           JOIN billing_accounts a ON a.id=o.account_id
+          WHERE a.owner_id=$1
+            AND coalesce((o.discount_snapshot->'cw'->>'is_self_code')::boolean,false)=true
+            AND nullif(o.discount_snapshot->>'task_code','') IS NOT NULL
+          ORDER BY o.paid_at DESC NULLS LAST, o.created_at DESC
+          LIMIT 50`,
+        [p.user_id],
+      )
+    ).rows;
+    const qualifying = discountPayments.find(
+      (o) => o.status === 'paid' && Number(o.amount_fen) >= VIP_ACTIVATE_MIN_CASH_FEN,
+    );
     res.json({
       partner: publicPartner(p),
       codes,
@@ -464,6 +488,9 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       payouts,
       closes,
       task_codes: taskCodes,
+      discount_payments: discountPayments,
+      activate_min_cash_fen: VIP_ACTIVATE_MIN_CASH_FEN,
+      can_activate: p.status === 'confirmed' && Boolean(qualifying),
       available_fen: await available(pool, pid),
     });
   });
@@ -494,8 +521,8 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     res.json({ ok: true });
   });
 
-  // Interview confirmation: pending → confirmed. Formal VIP (active) is granted only after
-  // the applicant pays with their VIP discount code.
+  // Interview confirmation: pending → confirmed. Applicant may then receive a discount code
+  // and recharge; formal VIP still requires a separate sales activation after payment check.
   app.post('/api/staff/cw/:partner/confirm', requireStaff, async (req, res) => {
     business(req);
     const pid = id(req.params.partner);
@@ -503,7 +530,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       const p = (await db.query('SELECT id,status FROM cw_partners WHERE id=$1 FOR UPDATE', [pid])).rows[0];
       if (!p) throw new HttpError(404, 'VIP 不存在');
       if (p.status === 'active') throw new HttpError(409, '该申请已是正式 VIP，无需重复确认');
-      if (p.status === 'confirmed') throw new HttpError(409, '已面试确认，请发放打折码后等待付款激活');
+      if (p.status === 'confirmed') throw new HttpError(409, '已面试确认，请发放打折码；客户充值后由销售核验并确认正式 VIP');
       if (p.status !== 'pending') throw new HttpError(409, '当前状态不可确认');
       await db.query(
         "UPDATE cw_partners SET status='confirmed',confirmed_by=$2,confirmed_at=now() WHERE id=$1",
@@ -516,8 +543,51 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     res.json({ ok: true });
   });
 
+  // Sales grants formal VIP after verifying a successful discount-code recharge (≥ ¥100 provisional).
+  app.post('/api/staff/cw/:partner/activate', requireStaff, async (req, res) => {
+    business(req);
+    const pid = id(req.params.partner);
+    const result = await transaction(pool, async (db) => {
+      const p = (await db.query('SELECT id,status,user_id FROM cw_partners WHERE id=$1 FOR UPDATE', [pid]))
+        .rows[0];
+      if (!p) throw new HttpError(404, 'VIP 不存在');
+      if (p.status === 'active') throw new HttpError(409, '已是正式 VIP');
+      if (p.status !== 'confirmed') throw new HttpError(409, '请先完成面试确认并等待客户充值');
+      const paid = (
+        await db.query(
+          `SELECT o.id,o.out_trade_no,o.amount_fen::text,o.paid_at
+             FROM payment_orders o
+             JOIN billing_accounts a ON a.id=o.account_id
+            WHERE a.owner_id=$1 AND o.status='paid'
+              AND coalesce((o.discount_snapshot->'cw'->>'is_self_code')::boolean,false)=true
+              AND nullif(o.discount_snapshot->>'task_code','') IS NOT NULL
+              AND o.amount_fen>=$2
+            ORDER BY o.paid_at DESC NULLS LAST
+            LIMIT 1`,
+          [p.user_id, VIP_ACTIVATE_MIN_CASH_FEN],
+        )
+      ).rows[0];
+      if (!paid)
+        throw new HttpError(
+          409,
+          `尚未找到实付 ≥ ¥${(VIP_ACTIVATE_MIN_CASH_FEN / 100).toFixed(0)} 的打折码充值记录，请核验后再确认`,
+        );
+      await db.query(
+        "UPDATE cw_partners SET status='active',activated_at=coalesce(activated_at,now()) WHERE id=$1",
+        [pid],
+      );
+      await audit(db, req.actor, 'cw.activated', null, pid, {
+        order_id: paid.id,
+        amount_fen: paid.amount_fen,
+        out_trade_no: paid.out_trade_no,
+        note: text(req.body?.note ?? '', '备注', 300),
+      });
+      return paid;
+    });
+    res.json({ ok: true, payment: result });
+  });
+
   // Issue a VIP 客户打折码 after interview confirmation (confirmed or already active).
-  // Formal VIP activation happens on successful payment with this code.
   app.post('/api/staff/cw/:partner/task-code', requireStaff, async (req, res) => {
     business(req);
     const b = req.body || {},
