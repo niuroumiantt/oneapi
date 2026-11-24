@@ -22,12 +22,13 @@
 | 文档 | 用途 |
 | --- | --- |
 | [本轮交接](docs/handoff/customer-credit-flow.md) | 已实现、测试、发布门槛与未完成项 |
+| [真实商户验收清单](docs/handoff/live-merchant-acceptance-checklist.md) | 打开付费开关前的逐项验收门槛 |
 | [现行计费规则](docs/handoff/list-credit-billing.md) | 面额、实付、优惠及退款 |
 | [实际架构](docs/06-technical-architecture.md) | 数据流和模块边界 |
 | [真实身份](docs/phase-1/13-live-identity.md) | 客户及员工权限 |
 | [供应商验收](docs/phase-1/19-supplier-api-lab.md) | 上游验证与成本证据 |
 | [部署交接](docs/handoff/oneapi-aliyun.md) | 中国区部署历史 |
 
-`docs/phase-1/` 及其他早期蓝图保留设计背景；涉及当前实现与价格的冲突以本页、现行计费规则和本轮交接为准。AWS、分销返佣和企业付费额度分配等蓝图不能视为已上线功能。
+`docs/phase-1/` 及其他早期蓝图保留设计背景；涉及当前实现与价格的冲突以本页、现行计费规则和本轮交接为准。各处残留的“15% 退款手续费”均为已废止的历史提案，现行退款一律 0 手续费并按红绿模型执行。AWS、分销返佣和企业付费额度分配等蓝图不能视为已上线功能。
 
 测试：在独立空测试数据库运行 `TEST_DATABASE_URL=postgresql://… npm test`。构建静态包：`python3 scripts/build_static.py --out /tmp/oneapi.tar.gz`。不要用生产数据库跑测试。

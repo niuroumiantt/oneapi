@@ -13,4 +13,4 @@
 
 迁移前备份：`/srv/oneapi-backups/oneapi-before-09b6bd4.dump`、`/srv/oneapi-config/compose.before-09b6bd4.env`、`/srv/oneapi-config/identity.before-09b6bd4.env`。旧镜像保留；`016_billing_foundation.sql` 为加法迁移，回滚应用时保留新表。
 
-用户确认微信/支付宝商户尚未开通，DeepSeek Flash 客户价尚未确定。下一步根据 `docs/phase-1/20-recharge-system.md` 建充值订单和商户适配器；先核实价格、授权和支付渠道，再在隔离商户环境验签、幂等、对账、原路退款及真实调用。用户提出的 15% 退款手续费暂不执行，需先核验条款与渠道可行性。
+用户确认微信/支付宝商户尚未开通，DeepSeek Flash 客户价尚未确定。下一步根据 `docs/phase-1/20-recharge-system.md` 建充值订单和商户适配器；先核实价格、授权和支付渠道，再在隔离商户环境验签、幂等、对账、原路退款及真实调用。2026-11-24 口径校正：15% 退款手续费提案已废止，现行退款按红绿模型退红条实付剩余、0 手续费、绿赠送整条收回。
