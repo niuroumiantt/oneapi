@@ -72,7 +72,7 @@ function gateways(cfg,{alipay,wechat}){
   async createCode(order,{returnUrl}={}){
    try{
     return alipay.pagePayUrl({outTradeNo:order.out_trade_no,amountFen:order.amount_fen,subject:'OneAPI 账户充值',
-     notifyUrl:cfg.origin+'/api/payments/alipay/notify',returnUrl:returnUrl||cfg.origin+'/#billing/personal',timeoutMinutes:ORDER_TTL_MINUTES});
+     notifyUrl:cfg.origin+'/api/payments/alipay/notify',returnUrl:returnUrl||cfg.origin+'/?alipay_return=1',timeoutMinutes:ORDER_TTL_MINUTES});
    }catch(e){console.error(JSON.stringify({event:'alipay_page_pay_failed',code:e.message}));return null;}
   },
   async check(order){
@@ -154,7 +154,7 @@ export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
    return {order,created:true};
   });let {order,created}=saved;
   if(order.status==='pending'&&!order.qr_code&&new Date(order.expires_at)>new Date()){
-   const returnUrl=ownerColumn==='organization_id'?`${cfg.origin}/#billing/organization/${ownerValue}`:`${cfg.origin}/#billing/personal`;
+   const returnUrl=ownerColumn==='organization_id'?`${cfg.origin}/?alipay_return=org&org=${encodeURIComponent(ownerValue)}`:`${cfg.origin}/?alipay_return=1`;
    const code=await gw[provider].createCode(order,{returnUrl});
    if(!code)throw new HttpError(502,provider==='wechat_native'?`${name}暂时无法生成付款码，请稍后重试。`:`${name}暂时无法打开付款页，请稍后重试。`);
    order=(await pool.query('UPDATE payment_orders SET qr_code=$2,updated_at=now() WHERE id=$1 RETURNING *',[order.id,code])).rows[0];

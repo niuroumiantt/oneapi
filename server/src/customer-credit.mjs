@@ -49,7 +49,10 @@ export function customerCreditRoutes(app,pool,cfg,requireCustomer){
  const account=async req=>accountFor(pool,req.customer.id,req.query.org? id(req.query.org):null,{create:true});
  app.get('/api/customer-credit/status',requireCustomer,async(req,res)=>{
   const a=await account(req),routes=paidEnabled(cfg)?await paidRoutes(pool,cfg):[];
-  const keys=(await pool.query("SELECT id,label,key_hint,model_ids,limit_yuan,created_at,revoked_at FROM customer_api_keys WHERE account_id=$1 AND purpose='api' ORDER BY created_at DESC",[a.id])).rows;
+  const keys=(await pool.query(`SELECT k.id,k.label,k.key_hint,k.model_ids,k.limit_yuan,k.created_at,k.revoked_at,
+    coalesce((SELECT sum(coalesce(c.charged_yuan,CASE WHEN c.status IN ('pending','awaiting_bill') THEN c.hold_yuan END)) FROM customer_calls c WHERE c.key_id=k.id),0)::numeric AS used_yuan,
+    (SELECT count(*)::int FROM customer_calls c WHERE c.key_id=k.id) AS calls
+    FROM customer_api_keys k WHERE k.account_id=$1 AND k.purpose='api' ORDER BY k.created_at DESC`,[a.id])).rows;
   const calls=(await pool.query('SELECT id,model_id,status,charged_yuan,input_tokens,cached_input_tokens,output_tokens,latency_ms,error_code,created_at FROM customer_calls WHERE account_id=$1 ORDER BY created_at DESC LIMIT 100',[a.id])).rows;
   const held=(await pool.query("SELECT coalesce(sum(hold_yuan)*100,0) AS n FROM customer_calls WHERE account_id=$1 AND status IN ('pending','awaiting_bill')",[a.id])).rows[0].n;
   res.json({enabled:paidEnabled(cfg),account_id:a.id,base_url:cfg.origin+'/v1',models:routes.map(r=>({id:r.model.id,name:r.model.name})),keys,calls,list_credit_fen:a.list_credit_fen,held_fen:held});
@@ -69,6 +72,7 @@ export function customerCreditRoutes(app,pool,cfg,requireCustomer){
   });res.status(201).json({key,secret,base_url:cfg.origin+'/v1'});
  });
  app.post('/api/customer-credit/keys/:key/revoke',requireCustomer,async(req,res)=>{const a=await account(req);const r=await pool.query('UPDATE customer_api_keys SET revoked_at=coalesce(revoked_at,now()) WHERE id=$1 AND account_id=$2 RETURNING id',[id(req.params.key),a.id]);if(!r.rowCount)throw new HttpError(404,'Key 不存在');await audit(pool,req.actor,'customer.key_revoked',a.organization_id,req.params.key);res.json({ok:true});});
+ app.post('/api/customer-credit/keys/:key/limit',requireCustomer,async(req,res)=>{const a=await account(req),b=req.body||{};if(typeof b.limit_yuan!=='string'||!/^\d{1,6}(\.\d{1,2})?$/.test(b.limit_yuan)||Number(b.limit_yuan)<=0)throw new HttpError(400,'请输入新的官价额度消费上限');const used=(await pool.query('SELECT coalesce(sum(coalesce(charged_yuan,CASE WHEN status IN (\'pending\',\'awaiting_bill\') THEN hold_yuan END)),0) AS n FROM customer_calls WHERE key_id=$1',[id(req.params.key)])).rows[0].n;if(Number(b.limit_yuan)<Number(used))throw new HttpError(409,'上限不能低于已用额度');const r=await pool.query('UPDATE customer_api_keys SET limit_yuan=$2 WHERE id=$1 AND account_id=$3 RETURNING id',[id(req.params.key),b.limit_yuan,a.id]);if(!r.rowCount)throw new HttpError(404,'Key 不存在');await audit(pool,req.actor,'customer.key_limit_updated',a.organization_id,req.params.key,{limit_yuan:b.limit_yuan});res.json({ok:true});});
  app.post('/api/customer-credit/packs/:pack/refund-request',requireCustomer,async(req,res)=>{
   const a=await account(req),q=await refundQuote(pool,id(req.params.pack));if(q.account_id!==a.id)throw new HttpError(404,'额度包不存在');if(q.blocked)throw new HttpError(409,q.blocked);
   await pool.query(`INSERT INTO credit_refund_requests(pack_id,requested_by,reason) VALUES($1,$2,$3) ON CONFLICT(pack_id) WHERE status IN ('requested','processing') DO NOTHING`,[q.id,req.customer.id,text(req.body?.reason,'退款原因',200)]);

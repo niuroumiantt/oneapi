@@ -89,6 +89,18 @@ document.addEventListener('click',event=>{
 $('#model-search').addEventListener('input',renderModels);$('#model-use').addEventListener('change',renderModels);$('#pricing-input-tokens').addEventListener('input',updatePricingExample);$('#pricing-output-tokens').addEventListener('input',updatePricingExample);updatePricingExample();
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();if(!$('#market-view').hidden)$('#model-search').focus();}});
 window.addEventListener('hashchange',()=>{switchView(location.hash.slice(1));});
+// 支付宝电脑网站支付 return_url 回跳：支付宝会把带 # 锚点的地址丢弃或转义，导致回到首页。
+// 服务端 return_url 改为带 ?alipay_return 查询参数；这里检测后清理参数并跳回账单页。
+(function alipayReturn(){
+ const q=new URLSearchParams(location.search);
+ if(!q.has('alipay_return'))return;
+ const target=q.get('alipay_return')==='org'&&q.get('org')?'billing/organization/'+q.get('org'):'billing/personal';
+ q.delete('alipay_return');q.delete('org');
+ const clean=q.toString();
+ const base=location.pathname+(clean?'?'+clean:'');
+ history.replaceState(null,'',base+'#'+target);
+ switchView(target);
+})();
 renderModels();
 
 
