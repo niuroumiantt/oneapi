@@ -88,11 +88,11 @@
 }
 
 /* Keep personal signup primary; show both enterprise paths without exposing staff sign-in. */
-.welcome-header nav .welcome-enterprise-link,.lp-header nav .lp-enterprise,.m-header-actions .m-enterprise{color:#1C2541;font-weight:650;text-decoration:none}
+.welcome-header nav .welcome-enterprise-link,.lp-header nav .lp-enterprise,.m-header-actions .m-enterprise{color:#1C2541;font-weight:600;text-decoration:none}
 .welcome-header nav .welcome-enterprise-link:hover,.lp-header nav .lp-enterprise:hover,.m-header-actions .m-enterprise:hover{color:#E43C2F}
 .lp-header nav .lp-enterprise[hidden],.m-header-actions .m-enterprise[hidden]{display:none}
 .welcome-enterprise-guide{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:18px;padding:13px 0;border-top:1px solid #dedce1;border-bottom:1px solid #dedce1;font-size:var(--ui-small,13px)}
-.welcome-enterprise-guide>span{color:#747988;font-weight:650;white-space:nowrap}
+.welcome-enterprise-guide>span{color:#747988;font-weight:600;white-space:nowrap}
 .welcome-enterprise-guide>div{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px 13px}
 .welcome-enterprise-guide a{color:#1C2541;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
 .welcome-enterprise-guide a:hover{color:#E43C2F}
@@ -118,7 +118,7 @@
 .welcome-enterprise-heading strong{font-size:var(--ui-small,13px);color:#1C2541}
 .welcome-enterprise-heading small{margin-top:3px;color:#828a99;font-size:var(--ui-small,13px)}
 .welcome-enterprise-guide{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:11px 0 0;padding:0;border:0}
-.welcome-enterprise-guide a{display:flex;align-items:center;justify-content:space-between;gap:5px;min-height:31px;padding:6px 8px;border:1px solid #dce1e9;border-radius:8px;text-decoration:none;color:#263b5b;font-size:var(--ui-small,13px);font-weight:650}
+.welcome-enterprise-guide a{display:flex;align-items:center;justify-content:space-between;gap:5px;min-height:31px;padding:6px 8px;border:1px solid #dce1e9;border-radius:8px;text-decoration:none;color:#263b5b;font-size:var(--ui-small,13px);font-weight:600}
 .welcome-enterprise-guide a:hover{border-color:#90a8c8;background:#f1f5fa;color:#1C2541}
 .welcome-enterprise-guide a .ui-icon{width:12px;height:12px}
 .universe-active .welcome-explore{margin-top:11px;padding-top:0}

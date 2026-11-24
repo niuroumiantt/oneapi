@@ -9,7 +9,7 @@
 .site-header .site-nav{display:flex;align-items:stretch;justify-content:center;gap:28px;height:100%;margin:0;padding:0;border:0;white-space:nowrap}
 .site-header .site-nav a{display:flex;align-items:center;justify-content:center;min-height:44px;padding:0;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--site-muted);font-size:14px;font-weight:500;line-height:1.4;text-decoration:none;background:transparent;transition:color .15s,border-color .15s}
 .site-header .site-nav a:hover{color:var(--site-ink);border-bottom-color:#c9ced7}
-.site-header .site-nav a[aria-current="page"]{color:var(--site-ink);border-bottom-color:var(--site-accent);font-weight:650}
+.site-header .site-nav a[aria-current="page"]{color:var(--site-ink);border-bottom-color:var(--site-accent);font-weight:600}
 .site-header .site-account{justify-self:end;min-width:0}
 .site-header .account-menu summary{min-height:44px;padding:5px 10px;border:1px solid var(--site-line);border-radius:var(--ui-radius);background:#fff;gap:8px}
 .site-header .account-avatar{width:30px;height:30px;background:var(--site-ink);color:#fff}
