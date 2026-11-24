@@ -147,23 +147,26 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         invited_by: invited?.id || null,
         invite_code: inviteCode,
       });
-      // The customer has only applied. A sales person must confirm them before they are a VIP,
-      // so no self-code / task code is issued here. Notify all platform admins to follow up.
-      const admins = (
-        await db.query("SELECT email FROM staff_members WHERE role='platform_admin' AND status='active' AND email<>''", [])
+      // The customer has only applied. Any active company staff may confirm them before they
+      // are a VIP; notify all active staff so sales can follow up and interview.
+      const staffEmails = (
+        await db.query(
+          "SELECT email FROM staff_members WHERE status='active' AND role<>'pending' AND email<>''",
+          [],
+        )
       ).rows;
-      for (const a of admins) {
+      for (const a of staffEmails) {
         try {
           await mail.queue({
             to: a.email,
             subject: `semifly VIP 新申请待确认：${name}`,
             text:
-              `有一位客户通过邀请码申请成为 VIP 合作伙伴，等待销售联系并确认。\n\n` +
+              `有一位客户通过 VIP 客户邀请码申请成为 VIP 合作伙伴，等待销售电话面试并确认。\n\n` +
               `申请人：${name}\n` +
               `VIP 编号：${row.public_code}\n` +
-              `邀请码：${inviteCode}\n` +
+              `VIP 客户邀请码：${inviteCode}\n` +
               `申请时间：${new Date().toLocaleString('zh-CN', { hour12: false })}\n\n` +
-              `请主动联系客户；确认通过后，客户才成为 VIP，并获得任务码（自购折扣码，当前计划 5 折）。\n` +
+              `请主动联系客户；确认通过后，客户才成为 VIP，并获得 VIP 客户打折码（自购折扣，当前计划 5 折）。\n` +
               `处理入口：商务后台 → VIP 合作伙伴管理 → 待确认。`,
           });
         } catch {
@@ -364,9 +367,9 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     res.json({ enabled: !!cfg.cw?.enabled, partners, invite_codes: invites });
   });
 
-  // Invite codes are issued by staff (admin) only; reusable up to max_uses.
+  // VIP 客户邀请码：any active company staff may issue; reusable up to max_uses.
   app.post('/api/staff/cw/invite-codes', requireStaff, async (req, res) => {
-    admin(req);
+    business(req);
     const b = req.body || {};
     const inviteCode = normalizedInvite(b.code);
     if (!/^[A-Z0-9_-]{2,32}$/.test(inviteCode)) throw new HttpError(400, '邀请码格式不正确');
@@ -390,7 +393,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
   });
 
   app.post('/api/staff/cw/invite-codes/:code/status', requireStaff, async (req, res) => {
-    admin(req);
+    business(req);
     const state = req.body?.status;
     if (!['active', 'disabled'].includes(state)) throw new HttpError(400, '状态不正确');
     await transaction(pool, async (db) => {
@@ -490,10 +493,10 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     res.json({ ok: true });
   });
 
-  // Sales confirmation: a pending application becomes an active VIP only after a sales person
-  // contacts the applicant and confirms them. This is the gate that grants VIP identity.
+  // Sales confirmation: a pending application becomes an active VIP only after company staff
+  // interviews the applicant and confirms them. This is the gate that grants VIP identity.
   app.post('/api/staff/cw/:partner/confirm', requireStaff, async (req, res) => {
-    admin(req);
+    business(req);
     const pid = id(req.params.partner);
     await transaction(pool, async (db) => {
       const p = (await db.query('SELECT id,status FROM cw_partners WHERE id=$1 FOR UPDATE', [pid])).rows[0];
@@ -510,23 +513,23 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     res.json({ ok: true });
   });
 
-  // Issue a task code (self-purchase discount code) to a confirmed VIP. The discount is
-  // fixed by the approver (platform admin) at this step — planned 50% (5 折).
+  // Issue a VIP 客户打折码 (self-purchase discount) to a confirmed VIP. Any active company
+  // staff may issue; discount is fixed at this step — planned 50% (5 折).
   app.post('/api/staff/cw/:partner/task-code', requireStaff, async (req, res) => {
-    admin(req);
+    business(req);
     const b = req.body || {},
       pid = id(req.params.partner),
-      percent = integer(b.customer_price_percent ?? VIP_SELF_PERCENT, 50, 100, '任务码折扣');
+      percent = integer(b.customer_price_percent ?? VIP_SELF_PERCENT, 50, 100, '打折码折扣');
     const c = await transaction(pool, async (db) => {
       const p = (await db.query("SELECT id,status FROM cw_partners WHERE id=$1 FOR UPDATE", [pid])).rows[0];
       if (!p) throw new HttpError(404, 'VIP 不存在');
-      if (p.status !== 'active') throw new HttpError(409, '请先确认客户成为 VIP，再发放任务码');
+      if (p.status !== 'active') throw new HttpError(409, '请先确认客户成为 VIP，再发放打折码');
       const code = normalizedInvite(b.code);
-      if (code && !/^[A-Z0-9_-]{2,32}$/.test(code)) throw new HttpError(400, '任务码格式不正确');
+      if (code && !/^[A-Z0-9_-]{2,32}$/.test(code)) throw new HttpError(400, '打折码格式不正确');
       const taskCode = code || (await uniqueCode(db));
       const end = b.ends_at ? new Date(b.ends_at) : null;
       if (b.ends_at && (!Number.isFinite(end.getTime()) || end <= new Date()))
-        throw new HttpError(400, '任务码有效期不正确');
+        throw new HttpError(400, '打折码有效期不正确');
       const row = (
         await db.query(
           `INSERT INTO vip_task_codes(partner_id,code,customer_price_percent,created_by,ends_at,note)

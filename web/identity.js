@@ -1294,7 +1294,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   if(version!==cwLookupVersion)return;
   const label=document.querySelector('label[for="alipay-yuan"]'),help=document.querySelector('#cw-offer-help');
   if(label)label.textContent=cwOfferCode?'支付金额（元）':'充值额度（元）';
-  if(help)help.textContent=cwOfferCode?(cwOfferKind==='task'?'已识别你的任务码（自购折扣码）：上方输入实付金额，付款前确认到账官价额度。':'已识别 VIP 推广码：上方输入实付金额，付款前确认到账官价额度。'):'VIP 推广码按实付金额购买额度，付款前会显示实际到账官价额度。';
+  if(help)help.textContent=cwOfferCode?(cwOfferKind==='task'?'已识别你的 VIP 客户打折码：上方输入实付金额，付款前确认到账官价额度。':'已识别 VIP 推广码：上方输入实付金额，付款前确认到账官价额度。'):'VIP 推广码按实付金额购买额度，付款前会显示实际到账官价额度。';
 }
  document.addEventListener('change',event=>{if(event.target.id==='pack-promo')lookupCWOffer(event.target.value);});
  if(cwInputCode)lookupCWOffer(cwInputCode);

@@ -454,3 +454,40 @@ test('CW application, code cap, payment, usage, month close and payout lifecycle
     },
   );
 });
+test('active non-admin staff can issue VIP invite and discount codes; pending cannot', { skip }, async () => {
+  assert.equal(
+    (await staff('/invite-codes', { code: 'OPSINVITE1', max_uses: 5, note: 'ops' }, 'operations')).status,
+    201,
+  );
+  assert.equal(
+    (await staff('/invite-codes', { code: 'PENDINVITE', max_uses: 1 }, 'pending')).status,
+    403,
+  );
+  const applied = await call(
+    '/api/cw/apply',
+    {
+      legal_name: 'Ops Candidate',
+      contact: 'ops-cand@cw.example.test',
+      consent_version: 'cw-privacy-v1',
+      invite_code: 'OPSINVITE1',
+    },
+    'buyer',
+  );
+  assert.equal(applied.status, 201);
+  assert.equal(applied.data.partner.status, 'pending');
+  const pid = applied.data.partner.id;
+  assert.equal((await staff('/' + pid + '/confirm', {}, 'pending')).status, 403);
+  assert.equal((await staff('/' + pid + '/confirm', {}, 'operations')).status, 200);
+  assert.equal(
+    (await staff('/' + pid + '/task-code', { code: 'PENDDISC' }, 'pending')).status,
+    403,
+  );
+  const issued = await staff(
+    '/' + pid + '/task-code',
+    { code: 'OPSDISC50', customer_price_percent: 50 },
+    'operations',
+  );
+  assert.equal(issued.status, 201);
+  assert.equal(issued.data.code, 'OPSDISC50');
+  assert.equal(issued.data.customer_price_percent, 50);
+});
