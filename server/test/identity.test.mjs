@@ -1119,18 +1119,28 @@ test('pack refunds return only red cash with no fee, forfeit green, survive reje
  assert.equal((await buyer.j.call('/api/billing/alipay-orders/'+order.id)).data.order.status,'paid');
  const balance=async()=>(await buyer.j.call('/api/billing/personal')).data;
  const pack=(await balance()).packs[0],selfPath=`/api/customer-credit/packs/${pack.id}/refund`;
- const ask=key=>buyer.j.call(selfPath,{method:'POST',body:{reason:'退回红色实付',idempotency_key:key}});
+ assert.equal(pack.payment_provider,'alipay_f2f');
+ assert.ok(pack.paid_at);
+ const ask=(key,expected_amount_fen)=>buyer.j.call(selfPath,{method:'POST',body:{reason:'退回红色实付',idempotency_key:key,expected_amount_fen}});
  // No discount: all remaining credit is red, refundable, zero fee.
  const split=(await balance()).credit_split;assert.equal(split.red_fen,'3000');assert.equal(split.green_fen,'0');assert.equal(split.refundable_fen,'3000');
  const quote=(await admin.call(`/api/staff/payments/orders/${order.id}/refund-quote`)).data;assert.equal(quote.net_fen,'3000');assert.equal(quote.fee_fen,'0');assert.equal(quote.bonus_fen,'0');
  assert.equal((await jar().call(selfPath,{method:'POST',body:{reason:'x',idempotency_key:'pack-anon-00000001'}})).status,401);
- alipayRefundMode='reject';const rejected=await ask('pack-reject-00000001');alipayRefundMode='ok';assert.equal(rejected.data.status,'failed');assert.equal((await balance()).list_credit_fen,'3000');assert.equal((await balance()).cash_balance_fen,'3000');
- alipayRefundMode='timeout';const pending=await ask('pack-pending-0000001');assert.equal(pending.data.status,'pending');assert.equal((await balance()).list_credit_fen,'0');assert.equal((await balance()).cash_balance_fen,'0');
+ const stale=await ask('pack-stale-000000001',2999);
+ assert.equal(stale.status,409);
+ assert.match(stale.data.error,/可退金额已变化/);
+ assert.equal((await balance()).cash_balance_fen,'3000');
+ assert.equal(trade.refundedFen||0,0);
+ alipayRefundMode='reject';const rejected=await ask('pack-reject-00000001',3000);alipayRefundMode='ok';assert.equal(rejected.data.status,'failed');assert.equal((await balance()).list_credit_fen,'3000');assert.equal((await balance()).cash_balance_fen,'3000');
+ alipayRefundMode='timeout';const pending=await ask('pack-pending-0000001',3000);assert.equal(pending.data.status,'pending');assert.equal((await balance()).list_credit_fen,'0');assert.equal((await balance()).cash_balance_fen,'0');
+ const held=(await balance()).packs[0];assert.equal(held.refund_status,'pending');assert.equal(held.refund_amount_fen,'3000');
  assert.equal((await ask('pack-blocked-0000001')).status,409);
  assert.equal((await buyer.j.call('/api/billing/personal/invoices',{method:'POST',body:{invoice_type:'general',title:'测试个人',email:buyer.email,amount_yuan:'1'}})).status,409,'invoice must wait for pending refund');
  alipayRefundMode='ok';assert.equal((await admin.call(`/api/staff/payments/refunds/${pending.data.refund_id}/retry`,{method:'POST',body:{}})).data.status,'succeeded');
- assert.equal((await balance()).cash_balance_fen,'0');assert.equal(trade.refundedFen,3000);
- const replay=await ask('pack-pending-0000001');assert.equal(replay.data.refund_id,pending.data.refund_id);assert.equal(trade.refundedFen,3000);
+ const settled=await balance();assert.equal(settled.cash_balance_fen,'0');assert.equal(trade.refundedFen,3000);
+ assert.equal(settled.packs[0].refund_status,'succeeded');
+ assert.equal(settled.packs[0].refund_amount_fen,'3000');
+ const replay=await ask('pack-pending-0000001',3000);assert.equal(replay.data.refund_id,pending.data.refund_id);assert.equal(trade.refundedFen,3000);
  const ledger=(await balance()).entries;assert.equal(ledger.filter(e=>e.reference_id?.startsWith('refund-fee:')).length,0,'no refund fee ledger');
 });
 

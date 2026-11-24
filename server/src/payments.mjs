@@ -235,6 +235,9 @@ export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
  // The whole green gift is forfeited and the pack closes. Bank transfers stay with finance.
  app.post('/api/customer-credit/packs/:pack/refund',requireCustomer,async(req,res)=>{
   const packId=id(req.params.pack),reason=text(req.body?.reason,'退款原因',200),key=req.body?.idempotency_key;
+  const expectedAmount=req.body?.expected_amount_fen;
+  if(expectedAmount!==undefined&&(!Number.isSafeInteger(expectedAmount)||expectedAmount<1))
+   throw new HttpError(400,'退款金额格式不正确，请刷新后重试');
   if(typeof key!=='string'||!/^[A-Za-z0-9_-]{16,64}$/.test(key))throw new HttpError(400,'请刷新页面后重试');
   const p=(await pool.query(`SELECT p.*,o.id AS order_id,o.status AS order_status,o.provider,a.owner_id,a.organization_id
    FROM credit_packs p JOIN payment_orders o ON p.source_kind='payment' AND o.id=p.source_id
@@ -251,7 +254,7 @@ export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
    const o=(await db.query('SELECT * FROM payment_orders WHERE id=$1 FOR UPDATE',[p.order_id])).rows[0];
    if(!o||o.status!=='paid')throw new HttpError(409,'订单状态已变化，请刷新后重试');
    if((await db.query("SELECT 1 FROM payment_refunds WHERE order_id=$1 AND status='pending'",[o.id])).rowCount)throw new HttpError(409,'该订单有一笔退款正在处理，请稍后查看结果');
-   return createPackRefund(db,{order:o,packId,reason,requestedBy:req.customer.id,key});
+   return createPackRefund(db,{order:o,packId,reason,requestedBy:req.customer.id,key,expectedAmount});
   });
   const status=already?existing.status:await settleRefund(gw,pool,refundId);
   const quote=await refundQuote(pool,packId);
@@ -295,14 +298,17 @@ export async function finishRefund(pool,refundId,{outcome,code},source){
 
 // Shared refund plumbing, used by both the customer self-service route and the finance route.
 // Freezes the pack, books the refund and closes the pack (the whole green gift is forfeited).
-// Must run inside a transaction that has already locked the order (and, for finance, the account).
+// Must run inside a transaction that has already locked the order.
 // Returns the new refund id; a definitive channel rejection later releases the hold in finishRefund.
-async function createPackRefund(db,{order,packId,reason,requestedBy,key}){
+async function createPackRefund(db,{order,packId,reason,requestedBy,key,expectedAmount}){
+ // Hold the same account lock used by metering before checking the confirmed amount.
+ const acct=(await db.query('SELECT id,organization_id FROM billing_accounts WHERE id=$1 FOR UPDATE',[order.account_id])).rows[0];
  const q=await refundQuote(db,packId);
  if(q.blocked)throw new HttpError(409,q.blocked);
  if(q.account_id!==order.account_id)throw new HttpError(409,'额度包与订单不属于同一账户');
  const amount=Number(q.refundable_fen);
- const acct=(await db.query('SELECT * FROM billing_accounts WHERE id=$1 FOR UPDATE',[order.account_id])).rows[0];
+ if(expectedAmount!==undefined&&expectedAmount!==amount)
+  throw new HttpError(409,'可退金额已变化，请关闭此窗口，刷新退款页后重新确认');
  const refund=(await db.query('INSERT INTO payment_refunds(order_id,out_request_no,amount_fen,reason,requested_by,idempotency_key) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',[order.id,'RF'+new Date().toISOString().replace(/\D/g,'').slice(0,14)+randomBytes(6).toString('hex'),amount,reason,requestedBy,key])).rows[0];
  // Red is refunded; green (bonus_fen) is forfeited in full and the pack is closed.
  // face_fen = frozen remaining list credit, gross_fen = red cash, bonus_fen = gift reclaimed.

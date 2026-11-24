@@ -27,7 +27,13 @@ export function billingRoutes(app,pool,requireCustomer,cfg,payments){
    pool.query('SELECT id,kind,amount_fen,balance_after_fen,reference_id,created_at FROM billing_ledger WHERE account_id=$1 ORDER BY id DESC LIMIT 50',[account.id]),
    pool.query("SELECT COALESCE(SUM(amount_fen),0) AS total_recharged_fen FROM billing_ledger WHERE account_id=$1 AND kind='recharge'",[account.id])
   ]):[{rows:[]},{rows:[{total_recharged_fen:0}]}];
-  const packs=account?(await pool.query(`SELECT p.*,r.status AS refund_request_status FROM credit_packs p LEFT JOIN credit_refund_requests r ON r.pack_id=p.id AND r.status IN ('requested','processing') WHERE account_id=$1 ORDER BY p.created_at DESC LIMIT 100`,[account.id])).rows:[];
+  const packs=account?(await pool.query(`SELECT p.*,o.provider AS payment_provider,o.paid_at,
+   r.status AS refund_request_status,f.status AS refund_status,f.amount_fen::text AS refund_amount_fen
+   FROM credit_packs p
+   LEFT JOIN payment_orders o ON p.source_kind='payment' AND o.id=p.source_id
+   LEFT JOIN credit_refund_requests r ON r.pack_id=p.id AND r.status IN ('requested','processing')
+   LEFT JOIN payment_refunds f ON f.id=p.refund_id
+   WHERE p.account_id=$1 ORDER BY p.created_at DESC LIMIT 100`,[account.id])).rows:[];
   const packViews=[];
   // Aggregate red/green for one dashboard progress bar. Red = remaining paid cash (refundable),
   // green = remaining gift. Spent = paid cash already consumed. Only active packs count.

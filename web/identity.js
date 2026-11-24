@@ -12,7 +12,7 @@
  let host,current='account',authMode='login',generation=0,lastOrg=null,lastOrgBilling=null,joinPreview=null,me=null,staff=null,staffList=[],customers=[],sessions=[],resetToken=new URL(location.href).searchParams.get('reset_token'),supplyData={suppliers:[],offers:[]},offerDetail=null,promotionData={campaigns:[],products:[]},pricingData={products:[],proposals:[],decisions:[]},reviewData={products:[],reviews:[]},resetScrollOnMount=false;
  const opsPageCache=new Map();
  if(resetToken)history.replaceState(null,'',location.pathname+'#reset-password');
- const handles=v=>['workspace','enterprise-register','enterprise-login','register','personal','personal/usage','enterprise','account','reset-password','staff','staff-account','admin','security','demo/personal','billing/personal','upgrade','support'].includes(v)||v.startsWith('billing/organization/')||v.startsWith('demo/organization/')||v.startsWith('organization/')||v.startsWith('join/')||v.startsWith('ops/');
+ const handles=v=>['workspace','enterprise-register','enterprise-login','register','personal','personal/usage','enterprise','account','reset-password','staff','staff-account','admin','security','demo/personal','upgrade','support'].includes(v)||personalBillingRoute(v)||v.startsWith('billing/organization/')||v.startsWith('demo/organization/')||v.startsWith('organization/')||v.startsWith('join/')||v.startsWith('ops/');
  let orgLoadedAt=0,panelDataAt=0,modelHealth=null,modelHealthAt=0,modelHealthTried=0,modelHealthLoading=false;
  async function api(path,body,method){if(body||method){orgLoadedAt=0;panelDataAt=0;lastOrgBilling=null;}const r=await fetch(path,{method:method||(body?'POST':'GET'),headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,credentials:'same-origin',cache:'no-store'});let data;try{data=await r.json();}catch{data={};}if(!r.ok){const err=Error(data.error||translate(data.code,data.message)||'暂时无法完成，请稍后重试。');err.status=r.status;err.code=data.code;throw err;}return data;}
  async function customerSignedIn(){try{return !!(await api('/api/platform/me')).user;}catch(e){return e.status!==401;}}
@@ -427,9 +427,9 @@ const s=personalBilling?.credit_split;if(!s||!BigInt(s.max_face_fen||s.face_fen|
 const max=BigInt(s.max_face_fen||s.face_fen),green=BigInt(s.green_fen||0),red=BigInt(s.red_fen||0),spent=BigInt(s.spent_red_fen||0);
 const pct=v=>Number(max)>0?Math.max(0,Math.min(100,Number(v)/Number(max)*100)):0;
 const gw=pct(green),rw=pct(red),sw=pct(spent);
-const bill=panelOrg?'#billing/organization/'+esc(panelOrg.organization.id):'#billing/personal';
+const refund=panelOrg?'':`<div class="credit-bar-refund">当前可自助退 ${personalMoney(refundableTotal(personalBilling.packs||[]))}<a href="#${refundRoute}">去退款 →</a></div>`;
 const expired=s.expired_gift_fen&&BigInt(s.expired_gift_fen)>0n?`<p class="credit-bar-expired">已过期赠送 ${personalMoney(s.expired_gift_fen)}（赠送额度半年有效，过期自动作废，实付不受影响）</p>`:'';
-return `<div class="credit-bar-block"><div class="credit-bar-head"><span>官价额度构成</span><b>可用 ${personalMoney(s.remaining_fen)} / 历史累计 ${personalMoney(s.max_face_fen||s.face_fen)}</b></div><div class="credit-bar-outline"><div class="credit-bar" role="img" aria-label="赠送 ${personalMoney(String(green))}，实付剩余 ${personalMoney(String(red))}，已用实付 ${personalMoney(String(spent))}"><i class="seg-green" style="width:${gw}%"></i><i class="seg-red" style="width:${rw}%"></i><i class="seg-spent-red" style="width:${sw}%"></i></div></div><div class="credit-bar-legend"><span><i class="dot-green"></i>赠送 ${personalMoney(String(green))}</span><span><i class="dot-red"></i>实付剩余 ${personalMoney(String(red))}</span><span><i class="dot-spent"></i>已用实付 ${personalMoney(String(spent))}</span></div>${expired}<div class="credit-bar-refund">随时退、无手续费，可退 ${personalMoney(s.refundable_fen)}（全部实付剩余）<a href="${bill}">去退款 →</a></div></div>`;
+return `<div class="credit-bar-block"><div class="credit-bar-head"><span>官价额度构成</span><b>可用 ${personalMoney(s.remaining_fen)} / 历史累计 ${personalMoney(s.max_face_fen||s.face_fen)}</b></div><div class="credit-bar-outline"><div class="credit-bar" role="img" aria-label="赠送 ${personalMoney(String(green))}，实付剩余 ${personalMoney(String(red))}，已用实付 ${personalMoney(String(spent))}"><i class="seg-green" style="width:${gw}%"></i><i class="seg-red" style="width:${rw}%"></i><i class="seg-spent-red" style="width:${sw}%"></i></div></div><div class="credit-bar-legend"><span><i class="dot-green"></i>赠送 ${personalMoney(String(green))}</span><span><i class="dot-red"></i>实付剩余 ${personalMoney(String(red))}</span><span><i class="dot-spent"></i>已用实付 ${personalMoney(String(spent))}</span></div>${expired}${refund}</div>`;
 }
 function overviewContent(){
 const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button" class="${cls}" data-live="org-tab" data-tab="${tab}">${text}</button>`:`<button type="button" class="${cls}" data-live="personal-tab" data-tab="${tab}">${text}</button>`;
@@ -902,6 +902,41 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   if(o.status!=='pending'||o.expired){clearInterval(alipayTimer);alipayTimer=null;if(panelRedraw)panelRedraw();return;}
   if(manual){const st=host?.querySelector('[data-alipay-status]');if(st)st.textContent='还未收到付款结果。支付完成后通常几秒内到账。';}
  }
+ const refundRoute='billing/personal/refunds', billingHistoryRoute='billing/personal/history';
+ let focusRefundHeading=false;
+ const personalBillingRoute=view=>view==='billing/personal'||view===refundRoute||view===billingHistoryRoute;
+ const refundableAmount=pack=>BigInt(pack.refundable_fen??pack.net_fen??0);
+ const canRefundPack=pack=>!pack.refund_id&&!pack.refund_request_status&&!pack.refund_blocked&&refundableAmount(pack)>0n;
+ const refundableTotal=packs=>packs.reduce((total,pack)=>canRefundPack(pack)?total+refundableAmount(pack):total,0n);
+ const refundChannelName=pack=>PAY_CHANNELS[pack.payment_provider]?.name||(pack.source_kind==='bank'?'对公转账':'原支付方式');
+ const refundDate=pack=>new Date(pack.paid_at||pack.created_at).toLocaleString('zh-CN',{hour12:false});
+
+ function personalRefundContent(packs){
+  const total=refundableTotal(packs);
+  const rows=packs.map(pack=>{
+   const amount=refundableAmount(pack),available=canRefundPack(pack);
+   const pending=pack.refund_status==='pending'||pack.refund_request_status==='processing';
+   const requested=pack.refund_request_status==='requested';
+   const refunded=Boolean(pack.refund_id)&&!pending;
+   const status=pending?'退款处理中':requested?'退款申请待处理':pack.refund_status==='succeeded'?'已退款':refunded?'退款已登记':pack.refund_blocked||'无可退金额';
+   const amountText=pending||refunded||requested?`${status} ${yuanText(pack.refund_amount_fen??amount)}`:available?`可退 ${yuanText(amount)}`:'暂不可退';
+   const details=pending||requested?'请稍后刷新进度。':refunded?'请在原付款账户查看。':available?(BigInt(pack.bonus_fen||0)>0n?`退款后收回赠送额度 ${yuanText(pack.bonus_fen)}`:'退款后关闭这笔额度包。'):esc(status);
+   return `<li class="refund-order">
+    <div><strong>${refundChannelName(pack)}</strong><time datetime="${esc(pack.paid_at||pack.created_at)}">${refundDate(pack)}</time><span>实付 ${yuanText(pack.cash_fen)}</span></div>
+    <div><strong>${amountText}</strong><span>${details}</span></div>
+    ${available?btn('查看并退款','pack-refund',`type="button" data-id="${esc(pack.id)}" aria-label="查看并退款 ${yuanText(amount)}，${refundDate(pack)}"`):''}
+   </li>`;
+  }).join('');
+  return `<section class="billing-refunds" aria-labelledby="refund-heading">
+   <div class="refund-heading">
+    <div><h2 id="refund-heading" class="panel-title" tabindex="-1">申请退款</h2><p>选择一笔充值，确认后剩余实付款原路退回，无手续费。</p></div>
+    <div class="refund-total"><span>${packs.length>=100?'所列订单可自助退款':'当前可自助退款'}</span><strong>${yuanText(total)}</strong></div>
+   </div>
+   <div class="refund-list-heading"><h3>充值订单</h3><button type="button" class="live-button quiet" data-live="refund-refresh">刷新进度</button></div>
+   ${rows?`<ul class="refund-orders">${rows}</ul>`:'<p class="refund-empty">还没有充值订单。</p>'}
+  </section>`;
+ }
+
  async function billingPage(ticket,earlyBilling){
   const money=value=>{const cents=BigInt(value||0),negative=cents<0n,absolute=negative?-cents:cents;return `${negative?'-':''}¥${absolute/100n}.${String(absolute%100n).padStart(2,'0')}`;};
   const orgId=current.startsWith('billing/organization/')?current.slice('billing/organization/'.length):null;
@@ -909,12 +944,15 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const prefetched=earlyBilling?await earlyBilling:null;if(prefetched?.error)throw prefetched.error;
   const cachedBilling=orgId&&lastOrgBilling?.id===orgId&&Date.now()-lastOrgBilling.at<orgFreshMs?lastOrgBilling.data:null;
   const data=prefetched?prefetched.data:cachedBilling||await api(orgId?'/api/billing/organizations/'+encodeURIComponent(orgId):'/api/billing/personal');if(ticket!==generation)return;
+  if(!orgId&&current===refundRoute)pageViews.billing='refund';
+  else if(!orgId&&current===billingHistoryRoute)pageViews.billing='history';
+  else if(!orgId&&['refund','history'].includes(pageViews.billing))pageViews.billing='recharge';
   if(orgId&&!cachedBilling)lastOrgBilling={id:orgId,data,at:Date.now()};
   const org=orgId?lastOrg.organization:null;panelOrg=org?lastOrg:null;if(!orgId)personalBilling=data;
   // Invoice requests load on first visit to the tab; submitting re-runs this page, which fetches them again.
   const invoicePath=(orgId?'/api/billing/organizations/'+encodeURIComponent(orgId):'/api/billing/personal')+'/invoices',invoiceStates={requested:'待开票',issued:'已开具',rejected:'已退回',voided:'已作废',reversed:'已红冲'};let invoiceData=null,invoiceLoading=false;
   const draw=()=>{
-   const name=org?org.name:'个人',bank=data.bank_transfer,views=[['recharge','充值'],...(org?[['transfer','对公转账']]:[]),['history',`资金记录 · ${data.entries.length}`],['invoice','发票']],view=pageView('billing',views);
+   const name=org?org.name:'个人',bank=data.bank_transfer,views=[['recharge','充值'],...(org?[['transfer','对公转账']]:[]),['history',`资金记录 · ${data.entries.length}`],...(!org?[['refund','退款']]:[]),['invoice','发票']],view=pageView('billing',views);
    if(view==='invoice'&&!invoiceData&&!invoiceLoading){invoiceLoading=true;api(invoicePath).then(value=>{invoiceData=value;},error=>{invoiceData={failed:error.message,items:[],available_fen:'0'};}).finally(()=>{invoiceLoading=false;if(ticket===generation&&panelRedraw===draw)draw();});}
    const refundNote=data.refund?.policy||'退款只退红色实付剩余、不收手续费；绿色赠送额度整条收回并关闭额度包。用量永远先扣红色实付，扣完才扣绿色。实付长期有效，赠送额度半年内有效、过期作废。已申请或已开具发票的账户不可退款，需先作废或红冲；对公转账走人工。';
    const invoiceNote=data.invoice?.policy||'充值即可按实付价格开票，开票后不可退款；未开票可退红条实付剩余，已用的实付仍可开票；付款后 30 天内均可申请。';
@@ -929,10 +967,12 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    const unavailableMethods=Object.entries(PAY_CHANNELS).filter(([key])=>!channels.includes(key)).map(([key,ch])=>`${ch.name}：${channelStatus[key]==='restricted'?'当前账户暂未开放':'暂未开放'}`).join(' · ');
    const limited=Object.values(channelStatus).includes('restricted');
    const recharge=`<section class="recharge-checkout"><div class="billing-pay-head"><div><h2 class="panel-title">充值到${org?esc(name):'个人'}账户</h2><p class="recharge-help">${alipayOn?'选择充值额度，付款前会显示实际支付金额。':limited?'在线支付已接入，当前账户暂未开放充值。':'当前暂无可用的在线支付方式。'}</p></div></div>${alipayOn?alipayPanel(scopeKey,channels):`<p class="billing-pay-status" role="status">如需充值，请通过<a href="${org?'#organization/'+esc(org.id)+'/support':'#support'}">支持与工单</a>联系平台。</p>`}${unavailableMethods?`<p class="recharge-unavailable">${unavailableMethods}</p>`:''}</section>`;
-   const packStatus={requested:'退款申请待处理',processing:'退款处理中'};
-   const packs=`<div class="personal-table-wrap"><table><thead><tr><th>额度包</th><th>面额 / 实付</th><th>绿色赠送</th><th>红色实付剩余</th><th>退款</th></tr></thead><tbody>${(data.packs||[]).map(p=>`<tr><td>${new Date(p.created_at).toLocaleString('zh-CN')}</td><td>${money(p.face_fen)} / ${money(p.cash_fen)}</td><td>${money(p.bonus_fen)}</td><td>${money(p.red_fen??p.net_fen)}</td><td>${p.refund_id?'已退款':(packStatus[p.refund_request_status]||(p.refund_blocked?esc(p.refund_blocked):`<button data-live="pack-refund" data-id="${p.id}" data-net="${p.net_fen}" data-bonus="${p.bonus_fen}">退款 ${money(p.net_fen)}</button>`))}</td></tr>`).join('')}</tbody></table></div>`;
+   const packs=`<div class="personal-table-wrap"><table><thead><tr><th>充值时间</th><th>面额 / 实付</th><th>赠送余额</th><th>实付剩余</th></tr></thead><tbody>${(data.packs||[]).map(p=>`<tr><td>${refundDate(p)}</td><td>${money(p.face_fen)} / ${money(p.cash_fen)}</td><td>${money(p.refund_id?'0':p.bonus_fen)}</td><td>${money(p.refund_id?'0':p.red_fen??p.net_fen)}</td></tr>`).join('')}</tbody></table></div>`;
    const history=data.entries.length?`<div class="personal-table-wrap"><table><thead><tr><th>时间</th><th>事项</th><th>金额</th><th>结余</th></tr></thead><tbody>${data.entries.map(entry=>`<tr><td>${new Date(entry.created_at).toLocaleString('zh-CN')}</td><td>${entry.reference_id?.startsWith('refund-fee:')?'退款手续费':({recharge:'购包实付',usage:'模型使用',refund:'退款',reversal:'冲正'}[entry.kind]||'资金变动')}</td><td>${BigInt(entry.amount_fen)>0n?'+':''}${money(entry.amount_fen)}</td><td>${money(entry.balance_after_fen)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="personal-model-empty">还没有真实资金记录。完成首次充值后，每笔付款和使用会列在这里。</p>';
-   mount(panelPage(org,'billing',stats+panelBody(tabbedPage('billing',views,view==='history'?packs+history:view==='transfer'?transfer:view==='invoice'?invoice:recharge))));
+   const records=`<div class="billing-records">${(data.packs||[]).length?`<section><div class="refund-list-heading"><h2>充值记录</h2>${org?'':'<a href="#'+refundRoute+'">办理退款 →</a>'}</div>${packs}</section>`:''}<section><h2>资金流水</h2>${history}</section></div>`;
+   const content={history:records,refund:view==='refund'?personalRefundContent(data.packs||[]):'',transfer,invoice,recharge};
+   mount(panelPage(org,'billing',(view==='refund'?'':stats)+panelBody(tabbedPage('billing',views,content[view]))));
+   if(view==='refund'&&focusRefundHeading){host.querySelector('#refund-heading')?.focus();focusRefundHeading=false;}
    if(alipayOn&&view==='recharge'&&alipayPay?.scope===scopeKey&&!alipayTimer)alipayWatch();
   };
   panelRedraw=draw;draw();
@@ -943,7 +983,8 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   if(view==='upgrade'&&me.organizations?.length)return workspaceTarget('workspace');
   if(personalVisible())return '';
   const home=workspaceTarget('workspace'),manager=me.organizations.find(o=>home==='organization/'+o.id)?.is_manager;
-  return {personal:home,support:home+'/support',security:home+'/settings','billing/personal':manager?'billing/'+home:home}[view]||'';
+  if(personalBillingRoute(view))return manager?'billing/'+home:home;
+  return {personal:home,support:home+'/support',security:home+'/settings'}[view]||'';
  }
  function workspaceTarget(view){
   const orgs=me.organizations||[];if(view==='enterprise'&&!orgs.length)return 'upgrade';
@@ -952,6 +993,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const org=orgs.find(o=>saved==='organization/'+o.id)||orgs[0];return org?'organization/'+org.id:'personal';
  }
  async function route(view){
+  focusRefundHeading=view===refundRoute&&current!==refundRoute;
   const previous=current,wasIdentityActive=document.body.classList.contains('identity-active');current=view;authMode=['register','enterprise-register'].includes(view)?'register':'login';publicTicket++;const ticket=++generation;if(Date.now()-panelDataAt>60000){panelData={tickets:null,sessions:null};panelDataAt=Date.now();}panelRedraw=null;
   if(!host){host=document.createElement('div');host.id='identity-view';host.hidden=true;document.body.append(host);}
   document.body.classList.add('identity-route-pending');
@@ -976,7 +1018,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   }
   if(view==='enterprise-login'){location.replace('#workspace');return;}
   if(view==='enterprise-register'){location.replace('#register');return;}
-  const earlyBilling=!me?.user&&['personal','account','billing/personal'].includes(view)?api('/api/billing/personal').then(data=>({data}),error=>({error})):null;
+  const earlyBilling=!me?.user&&(['personal','account'].includes(view)||personalBillingRoute(view))?api('/api/billing/personal').then(data=>({data}),error=>({error})):null;
   try{
    if(view==='reset-password'){me=null;staff=null;mount(hero('A FRESH START','重新出发，从这里开始。','重设密码后，其他登录会话会被撤销。')+`<section class="live-panel live-padding live-reset"><form id="live-reset-form" class="live-form">${passwordField('newPassword','新密码',true)}<div id="live-form-message" role="status">${resetToken?'':'没有有效的重设链接，请重新申请。'}</div><button class="live-button primary" ${resetToken?'':'disabled'} type="submit">保存新密码</button></form><a href="#workspace" class="live-button quiet">返回登录</a></section>`);return;}
    if(view==='staff'||view.startsWith('staff?')){me=null;staff=null;staffLogin();return;}
@@ -993,7 +1035,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    if(view==='security'||view.endsWith('/settings'))await methods;if(ticket!==generation)return;
    if(['workspace','account','register','enterprise'].includes(view)){const q=new URLSearchParams(cwAuthQuery());if(q.has('cw_join')){location.replace('/promotion/vip.html'+(q.get('cw_join')==='1'?'':'?invite='+encodeURIComponent(q.get('cw_join'))));return;}location.replace('#'+(q.has('cw')?'billing/personal':workspaceTarget(view)));return;}
    const personalTarget=personalRedirect(view);if(personalTarget){location.replace('#'+personalTarget);return;}
-   if(view==='billing/personal'||view.startsWith('billing/organization/'))await billingPage(ticket,earlyBilling);
+   if(personalBillingRoute(view)||view.startsWith('billing/organization/'))await billingPage(ticket,earlyBilling);
    else if(view==='demo/personal'||view.startsWith('demo/organization/'))await demoPage(ticket);
    else if(view.startsWith('organization/')){const [orgId,section]=view.slice(13).split('/');if(lastOrg?.organization?.id===orgId&&Date.now()-orgLoadedAt<orgFreshMs){orgTab=orgSection(section);organizationV2(lastOrg);warmOrg(orgId);}else{const creditPromise=fetchOrgCredit(orgId,Boolean(me.organizations?.find(o=>o.id===orgId)?.is_manager));const data=await api('/api/platform/organizations/'+encodeURIComponent(orgId));const credit=await creditPromise;if(ticket===generation){orgTab=orgSection(section);employeeCredit=credit.status;teamUsage=credit.team;orgLoadedAt=Date.now();organizationV2(data);warmOrg(orgId);}}}
    else if(view==='upgrade')upgradePage();else if(view==='support')supportPage();
@@ -1017,13 +1059,30 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   try{
    if(action==='personal-tab'){personalTab=b.dataset.tab;if(host?.querySelector('.personal-console')&&!panelRedraw&&current!=='upgrade')updatePersonalDashboard();else location.hash='personal';}
    else if(action==='page-turn'){pageViews[b.dataset.group+':page']=Number(b.dataset.page);if(panelRedraw)panelRedraw();else if(panelOrg&&lastOrg)organizationV2(lastOrg);else updatePersonalDashboard();}
-   else if(action==='page-view'){pageViews[b.dataset.group]=b.dataset.pageView;const panel=host?.querySelector('[data-key-agent-panel]');if(b.dataset.group==='agent-guide'&&panel&&employeeCredit)panel.outerHTML=employeeKeyPanel(employeeCredit);else if(panelRedraw)panelRedraw();else if(panelOrg&&lastOrg)organizationV2(lastOrg);else updatePersonalDashboard();}
+   else if(action==='page-view'){
+    pageViews[b.dataset.group]=b.dataset.pageView;
+    if(b.dataset.group==='billing'&&personalBillingRoute(current)){
+     const target={refund:refundRoute,history:billingHistoryRoute}[b.dataset.pageView]||'billing/personal';
+     if(current!==target){location.hash=target;return;}
+    }
+    const panel=host?.querySelector('[data-key-agent-panel]');if(b.dataset.group==='agent-guide'&&panel&&employeeCredit)panel.outerHTML=employeeKeyPanel(employeeCredit);else if(panelRedraw)panelRedraw();else if(panelOrg&&lastOrg)organizationV2(lastOrg);else updatePersonalDashboard();}
    else if(action==='pay-channel'){cwInputCode=host.querySelector('#pack-promo')?.value??cwInputCode;payChannel=b.dataset.channel;if(panelRedraw)panelRedraw();}
    else if(action==='alipay-amount'){alipayFen=Number(b.dataset.fen);const input=host.querySelector('#alipay-yuan');if(input){input.value=(alipayFen/100).toFixed(2);input.dispatchEvent(new Event('input',{bubbles:true}));}}
    else if(action==='paid-create'){const remaining=(Number(paidCredit?.list_credit_fen||0)/100)-(paidCredit?.keys||[]).filter(k=>!k.revoked_at).reduce((n,k)=>n+Number(k.limit_yuan||0),0);form('创建付费 Key',`<label>用途名称<input name="label" required maxlength="50"></label><label>允许模型<select name="model_id">${paidCredit.models.map(m=>`<option value="${esc(m.id)}" ${m.id===personalSelected?'selected':''}>${esc(m.name)}</option>`).join('')}</select></label><label>本 Key 官价额度消费上限（元）<input name="limit_yuan" required inputmode="decimal" placeholder="例如 10"></label><p>所有 Key 的额度总和不能超过剩余官价额度，当前还可分配 <b>¥${Math.max(0,remaining).toFixed(2)}</b>。上限不是充值，不会增加余额。生成后复制 Base URL、模型 ID 和 Key 到你的工具。</p>`,'live-paid-key','生成');}
    else if(action==='paid-revoke'){await api('/api/customer-credit/keys/'+b.dataset.id+'/revoke'+paidScope(),{});paidCredit=await api('/api/customer-credit/status'+paidScope());if(panelRedraw)panelRedraw();else updatePersonalDashboard();}
    else if(action==='paid-limit'){const curLimit=Number(b.dataset.limit||0),otherSum=(paidCredit?.keys||[]).filter(k=>!k.revoked_at&&k.id!==b.dataset.id).reduce((n,k)=>n+Number(k.limit_yuan||0),0),remaining=(Number(paidCredit?.list_credit_fen||0)/100)-otherSum;form('调整这把 Key 的消费上限',`<input type="hidden" name="key_id" value="${esc(b.dataset.id)}"><p class="live-small">${esc(b.dataset.label)}</p><label>新的官价额度消费上限（元）<input name="limit_yuan" required inputmode="decimal" value="${esc(b.dataset.limit)}" placeholder="例如 10"></label><p class="live-small">这把 Key 加上其他 Key 的额度总和不能超过剩余官价额度，这把最多可设 <b>¥${Math.max(0,remaining).toFixed(2)}</b>。上限不是充值，不会增加余额；调低不能低于这把 Key 已经用掉的额度。</p>`,'live-paid-limit','保存上限');}
-   else if(action==='pack-refund'){form('退回本包剩余实付',`<p><strong>可退红色实付 ¥${(Number(b.dataset.net)/100).toFixed(2)}</strong>，无手续费，原路退回付款账户。</p><p>绿色赠送 ¥${(Number(b.dataset.bonus||0)/100).toFixed(2)} 将整条收回，该额度包随即关闭。退款处理中该包额度冻结；渠道拒绝则自动恢复。</p><label>退款原因<input name="reason" required maxlength="200"></label><input type="hidden" name="pack_id" value="${esc(b.dataset.id)}">`,'live-pack-refund','确认退款');}
+   else if(action==='refund-refresh'){await route(current);}
+   else if(action==='pack-refund'){
+    const pack=personalBilling?.packs?.find(p=>p.id===b.dataset.id);
+    if(current!==refundRoute||!pack||!canRefundPack(pack))return;
+    const amount=refundableAmount(pack),bonus=BigInt(pack.bonus_fen||0);
+    form('确认退款',`<dl class="refund-confirm"><div><dt>预计退回</dt><dd><strong>${yuanText(amount)}</strong></dd></div><div><dt>退款方式</dt><dd>原路退回 · ${refundChannelName(pack)}</dd></div><div><dt>手续费</dt><dd>¥0.00</dd></div></dl>
+     <p>${bonus>0n?`本订单的赠送额度 ${yuanText(bonus)} 将收回。`:''}申请后这笔额度包将冻结，退款成功后关闭。若渠道拒绝退款，额度将恢复。</p>
+     <label>退款原因<input name="reason" required maxlength="200"></label>
+     <input type="hidden" name="pack_id" value="${esc(pack.id)}">
+     <input type="hidden" name="amount_fen" value="${amount}">
+     <input type="hidden" name="request_key" value="${crypto.randomUUID()}">`,'live-pack-refund',`确认退款 ${yuanText(amount)}`);
+   }
    else if(action==='alipay-create'){
     const typed=host.querySelector('#alipay-yuan')?.value.trim();
     if(!typed){host.querySelector('#alipay-yuan')?.focus();throw Error('请先输入充值额度，最低 5 元。');}
@@ -1245,10 +1304,12 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    else if(formId==='live-paid-key'){const result=await api('/api/customer-credit/keys'+paidScope(),{label:values.label,models:[values.model_id],limit_yuan:values.limit_yuan});paidCredit=await api('/api/customer-credit/status'+paidScope());if(panelRedraw)panelRedraw();else updatePersonalDashboard();dialog('Key 只显示一次',keyIssuedGuide({secret:result.secret,baseUrl:result.base_url,modelIds:[values.model_id],note:'使用你现有的 Agent 接入说明；调用按官网价扣额度，购包折扣不改变模型单价。'}));}
    else if(formId==='live-paid-limit'){await api('/api/customer-credit/keys/'+values.key_id+'/limit'+paidScope(),{limit_yuan:values.limit_yuan});document.querySelector('#config-dialog').close();paidCredit=await api('/api/customer-credit/status'+paidScope());if(panelRedraw)panelRedraw();else updatePersonalDashboard();showToast('消费上限已更新。');}
    else if(formId==='live-pack-refund'){
-    const key=(crypto.randomUUID?.()||String(Date.now())+Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g,'');
-    const r=await api('/api/customer-credit/packs/'+values.pack_id+'/refund',{reason:values.reason,idempotency_key:key});
-    document.querySelector('#config-dialog').close();await route(current);
-    showToast(r.status==='succeeded'?'已退款 ¥'+(Number(r.amount_fen)/100).toFixed(2)+'，原路退回。':r.status==='pending'?'退款已发起，处理中，稍后查看结果。':'退款处理中，请稍后查看结果。');
+    const r=await api('/api/customer-credit/packs/'+encodeURIComponent(values.pack_id)+'/refund',{
+     reason:values.reason,expected_amount_fen:Number(values.amount_fen),idempotency_key:values.request_key
+    });
+    form.closest('dialog')?.close();
+    if(current===refundRoute)await route(refundRoute);
+    showToast(r.status==='succeeded'?`已原路退回 ${yuanText(r.amount_fen)}。`:r.status==='failed'?'退款未成功，额度已恢复。':'退款处理中，请稍后刷新进度。');
    }
    else if(formId==='live-bank-transfer'){await api(form.dataset.path,{...values,idempotency_key:form.dataset.key});lastOrgBilling=null;await route(current);showToast('转账信息已提交，请等待财务核对。');}
    else if(formId==='live-invoice'){await api(form.dataset.path,{invoice_type:values.invoice_type,title:values.title,tax_number:values.tax_number,amount_yuan:values.amount_yuan,email:values.email,note:values.note});await route(current);showToast('开票申请已提交，财务开具后会发到收票邮箱。');}
