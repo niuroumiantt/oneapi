@@ -78,8 +78,8 @@ export async function quoteCW(
 ) {
   const code = normalizedCode(promo);
   if (!code) return null;
-  // Task code: a VIP's own self-purchase discount code, issued by an approver after the
-  // VIP is confirmed. It only works for the VIP themselves (self-purchase) and earns no commission.
+  // Discount (task) code: issued after interview confirmation. Usable while partner is
+  // confirmed or active; paying with it activates formal VIP. Self-purchase only, no commission.
   const task = (
     await db.query(
       `SELECT t.*,p.status AS partner_status,p.user_id
@@ -92,8 +92,9 @@ export async function quoteCW(
   if (task) {
     if (!cwEnabled) throw new HttpError(400, '推广合作活动尚未开放');
     const isSelf = task.user_id === account.owner_id || task.user_id === buyerId;
-    if (!isSelf) throw new HttpError(400, '任务码仅限本人自购使用');
-    if (task.partner_status !== 'active') throw new HttpError(400, '任务码未生效或已停用');
+    if (!isSelf) throw new HttpError(400, '打折码仅限本人自购使用');
+    if (task.partner_status !== 'confirmed' && task.partner_status !== 'active')
+      throw new HttpError(400, '打折码未生效或已停用');
     const percent = task.customer_price_percent;
     const face = cashFen === null ? faceFen : Number((BigInt(cashFen) * 100n) / BigInt(percent));
     const cash = cashFen === null ? Number((BigInt(face) * BigInt(percent) + 99n) / 100n) : cashFen;

@@ -7,10 +7,15 @@
  const standalone=!!document.querySelector('[data-site-header="skills"],[data-site-header="compare"]');
  const root=(standalone||/\/cw(?:-terms)?\.html$/.test(location.pathname))?new URL('index.html',assetBase).href:'';
  const skills=new URL(assetBase.pathname.endsWith('/web/')?'../prototypes/skills/':'skills/',assetBase).href;
+ function accountName(user){
+  const name=esc(user.name||user.email);
+  if(!user.vip)return `<b>${name}</b>`;
+  return `<span class="account-name-vip"><b>${name}</b><i class="vip-badge" aria-hidden="true">VIP</i></span>`;
+ }
  function accountMenu(user,kind='customer',settingsHref='#security'){
   if(!user)return `<a class="live-signin" href="#workspace">${ico('user-round')}<span>登录 / 注册</span></a>`;
-  const name=esc(user.name||user.email),initial=esc(Array.from(user.name||user.email||'U')[0]);
-  return `<details class="account-menu"><summary aria-label="账户菜单：${name}，已登录"><span class="account-avatar" aria-hidden="true">${initial}<i></i></span><span class="account-label"><b>${name}</b><small>${kind==='staff'?'员工已登录':'已登录'}</small></span>${ico('chevron-down')}</summary><div class="account-popover"><div class="account-person"><b>${name}</b><small>${esc(user.email)}</small></div>${kind==='staff'?`<a href="#staff-account">${ico('shield-check')} 员工工作台</a><a href="/cw.html?staff=1">${ico('users')} VIP 合作伙伴管理</a>`:`<a href="#workspace">${ico('layout-dashboard')} 我的工作台</a><a href="/cw.html">${ico('users')} VIP 推广合作伙伴</a><a href="${settingsHref}">${ico('settings')} 账户设置</a>`}<button data-live="logout" data-session-kind="${kind}">${ico('log-in')} 退出登录</button></div></details>`;
+  const name=esc(user.name||user.email),initial=esc(Array.from(user.name||user.email||'U')[0]),named=accountName(user);
+  return `<details class="account-menu${user.vip?' is-vip':''}"><summary aria-label="账户菜单：${name}${user.vip?'，VIP':''}，已登录"><span class="account-avatar" aria-hidden="true">${initial}<i></i></span><span class="account-label">${named}<small>${kind==='staff'?'员工已登录':user.vip?'VIP 已登录':'已登录'}</small></span>${ico('chevron-down')}</summary><div class="account-popover"><div class="account-person">${named}<small>${esc(user.email)}</small></div>${kind==='staff'?`<a href="#staff-account">${ico('shield-check')} 员工工作台</a><a href="/cw.html?staff=1">${ico('users')} VIP 合作伙伴管理</a>`:`<a href="#workspace">${ico('layout-dashboard')} 我的工作台</a><a href="/cw.html">${ico('users')} VIP 推广合作伙伴</a><a href="${settingsHref}">${ico('settings')} 账户设置</a>`}<button data-live="logout" data-session-kind="${kind}">${ico('log-in')} 退出登录</button></div></details>`;
  }
 
  function render(active, {account='', tools='', className=''}={}) {

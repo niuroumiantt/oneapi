@@ -35,6 +35,7 @@ const publicPartner = (p) =>
         bank_last4: p.bank_last4,
         bank_verified: p.bank_verified_version !== null && p.bank_verified_version === p.bank_version,
         confirmed_at: p.confirmed_at,
+        activated_at: p.activated_at,
         created_at: p.created_at,
       }
     : null;
@@ -86,7 +87,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     // here we only surface the discount ratio so the top-up form can switch to "pay amount" mode.
     const task = (
       await pool.query(
-        `SELECT t.code,t.customer_price_percent FROM vip_task_codes t JOIN cw_partners p ON p.id=t.partner_id WHERE t.code=$1 AND t.status='active' AND p.status='active' AND t.starts_at<=now() AND (t.ends_at IS NULL OR t.ends_at>now())`,
+        `SELECT t.code,t.customer_price_percent FROM vip_task_codes t JOIN cw_partners p ON p.id=t.partner_id WHERE t.code=$1 AND t.status='active' AND p.status IN ('confirmed','active') AND t.starts_at<=now() AND (t.ends_at IS NULL OR t.ends_at>now())`,
         [code],
       )
     ).rows[0];
@@ -166,7 +167,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
               `VIP 编号：${row.public_code}\n` +
               `VIP 客户邀请码：${inviteCode}\n` +
               `申请时间：${new Date().toLocaleString('zh-CN', { hour12: false })}\n\n` +
-              `请主动联系客户；确认通过后，客户才成为 VIP，并获得 VIP 客户打折码（自购折扣，当前计划 5 折）。\n` +
+              `请主动电话面试；确认通过后发放 VIP 客户打折码。客户用打折码付款成功后，才成为正式 VIP。\n` +
               `处理入口：商务后台 → VIP 合作伙伴管理 → 待确认。`,
           });
         } catch {
@@ -493,17 +494,19 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     res.json({ ok: true });
   });
 
-  // Sales confirmation: a pending application becomes an active VIP only after company staff
-  // interviews the applicant and confirms them. This is the gate that grants VIP identity.
+  // Interview confirmation: pending → confirmed. Formal VIP (active) is granted only after
+  // the applicant pays with their VIP discount code.
   app.post('/api/staff/cw/:partner/confirm', requireStaff, async (req, res) => {
     business(req);
     const pid = id(req.params.partner);
     await transaction(pool, async (db) => {
       const p = (await db.query('SELECT id,status FROM cw_partners WHERE id=$1 FOR UPDATE', [pid])).rows[0];
       if (!p) throw new HttpError(404, 'VIP 不存在');
-      if (p.status === 'active') throw new HttpError(409, '该申请已是 VIP，无需重复确认');
+      if (p.status === 'active') throw new HttpError(409, '该申请已是正式 VIP，无需重复确认');
+      if (p.status === 'confirmed') throw new HttpError(409, '已面试确认，请发放打折码后等待付款激活');
+      if (p.status !== 'pending') throw new HttpError(409, '当前状态不可确认');
       await db.query(
-        "UPDATE cw_partners SET status='active',confirmed_by=$2,confirmed_at=now() WHERE id=$1",
+        "UPDATE cw_partners SET status='confirmed',confirmed_by=$2,confirmed_at=now() WHERE id=$1",
         [pid, req.staff.subject],
       );
       await audit(db, req.actor, 'cw.confirmed', null, pid, {
@@ -513,8 +516,8 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     res.json({ ok: true });
   });
 
-  // Issue a VIP 客户打折码 (self-purchase discount) to a confirmed VIP. Any active company
-  // staff may issue; discount is fixed at this step — planned 50% (5 折).
+  // Issue a VIP 客户打折码 after interview confirmation (confirmed or already active).
+  // Formal VIP activation happens on successful payment with this code.
   app.post('/api/staff/cw/:partner/task-code', requireStaff, async (req, res) => {
     business(req);
     const b = req.body || {},
@@ -523,7 +526,8 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     const c = await transaction(pool, async (db) => {
       const p = (await db.query("SELECT id,status FROM cw_partners WHERE id=$1 FOR UPDATE", [pid])).rows[0];
       if (!p) throw new HttpError(404, 'VIP 不存在');
-      if (p.status !== 'active') throw new HttpError(409, '请先确认客户成为 VIP，再发放打折码');
+      if (p.status !== 'confirmed' && p.status !== 'active')
+        throw new HttpError(409, '请先确认面试通过，再发放打折码');
       const code = normalizedInvite(b.code);
       if (code && !/^[A-Z0-9_-]{2,32}$/.test(code)) throw new HttpError(400, '打折码格式不正确');
       const taskCode = code || (await uniqueCode(db));
