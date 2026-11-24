@@ -427,7 +427,7 @@ const face=Number(s.face_fen),green=Number(s.green_fen),red=Number(s.red_fen);
 const pct=v=>face>0?Math.max(0,Math.min(100,v/face*100)):0;
 const gw=pct(green),rw=pct(red),used=Math.max(0,100-gw-rw);
 const bill=panelOrg?'#billing/organization/'+esc(panelOrg.organization.id):'#billing/personal';
-return `<div class="credit-bar-block"><div class="credit-bar-head"><span>官价额度构成</span><b>${personalMoney(s.face_fen)}</b></div><div class="credit-bar" role="img" aria-label="赠送 ${personalMoney(s.green_fen)}，实付剩余 ${personalMoney(s.red_fen)}，已用 ${personalMoney(String(face>0?Math.round(used/100*face):0))}"><i class="seg-green" style="width:${gw}%"></i><i class="seg-red" style="width:${rw}%"></i><i class="seg-used" style="width:${used}%"></i></div><div class="credit-bar-legend"><span><i class="dot-green"></i>赠送 ${personalMoney(s.green_fen)}</span><span><i class="dot-red"></i>实付剩余 ${personalMoney(s.red_fen)}</span><span><i class="dot-used"></i>已用</span></div><div class="credit-bar-refund">随时退、无手续费，可退 ${personalMoney(s.refundable_fen)}<a href="${bill}">去退款 →</a></div></div>`;
+return `<div class="credit-bar-block"><div class="credit-bar-head"><span>官价额度构成</span><b>${personalMoney(s.face_fen)}</b></div><div class="credit-bar" role="img" aria-label="赠送 ${personalMoney(s.green_fen)}，实付剩余 ${personalMoney(s.red_fen)}，已用 ${personalMoney(String(face>0?Math.round(used/100*face):0))}"><i class="seg-green" style="width:${gw}%"></i><i class="seg-red" style="width:${rw}%"></i><i class="seg-used" style="width:${used}%"></i></div><div class="credit-bar-legend"><span><i class="dot-green"></i>赠送 ${personalMoney(s.green_fen)}</span><span><i class="dot-red"></i>实付剩余 ${personalMoney(s.red_fen)}</span><span><i class="dot-used"></i>已用</span></div><div class="credit-bar-refund">随时退、无手续费，可退 ${personalMoney(s.refundable_fen)}（全部实付剩余）<a href="${bill}">去退款 →</a></div></div>`;
 }
 function overviewContent(){
 const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button" class="${cls}" data-live="org-tab" data-tab="${tab}">${text}</button>`:`<button type="button" class="${cls}" data-live="personal-tab" data-tab="${tab}">${text}</button>`;
@@ -1031,8 +1031,11 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     const offer=promo?await fetch('/api/cw/offers/'+encodeURIComponent(promo),{credentials:'same-origin'}):null;
     const cw=offer?.ok;const amount=cw?{cash_fen:alipayFen}:{face_fen:alipayFen};
     const quote=await api('/api/billing/quote',{...amount,promo_code:promo,organization_id:orgId});
-    const faceYuan=(Number(quote.face_fen)/100).toFixed(2),payYuan=(Number(quote.amount_fen)/100).toFixed(2),giftYuan=((Number(quote.face_fen)-Number(quote.amount_fen))/100).toFixed(2);
-    if(!confirm(`到账官价额度 ¥${faceYuan}（进度条左段绿色赠送 ¥${giftYuan} + 右段红色实付 ¥${payYuan}）。\n用量先扣红色再扣绿色；随时可退红色实付剩余、无手续费，退款时绿色赠送整条收回。\n${quote.discount_snapshot?.cw?'推广码 '+promo+'，本单按该码优惠，不叠加。':'优惠取最优一条，不叠加。'}\n实际付款 ¥${payYuan}，确认购买？`))return;
+    const faceYuan=(Number(quote.face_fen)/100).toFixed(2),payYuan=(Number(quote.amount_fen)/100).toFixed(2);
+    const pct=Number(quote.discount_snapshot?.percent||100);
+    const fold=pct%10===0?String(pct/10):(pct/10).toFixed(1).replace(/\.0$/,'');
+    const promoDesc=quote.discount_snapshot?.promo_code?`您本次使用的促销码是${fold}折码，`:pct<100?`您本次享受${fold}折优惠，`:'';
+    if(!confirm(`${promoDesc}您实付 ${payYuan} 元，可得 ${faceYuan} 元官方额度。\n\n请确认充值？`))return;
     // 同一次点击重试复用幂等键，避免网络抖动生成两张付款码。
     const key=alipayPay?.pendingKey&&alipayPay.pendingFen===alipayFen&&alipayPay.scope===scope&&alipayPay.pendingChannel===payChannel&&alipayPay.pendingPromo===promo&&alipayPay.pendingQuotedFace===quote.face_fen&&alipayPay.pendingQuotedCash===quote.amount_fen?alipayPay.pendingKey:(crypto.randomUUID?.()||String(Date.now())+Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g,'');
     alipayPay={scope,pendingKey:key,pendingFen:alipayFen,pendingChannel:payChannel,pendingPromo:promo,pendingQuotedFace:quote.face_fen,pendingQuotedCash:quote.amount_fen,order:alipayPay?.scope===scope?alipayPay.order:null};
