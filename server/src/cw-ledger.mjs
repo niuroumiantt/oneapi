@@ -1,15 +1,20 @@
 import { HttpError } from './core.mjs';
-export const CW_RATE_BPS = 1000;
-export const commissionFen = (cash) => (BigInt(cash) * BigInt(CW_RATE_BPS)) / 10000n;
+// VIP base cost is 40% of list price; a VIP's commission is whatever they sell above that.
+// commission_bps = (customer_price_percent - 40) * 100. Sell at 50% -> 10%, at 80% -> 40%.
+export const VIP_BASE_PERCENT = 40;
+export const VIP_SELF_PERCENT = 50;
+export const commissionBps = (percent) => Math.max(0, (percent - VIP_BASE_PERCENT) * 100);
+export const commissionFen = (cash, percent) => (BigInt(cash) * BigInt(commissionBps(percent))) / 10000n;
 export const normalizedCode = (value) =>
   String(value || '')
     .normalize('NFKC')
     .trim()
     .toUpperCase();
 // Called inside the same payment transaction. The order snapshot, never current code settings, determines attribution.
+// Self-code purchases earn no commission (VIP buys their own credit at cost).
 export async function creditCW(db, order, pack) {
   const s = order.discount_snapshot?.cw;
-  if (!s) return;
+  if (!s || s.is_self_code) return;
   await db.query(
     `INSERT INTO cw_commissions(order_id,pack_id,partner_id,code_id,cash_fen,rate_bps,expected_fen)
  VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(order_id) DO NOTHING`,
@@ -20,12 +25,12 @@ export async function creditCW(db, order, pack) {
       s.code_id,
       order.amount_fen,
       s.rate_bps,
-      commissionFen(order.amount_fen).toString(),
+      commissionFen(order.amount_fen, s.percent).toString(),
     ],
   );
   await db.query(
     `INSERT INTO cw_commission_events(order_id,event_key,kind,cash_fen,commission_fen) VALUES($1,$2,'paid',$3,$4) ON CONFLICT(event_key) DO NOTHING`,
-    [order.id, 'paid:' + order.id, order.amount_fen, commissionFen(order.amount_fen).toString()],
+    [order.id, 'paid:' + order.id, order.amount_fen, commissionFen(order.amount_fen, s.percent).toString()],
   );
 }
 // Cumulate before rounding, so many sub-cent API calls earn the same commission as one call.
@@ -37,7 +42,8 @@ export async function consumeCW(db, packId, callId) {
     )
   ).rows[0];
   if (!c) return;
-  const delta = commissionFen(c.consumed_cash_fen) - BigInt(c.unlocked_fen),
+  const rate = BigInt(c.rate_bps),
+    delta = (BigInt(c.consumed_cash_fen) * rate) / 10000n - BigInt(c.unlocked_fen),
     cash = BigInt(c.consumed_cash_fen) - BigInt(c.used_cash_fen);
   if (cash <= 0n) return;
   await db.query(
@@ -47,7 +53,7 @@ export async function consumeCW(db, packId, callId) {
   await db.query('UPDATE cw_commissions SET used_cash_fen=$2,unlocked_fen=$3 WHERE order_id=$1', [
     c.order_id,
     c.consumed_cash_fen,
-    commissionFen(c.consumed_cash_fen).toString(),
+    ((BigInt(c.consumed_cash_fen) * rate) / 10000n).toString(),
   ]);
 }
 // Existing refund flow returns all unused credit in this pack; already-used cash is not refunded by that flow.
@@ -90,32 +96,42 @@ export async function quoteCW(
     new Date(c.ends_at) <= new Date()
   )
     throw new HttpError(400, '推广码未生效或已停用');
-  // Direct and company-member self-purchases do not qualify for partner offers.
+  // Direct and company-member self-purchases do not qualify for partner offers,
+  // except a partner's own self-code (cost price, no commission).
+  const isSelf = c.user_id === account.owner_id || c.user_id === buyerId;
+  if (isSelf && !c.is_self_code)
+    throw new HttpError(400, '不能使用自己的推广码购买额度');
   if (
-    c.user_id === account.owner_id ||
-    c.user_id === buyerId ||
-    (account.organization_id &&
-      (
-        await db.query(
-          "SELECT 1 FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",
-          [account.organization_id, c.user_id],
-        )
-      ).rowCount)
+    !isSelf &&
+    account.organization_id &&
+    (
+      await db.query(
+        "SELECT 1 FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",
+        [account.organization_id, c.user_id],
+      )
+    ).rowCount
   )
     throw new HttpError(400, '不能使用自己的推广码购买额度');
+  const percent = c.customer_price_percent;
   const face =
-    cashFen === null ? faceFen : Number((BigInt(cashFen) * 100n) / BigInt(c.customer_price_percent));
+    cashFen === null ? faceFen : Number((BigInt(cashFen) * 100n) / BigInt(percent));
   const cash =
-    cashFen === null ? Number((BigInt(face) * BigInt(c.customer_price_percent) + 99n) / 100n) : cashFen;
+    cashFen === null ? Number((BigInt(face) * BigInt(percent) + 99n) / 100n) : cashFen;
   if (!Number.isSafeInteger(face) || face < 500 || face > 5000000 || cash < 500 || cash > 5000000)
     throw new HttpError(400, '本次实付或到账额度超出范围');
   return {
     face_fen: face,
     amount_fen: cash,
     discount_snapshot: {
-      percent: c.customer_price_percent,
+      percent,
       promo_code: c.code,
-      cw: { partner_id: c.partner_id, code_id: c.id, rate_bps: c.commission_bps },
+      cw: {
+        partner_id: c.partner_id,
+        code_id: c.id,
+        rate_bps: commissionBps(percent),
+        percent,
+        is_self_code: !!c.is_self_code,
+      },
       ...(cashFen !== null ? { requested_cash_fen: cashFen } : {}),
     },
   };

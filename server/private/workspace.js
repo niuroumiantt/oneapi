@@ -9,7 +9,7 @@ const NAV = [
  ['总览', [['overview', '老板驾驶舱']]],
  ['财务', [['pnl', '经营损益'], ['payments', '收款与退款'], ['transfers', '对公入账'], ['invoices', '发票'], ['payables', '上游付款']], 'finance'],
  ['供应链', [['suppliers', '上游供应商'], ['customers', '客户'], ['upgrades', '企业认证审核']]],
- ['产品', [['products', '产品与运营'], ['discounts', '促销与折扣'], ['cw', 'CW 合作伙伴']]],
+ ['产品', [['products', '产品与运营'], ['discounts', '促销与折扣'], ['cw', 'VIP 合作伙伴']]],
  ['客户支持', [['tickets', '工单与反馈'], ['answers', '快捷问答库']]]
 ];
 const PAGES = Object.fromEntries(NAV.flatMap(([, items, gate]) => items.map(([key, label]) => [key, { label, gate }])));
@@ -276,7 +276,7 @@ pages.products = () => {
 };
 
 const audienceText = g => g.audience === 'customer' ? `<code>${esc(g.customer_code)}</code> ${esc(g.customer_name)}` : g.audience === 'tag' ? `分群 <span class="pill">${esc(g.tag)}</span>` : '全部客户';
-pages.cw = () => section('CW 合作伙伴', '<p>管理申请、合同、推广码、客户月结、佣金和提现。</p><a class="button" href="/cw.html?staff=1" target="_top">打开 CW 合作伙伴管理</a>');
+pages.cw = () => section('VIP 合作伙伴', '<p>管理申请、合同、推广码、邀请码、客户月结、佣金和提现。</p><a class="button" href="/cw.html?staff=1" target="_top">打开 VIP 合作伙伴管理</a>');
 pages.discounts = d => {
  const models = Object.fromEntries(d.models.map(m => [m.id, m.name]));
  const rows = d.grants.map(g => `<tr><td><b>${esc(g.name)}</b><small>${g.promo_code?'促销码：'+esc(g.promo_code)+' · ':''}${esc(g.reason)}</small></td><td>${audienceText(g)}</td><td>${g.model_id ? esc(models[g.model_id] || g.model_id) : '全部产品'}</td>${num(discountText(g.customer_price_percent) + (g.cap_fen ? `<small>优惠上限 ${fen(g.cap_fen)}</small>` : ''), g.customer_price_percent)}<td>${dayOf(g.starts_at)} – ${lastDay(g.ends_at)}</td><td>${pill('discount', g.state)}<small>提出 ${esc(g.created_by_name)}${g.decided_by_name && g.decided_by_name !== g.created_by_name ? ' · 处理 ' + esc(g.decided_by_name) : ''}</small>${g.decision_note ? `<small>${esc(g.decision_note)}</small>` : ''}</td><td>${g.status === 'pending' ? (d.can_decide && g.created_by !== d.me ? `<button data-act="discount" data-id="${att(g.id)}" data-action="approve">批准</button> <button data-act="discount" data-id="${att(g.id)}" data-action="reject">驳回</button>` : '<small>等待财务或管理员审批</small>') : g.status === 'active' && g.state !== 'expired' && (d.can_decide || g.created_by === d.me) ? `<button data-act="discount" data-id="${att(g.id)}" data-action="revoke">收回</button>` : '—'}</td></tr>`).join('');

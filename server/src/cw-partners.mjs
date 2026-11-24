@@ -2,8 +2,14 @@ import qrcode from 'qrcode-generator';
 import { randomInt } from 'node:crypto';
 import { HttpError, id, text, transaction, audit, vault, hasBusiness } from './core.mjs';
 import { requireFinance } from './business-console.mjs';
+import { commissionBps, VIP_SELF_PERCENT } from './cw-ledger.mjs';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const code = () => Array.from({ length: 8 }, () => ALPHABET[randomInt(ALPHABET.length)]).join('');
+const normalizedInvite = (v) =>
+  String(v || '')
+    .normalize('NFKC')
+    .trim()
+    .toUpperCase();
 const integer = (v, min, max, label) => {
   if (!Number.isSafeInteger(v) || v < min || v > max) throw new HttpError(400, label + '格式不正确');
   return v;
@@ -45,7 +51,7 @@ async function partner(db, userId, lock = false) {
   const p = (
     await db.query('SELECT * FROM cw_partners WHERE user_id=$1' + (lock ? ' FOR UPDATE' : ''), [userId])
   ).rows[0];
-  if (!p) throw new HttpError(404, '请先申请成为推广合作伙伴');
+  if (!p) throw new HttpError(404, '请先申请成为 VIP 合作伙伴');
   return p;
 }
 async function uniqueCode(db) {
@@ -67,7 +73,7 @@ async function uniqueCode(db) {
 export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
   const box = vault(cfg.secret + ':cw-private-v1');
   const enabled = (_req, _res, next) => {
-    if (!cfg.cw?.enabled) throw new HttpError(503, '推广合作伙伴功能尚未开放');
+    if (!cfg.cw?.enabled) throw new HttpError(503, 'VIP 合作伙伴功能尚未开放');
     next();
   };
   app.get('/api/cw/status', (_req, res) =>
@@ -88,11 +94,22 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
       name = text(b.legal_name, '姓名', 60),
       contact = text(b.contact, '联系方式', 160);
     if (b.consent_version !== 'cw-privacy-v1') throw new HttpError(400, '请阅读并同意推广合作资料处理说明');
+    const inviteCode = normalizedInvite(b.invite_code);
     const p = await transaction(pool, async (db) => {
       await db.query('SELECT id FROM "user" WHERE id=$1 FOR UPDATE', [req.customer.id]);
       const existing = (await db.query('SELECT * FROM cw_partners WHERE user_id=$1', [req.customer.id]))
         .rows[0];
       if (existing) return existing;
+      // Invite code is mandatory to join the VIP program.
+      const invite = (
+        await db.query(
+          'SELECT id, max_uses, used_count FROM vip_invite_codes WHERE code=$1 AND status=$2 FOR UPDATE',
+          [inviteCode, 'active'],
+        )
+      ).rows[0];
+      if (!invite) throw new HttpError(400, '邀请码无效或已停用');
+      if (invite.used_count >= invite.max_uses) throw new HttpError(400, '邀请码使用次数已达上限');
+      await db.query('UPDATE vip_invite_codes SET used_count=used_count+1 WHERE id=$1', [invite.id]);
       let invited = null;
       if (b.invite) {
         invited = (
@@ -115,7 +132,10 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
           ],
         )
       ).rows[0];
-      await audit(db, req.actor, 'cw.applied', null, row.id, { invited_by: invited?.id || null });
+      await audit(db, req.actor, 'cw.applied', null, row.id, {
+        invited_by: invited?.id || null,
+        invite_code: inviteCode,
+      });
       return row;
     });
     res.status(201).json({ partner: publicPartner(p) });
@@ -131,9 +151,9 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
     ).rows[0];
     const codes = (
       await pool.query(
-        `SELECT k.id,k.code,k.name,k.status,k.customer_price_percent,k.starts_at,k.ends_at,
+        `SELECT k.id,k.code,k.name,k.status,k.customer_price_percent,k.commission_bps,k.is_self_code,k.starts_at,k.ends_at,
    coalesce(sum(c.cash_fen),0)::text AS paid_fen,coalesce(sum(c.used_cash_fen),0)::text AS used_fen,coalesce(sum(c.expected_fen),0)::text AS expected_fen,coalesce(sum(c.unlocked_fen),0)::text AS unlocked_fen
-   FROM cw_codes k LEFT JOIN cw_commissions c ON c.code_id=k.id WHERE k.partner_id=$1 GROUP BY k.id ORDER BY k.created_at`,
+   FROM cw_codes k LEFT JOIN cw_commissions c ON c.code_id=k.id WHERE k.partner_id=$1 GROUP BY k.id ORDER BY k.is_self_code DESC,k.created_at`,
         [p.id],
       )
     ).rows;
@@ -189,7 +209,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
   app.post('/api/cw/codes', requireCustomer, enabled, async (req, res) => {
     const b = req.body || {},
       name = text(b.name, '推广码名称', 60),
-      percent = integer(b.customer_price_percent ?? 50, 1, 100, '客户价格比例');
+      percent = integer(b.customer_price_percent ?? 50, 50, 100, '客户价格比例');
     const c = await transaction(pool, async (db) => {
       const p = await partner(db, req.customer.id, true);
       if (['suspended', 'rejected'].includes(p.status))
@@ -198,11 +218,11 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
         Number((await db.query('SELECT count(*) FROM cw_codes WHERE partner_id=$1', [p.id])).rows[0].count) >=
         50
       )
-        throw new HttpError(409, '每名 CW 最多 50 个推广码，停用码也保留在记录中');
+        throw new HttpError(409, '每名 VIP 最多 50 个推广码，停用码也保留在记录中');
       const r = (
         await db.query(
-          'INSERT INTO cw_codes(partner_id,code,name,customer_price_percent) VALUES($1,$2,$3,$4) RETURNING id,code,name,status,customer_price_percent',
-          [p.id, await uniqueCode(db), name, percent],
+          'INSERT INTO cw_codes(partner_id,code,name,customer_price_percent,commission_bps) VALUES($1,$2,$3,$4,$5) RETURNING id,code,name,status,customer_price_percent,commission_bps',
+          [p.id, await uniqueCode(db), name, percent, commissionBps(percent)],
         )
       ).rows[0];
       await audit(db, req.actor, 'cw.code_requested', null, r.id, { partner_id: p.id, percent });
@@ -295,16 +315,61 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
    (SELECT coalesce(sum(expected_fen),0)::text FROM cw_commissions c WHERE c.partner_id=p.id) AS expected_fen
    FROM cw_partners p JOIN "user" u ON u.id=p.user_id LEFT JOIN cw_partners i ON i.id=p.invited_by ORDER BY p.created_at DESC LIMIT 500`)
     ).rows;
-    res.json({ enabled: !!cfg.cw?.enabled, partners });
+    const invites = (
+      await pool.query(
+        'SELECT id,code,max_uses,used_count,status,note,created_by,created_at FROM vip_invite_codes ORDER BY created_at DESC LIMIT 200',
+      )
+    ).rows;
+    res.json({ enabled: !!cfg.cw?.enabled, partners, invite_codes: invites });
+  });
+
+  // Invite codes are issued by staff (admin) only; reusable up to max_uses.
+  app.post('/api/staff/cw/invite-codes', requireStaff, async (req, res) => {
+    admin(req);
+    const b = req.body || {};
+    const inviteCode = normalizedInvite(b.code);
+    if (!/^[A-Z0-9_-]{2,32}$/.test(inviteCode)) throw new HttpError(400, '邀请码格式不正确');
+    const maxUses = integer(b.max_uses ?? 1, 1, 100000, '使用次数上限');
+    const note = text(b.note ?? '', '备注', 200);
+    const r = await transaction(pool, async (db) => {
+      const dup = (
+        await db.query('SELECT 1 FROM vip_invite_codes WHERE code=$1', [inviteCode])
+      ).rowCount;
+      if (dup) throw new HttpError(409, '该邀请码已存在');
+      const row = (
+        await db.query(
+          'INSERT INTO vip_invite_codes(code,max_uses,note,created_by) VALUES($1,$2,$3,$4) RETURNING id,code,max_uses,used_count,status,note,created_at',
+          [inviteCode, maxUses, note, req.staff.subject],
+        )
+      ).rows[0];
+      await audit(db, req.actor, 'cw.invite_code_created', null, row.id, { code: inviteCode, max_uses: maxUses });
+      return row;
+    });
+    res.status(201).json(r);
+  });
+
+  app.post('/api/staff/cw/invite-codes/:code/status', requireStaff, async (req, res) => {
+    admin(req);
+    const state = req.body?.status;
+    if (!['active', 'disabled'].includes(state)) throw new HttpError(400, '状态不正确');
+    await transaction(pool, async (db) => {
+      const r = await db.query(
+        'UPDATE vip_invite_codes SET status=$2 WHERE code=$1 RETURNING id',
+        [normalizedInvite(req.params.code), state],
+      );
+      if (!r.rowCount) throw new HttpError(404, '邀请码不存在');
+      await audit(db, req.actor, 'cw.invite_code_status', null, r.rows[0].id, { status: state });
+    });
+    res.json({ ok: true });
   });
   app.get('/api/staff/cw/:partner', requireStaff, async (req, res) => {
     business(req);
     const pid = id(req.params.partner),
       p = (await pool.query('SELECT * FROM cw_partners WHERE id=$1', [pid])).rows[0];
-    if (!p) throw new HttpError(404, 'CW 不存在');
+    if (!p) throw new HttpError(404, 'VIP 不存在');
     const codes = (
       await pool.query(
-        'SELECT k.id,k.code,k.name,k.status,k.customer_price_percent,k.starts_at,k.ends_at,coalesce(sum(c.cash_fen),0)::text AS paid_fen,coalesce(sum(c.used_cash_fen),0)::text AS used_fen,coalesce(sum(c.expected_fen),0)::text AS expected_fen,coalesce(sum(c.unlocked_fen),0)::text AS unlocked_fen FROM cw_codes k LEFT JOIN cw_commissions c ON c.code_id=k.id WHERE k.partner_id=$1 GROUP BY k.id ORDER BY k.created_at',
+        'SELECT k.id,k.code,k.name,k.status,k.customer_price_percent,k.commission_bps,k.is_self_code,k.starts_at,k.ends_at,coalesce(sum(c.cash_fen),0)::text AS paid_fen,coalesce(sum(c.used_cash_fen),0)::text AS used_fen,coalesce(sum(c.expected_fen),0)::text AS expected_fen,coalesce(sum(c.unlocked_fen),0)::text AS unlocked_fen FROM cw_codes k LEFT JOIN cw_commissions c ON c.code_id=k.id WHERE k.partner_id=$1 GROUP BY k.id ORDER BY k.is_self_code DESC,k.created_at',
         [pid],
       )
     ).rows;
@@ -364,12 +429,19 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
     if (b.verified !== true) throw new HttpError(400, '请核验双方签署记录及身份凭证');
     await transaction(pool, async (db) => {
       const p = (await db.query('SELECT id FROM cw_partners WHERE id=$1 FOR UPDATE', [pid])).rows[0];
-      if (!p) throw new HttpError(404, 'CW 不存在');
+      if (!p) throw new HttpError(404, 'VIP 不存在');
       await db.query(
         'INSERT INTO cw_contracts(partner_id,template_version,document_sha256,signature_reference,identity_reference,expires_at,verified_by) VALUES($1,$2,$3,$4,$5,$6,$7)',
         [pid, version, sha, reference, identity, expires, req.staff.subject],
       );
       await db.query("UPDATE cw_partners SET status='active' WHERE id=$1", [pid]);
+      // Issue the VIP self-code (cost price 50%, no commission) on first activation.
+      await db.query(
+        `INSERT INTO cw_codes(partner_id,code,name,customer_price_percent,commission_bps,is_self_code,status,starts_at,ends_at)
+         SELECT $1,$2,'VIP 专属 5 折码',$3,0,true,'active',now(),now()+interval '10 years'
+         WHERE NOT EXISTS(SELECT 1 FROM cw_codes WHERE partner_id=$1 AND is_self_code=true)`,
+        [pid, await uniqueCode(db), VIP_SELF_PERCENT],
+      );
       await audit(db, req.actor, 'cw.contract_verified', null, pid, { version, document_sha256: sha });
     });
     res.json({ ok: true });
@@ -407,7 +479,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
           ).rowCount
         )
           throw new HttpError(409, '请先完成有效合同和身份核验');
-        const percent = integer(b.customer_price_percent, 1, 100, '价格比例'),
+        const percent = integer(b.customer_price_percent, 50, 100, '价格比例'),
           start = new Date(b.starts_at),
           end = new Date(b.ends_at);
         if (
@@ -420,8 +492,8 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
         if ((await db.query('SELECT 1 FROM discount_grants WHERE upper(promo_code)=$1', [c.code])).rowCount)
           throw new HttpError(409, '此码与历史活动冲突，请联系管理员');
         await db.query(
-          'UPDATE cw_codes SET status=$2,customer_price_percent=$3,starts_at=$4,ends_at=$5,approved_by=$6 WHERE id=$1',
-          [cid, state, percent, start, end, req.staff.subject],
+          'UPDATE cw_codes SET status=$2,customer_price_percent=$3,commission_bps=$4,starts_at=$5,ends_at=$6,approved_by=$7 WHERE id=$1',
+          [cid, state, percent, commissionBps(percent), start, end, req.staff.subject],
         );
       } else await db.query('UPDATE cw_codes SET status=$2 WHERE id=$1', [cid, state]);
       await audit(db, req.actor, 'cw.code_reviewed', null, cid, {
@@ -435,7 +507,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
     requireFinance(req);
     const pid = id(req.params.partner),
       p = (await pool.query('SELECT * FROM cw_partners WHERE id=$1', [pid])).rows[0];
-    if (!p) throw new HttpError(404, 'CW 不存在');
+    if (!p) throw new HttpError(404, 'VIP 不存在');
     await audit(pool, req.actor, 'cw.private_viewed', null, pid, {
       reason: text(req.body.reason, '查看原因', 200),
     });

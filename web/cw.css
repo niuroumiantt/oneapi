@@ -223,6 +223,15 @@ td small {
   color: #5c25ad;
   font-weight: 600;
 }
+.cw-self {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #e6f5ef;
+  color: #0f6e56;
+  font-size: 11px;
+}
 .cw-row-actions {
   display: flex;
   gap: 6px;
