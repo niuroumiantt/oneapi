@@ -2,8 +2,11 @@ import {quoteCW,consumeCW} from './cw-ledger.mjs';
 import {HttpError,transaction} from './core.mjs';
 // All decimal arithmetic stays in PostgreSQL. Cash is recognised cumulatively per pack,
 // so repeated sub-cent calls neither disappear nor round up into overcharging.
+// Gift (green) credit expires 180 days after the recharge day; paid cash (red) never expires.
+// Owner decision 2026-11-24: consumption is always red-first, then green.
+export const GIFT_TTL_DAYS = 180;
 export async function addPack(db,{accountId,sourceKind,sourceId,faceFen,cashFen}){
- return (await db.query(`INSERT INTO credit_packs(account_id,source_kind,source_id,face_fen,cash_fen,remaining_fen) VALUES($1,$2,$3,$4::bigint,$5,$4::numeric) ON CONFLICT(source_kind,source_id) DO NOTHING RETURNING id`,[accountId,sourceKind,sourceId,faceFen,cashFen])).rows[0];
+ return (await db.query(`INSERT INTO credit_packs(account_id,source_kind,source_id,face_fen,cash_fen,remaining_fen,gift_expires_at) VALUES($1,$2,$3,$4::bigint,$5,$4::numeric,now()+make_interval(days=>$6)) ON CONFLICT(source_kind,source_id) DO NOTHING RETURNING id`,[accountId,sourceKind,sourceId,faceFen,cashFen,GIFT_TTL_DAYS])).rows[0];
 }
 export async function accountFor(db,userId,orgId,{create=false}={}){
  if(orgId){const m=(await db.query("SELECT role FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",[orgId,userId])).rows[0];if(!m||!['owner','admin','billing'].includes(m.role))throw new HttpError(403,'仅企业管理者可以操作企业付费额度');}
@@ -60,6 +63,24 @@ export async function settlePaidCall(pool,callId,amount,usage,source,requestId,l
   if(cash>0n)await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'usage',$2,$3,'usage',$4)",[call.account_id,(-cash).toString(),account.cash_balance_fen,callId]);
   await db.query(`UPDATE customer_calls SET status='settled',actual_yuan=$2,charged_yuan=$3::numeric/100,settlement_source=$4,upstream_request_id=coalesce($5,upstream_request_id),input_tokens=$6,cached_input_tokens=$7,output_tokens=$8,latency_ms=coalesce($9,latency_ms),finished_at=coalesce(finished_at,now()),settled_at=now() WHERE id=$1`,[callId,amount,charge,source,requestId,usage?.input??null,usage?.cached??null,usage?.output??null,latency??null]);
  });
+}
+// Forfeit expired gift (green) credit. Paid cash (red) never expires.
+// Red is consumed first, so the green portion of a pack only starts to be spent
+// once cash_fen is fully consumed. Remaining red = cash_fen - consumed_cash_fen.
+// When a pack's gift expires, the unconsumed green is zeroed out and the account's
+// list credit drops by that amount; red stays untouched. All decimal math stays in SQL.
+export async function expirePackGifts(db){
+ const expired=(await db.query(`SELECT p.id,p.account_id,p.remaining_fen,p.cash_fen,p.consumed_cash_fen FROM credit_packs p
+   WHERE p.gift_expires_at IS NOT NULL AND p.gift_expires_at<now() AND p.remaining_fen>0 AND p.refund_id IS NULL`)).rows;
+ for(const p of expired){
+  const redLeft=BigInt(p.cash_fen)-BigInt(p.consumed_cash_fen);
+  // green left = remaining (numeric, may have decimals) - red left; round to whole fen.
+  const remainingFen=Math.round(Number(p.remaining_fen));
+  const greenLeft=remainingFen>Number(redLeft)?BigInt(remainingFen)-redLeft:0n;
+  if(greenLeft<=0n)continue;
+  await db.query(`UPDATE credit_packs SET remaining_fen=remaining_fen-$2 WHERE id=$1`,[p.id,greenLeft.toString()]);
+  await db.query(`UPDATE billing_accounts SET list_credit_fen=list_credit_fen-$2 WHERE id=$1`,[p.account_id,greenLeft.toString()]);
+ }
 }
 // Red/green refund quote (owner decision 2026-11-21):
 //   red left  = cash_fen - consumed_cash_fen  -> refunded in full, no fee

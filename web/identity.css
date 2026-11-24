@@ -483,17 +483,22 @@ select option{font-size:14px}
 .credit-bar-block{flex:1 1 320px;min-width:260px;display:grid;gap:6px}
 .credit-bar-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:12px;color:#6b7184}
 .credit-bar-head b{font-size:13px;color:#1c1e29;font-weight:600}
-.credit-bar{display:flex;width:100%;height:12px;border-radius:999px;background:#eceff5;overflow:hidden}
+/* Dashed outline = historical maximum total; solid fills inside = current unused red+green.
+   The empty right portion (already consumed) shows the dashed outline through it — no grey. */
+.credit-bar{display:flex;width:100%;height:14px;border-radius:999px;background:#f4f5f8;overflow:hidden}
+.credit-bar-outline{border:1px dashed #c3c7d2;border-radius:999px;padding:1px;position:relative}
+.credit-bar-outline .credit-bar{background:transparent}
 .credit-bar i{display:block;height:100%;transition:width .3s}
 .credit-bar .seg-green{background:#17a673}
 .credit-bar .seg-red{background:#e0453f}
-.credit-bar .seg-used{background:#d8dbe5}
+.credit-bar .seg-spent-red{background:transparent}
 .credit-bar-legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:11px;color:#6b7184}
 .credit-bar-legend span{display:inline-flex;align-items:center;gap:5px}
 .credit-bar-legend i{display:inline-block;width:9px;height:9px;border-radius:2px}
-.credit-bar-legend .dot-green{background:#17a673}.credit-bar-legend .dot-red{background:#e0453f}.credit-bar-legend .dot-used{background:#d8dbe5}
+.credit-bar-legend .dot-green{background:#17a673}.credit-bar-legend .dot-red{background:#e0453f}.credit-bar-legend .dot-spent{border:1px dashed #c3c7d2;background:transparent}
 .credit-bar-refund{font-size:12px;color:#1c6b4d}
 .credit-bar-refund a{color:#1a7a55;font-weight:600;text-decoration:none;margin-left:6px}
+.credit-bar-expired{font-size:11px;color:#8a6d1d;margin:2px 0 0}
 .pay-preview{margin:12px 0 2px;padding:12px 14px;border:1px solid #e3e5ee;border-radius:10px;background:#fafbfc}
 .pay-preview .credit-bar-head{margin-bottom:6px}
 .pay-preview-note{font-size:11px;color:#7d8699;line-height:1.6;margin-top:6px}

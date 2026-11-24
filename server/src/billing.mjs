@@ -31,21 +31,29 @@ export function billingRoutes(app,pool,requireCustomer,cfg,payments){
   const packViews=[];
   // Aggregate red/green for one dashboard progress bar. Red = remaining paid cash (refundable),
   // green = remaining gift. Spent = paid cash already consumed. Only active packs count.
-  let redFen=0n,greenFen=0n,spentRedFen=0n,paidFen=0n,faceFen=0n;
+  // Gift expires 180 days after recharge (per-pack); expired gift vanishes, paid cash stays.
+  let redFen=0n,greenFen=0n,spentRedFen=0n,paidFen=0n,faceFen=0n,expiredGiftFen=0n;
+  const now=Date.now();
   for(const p of packs){
    const q=await refundQuote(pool,p.id);
-   packViews.push({...p,net_fen:q.refundable_fen,red_fen:q.refundable_fen,refundable_fen:q.refundable_fen,bonus_fen:q.bonus_fen,fee_fen:'0',refund_blocked:q.blocked});
+   const giftExpiresAt=p.gift_expires_at?new Date(p.gift_expires_at).getTime():null;
+   const giftExpired=giftExpiresAt!==null&&giftExpiresAt<now;
+   packViews.push({...p,net_fen:q.refundable_fen,red_fen:q.refundable_fen,refundable_fen:q.refundable_fen,bonus_fen:giftExpired?'0':q.bonus_fen,fee_fen:'0',refund_blocked:q.blocked,gift_expires_at:p.gift_expires_at,gift_expired:giftExpired});
    if(!p.refund_id){
-    const red=BigInt(q.refundable_fen),green=BigInt(q.bonus_fen);
+    const red=BigInt(q.refundable_fen),green=giftExpired?0n:BigInt(q.bonus_fen);
     redFen+=red;greenFen+=green;paidFen+=BigInt(p.cash_fen);faceFen+=BigInt(p.face_fen);
     spentRedFen+=BigInt(p.cash_fen)-BigInt(p.consumed_cash_fen)-red;
+    if(giftExpired)expiredGiftFen+=BigInt(q.bonus_fen);
    }
   }
   const creditSplit={
    face_fen:String(faceFen),paid_fen:String(paidFen),
    red_fen:String(redFen),green_fen:String(greenFen),spent_red_fen:String(spentRedFen),
    remaining_fen:String(redFen+greenFen),refundable_fen:String(redFen),
-   gift_fen:String(faceFen-paidFen)
+   gift_fen:String(faceFen-paidFen),expired_gift_fen:String(expiredGiftFen),
+   // Historical maximum list total: the dashed outline the bar draws around.
+   // It never shrinks while any pack is active; a new recharge grows it.
+   max_face_fen:String(faceFen)
   };
   const usage=account?(await pool.query(`SELECT model_id,count(*)::int AS calls,coalesce(sum(input_tokens),0) AS input_tokens,coalesce(sum(output_tokens),0) AS output_tokens,coalesce(sum(charged_yuan),0) AS charged_yuan FROM customer_calls WHERE account_id=$1 GROUP BY model_id`,[account.id])).rows:[];
   const summary=disabled(account,entries.rows,scope,totalRecharged.rows[0].total_recharged_fen,channels);
