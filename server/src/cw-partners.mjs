@@ -77,7 +77,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg) {
     next();
   };
   app.get('/api/cw/status', (_req, res) =>
-    res.json({ enabled: !!cfg.cw?.enabled, code_limit: 50, commission_bps: 1000 }),
+    res.json({ enabled: !!cfg.cw?.enabled, code_limit: 50, base_percent: 40, self_percent: 50 }),
   );
   app.get('/api/cw/offers/:code', enabled, async (req, res) => {
     const r = (
