@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { HttpError,hash,id,text,token,transaction,audit,vault } from './core.mjs';
 import { isManager } from './organizations.mjs';
 import { OFFICIAL_MODELS,findOfficialModel,priceMultiplier,capabilityTags,publicCapabilities,defaultOutputTokens } from './official-models.mjs';
+import { listedIds } from './model-catalog.mjs';
 import { routeFetch } from './output-guard.mjs';
 import { createGate,createSeatGate,gatewayLimits,estimateTokens,SEAT_CONCURRENT,SEAT_TPM } from './gateway-limits.mjs';
 import { OFFICIAL_VENDORS,STANDBY_VENDORS } from './eval-keys.mjs';
@@ -213,7 +214,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
  // Public, for the 模型广场: which catalog models can be called right now. No keys, prices or routes.
  const open={at:0,ids:[]};
  app.get('/api/public/models',async(req,res)=>{
-  if(Date.now()-open.at>60000){open.ids=(await employeeRoutes(pool,cfg)).map(r=>r.model.id);open.at=Date.now();}
+  if(Date.now()-open.at>60000){const listed=await listedIds(pool);open.ids=(await employeeRoutes(pool,cfg)).filter(r=>!listed||listed.has(r.model.id)).map(r=>r.model.id);open.at=Date.now();}
   res.set('Cache-Control','public, max-age=60').json({models:OFFICIAL_MODELS.map(m=>({id:m.id,available:open.ids.includes(m.id)}))});
  });
  const companyCalls="employee_calls c JOIN employee_credit_accounts a ON a.user_id=c.owner_id AND a.organization_id=$1";
@@ -443,7 +444,8 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
  }
  app.get('/v1/models',(req,res,next)=>isEmployee(req)?next():next('route'),async(req,res)=>{
   const key=await authenticate(req);
-  res.json({object:'list',data:(await (backend?backend.routes():employeeRoutes(pool,cfg))).filter(r=>!key.model_ids||key.model_ids.includes(r.model.id))
+  const listed=await listedIds(pool);
+  res.json({object:'list',data:(await (backend?backend.routes():employeeRoutes(pool,cfg))).filter(r=>!listed||listed.has(r.model.id)).filter(r=>!key.model_ids||key.model_ids.includes(r.model.id))
    // name, tags and capabilities are our additions; OpenAI clients ignore fields they do not know.
    .map(r=>({id:r.model.id,object:'model',owned_by:'semifly',name:r.model.name,tags:capabilityTags(r.model),capabilities:publicCapabilities(r.model,MAX_OUTPUT)}))});
  });
@@ -455,6 +457,8 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
   const {model,payload,stream,input,output}=shaped,signature=recordProfile(pool,origin,req.body);
   !backend&&key.purpose!=='compare'&&captureHook?.(key.key_id,signature,origin,null);
   if(key.model_ids&&!key.model_ids.includes(model.id))throw new HttpError(403,`这把 Key 只能调用：${key.model_ids.join('、')}`,'model_not_allowed');
+  const listed=await listedIds(pool);
+  if(listed&&!listed.has(model.id))throw new HttpError(503,'这个模型暂未开放','model_unavailable');
   const route=(await (backend?backend.routes():employeeRoutes(pool,cfg))).find(r=>r.model.id===model.id);
   if(!route)throw new HttpError(503,'这个模型暂时不可用','model_unavailable');
   // Company/org gates (C6/C10) then person seat TPM (items 5–6). Slots free when the response closes.
