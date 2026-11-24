@@ -231,6 +231,22 @@ td small {
   color: #7a5b12;
   font-size: 14px;
 }
+.cw-contact-box {
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid #d9e0ef;
+  border-radius: 10px;
+  background: #f7f9fd;
+}
+.cw-contact-box > p {
+  margin: 0 0 8px;
+}
+.cw-contact-box .cw-proof {
+  margin: 8px 0;
+}
+.cw-contact-box form {
+  margin-top: 8px;
+}
 .cw-self {
   display: inline-block;
   margin-right: 4px;

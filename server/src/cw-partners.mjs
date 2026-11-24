@@ -1,7 +1,7 @@
 import qrcode from 'qrcode-generator';
 import { randomInt } from 'node:crypto';
 import { HttpError, id, text, transaction, audit, vault, hasBusiness } from './core.mjs';
-import { requireFinance } from './business-console.mjs';
+import { requireFinance, hasFinance } from './business-console.mjs';
 import { commissionBps, VIP_SELF_PERCENT, VIP_ACTIVATE_MIN_CASH_FEN } from './cw-ledger.mjs';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const code = () => Array.from({ length: 8 }, () => ALPHABET[randomInt(ALPHABET.length)]).join('');
@@ -174,7 +174,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
               `VIP 客户邀请码：${inviteCode}\n` +
               `申请时间：${new Date().toLocaleString('zh-CN', { hour12: false })}\n\n` +
               `请主动电话面试；确认通过后发放 VIP 客户打折码。客户充值后，销售核验到账再点「确认正式 VIP」。\n` +
-              `处理入口：商务后台 → VIP 合作伙伴管理 → 待确认。`,
+              `处理入口：https://semifly.cn/promotion/vip.html?staff=1 → 点该申请人的「管理」→「查看联系方式」（电话不写入邮件，避免泄露）。`,
           });
         } catch {
           /* mail may be unconfigured; the pending list still surfaces the application */
@@ -680,18 +680,22 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     });
     res.json({ ok: true });
   });
+  // Contact is needed for sales phone interviews (any business staff).
+  // Bank details stay finance-only.
   app.post('/api/staff/cw/:partner/private', requireStaff, async (req, res) => {
-    requireFinance(req);
+    business(req);
+    const finance = hasFinance(req.staff);
     const pid = id(req.params.partner),
       p = (await pool.query('SELECT * FROM cw_partners WHERE id=$1', [pid])).rows[0];
     if (!p) throw new HttpError(404, 'VIP 不存在');
     await audit(pool, req.actor, 'cw.private_viewed', null, pid, {
       reason: text(req.body.reason, '查看原因', 200),
+      scope: finance ? 'contact+bank' : 'contact',
     });
     res.json({
       contact: box.open(p.contact_cipher),
-      bank: p.bank_cipher ? box.open(p.bank_cipher) : null,
-      bank_version: p.bank_version,
+      bank: finance && p.bank_cipher ? box.open(p.bank_cipher) : null,
+      bank_version: finance ? p.bank_version : undefined,
     });
   });
   app.post('/api/staff/cw/:partner/bank-verify', requireStaff, async (req, res) => {

@@ -358,7 +358,13 @@ test('CW application, code cap, payment, usage, month close and payout lifecycle
       const raw = (await pool.query('SELECT bank_cipher FROM cw_partners WHERE id=$1', [b.id])).rows[0]
         .bank_cipher;
       assert.ok(!raw.includes('11112222'));
-      assert.equal((await staff('/' + b.id + '/private', { reason: 'test' }, 'operations')).status, 403);
+      const opsPrivate = await staff('/' + b.id + '/private', { reason: 'interview' }, 'operations');
+      assert.equal(opsPrivate.status, 200);
+      assert.ok(opsPrivate.data.contact?.contact);
+      assert.equal(opsPrivate.data.bank, null);
+      const financePrivate = await staff('/' + b.id + '/private', { reason: 'payout review' });
+      assert.equal(financePrivate.status, 200);
+      assert.ok(financePrivate.data.bank?.number);
       assert.equal(
         (await staff('/' + b.id + '/bank-verify', { bank_version: 2, evidence: 'stale' })).status,
         409,
