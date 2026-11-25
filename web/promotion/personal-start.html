@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>个人账户注册与 API 接入 · semifly.ai</title>
+  <meta name="description" content="使用手机号或邮箱注册 semifly 个人账户，选模型、充值、创建付费 Key，完成第一次 API 调用。">
+  <link rel="canonical" href="https://semifly.cn/promotion/personal-start.html">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:site_name" content="semifly.ai">
+  <meta property="og:title" content="个人账户注册与 API 接入 · semifly.ai">
+  <meta property="og:description" content="使用手机号或邮箱注册 semifly 个人账户，选模型、充值、创建付费 Key，完成第一次 API 调用。">
+  <meta property="og:url" content="https://semifly.cn/promotion/personal-start.html">
+  <meta property="og:image" content="https://semifly.cn/promotion/personal-workbench.webp">
+  <meta property="og:image:alt" content="个人工作台示例，侧栏依次提供模型、密钥与用量入口，右侧可复制 API 接入地址。">
+  <link rel="icon" href="../favicon.svg">
+  <link rel="stylesheet" href="start.css">
+</head>
+<body class="guide-personal" data-type="software">
+  <a class="skip-link" href="#main-content">跳到正文</a>
+  <header class="site-top">
+    <div class="wrap top-content">
+      <a class="brand" href="/" aria-label="semifly.ai 首页"><img src="../pinapi-wordmark.svg" alt="" width="154" height="30"></a>
+      <nav class="guide-nav" aria-label="账户指南">
+        <a href="personal-start.html" aria-current="page">个人账户</a>
+        <a href="vip-start.html">VIP 账户</a>
+      </nav>
+    </div>
+  </header>
+  <main id="main-content" tabindex="-1">
+    <section class="hero" aria-labelledby="page-title">
+      <div class="wrap hero-layout">
+        <div class="hero-copy">
+          <span class="eyebrow">个人账户</span>
+          <h1 id="page-title">注册个人账户，<br>接入模型 API</h1>
+          <p>用手机号或邮箱注册。选好模型并充值后，就能创建自己的 API Key，在代码或工具里发起第一次调用。</p>
+          <div class="actions">
+            <a class="primary" href="/#register">注册个人账户<span aria-hidden="true">→</span></a>
+            <a class="secondary" href="/#workspace">已注册，去登录</a>
+          </div>
+        </div>
+        <figure class="product">
+          <div class="product-bar"><span>个人工作台</span><span>界面示例</span></div>
+          <img src="personal-workbench.webp" alt="个人工作台示例，侧栏依次提供模型、密钥与用量入口，右侧可复制 API 接入地址。" width="1222" height="462" fetchpriority="high">
+        </figure>
+      </div>
+    </section>
+    <section class="steps" aria-labelledby="steps-title">
+      <div class="wrap">
+        <h2 id="steps-title">从注册到第一次调用</h2>
+        <div class="steps-layout">
+          <ol>
+            <li><h3>注册并验证账号</h3><p>使用手机号接收短信验证码，或用邮箱和密码注册。选择邮箱时，打开验证邮件里的链接，验证后进入工作台。</p></li>
+            <li><h3>选模型并充值</h3><p>在工作台的「模型」页面确认要用的模型和计费方式，再点「充值额度」。付款前查看实付金额、赠送额度与到账额度，付款后可在账单中核对。</p></li>
+            <li><h3>创建付费 Key</h3><p>打开「密钥」，点「创建付费 Key」，选好允许调用的模型。消费上限留空时，默认使用当前未分配额度。创建后立即保存完整密钥，并妥善保管。</p></li>
+            <li><h3>发起调用并核对用量</h3><p>在支持 OpenAI 兼容 API 的工具里填入接入地址、你的 Key 和准确的模型 ID。完成第一次调用后，在工作台的「用量」里查看记录。</p></li>
+          </ol>
+          <aside class="guide-aside" aria-labelledby="api-address">
+          <h3 id="api-address">API 接入地址</h3>
+          <code>https://semifly.cn/v1</code>
+          <a href="/#docs">查看接入文档 <span aria-hidden="true">↗</span></a>
+        </aside>
+        </div>
+      </div>
+    </section>
+    <section class="next" aria-labelledby="next-title">
+      <div class="wrap next-content">
+        <div><h2 id="next-title">拿到 VIP 邀请码了？</h2><p>先注册个人账户，再用同一个账户申请 VIP。</p></div>
+        <a class="secondary" href="vip-start.html">查看 VIP 申请指南 <span aria-hidden="true">→</span></a>
+      </div>
+    </section>
+  </main>
+  <footer class="site-bottom">
+    <div class="wrap bottom-content">
+      <a href="/">semifly.ai</a>
+      <a href="/#docs">使用文档</a>
+      <div data-site-footer></div>
+    </div>
+  </footer>
+</body>
+</html>

@@ -39,6 +39,8 @@
   if (staff) {
     $('#cw-title').textContent = 'VIP 合作伙伴管理';
     document.title = 'VIP 合作伙伴管理 · semifly.ai';
+    $('#cw-description').textContent = '管理 VIP 申请、推广码与结算。';
+    $('#cw-guide-link').hidden = true;
   }
   async function api(path, body) {
     const r = await fetch(path, {
@@ -77,9 +79,14 @@
     $('#cw-content').inert = false;
     $('#cw-content').removeAttribute('aria-busy');
     $('#cw-nav').replaceChildren();
-    $('#cw-message').textContent = error.message;
+    document.body.classList.toggle('cw-applicant', !staff);
+    $('#refresh').hidden = error.status === 401;
+    $('#cw-message').textContent = error.status === 401 ? '' : error.message;
+    const customerEntry = '/?cw_join=' + encodeURIComponent(new URLSearchParams(location.search).get('invite') || '1');
     $('#cw-content').innerHTML = error.status === 401
-      ? `<h2>登录已过期</h2><p>请先${staff ? '完成员工登录' : '注册或登录个人账户'}，再刷新此页。</p><a class="cw-button" href="${staff ? '/api/staff/login?next=business' : '/?cw_join=' + encodeURIComponent(new URLSearchParams(location.search).get('invite') || '1') + '#register'}">${staff ? '员工登录' : '注册／登录'}</a>`
+      ? staff
+        ? '<h2>请先进行员工登录</h2><a class="cw-button" href="/api/staff/login?next=business">员工登录</a>'
+        : `<h2>用个人账户继续</h2><p>登录或完成注册后会返回这里，你可以申请 VIP 或查看进度。</p><div class="cw-inline"><a class="cw-button" href="${customerEntry}#workspace">登录个人账户</a><a class="cw-button" href="${customerEntry}#register">注册个人账户</a></div>`
       : `<h2>${error.status === 403 ? '暂时无法访问' : '加载未完成'}</h2><p>${error.status === 403 ? '请确认当前员工账号具有商务权限。' : '请点击右上角“刷新”重试。'}</p>`;
   }
   function nav() {
@@ -133,25 +140,51 @@
   async function draw() {
     if (!data) return;
     const version = ++viewVersion;
-    nav();
+    const dashboard = staff || data.partner?.status === 'active';
+    document.body.classList.toggle('cw-applicant', !dashboard);
+    $('#refresh').hidden = !dashboard;
+    if (dashboard) nav();
+    else $('#cw-nav').replaceChildren();
+    if (!staff) {
+      $('#cw-title').textContent = dashboard ? 'VIP 推广合作伙伴' : data.partner ? 'VIP 申请进度' : '申请 VIP';
+      $('#cw-description').textContent = dashboard
+        ? '客户实付看预计收益，实际使用解锁佣金，客户月结确认后可提现。'
+        : data.partner
+          ? '查看你的申请状态和下一步。'
+          : '填写资料与员工提供的邀请码，提交后请留意销售来电。';
+    }
     const c = $('#cw-content');
     if (staff) {
       drawStaff(c);
       return;
     }
     if (!data.partner) {
-      c.innerHTML = `<h2>申请成为 VIP</h2><p>与公司独立签约，使用专属推广码推广产品。客户实付形成预计收益，实际使用解锁佣金；客户月结确认后可提现。申请免费，需填写 VIP 客户邀请码；邀请其他 VIP 本身不产生佣金。</p>${form('apply', field('legal_name', '真实姓名', 'text', 'maxlength="60"') + field('contact', '手机号或其他联系方式', 'text', 'maxlength="160"') + `<label>VIP 客户邀请码（必填，由公司员工提供）<input name="invite_code" maxlength="32" required placeholder="输入 VIP 客户邀请码"></label><label>邀请人的 VIP 编号（可选）<input name="invite" maxlength="8" value="${esc(new URLSearchParams(location.search).get('invite') || '')}"></label><label class="cw-check"><input type="checkbox" name="consent" required>我已阅读<a href="/cw-terms.html#privacy" target="_blank" rel="noopener">资料处理说明</a>，同意为合作申请处理上述资料。</label>`, '提交申请')}`;
+      const referrer = new URLSearchParams(location.search).get('invite') || '';
+      const referralField = referrer
+        ? `<input type="hidden" name="invite" value="${esc(referrer)}">`
+        : `<details class="cw-referrer"><summary>填写邀请人的 VIP 编号（选填）</summary>${field('invite', '邀请人的 VIP 编号', 'text', 'maxlength="8" autocomplete="off"', false)}</details>`;
+      const fields =
+        field('legal_name', '真实姓名', 'text', 'maxlength="60" autocomplete="name"') +
+        field('contact', '联系电话或其他联系方式', 'text', 'maxlength="160"') +
+        field('invite_code', '员工提供的 VIP 客户邀请码', 'text', 'maxlength="32" autocomplete="off" autocapitalize="characters"') +
+        referralField +
+        '<label class="cw-check"><input type="checkbox" name="consent" required><span>我已阅读<a href="/cw-terms.html#privacy" target="_blank" rel="noopener">资料处理说明</a>，同意处理申请资料。</span></label>';
+      c.innerHTML = form('apply', fields, '提交申请');
       return;
     }
     const p = data.partner,
       t = data.totals;
     if (p.status === 'pending')
-      c.innerHTML = `<h2>申请已提交，等待公司销售电话面试并确认</h2><p>你的 VIP 编号：<strong>${esc(p.public_code)}</strong></p><div class="cw-callout"><p><b>你提交的申请信息</b></p><p>真实姓名：<strong>${esc(p.legal_name || '—')}</strong></p><p>申请时间：${when(p.created_at)}</p><p>当前状态：${labels[p.status]}</p><p class="cw-muted">联系方式已加密保存，仅公司员工在核验时可查看。</p></div><p>公司销售会主动联系你面试；面试通过后会发放 <strong>VIP 客户打折码</strong>。你充值后联系销售核验到账，销售确认后才成为正式 VIP（顶栏显示金色 VIP 角标）。请留意邮件或电话。</p><p><button data-tab="overview">刷新状态</button></p>`;
+      c.innerHTML = `<h2>申请已提交，等待公司销售电话面试并确认</h2><p>你的 VIP 编号：<strong>${esc(p.public_code)}</strong></p><div class="cw-callout"><p><b>你提交的申请信息</b></p><p>真实姓名：<strong>${esc(p.legal_name || '—')}</strong></p><p>申请时间：${when(p.created_at)}</p><p>当前状态：${labels[p.status]}</p><p class="cw-muted">联系方式已加密保存，仅公司员工在核验时可查看。</p></div><p>公司销售会主动联系你面试；面试通过后会发放 <strong>VIP 客户打折码</strong>。你充值后联系销售核验到账，销售确认后才成为正式 VIP（顶栏显示金色 VIP 角标）。请留意邮件或电话。</p><p><button data-refresh-status>刷新状态</button></p>`;
     if (p.status === 'rejected')
       c.innerHTML = `<h2>申请未通过</h2><p>很抱歉，你的 VIP 申请未通过。如有疑问请联系邀请你的员工或 sales。</p>`;
     if (p.status === 'confirmed') {
       const taskCodes = data.task_codes || [];
-      c.innerHTML = `<h2>面试已通过：请充值后联系销售确认</h2><p>你的 VIP 编号：<strong>${esc(p.public_code)}</strong></p><p>请使用下方 <strong>VIP 客户打折码</strong> 在工作台充值（激活门槛暂定实付 ≥ <strong>¥100</strong>）。充值成功后联系你的销售，由销售核验到账并确认后，你才成为正式 VIP。</p><h3>我的 VIP 客户打折码</h3>${taskCodes.length ? table(['打折码', '自购折扣', '有效期'], taskCodes.map((k) => `<tr><td><strong>${esc(k.code)}</strong>${k.note ? `<small>${esc(k.note)}</small>` : ''}</td><td>${k.customer_price_percent}%（${(k.customer_price_percent / 10).toFixed(1)} 折）</td><td>${when(k.starts_at)} 至 ${k.ends_at ? when(k.ends_at) : '长期有效'}</td></tr>`).join('')) : '<p>打折码尚未发放，请联系公司销售。</p>'}<p><a class="cw-button" href="/#billing/personal">去充值付款</a> <button data-tab="overview">刷新状态</button></p>`;
+      c.innerHTML = `<h2>面试已通过：请充值后联系销售确认</h2><p>你的 VIP 编号：<strong>${esc(p.public_code)}</strong></p><p>请使用下方 <strong>VIP 客户打折码</strong> 在工作台充值（激活门槛暂定实付 ≥ <strong>¥100</strong>）。充值成功后联系你的销售，由销售核验到账并确认后，你才成为正式 VIP。</p><h3>我的 VIP 客户打折码</h3>${taskCodes.length ? table(['打折码', '自购折扣', '有效期'], taskCodes.map((k) => `<tr><td><strong>${esc(k.code)}</strong>${k.note ? `<small>${esc(k.note)}</small>` : ''}</td><td>${k.customer_price_percent}%（${(k.customer_price_percent / 10).toFixed(1)} 折）</td><td>${when(k.starts_at)} 至 ${k.ends_at ? when(k.ends_at) : '长期有效'}</td></tr>`).join('')) : '<p>打折码尚未发放，请联系公司销售。</p>'}<p><a class="cw-button" href="/#billing/personal">去充值付款</a> <button data-refresh-status>刷新状态</button></p>`;
+      return;
+    }
+    if (p.status === 'suspended') {
+      c.innerHTML = '<h2>VIP 合作已暂停</h2><p>如需了解后续安排，请联系公司销售。</p>';
       return;
     }
     if (p.status !== 'active') return;
@@ -201,7 +234,7 @@
         tab = b.dataset.tab;
         await draw();
         $('#cw-content').scrollTop = 0;
-      } else if (b.id === 'refresh') await load();
+      } else if (b.id === 'refresh' || b.hasAttribute('data-refresh-status')) await load();
       else if (b.dataset.partner) {
         selected = b.dataset.partner;
         tab = 'manage';

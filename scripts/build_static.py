@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 LEGACY_DOMAIN = 'oneapi.glocalstorage.cn'
 CN_DOMAIN = 'semifly.cn'
 CN_ICP_NUMBER = '沪ICP备2024050749号-3'
+GUIDE_PAGES = ('promotion/personal-start.html', 'promotion/vip-start.html')
 
 def git(*args):
     return subprocess.check_output(['git', '-C', str(ROOT), *args])
@@ -20,7 +21,7 @@ def git(*args):
 def apply_cn_filing(assets):
     number = escape(CN_ICP_NUMBER)
     link = f'<a class="site-filing" href="https://beian.miit.gov.cn/">{number}</a>'
-    for name in ('index.html', 'compare.html', 'cw.html', 'cw-terms.html', 'promotion/vip.html', 'skills/index.html'):
+    for name in ('index.html', 'compare.html', 'cw.html', 'cw-terms.html', 'promotion/vip.html', 'skills/index.html', *GUIDE_PAGES):
         text = assets[name].decode()
         root = '<html lang="zh-CN">'
         if name == 'cw.html':
@@ -90,6 +91,19 @@ def main():
     for source, target in asset_names.items():
         vip_html = vip_html.replace(f'"../{source}"', f'"../{target}"')
     assets['promotion/vip.html'] = vip_html.encode()
+    guide_assets = {}
+    for name in ('start.css', 'personal-workbench.webp', 'vip-status.webp'):
+        content = git('show', f'HEAD:web/promotion/{name}')
+        stem, extension = name.rsplit('.', 1)
+        target = f'{stem}.{hashlib.sha256(content).hexdigest()[:12]}.{extension}'
+        assets[f'promotion/{target}'] = content
+        guide_assets[name] = target
+    for name in GUIDE_PAGES:
+        page = git('show', f'HEAD:web/{name}').decode()
+        for source, target in guide_assets.items():
+            page = page.replace(f'"{source}"', f'"{target}"')
+            page = page.replace(f'https://{CN_DOMAIN}/promotion/{source}"', f'https://{CN_DOMAIN}/promotion/{target}"')
+        assets[name] = page.encode()
     # Explicit publication manifest: no arbitrary repository/runtime files.
     skill_files = json.loads(git('show', 'HEAD:prototypes/skills/public-files.json'))
     for name in skill_files:

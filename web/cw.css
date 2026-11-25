@@ -333,3 +333,47 @@ summary {
 #cw-content[aria-busy="true"] {
   cursor: progress;
 }
+
+/* Applicants use page scrolling so the consent and submit controls stay reachable. */
+body.cw-applicant {
+  height: auto;
+  min-height: 100dvh;
+}
+.cw-applicant .cw-app {
+  max-width: 760px;
+  margin: 0 auto;
+  padding-top: 28px;
+}
+.cw-applicant #cw-content {
+  flex: none;
+  overflow: visible;
+  padding: clamp(16px, 4vw, 28px);
+}
+#cw-nav:empty {
+  display: none;
+}
+#cw-message:empty {
+  margin: 0 0 12px;
+}
+#cw-guide-link {
+  margin-inline-start: .75em;
+  white-space: nowrap;
+}
+.cw-applicant .cw-form > label:first-child {
+  margin-top: 0;
+}
+.cw-applicant .cw-referrer {
+  margin: 12px 0;
+  color: #4b5871;
+  font-size: 14px;
+}
+.cw-applicant .cw-form button[type='submit'] {
+  min-height: 44px;
+  color: #fff;
+  background: #6430bb;
+  border-color: #6430bb;
+  font-weight: 700;
+}
+.cw-applicant .cw-form button[type='submit']:hover {
+  background: #502494;
+}
