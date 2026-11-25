@@ -1153,6 +1153,38 @@ test('pack refunds return only red cash with no fee, forfeit green, survive reje
  const ledger=(await balance()).entries;assert.equal(ledger.filter(e=>e.reference_id?.startsWith('refund-fee:')).length,0,'no refund fee ledger');
 });
 
+test('cash-first checkout keeps ¥100 cash and gives ¥200 credit with a regular 50% promotion',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;
+ await staffLogin(jar());
+ const buyer=await user('cash-first');appCfg.alipay.allowedEmails.add(buyer.email);
+ const post=(path,body)=>buyer.j.call(path,{method:'POST',body});
+ const quotePath='/api/billing/quote', orderPath='/api/billing/personal/alipay-orders';
+ const regular=await post(quotePath,{cash_fen:10000});
+ assert.deepEqual([regular.data.amount_fen,regular.data.face_fen],[10000,10000]);
+ await pool.query('SELECT ensure_customers()');
+ const grant=(await pool.query(`INSERT INTO discount_grants(name,audience,customer_id,customer_price_percent,starts_at,ends_at,reason,status,created_by,promo_code)
+  SELECT 'Cash-first test','customer',id,50,now()-interval '1 hour',now()+interval '1 day','fixture','active','staff-owner','CASH50'
+    FROM customers WHERE user_id=$1 RETURNING id`,[buyer.user.id])).rows[0].id;
+ const priced=await post(quotePath,{cash_fen:10000,promo_code:'cash50'});
+ assert.equal(priced.status,200,JSON.stringify(priced.data));
+ assert.deepEqual([priced.data.amount_fen,priced.data.face_fen,priced.data.discount_snapshot.requested_cash_fen],[10000,20000,10000]);
+ const order={cash_fen:10000,promo_code:'cash50',expected_cash_fen:10000,expected_face_fen:20000,idempotency_key:'cash-first-regular-order-01'};
+ assert.equal((await post(orderPath,{...order,expected_face_fen:10000})).status,409);
+ const created=await post(orderPath,order);
+ assert.equal(created.status,201,JSON.stringify(created.data));
+ assert.deepEqual([created.data.order.amount_fen,created.data.order.face_fen],['10000','20000']);
+ assert.equal((await post(orderPath,order)).data.order.id,created.data.order.id);
+ const tradeNo=(await pool.query('SELECT out_trade_no FROM payment_orders WHERE id=$1',[created.data.order.id])).rows[0].out_trade_no;
+ seedAlipayTrade(tradeNo,'100.00').status='TRADE_SUCCESS';
+ const settled=(await buyer.j.call('/api/billing/payment-orders/'+created.data.order.id)).data.order;
+ assert.deepEqual([settled.status,settled.amount_fen,settled.face_fen],['paid','10000','20000']);
+ const pack=(await buyer.j.call('/api/billing/personal')).data.packs[0];
+ assert.deepEqual([pack.cash_fen,pack.bonus_fen,pack.face_fen],['10000','10000','20000']);
+ await pool.query('UPDATE discount_grants SET cap_fen=10000 WHERE id=$1',[grant]);
+ assert.equal((await post(quotePath,{cash_fen:10000,promo_code:'cash50'})).status,400);
+ const legacy=await post(quotePath,{face_fen:10000,promo_code:'cash50'});
+ assert.deepEqual([legacy.data.amount_fen,legacy.data.face_fen],[10000,10000]);
+});
 test('discounted checkout retains three amounts and a paid multi-model Key can atomically use unallocated credit',async()=>{
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;
  const admin=jar();await staffLogin(admin);

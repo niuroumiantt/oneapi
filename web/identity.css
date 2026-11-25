@@ -1150,3 +1150,27 @@ td>.live-dot:first-child{margin-right:5px}
  .refund-progress li::before{left:-6px;top:6px}
  .refund-progress li:last-child{padding-bottom:0}
 }
+
+#live-recharge-confirm .recharge-breakdown {
+  padding: 12px 0;
+  border-block: 1px solid var(--site-line);
+}
+#live-recharge-confirm .recharge-breakdown div:first-child dd {
+  color: #57269c;
+  font-size: 1.24em;
+}
+#live-recharge-confirm {
+  gap: 12px;
+}
+#live-recharge-confirm > p {
+  margin: 0;
+}
+#live-recharge-confirm #live-dialog-message:empty {
+  display: none;
+}
+.recharge-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}

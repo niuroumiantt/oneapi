@@ -158,7 +158,11 @@
  const creditActive=()=>Boolean(panelOrg&&employeeCredit?.enabled&&panelOrg.organization.id===employeeCredit.organization_id);
  const cwAuthQuery=()=>{const p=new URLSearchParams(location.search),q=new URLSearchParams();for(const key of ['cw','cw_join']){const v=p.get(key);if(v&&(key==='cw_join'&&v==='1'||/^[A-Z]{8}$/i.test(v)))q.set(key,v);}return q.size?'?'+q.toString():'';};
  let cwOfferCode='',cwOfferKind='',cwInputCode=new URLSearchParams(location.search).get('cw')||'';
- let alipayPay=null,alipayTimer=null,alipayFen=10000,payChannel='alipay_f2f';
+ const cwOfferHelp=()=>cwOfferCode
+  ? (cwOfferKind==='task'?'已填入专属 VIP 付款码。请填写实付金额，付款前核对到账额度。':'已识别 VIP 推广码，请填写实付金额。')
+  : 'VIP 付款码和推广码按实付金额购买额度，付款前会显示到账额度。';
+
+ let alipayPay=null,alipayTimer=null,alipayFen=10000,payChannel='alipay_f2f',rechargeReview=null;
   const PAY_CHANNELS={alipay_f2f:{name:'支付宝',path:'alipay',chip:'支付宝电脑网站支付'},wechat_native:{name:'微信支付',path:'wechat',chip:'微信支付 Native'}};
  let directPicked=new Set(),directIssued=null,panelOrg=null,teamUsage=null,personalBilling=null,personalPilot=null,employeeCredit=null,employeeIssuedKey=null,employeeKeyModel=null,agentToolId='workbuddy',personalTab='overview',personalFamily='all',personalUse='all',personalSearch='',personalSelected='deepseek-flash',personalPricePeriod='offpeak';
  let personalPaneShare=62,personalPaneDrag=null;try{const saved=Number(localStorage.getItem('semifly.personal-pane-share'));if(saved>=39&&saved<=72)personalPaneShare=saved;}catch{}
@@ -927,7 +931,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const done=o?.status==='paid'?`<section class="alipay-result ok" aria-label="充值成功"><p role="status">充值成功</p>${rechargeBreakdown(o)}${o.paid_at?`<time datetime="${esc(o.paid_at)}">${billingTime(o.paid_at)}（北京时间）</time>`:''}</section>`:o?`<p class="alipay-result" role="status">上一笔付款订单已失效。可以在资金记录查看到账情况。</p>`:'';
   const presets=[5000,10000,50000,100000];
   const pick=channels.length>1?`<div class="alipay-presets pay-channels" role="radiogroup" aria-label="支付方式">${channels.map(c=>`<button type="button" role="radio" aria-checked="${c===payChannel}" class="alipay-preset ${c===payChannel?'active':''}" data-live="pay-channel" data-channel="${c}">${c==='wechat_native'?wechatLogo:alipayLogo}${PAY_CHANNELS[c].name}</button>`).join('')}</div>`:'';
-  return `${done}${pick}<div class="recharge-layout"><div class="recharge-entry"><label class="recharge-amount-label" for="alipay-yuan">${cwOfferCode?'支付金额（元）':'充值额度（元）'}</label><div class="recharge-amount"><span aria-hidden="true">¥</span><input id="alipay-yuan" inputmode="decimal" autocomplete="off" maxlength="8" aria-describedby="recharge-amount-help" placeholder="最低 5 元" value="${(alipayFen/100).toFixed(2)}"></div><p id="recharge-amount-help" class="recharge-help">最低 ¥5，最高 ¥50,000。按官网价格抵扣模型调用费用。</p><div class="alipay-presets recharge-presets" aria-label="常用充值额度">${presets.map(f=>`<button type="button" aria-pressed="${alipayFen===f}" class="alipay-preset ${alipayFen===f?'active':''}" data-live="alipay-amount" data-fen="${f}">¥${f/100}</button>`).join('')}</div><details class="recharge-promo" ${cwInputCode?'open':''}><summary>有促销码？</summary><label for="pack-promo">促销码（可不填）</label><input id="pack-promo" autocomplete="off" maxlength="40" placeholder="输入促销码" value="${esc(cwInputCode)}"><p class="recharge-help" id="cw-offer-help">${cwOfferCode?'已识别 VIP 推广码：上方输入实付金额，付款前确认到账官价额度。':'VIP 推广码按实付金额购买额度，付款前会显示实际到账官价额度。'}</p></details><div id="live-form-message" role="status"></div></div><section class="recharge-payment" data-provider="${wechat?'wechat':'alipay'}" aria-label="付款方式"><div class="recharge-provider-row"><div class="recharge-provider">${wechat?wechatLogo:alipayLogo}<div><strong>${wechat?'微信支付':'支付宝'}</strong><span>已开通 · ${wechat?'本页扫码':'官方收银台付款'}</span></div></div><details class="recharge-filing"><summary><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg><span>网站已完成 ICP 备案</span></summary><div class="recharge-filing-info"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" aria-label="${esc(filingNumber)}，打开工信部备案查询">${esc(filingNumber)}</a><p>备案域名：${esc(filingDomain)}<br>网站主办单位：上海艾泽可科技有限公司<br>支付收款方：深圳市格洛可半导体有限公司</p></div></details></div>${btn(wechat?'查看实付，微信付款':'查看实付，去支付宝付款','alipay-create','type="button"','primary recharge-submit')}<details class="recharge-instructions"><summary>付款说明</summary><ol class="recharge-steps"><li>输入额度，确认优惠后的实付金额</li><li>${wechat?'用微信扫描付款码':'在支付宝收银台扫码或登录付款'}</li><li>付款成功后返回，额度自动到账</li></ol></details><p class="recharge-help">点击后先确认金额，再进入付款。<br>收款方：深圳市格洛可半导体有限公司</p></section></div>`;
+  return `${done}${pick}<div class="recharge-layout"><div class="recharge-entry"><label class="recharge-amount-label" for="alipay-yuan">实付金额（元）</label><div class="recharge-amount"><span aria-hidden="true">¥</span><input id="alipay-yuan" inputmode="decimal" autocomplete="off" maxlength="8" aria-describedby="recharge-amount-help" placeholder="最低 5 元" value="${(alipayFen/100).toFixed(2)}"></div><p id="recharge-amount-help" class="recharge-help">实付最低 ¥5，最高 ¥50,000。使用优惠后，到账额度可能高于实付金额。</p><div class="alipay-presets recharge-presets" aria-label="常用充值额度">${presets.map(f=>`<button type="button" aria-pressed="${alipayFen===f}" class="alipay-preset ${alipayFen===f?'active':''}" data-live="alipay-amount" data-fen="${f}">¥${f/100}</button>`).join('')}</div><details class="recharge-promo" ${cwInputCode?'open':''}><summary>有促销码？</summary><label for="pack-promo">促销码（可不填）</label><input id="pack-promo" autocomplete="off" maxlength="40" placeholder="输入促销码" value="${esc(cwInputCode)}"><p class="recharge-help" id="cw-offer-help">${cwOfferHelp()}</p></details><div id="live-form-message" role="status"></div></div><section class="recharge-payment" data-provider="${wechat?'wechat':'alipay'}" aria-label="付款方式"><div class="recharge-provider-row"><div class="recharge-provider">${wechat?wechatLogo:alipayLogo}<div><strong>${wechat?'微信支付':'支付宝'}</strong><span>已开通 · ${wechat?'本页扫码':'官方收银台付款'}</span></div></div><details class="recharge-filing"><summary><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg><span>网站已完成 ICP 备案</span></summary><div class="recharge-filing-info"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" aria-label="${esc(filingNumber)}，打开工信部备案查询">${esc(filingNumber)}</a><p>备案域名：${esc(filingDomain)}<br>网站主办单位：上海艾泽可科技有限公司<br>支付收款方：深圳市格洛可半导体有限公司</p></div></details></div>${btn(wechat?'核对金额，继续微信付款':'核对金额，继续支付宝付款','alipay-create','type="button"','primary recharge-submit')}<details class="recharge-instructions"><summary>付款说明</summary><ol class="recharge-steps"><li>输入实付金额，核对赠送和到账额度</li><li>${wechat?'用微信扫描付款码':'在支付宝收银台扫码或登录付款'}</li><li>付款成功后返回，额度自动到账</li></ol></details><p class="recharge-help">点击后先确认金额，再进入付款。<br>收款方：深圳市格洛可半导体有限公司</p></section></div>`;
  }
  function alipayWatch(){
   clearInterval(alipayTimer);alipayTimer=null;
@@ -1166,24 +1170,30 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
      <input type="hidden" name="amount_fen" value="${amount}">
      <input type="hidden" name="request_key" value="${crypto.randomUUID()}">`,'live-pack-refund',`确认退款 ${yuanText(amount)}`);
    }
+   else if(action==='recharge-cancel'){
+    rechargeReview=null;
+    document.querySelector('#config-dialog').close();
+    host.querySelector('#alipay-yuan')?.focus();
+   }
    else if(action==='alipay-create'){
     const typed=host.querySelector('#alipay-yuan')?.value.trim();
-    if(!typed){host.querySelector('#alipay-yuan')?.focus();throw Error('请先输入充值额度，最低 5 元。');}
+    if(!typed){host.querySelector('#alipay-yuan')?.focus();throw Error('请先输入实付金额，最低 ¥5。');}
     if(typed){const m=/^(\d{1,5})(?:\.(\d{1,2}))?$/.exec(typed);if(!m)throw Error('请输入正确金额，最多两位小数。');alipayFen=Number(m[1])*100+Number((m[2]||'').padEnd(2,'0'));}
     if(alipayFen<500||alipayFen>5000000)throw Error('充值金额须在 ¥5.00 至 ¥50,000.00 之间。');
     const orgId=current.startsWith('billing/organization/')?current.slice('billing/organization/'.length):null,scope=orgId?'org:'+orgId:'personal';
     const promo=host.querySelector('#pack-promo')?.value.trim()||'';cwInputCode=promo;
-    const offer=promo?await fetch('/api/cw/offers/'+encodeURIComponent(promo),{credentials:'same-origin'}):null;
-    const cw=offer?.ok;const amount=cw?{cash_fen:alipayFen}:{face_fen:alipayFen};
-    const quote=await api('/api/billing/quote',{...amount,promo_code:promo,organization_id:orgId});
-    const amounts=rechargeAmounts(quote).map(([label,value])=>`${label} ${value}`).join('\n');
-    if(!confirm(`${amounts}\n\n确认后继续付款。`))return;
-    // 同一次点击重试复用幂等键，避免网络抖动生成两张付款码。
-    const key=alipayPay?.pendingKey&&alipayPay.pendingFen===alipayFen&&alipayPay.scope===scope&&alipayPay.pendingChannel===payChannel&&alipayPay.pendingPromo===promo&&alipayPay.pendingQuotedFace===quote.face_fen&&alipayPay.pendingQuotedCash===quote.amount_fen?alipayPay.pendingKey:(crypto.randomUUID?.()||String(Date.now())+Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g,'');
-    alipayPay={scope,pendingKey:key,pendingFen:alipayFen,pendingChannel:payChannel,pendingPromo:promo,pendingQuotedFace:quote.face_fen,pendingQuotedCash:quote.amount_fen,order:alipayPay?.scope===scope?alipayPay.order:null};
-    const seg=PAY_CHANNELS[payChannel].path,r=await api(orgId?`/api/billing/organizations/${encodeURIComponent(orgId)}/${seg}-orders`:`/api/billing/personal/${seg}-orders`,{...amount,promo_code:promo,expected_cash_fen:quote.amount_fen,expected_face_fen:quote.face_fen,idempotency_key:key});
-    alipayPay={scope,order:r.order};if(panelRedraw)panelRedraw();alipayWatch();
-    if(r.order?.pay_url){const w=window.open(r.order.pay_url,'_blank','noopener');if(!w)showToast('请允许弹窗，或点击「再次打开支付宝收银台」。');}
+    const channel=payChannel,cashFen=alipayFen,ticket=generation;
+    const quote=await api('/api/billing/quote',{cash_fen:cashFen,promo_code:promo,organization_id:orgId});
+    if(ticket!==generation)return;
+    rechargeReview={scope,orgId,channel,cashFen,promo,quote,ticket};
+    dialog('核对充值金额',`<form class="live-form" id="live-recharge-confirm">
+      <p class="live-small">付款方式 · ${PAY_CHANNELS[channel].name}</p>${rechargeBreakdown(quote)}
+      <div id="live-dialog-message" role="status"></div>
+      <div class="recharge-confirm-actions">
+        <button type="button" class="live-button quiet" data-live="recharge-cancel">返回修改</button>
+        <button type="submit" class="live-button primary">确认支付 ${rechargeAmounts(quote)[0][1]}</button>
+      </div>
+    </form>`);
    }
    else if(action==='alipay-refresh'){await alipayPoll(true);}
    else if(action==='alipay-reset'){clearInterval(alipayTimer);alipayTimer=null;alipayPay=null;if(panelRedraw)panelRedraw();}
@@ -1326,9 +1336,26 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    if(button.disabled)return;
    form.dataset.submitting='true';
   }
+  if(formId==='live-recharge-confirm'&&button.disabled)return;
   button.disabled=true;message.innerHTML='';
   try{
-   if(form.dataset.smsPurpose||formId==='live-sms-bind'){
+   if(formId==='live-recharge-confirm'){
+    const review=rechargeReview;
+    if(!review||review.ticket!==generation)throw Error('请返回充值页重新核对金额。');
+    const {scope,orgId,channel,cashFen,promo,quote}=review;
+    const same=alipayPay?.pendingKey&&alipayPay.pendingFen===cashFen&&alipayPay.scope===scope&&alipayPay.pendingChannel===channel&&alipayPay.pendingPromo===promo&&alipayPay.pendingQuotedFace===quote.face_fen&&alipayPay.pendingQuotedCash===quote.amount_fen;
+    const key=same?alipayPay.pendingKey:crypto.randomUUID();
+    alipayPay={scope,pendingKey:key,pendingFen:cashFen,pendingChannel:channel,pendingPromo:promo,pendingQuotedFace:quote.face_fen,pendingQuotedCash:quote.amount_fen,order:alipayPay?.scope===scope?alipayPay.order:null};
+    const base=orgId?'/api/billing/organizations/'+encodeURIComponent(orgId):'/api/billing/personal';
+    const result=await api(base+'/'+PAY_CHANNELS[channel].path+'-orders',{cash_fen:cashFen,promo_code:promo,expected_cash_fen:quote.amount_fen,expected_face_fen:quote.face_fen,idempotency_key:key});
+    alipayPay={scope,order:result.order};
+    if(review!==rechargeReview||review.ticket!==generation)return;
+    rechargeReview=null;
+    document.querySelector('#config-dialog').close();
+    if(panelRedraw)panelRedraw();
+    alipayWatch();
+    if(result.order?.pay_url&&!window.open(result.order.pay_url,'_blank','noopener'))showToast('请允许弹窗，或点击「再次打开支付宝收银台」。');
+   }else if(form.dataset.smsPurpose||formId==='live-sms-bind'){
     if(!form.dataset.smsChallenge||form.dataset.smsPhone!==values.phone)throw Error('请先为这个手机号获取验证码。');
     const binding=formId==='live-sms-bind';
     const purpose=binding?'bind':form.dataset.smsPurpose;
@@ -1461,11 +1488,15 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  let cwLookupVersion=0;
  async function lookupCWOffer(value){
   cwInputCode=value.trim();const version=++cwLookupVersion;cwOfferCode='';cwOfferKind='';
-  try{const r=cwInputCode?await fetch('/api/cw/offers/'+encodeURIComponent(cwInputCode),{credentials:'same-origin'}):null;if(version!==cwLookupVersion)return;if(r?.ok){cwOfferCode=cwInputCode;cwOfferKind=(await r.json()).kind||'';}}catch{}
+  try{
+   const r=cwInputCode?await fetch('/api/cw/offers/'+encodeURIComponent(cwInputCode),{credentials:'same-origin'}):null;
+   const offer=r?.ok?await r.json():null;
+   if(version!==cwLookupVersion)return;
+   if(offer){cwOfferCode=cwInputCode;cwOfferKind=offer.kind||'';}
+  }catch{}
   if(version!==cwLookupVersion)return;
-  const label=document.querySelector('label[for="alipay-yuan"]'),help=document.querySelector('#cw-offer-help');
-  if(label)label.textContent=cwOfferCode?'支付金额（元）':'充值额度（元）';
-  if(help)help.textContent=cwOfferCode?(cwOfferKind==='task'?'已识别你的 VIP 客户打折码：上方输入实付金额，付款前确认到账官价额度。':'已识别 VIP 推广码：上方输入实付金额，付款前确认到账官价额度。'):'VIP 推广码按实付金额购买额度，付款前会显示实际到账官价额度。';
+  const help=document.querySelector('#cw-offer-help');
+  if(help)help.textContent=cwOfferHelp();
 }
  document.addEventListener('change',event=>{if(event.target.id==='pack-promo')lookupCWOffer(event.target.value);});
  if(cwInputCode)lookupCWOffer(cwInputCode);
