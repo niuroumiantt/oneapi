@@ -9,6 +9,9 @@
     money = (v) => '¥' + (Number(v || 0) / 100).toFixed(2),
     when = (v) => (v ? new Date(v).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '—');
   const params = new URLSearchParams(location.search);
+  const referrer = params.get('invite') || '';
+  const inviteParam = (params.get('invite_code') || '').normalize('NFKC').trim().toUpperCase();
+  const employeeInviteCode = /^[A-Z0-9_-]{2,32}$/.test(inviteParam) ? inviteParam : '';
   const partnerParam = params.get('partner');
   const requestedPartner = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(partnerParam || '') ? partnerParam : null;
   const staff = params.get('staff') === '1',
@@ -95,7 +98,9 @@
     document.body.classList.toggle('cw-applicant', !staff);
     $('#refresh').hidden = error.status === 401;
     $('#cw-message').textContent = error.status === 401 ? '' : error.message;
-    const customerEntry = '/?cw_join=' + encodeURIComponent(new URLSearchParams(location.search).get('invite') || '1');
+    const authParams = new URLSearchParams({ cw_join: referrer || '1' });
+    if (employeeInviteCode) authParams.set('invite_code', employeeInviteCode);
+    const customerEntry = esc('/?' + authParams);
     $('#cw-content').innerHTML = error.status === 401
       ? staff
         ? `<h2>请先进行员工登录</h2><a class="cw-button" href="/api/staff/login?next=vip${loginPartner}">员工登录</a>`
@@ -184,14 +189,14 @@
       return;
     }
     if (!data.partner) {
-      const referrer = new URLSearchParams(location.search).get('invite') || '';
       const referralField = referrer
         ? `<input type="hidden" name="invite" value="${esc(referrer)}">`
         : `<details class="cw-referrer"><summary>填写邀请人的 VIP 编号（选填）</summary>${field('invite', '邀请人的 VIP 编号', 'text', 'maxlength="8" autocomplete="off"', false)}</details>`;
       const fields =
         field('legal_name', '真实姓名', 'text', 'maxlength="60" autocomplete="name"') +
         field('contact', '联系电话或其他联系方式', 'text', 'maxlength="160"') +
-        field('invite_code', '员工提供的 VIP 客户邀请码', 'text', 'maxlength="32" autocomplete="off" autocapitalize="characters"') +
+        field('invite_code', '员工提供的 VIP 客户邀请码', 'text',
+          `maxlength="32" autocomplete="off" autocapitalize="characters" value="${esc(employeeInviteCode)}"`) +
         referralField +
         '<label class="cw-check"><input type="checkbox" name="consent" required><span>我已阅读<a href="/cw-terms.html#privacy" target="_blank" rel="noopener">资料处理说明</a>，同意处理申请资料。</span></label>';
       c.innerHTML = form('apply', fields, '提交申请');
@@ -309,7 +314,7 @@
   }
   function drawInviteCodes(c) {
     c.innerHTML = `<h2>${data.administrator ? 'VIP 客户邀请码' : '我发出的邀请码'}</h2>
-      <p>把邀请码和<a href="/promotion/vip.html">申请入口</a>发给客户。客户提交后会进入发码人的跟进列表。</p>
+      <p>复制申请链接发给客户。链接会自动填入邀请码，客户提交后会进入发码人的跟进列表。</p>
       <details><summary>生成邀请码</summary>${form('invite-code',
         field('code', '邀请码', 'text', 'maxlength="32" autocomplete="off" autocapitalize="characters"') +
         field('max_uses', '使用次数上限', 'number', 'min="1" max="100000" value="1"') +
@@ -319,6 +324,9 @@
         <td>${v.status === 'active' ? '生效中' : '已停用'}</td><td>${esc(v.note || '—')}</td>
         <td>${esc(v.creator_name || v.created_by)}<small>${when(v.created_at)}</small></td>
         <td><div class="cw-row-actions">
+          ${v.status === 'active' && v.used_count < v.max_uses
+            ? `<button data-copy="${esc(location.origin + '/promotion/vip.html?' + new URLSearchParams({ invite_code: v.code }))}" data-copy-label="申请链接">复制申请链接</button>`
+            : ''}
           <button data-invite-customers="${esc(v.code)}">查看客户</button>
           ${v.status === 'active' ? `<button data-copy="${esc(v.code)}" data-copy-label="邀请码">复制码</button><button data-invite-status="disabled" data-invite-code="${esc(v.code)}">停用</button>` : `<button data-invite-status="active" data-invite-code="${esc(v.code)}">启用</button>`}
         </div></td>

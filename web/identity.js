@@ -156,7 +156,17 @@
    </section></div>`);
  }
  const creditActive=()=>Boolean(panelOrg&&employeeCredit?.enabled&&panelOrg.organization.id===employeeCredit.organization_id);
- const cwAuthQuery=()=>{const p=new URLSearchParams(location.search),q=new URLSearchParams();for(const key of ['cw','cw_join']){const v=p.get(key);if(v&&(key==='cw_join'&&v==='1'||/^[A-Z]{8}$/i.test(v)))q.set(key,v);}return q.size?'?'+q.toString():'';};
+ const cwAuthQuery=()=>{
+  const params=new URLSearchParams(location.search),query=new URLSearchParams();
+  const promo=params.get('cw')||'',join=params.get('cw_join')||'';
+  if(/^[A-Z]{8}$/i.test(promo))query.set('cw',promo);
+  if(join==='1'||/^[A-Z]{8}$/i.test(join)){
+   query.set('cw_join',join);
+   const inviteCode=params.get('invite_code')||'';
+   if(/^[A-Z0-9_-]{2,32}$/.test(inviteCode))query.set('invite_code',inviteCode);
+  }
+  return query.size?'?'+query:'';
+ };
  let cwOfferCode='',cwOfferKind='',cwInputCode=new URLSearchParams(location.search).get('cw')||'';
  const cwOfferHelp=()=>cwOfferCode
   ? (cwOfferKind==='task'?'已填入专属 VIP 付款码。请填写实付金额，付款前核对到账额度。':'已识别 VIP 推广码，请填写实付金额。')
@@ -1115,7 +1125,18 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    if(view.startsWith('join/')){staff=null;const apply=view.endsWith('/apply'),joinToken=view.slice(5,apply?-6:undefined);joinPreview=await api('/api/platform/join-links/preview?token='+encodeURIComponent(joinToken));try{me=await api('/api/platform/me');}catch(e){if(e.status!==401)throw e;me=null;authMode=apply?'login':'register';}if(ticket!==generation)return;if(apply&&me?.user){await api('/api/platform/join-requests',{token:joinToken});if(ticket!==generation)return;current='join/'+joinToken;mount(hero('JOIN REQUEST','入企申请已提交，等待企业管理者审批。','获批前没有企业预算、模型权限或 API Key。')+'<a class="live-button" href="#workspace">返回个人空间</a>');history.replaceState(null,'',location.pathname+'#'+current);return;}joinPage();return;}
    const methods=loadAuthMethods();staff=null;if(!me?.user)me=await api('/api/platform/me').catch(async error=>{await methods;throw error;});
    if(view==='security'||view.endsWith('/settings'))await methods;if(ticket!==generation)return;
-   if(['workspace','account','register','enterprise'].includes(view)){const q=new URLSearchParams(cwAuthQuery());if(q.has('cw_join')){location.replace('/promotion/vip.html'+(q.get('cw_join')==='1'?'':'?invite='+encodeURIComponent(q.get('cw_join'))));return;}location.replace('#'+(q.has('cw')?'billing/personal':workspaceTarget(view)));return;}
+   if(['workspace','account','register','enterprise'].includes(view)){
+    const query=new URLSearchParams(cwAuthQuery());
+    if(query.has('cw_join')){
+     const vipParams=new URLSearchParams(),referrer=query.get('cw_join'),inviteCode=query.get('invite_code');
+     if(referrer!=='1')vipParams.set('invite',referrer);
+     if(inviteCode)vipParams.set('invite_code',inviteCode);
+     location.replace('/promotion/vip.html'+(vipParams.size?'?'+vipParams:''));
+     return;
+    }
+    location.replace('#'+(query.has('cw')?'billing/personal':workspaceTarget(view)));
+    return;
+   }
    const personalTarget=personalRedirect(view);if(personalTarget){location.replace('#'+personalTarget);return;}
    if(personalBillingRoute(view)||view.startsWith('billing/organization/'))await billingPage(ticket,earlyBilling);
    else if(view==='demo/personal'||view.startsWith('demo/organization/'))await demoPage(ticket);
