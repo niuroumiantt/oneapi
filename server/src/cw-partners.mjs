@@ -23,10 +23,26 @@ const month = (v) => {
 const business = (req) => {
   if (!hasBusiness(req.staff)) throw new HttpError(403, '需要商务权限');
 };
+const isAdmin = (staff) => staff?.role === 'platform_admin' && staff.status === 'active';
 const admin = (req) => {
-  if (req.staff?.role !== 'platform_admin' || req.staff.status !== 'active')
-    throw new HttpError(403, '需要管理员权限');
+  if (!isAdmin(req.staff)) throw new HttpError(403, '需要管理员权限');
 };
+const canFollow = (staff, p) => isAdmin(staff) || p.owner_subject === staff.subject;
+const financePartner = "p.status IN ('active','suspended') OR EXISTS (SELECT 1 FROM cw_payouts f WHERE f.partner_id=p.id)";
+async function ownedPartner(db, pid, staff, lock = true) {
+  const p = (await db.query('SELECT * FROM cw_partners WHERE id=$1' + (lock ? ' FOR UPDATE' : ' FOR SHARE'), [pid])).rows[0];
+  if (!p || !canFollow(staff, p)) throw new HttpError(404, 'VIP 客户不存在或不在你的名下');
+  return p;
+}
+function followupDate(value) {
+  if (value === '' || value == null) return null;
+  if (typeof value !== 'string' || !/^20\d{2}-\d{2}-\d{2}$/.test(value))
+    throw new HttpError(400, '下次联系日期格式不正确');
+  const date = new Date(value + 'T00:00:00Z');
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value)
+    throw new HttpError(400, '下次联系日期无效');
+  return value;
+}
 const publicPartner = (p) =>
   p
     ? {
@@ -65,7 +81,7 @@ async function uniqueCode(db) {
     if (
       !(
         await db.query(
-          'SELECT 1 FROM cw_codes WHERE code=$1 UNION ALL SELECT 1 FROM cw_partners WHERE public_code=$1 UNION ALL SELECT 1 FROM discount_grants WHERE upper(promo_code)=$1 UNION ALL SELECT 1 FROM vip_task_codes WHERE code=$1',
+          'SELECT 1 FROM cw_codes WHERE code=$1 UNION ALL SELECT 1 FROM cw_partners WHERE public_code=$1 UNION ALL SELECT 1 FROM discount_grants WHERE upper(promo_code)=$1 UNION ALL SELECT 1 FROM vip_task_codes WHERE code=$1 UNION ALL SELECT 1 FROM vip_invite_codes WHERE code=$1',
           [c],
         )
       ).rowCount
@@ -73,6 +89,27 @@ async function uniqueCode(db) {
       return c;
   }
   throw new HttpError(503, '暂时无法分配推广码，请重试');
+}
+function canIssuePaymentCode(p) {
+  if (!['confirmed', 'active'].includes(p.status))
+    throw new HttpError(409, '请先确认面试通过，再发放付款码');
+}
+// Check at the statement time so an issuer waiting on the partner lock sees the code just committed.
+const validTaskCode = "status='active' AND starts_at<=statement_timestamp() AND (ends_at IS NULL OR ends_at>statement_timestamp())";
+async function issuePaymentCode(db, req, partnerId, percent, { requestedCode = '', endsAt = null, note = '' } = {}) {
+  const taskCode = requestedCode || await uniqueCode(db);
+  const row = (await db.query(
+    `INSERT INTO vip_task_codes(partner_id,code,customer_price_percent,created_by,ends_at,note)
+     VALUES($1,$2,$3,$4,$5,$6)
+     ON CONFLICT(code) DO NOTHING
+     RETURNING id,code,customer_price_percent,status,starts_at,ends_at`,
+    [partnerId, taskCode, percent, req.staff.subject, endsAt, note],
+  )).rows[0];
+  if (!row) throw new HttpError(409, '付款码已存在，请生成新码');
+  await audit(db, req.actor, 'cw.task_code_issued', null, row.id, {
+    partner_id: partnerId, percent, code: taskCode,
+  });
+  return row;
 }
 export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
   const box = vault(cfg.secret + ':cw-private-v1');
@@ -116,14 +153,18 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     if (b.consent_version !== 'cw-privacy-v1') throw new HttpError(400, '请阅读并同意推广合作资料处理说明');
     const inviteCode = normalizedInvite(b.invite_code);
     const p = await transaction(pool, async (db) => {
-      await db.query('SELECT id FROM "user" WHERE id=$1 FOR UPDATE', [req.customer.id]);
+      const customer = (await db.query(
+        'SELECT email,"phoneOnly" FROM "user" WHERE id=$1 FOR UPDATE', [req.customer.id],
+      )).rows[0];
       const existing = (await db.query('SELECT * FROM cw_partners WHERE user_id=$1', [req.customer.id]))
         .rows[0];
       if (existing) return existing;
       // Invite code is mandatory to join the VIP program.
       const invite = (
         await db.query(
-          'SELECT id, max_uses, used_count FROM vip_invite_codes WHERE code=$1 AND status=$2 FOR UPDATE',
+          `SELECT i.id,i.max_uses,i.used_count,s.subject AS owner_subject,s.name AS owner_name
+             FROM vip_invite_codes i LEFT JOIN staff_members s ON s.subject=i.created_by AND s.status='active' AND s.role<>'pending'
+            WHERE i.code=$1 AND i.status=$2 FOR UPDATE OF i`,
           [inviteCode, 'active'],
         )
       ).rows[0];
@@ -141,7 +182,8 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       }
       const row = (
         await db.query(
-          "INSERT INTO cw_partners(user_id,public_code,invited_by,legal_name,contact_cipher,consent_version,status) VALUES($1,$2,$3,$4,$5,$6,'pending') RETURNING *",
+          `INSERT INTO cw_partners(user_id,public_code,invited_by,legal_name,contact_cipher,consent_version,invite_code_id,owner_subject)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
           [
             req.customer.id,
             await uniqueCode(db),
@@ -149,6 +191,8 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
             name,
             box.seal({ contact }),
             b.consent_version,
+            invite.id,
+            invite.owner_subject,
           ],
         )
       ).rows[0];
@@ -156,30 +200,33 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         invited_by: invited?.id || null,
         invite_code: inviteCode,
       });
-      // The customer has only applied. Any active company staff may confirm them before they
-      // are a VIP; notify all active staff so sales can follow up and interview.
-      const staffEmails = (
-        await db.query(
-          "SELECT email FROM staff_members WHERE status='active' AND role<>'pending' AND email<>''",
-          [],
-        )
-      ).rows;
-      for (const a of staffEmails) {
-        try {
-          await mail.queue({
-            to: a.email,
-            subject: `semifly VIP 新申请待确认：${name}`,
-            text:
-              `有一位客户通过 VIP 客户邀请码申请成为 VIP 合作伙伴，等待销售电话面试并确认。\n\n` +
-              `申请人：${name}\n` +
-              `VIP 编号：${row.public_code}\n` +
-              `VIP 客户邀请码：${inviteCode}\n` +
-              `申请时间：${new Date().toLocaleString('zh-CN', { hour12: false })}\n\n` +
-              `请主动电话面试；确认通过后发放 VIP 客户打折码。客户充值后，销售核验到账再点「确认正式 VIP」。\n` +
-              `处理入口：https://semifly.cn/promotion/vip.html?staff=1 → 点该申请人的「管理」→「查看联系方式」（电话不写入邮件，避免泄露）。`,
-          });
-        } catch {
-          /* mail may be unconfigured; the pending list still surfaces the application */
+      if (mail?.ready) {
+        const recipients = (await db.query(
+          `SELECT email,bool_or(role='platform_admin') AS administrator
+             FROM (SELECT lower(btrim(email)) AS email,role FROM staff_members
+                   WHERE status='active' AND role<>'pending' AND btrim(email)<>''
+                     AND (role='platform_admin' OR subject=$1)) recipients
+            GROUP BY email`,
+          [row.owner_subject],
+        )).rows;
+        const link = new URL('/promotion/vip.html', cfg.origin);
+        link.search = new URLSearchParams({ staff: '1', partner: row.id });
+        const submitted = row.created_at.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+        for (const recipient of recipients) {
+          const details = [
+            '有一位客户提交了 VIP 申请，等待电话面试。',
+            '申请人：' + name,
+            'VIP 编号：' + row.public_code,
+            '来源邀请码：' + inviteCode,
+            '申请时间（北京时间）：' + submitted,
+            '负责销售：' + (invite.owner_name || '待分配'),
+          ];
+          if (recipient.administrator) {
+            details.push('联系方式：' + contact);
+            if (!customer.phoneOnly) details.push('账号邮箱：' + customer.email);
+          }
+          details.push('处理入口：' + link.href, '面试通过后发放付款码，核验客户充值后确认正式 VIP。');
+          await mail.queue({ to: recipient.email, subject: 'semifly VIP 新申请 · ' + row.public_code, text: details.join('\n') }, db);
         }
       }
       return row;
@@ -360,23 +407,40 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
   });
   app.get('/api/staff/cw', requireStaff, async (req, res) => {
     business(req);
-    const partners = (
-      await pool.query(`SELECT p.id,p.public_code,p.legal_name,p.status,p.confirmed_by,p.confirmed_at,p.created_at,u.email,i.public_code AS invited_by,
-   (SELECT count(*)::int FROM cw_codes k WHERE k.partner_id=p.id) AS code_count,
-   (SELECT coalesce(sum(cash_fen),0)::text FROM cw_commissions c WHERE c.partner_id=p.id) AS paid_fen,
-   (SELECT coalesce(sum(used_cash_fen),0)::text FROM cw_commissions c WHERE c.partner_id=p.id) AS used_fen,
-   (SELECT coalesce(sum(expected_fen),0)::text FROM cw_commissions c WHERE c.partner_id=p.id) AS expected_fen
-   FROM cw_partners p JOIN "user" u ON u.id=p.user_id LEFT JOIN cw_partners i ON i.id=p.invited_by ORDER BY p.created_at DESC LIMIT 500`)
-    ).rows;
-    const invites = (
-      await pool.query(
-        'SELECT id,code,max_uses,used_count,status,note,created_by,created_at FROM vip_invite_codes ORDER BY created_at DESC LIMIT 200',
-      )
-    ).rows;
-    res.json({ enabled: !!cfg.cw?.enabled, partners, invite_codes: invites });
+    const administrator = isAdmin(req.staff), finance = hasFinance(req.staff);
+    const [partners, invites, owners] = await Promise.all([
+      pool.query(
+        `SELECT p.id,p.public_code,p.legal_name,p.status,p.created_at,p.owner_subject,s.name AS owner_name,
+                CASE WHEN $1 OR p.owner_subject=$2 THEN i.code END AS invite_code,
+                CASE WHEN $1 OR p.owner_subject=$2 THEN to_char(p.next_contact_on,'YYYY-MM-DD') END AS next_contact_on,
+                ($1 OR p.owner_subject=$2) AND EXISTS (
+                  SELECT 1 FROM vip_payment_discount_requests r WHERE r.partner_id=p.id AND r.status='pending'
+                ) AS discount_pending,
+                $1 OR p.owner_subject IS NOT DISTINCT FROM $2 AS can_follow,
+                CASE WHEN ($1 OR p.owner_subject=$2) AND NOT u."phoneOnly" THEN u.email END AS email
+           FROM cw_partners p JOIN "user" u ON u.id=p.user_id
+           LEFT JOIN vip_invite_codes i ON i.id=p.invite_code_id
+           LEFT JOIN staff_members s ON s.subject=p.owner_subject
+          WHERE $1 OR p.owner_subject=$2 OR ($3 AND (${financePartner}))
+          ORDER BY discount_pending DESC NULLS LAST,(p.status IN ('pending','confirmed')) DESC,p.next_contact_on ASC NULLS LAST,p.created_at DESC
+          LIMIT 500`, [administrator, req.staff.subject, finance],
+      ),
+      pool.query(
+        `SELECT i.id,i.code,i.max_uses,i.used_count,i.status,i.note,i.created_by,i.created_at,s.name AS creator_name
+           FROM vip_invite_codes i JOIN staff_members s ON s.subject=i.created_by
+          WHERE $1 OR i.created_by=$2 ORDER BY i.created_at DESC LIMIT 200`, [administrator, req.staff.subject],
+      ),
+      administrator
+        ? pool.query("SELECT subject,name,email FROM staff_members WHERE status='active' AND role<>'pending' ORDER BY name,subject")
+        : { rows: [] },
+    ]);
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      enabled: !!cfg.cw?.enabled, partners: partners.rows, invite_codes: invites.rows,
+      owners: owners.rows, administrator, finance,
+    });
   });
 
-  // VIP 客户邀请码：any active company staff may issue; reusable up to max_uses.
   app.post('/api/staff/cw/invite-codes', requireStaff, async (req, res) => {
     business(req);
     const b = req.body || {};
@@ -385,16 +449,14 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     const maxUses = integer(b.max_uses ?? 1, 1, 100000, '使用次数上限');
     const note = optionalNote(b.note, 200);
     const r = await transaction(pool, async (db) => {
-      const dup = (
-        await db.query('SELECT 1 FROM vip_invite_codes WHERE code=$1', [inviteCode])
-      ).rowCount;
-      if (dup) throw new HttpError(409, '该邀请码已存在');
       const row = (
         await db.query(
-          'INSERT INTO vip_invite_codes(code,max_uses,note,created_by) VALUES($1,$2,$3,$4) RETURNING id,code,max_uses,used_count,status,note,created_at',
+          `INSERT INTO vip_invite_codes(code,max_uses,note,created_by) VALUES($1,$2,$3,$4)
+           ON CONFLICT(code) DO NOTHING RETURNING id,code,max_uses,used_count,status,note,created_at`,
           [inviteCode, maxUses, note, req.staff.subject],
         )
       ).rows[0];
+      if (!row) throw new HttpError(409, '该邀请码已存在');
       await audit(db, req.actor, 'cw.invite_code_created', null, row.id, { code: inviteCode, max_uses: maxUses });
       return row;
     });
@@ -407,94 +469,157 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     if (!['active', 'disabled'].includes(state)) throw new HttpError(400, '状态不正确');
     await transaction(pool, async (db) => {
       const r = await db.query(
-        'UPDATE vip_invite_codes SET status=$2 WHERE code=$1 RETURNING id',
-        [normalizedInvite(req.params.code), state],
+        'UPDATE vip_invite_codes SET status=$2 WHERE code=$1 AND ($3 OR created_by=$4) RETURNING id',
+        [normalizedInvite(req.params.code), state, isAdmin(req.staff), req.staff.subject],
       );
       if (!r.rowCount) throw new HttpError(404, '邀请码不存在');
       await audit(db, req.actor, 'cw.invite_code_status', null, r.rows[0].id, { status: state });
     });
     res.json({ ok: true });
   });
+  app.post('/api/staff/cw/:partner/owner', requireStaff, async (req, res) => {
+    admin(req);
+    const pid = id(req.params.partner);
+    const owner = req.body?.owner_subject === '' || req.body?.owner_subject === null
+      ? null : text(req.body?.owner_subject, '负责销售', 120);
+    await transaction(pool, async (db) => {
+      await ownedPartner(db, pid, req.staff);
+      if (owner && !(await db.query(
+        "SELECT 1 FROM staff_members WHERE subject=$1 AND status='active' AND role<>'pending'", [owner],
+      )).rowCount) throw new HttpError(400, '负责人必须是有商务权限的在职员工');
+      await db.query('UPDATE cw_partners SET owner_subject=$2 WHERE id=$1', [pid, owner]);
+      await audit(db, req.actor, 'cw.owner_changed', null, pid, { owner_subject: owner });
+    });
+    res.json({ ok: true });
+  });
+
+  app.post('/api/staff/cw/:partner/followups', requireStaff, async (req, res) => {
+    business(req);
+    const pid = id(req.params.partner);
+    const body = text(req.body?.body, '跟进记录', 2000);
+    const next = followupDate(req.body?.next_contact_on);
+    await transaction(pool, async (db) => {
+      await ownedPartner(db, pid, req.staff);
+      const note = (await db.query(
+        'INSERT INTO cw_sales_followups(partner_id,created_by,body,next_contact_on) VALUES($1,$2,$3,$4) RETURNING id',
+        [pid, req.staff.subject, body, next],
+      )).rows[0];
+      await db.query('UPDATE cw_partners SET next_contact_on=$2 WHERE id=$1', [pid, next]);
+      await audit(db, req.actor, 'cw.followup_added', null, pid, { followup_id: note.id, next_contact_on: next });
+    });
+    res.status(201).json({ ok: true });
+  });
+
   app.get('/api/staff/cw/:partner', requireStaff, async (req, res) => {
     business(req);
-    const pid = id(req.params.partner),
-      p = (await pool.query('SELECT * FROM cw_partners WHERE id=$1', [pid])).rows[0];
-    if (!p) throw new HttpError(404, 'VIP 不存在');
-    const codes = (
-      await pool.query(
-        'SELECT k.id,k.code,k.name,k.status,k.customer_price_percent,k.commission_bps,k.is_self_code,k.starts_at,k.ends_at,coalesce(sum(c.cash_fen),0)::text AS paid_fen,coalesce(sum(c.used_cash_fen),0)::text AS used_fen,coalesce(sum(c.expected_fen),0)::text AS expected_fen,coalesce(sum(c.unlocked_fen),0)::text AS unlocked_fen FROM cw_codes k LEFT JOIN cw_commissions c ON c.code_id=k.id WHERE k.partner_id=$1 GROUP BY k.id ORDER BY k.is_self_code DESC,k.created_at',
-        [pid],
-      )
-    ).rows;
-    const contracts = (
-      await pool.query(
-        'SELECT id,template_version,document_sha256,expires_at,verified_at,verified_by FROM cw_contracts WHERE partner_id=$1 ORDER BY verified_at DESC',
-        [pid],
-      )
-    ).rows;
-    const orders = (
-      await pool.query(
-        `SELECT c.public_reference,c.cash_fen::text,c.used_cash_fen::text,c.expected_fen::text,c.unlocked_fen::text,k.code,o.out_trade_no,o.paid_at,o.account_id,o.channel_fee_issue,
-    u.email AS customer_email FROM cw_commissions c JOIN cw_codes k ON k.id=c.code_id JOIN payment_orders o ON o.id=c.order_id JOIN "user" u ON u.id=o.created_by WHERE c.partner_id=$1 ORDER BY c.created_at DESC LIMIT 200`,
-        [pid],
-      )
-    ).rows;
-    const payouts = (
-      await pool.query(
-        'SELECT id,status,gross_fen::text,withholding_fen::text,bank_last4,created_at,paid_at,reviewed_by,payment_reference FROM cw_payouts WHERE partner_id=$1 ORDER BY created_at DESC LIMIT 100',
-        [pid],
-      )
-    ).rows;
-    const events = (
-      await pool.query(
-        `SELECT e.kind,e.occurred_at,e.cash_fen::text,e.commission_fen::text,k.code,o.out_trade_no FROM cw_commission_events e JOIN cw_commissions c ON c.order_id=e.order_id JOIN cw_codes k ON k.id=c.code_id JOIN payment_orders o ON o.id=c.order_id WHERE c.partner_id=$1 ORDER BY e.occurred_at DESC,e.id DESC LIMIT 200`,
-        [pid],
-      )
-    ).rows;
-    const closes = (
-      await pool.query(
-        `SELECT x.account_id,x.month,x.closed_at,x.closed_by,x.evidence FROM cw_customer_closes x WHERE EXISTS(SELECT 1 FROM payment_orders o JOIN cw_commissions c ON c.order_id=o.id WHERE o.account_id=x.account_id AND c.partner_id=$1) ORDER BY x.month DESC LIMIT 100`,
-        [pid],
-      )
-    ).rows;
-    const taskCodes = (
-      await pool.query(
-        'SELECT id,code,customer_price_percent,status,starts_at,ends_at,note,created_by,created_at FROM vip_task_codes WHERE partner_id=$1 ORDER BY created_at DESC LIMIT 100',
-        [pid],
-      )
-    ).rows;
-    // Self-purchase discount-code payments — sales uses this list to verify recharge before activate.
-    const discountPayments = (
-      await pool.query(
-        `SELECT o.id,o.out_trade_no,o.amount_fen::text,o.face_fen::text,o.paid_at,o.status,
-                o.discount_snapshot->>'promo_code' AS promo_code
-           FROM payment_orders o
-           JOIN billing_accounts a ON a.id=o.account_id
-          WHERE a.owner_id=$1
-            AND coalesce((o.discount_snapshot->'cw'->>'is_self_code')::boolean,false)=true
-            AND nullif(o.discount_snapshot->>'task_code','') IS NOT NULL
-          ORDER BY o.paid_at DESC NULLS LAST, o.created_at DESC
-          LIMIT 50`,
-        [p.user_id],
-      )
-    ).rows;
-    const qualifying = discountPayments.find(
-      (o) => o.status === 'paid' && Number(o.amount_fen) >= VIP_ACTIVATE_MIN_CASH_FEN,
-    );
-    res.json({
-      partner: publicPartner(p),
-      codes,
-      contracts,
-      orders,
-      events,
-      payouts,
-      closes,
-      task_codes: taskCodes,
-      discount_payments: discountPayments,
-      activate_min_cash_fen: VIP_ACTIVATE_MIN_CASH_FEN,
-      can_activate: p.status === 'confirmed' && Boolean(qualifying),
-      available_fen: await available(pool, pid),
+    const pid = id(req.params.partner), finance = hasFinance(req.staff);
+    const detail = await transaction(pool, async (db) => {
+      const p = (await db.query(
+        `SELECT p.*,i.code AS invite_code,s.name AS owner_name,to_char(p.next_contact_on,'YYYY-MM-DD') AS contact_day
+           FROM cw_partners p LEFT JOIN vip_invite_codes i ON i.id=p.invite_code_id
+           LEFT JOIN staff_members s ON s.subject=p.owner_subject
+          WHERE p.id=$1 AND ($2 OR p.owner_subject=$3 OR ($4 AND (${financePartner}))) FOR SHARE OF p`,
+        [pid, isAdmin(req.staff), req.staff.subject, finance],
+      )).rows[0];
+      if (!p) throw new HttpError(404, 'VIP 客户不存在或不在你的名下');
+      const follow = canFollow(req.staff, p);
+      const followups = follow ? (await db.query(
+        `SELECT f.id,f.body,f.created_at,to_char(f.next_contact_on,'YYYY-MM-DD') AS next_contact_on,s.name AS author_name
+           FROM cw_sales_followups f JOIN staff_members s ON s.subject=f.created_by
+          WHERE f.partner_id=$1 ORDER BY f.created_at DESC,f.id DESC LIMIT 100`, [pid],
+      )).rows : [];
+      const codes = finance ? (
+        await db.query(
+          'SELECT k.id,k.code,k.name,k.status,k.customer_price_percent,k.commission_bps,k.is_self_code,k.starts_at,k.ends_at,coalesce(sum(c.cash_fen),0)::text AS paid_fen,coalesce(sum(c.used_cash_fen),0)::text AS used_fen,coalesce(sum(c.expected_fen),0)::text AS expected_fen,coalesce(sum(c.unlocked_fen),0)::text AS unlocked_fen FROM cw_codes k LEFT JOIN cw_commissions c ON c.code_id=k.id WHERE k.partner_id=$1 GROUP BY k.id ORDER BY k.is_self_code DESC,k.created_at',
+          [pid],
+        )
+      ).rows : [];
+      const contracts = finance ? (
+        await db.query(
+          'SELECT id,template_version,document_sha256,expires_at,verified_at,verified_by FROM cw_contracts WHERE partner_id=$1 ORDER BY verified_at DESC',
+          [pid],
+        )
+      ).rows : [];
+      const orders = finance ? (
+        await db.query(
+          `SELECT c.public_reference,c.cash_fen::text,c.used_cash_fen::text,c.expected_fen::text,c.unlocked_fen::text,k.code,o.out_trade_no,o.paid_at,o.account_id,o.channel_fee_issue,
+      u.email AS customer_email FROM cw_commissions c JOIN cw_codes k ON k.id=c.code_id JOIN payment_orders o ON o.id=c.order_id JOIN "user" u ON u.id=o.created_by WHERE c.partner_id=$1 ORDER BY c.created_at DESC LIMIT 200`,
+          [pid],
+        )
+      ).rows : [];
+      const payouts = finance ? (
+        await db.query(
+          'SELECT id,status,gross_fen::text,withholding_fen::text,bank_last4,created_at,paid_at,reviewed_by,payment_reference FROM cw_payouts WHERE partner_id=$1 ORDER BY created_at DESC LIMIT 100',
+          [pid],
+        )
+      ).rows : [];
+      const events = finance ? (
+        await db.query(
+          `SELECT e.kind,e.occurred_at,e.cash_fen::text,e.commission_fen::text,k.code,o.out_trade_no FROM cw_commission_events e JOIN cw_commissions c ON c.order_id=e.order_id JOIN cw_codes k ON k.id=c.code_id JOIN payment_orders o ON o.id=c.order_id WHERE c.partner_id=$1 ORDER BY e.occurred_at DESC,e.id DESC LIMIT 200`,
+          [pid],
+        )
+      ).rows : [];
+      const closes = finance ? (
+        await db.query(
+          `SELECT x.account_id,x.month,x.closed_at,x.closed_by,x.evidence FROM cw_customer_closes x WHERE EXISTS(SELECT 1 FROM payment_orders o JOIN cw_commissions c ON c.order_id=o.id WHERE o.account_id=x.account_id AND c.partner_id=$1) ORDER BY x.month DESC LIMIT 100`,
+          [pid],
+        )
+      ).rows : [];
+      const taskCodes = follow ? (await db.query(
+        `SELECT id,code,customer_price_percent,status,starts_at,ends_at,note,created_by,created_at,
+                (${validTaskCode}) AS usable
+           FROM vip_task_codes WHERE partner_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100`, [pid],
+      )).rows : [];
+      const discountRequests = follow ? (await db.query(
+        `SELECT r.id,r.customer_price_percent,r.status,r.reason,r.created_at,r.decided_at,r.decision_note,
+                author.name AS requested_by_name, approver.name AS decided_by_name,c.code AS issued_code
+           FROM vip_payment_discount_requests r JOIN staff_members author ON author.subject=r.requested_by
+           LEFT JOIN staff_members approver ON approver.subject=r.decided_by
+           LEFT JOIN vip_task_codes c ON c.id=r.issued_code_id
+          WHERE r.partner_id=$1 ORDER BY (r.status='pending') DESC,r.created_at DESC,r.id DESC LIMIT 30`, [pid],
+      )).rows : [];
+      // Self-purchase discount-code payments — sales uses this list to verify recharge before activate.
+      const discountPayments = follow ? (
+        await db.query(
+          `SELECT o.id,o.out_trade_no,o.amount_fen::text,o.face_fen::text,o.paid_at,o.status,
+                  o.discount_snapshot->>'promo_code' AS promo_code
+             FROM payment_orders o
+             JOIN billing_accounts a ON a.id=o.account_id
+            WHERE a.owner_id=$1
+              AND coalesce((o.discount_snapshot->'cw'->>'is_self_code')::boolean,false)=true
+              AND nullif(o.discount_snapshot->>'task_code','') IS NOT NULL
+            ORDER BY o.paid_at DESC NULLS LAST, o.created_at DESC
+            LIMIT 50`,
+          [p.user_id],
+        )
+      ).rows : [];
+      const qualifying = discountPayments.find(
+        (o) => o.status === 'paid' && Number(o.amount_fen) >= VIP_ACTIVATE_MIN_CASH_FEN,
+      );
+      return {
+        partner: {
+          ...publicPartner(p), owner_subject: p.owner_subject, owner_name: p.owner_name,
+          bank_last4: finance ? p.bank_last4 : undefined,
+          bank_verified: finance ? publicPartner(p).bank_verified : undefined,
+          invite_code: follow ? p.invite_code : null, next_contact_on: follow ? p.contact_day : null,
+        },
+        can_follow: follow, finance, followups,
+        codes,
+        contracts,
+        orders,
+        events,
+        payouts,
+        closes,
+        task_codes: taskCodes,
+        discount_requests: discountRequests,
+        discount_payments: discountPayments,
+        activate_min_cash_fen: VIP_ACTIVATE_MIN_CASH_FEN,
+        can_activate: p.status === 'confirmed' && Boolean(qualifying),
+        available_fen: finance ? await available(db, pid) : null,
+      };
     });
+    res.set('Cache-Control', 'no-store');
+    res.json(detail);
   });
   app.post('/api/staff/cw/:partner/contract', requireStaff, async (req, res) => {
     admin(req);
@@ -529,8 +654,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     business(req);
     const pid = id(req.params.partner);
     await transaction(pool, async (db) => {
-      const p = (await db.query('SELECT id,status FROM cw_partners WHERE id=$1 FOR UPDATE', [pid])).rows[0];
-      if (!p) throw new HttpError(404, 'VIP 不存在');
+      const p = await ownedPartner(db, pid, req.staff);
       if (p.status === 'active') throw new HttpError(409, '该申请已是正式 VIP，无需重复确认');
       if (p.status === 'confirmed') throw new HttpError(409, '已面试确认，请发放打折码；客户充值后由销售核验并确认正式 VIP');
       if (p.status !== 'pending') throw new HttpError(409, '当前状态不可确认');
@@ -550,9 +674,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     business(req);
     const pid = id(req.params.partner);
     const result = await transaction(pool, async (db) => {
-      const p = (await db.query('SELECT id,status,user_id FROM cw_partners WHERE id=$1 FOR UPDATE', [pid]))
-        .rows[0];
-      if (!p) throw new HttpError(404, 'VIP 不存在');
+      const p = await ownedPartner(db, pid, req.staff);
       if (p.status === 'active') throw new HttpError(409, '已是正式 VIP');
       if (p.status !== 'confirmed') throw new HttpError(409, '请先完成面试确认并等待客户充值');
       const paid = (
@@ -589,40 +711,80 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     res.json({ ok: true, payment: result });
   });
 
-  // Issue a VIP 客户打折码 after interview confirmation (confirmed or already active).
+  // The default payment code is bound to the applicant. A retry returns the current code.
   app.post('/api/staff/cw/:partner/task-code', requireStaff, async (req, res) => {
     business(req);
-    const b = req.body || {},
-      pid = id(req.params.partner),
-      percent = integer(b.customer_price_percent ?? VIP_SELF_PERCENT, 50, 100, '打折码折扣');
+    const b = req.body || {}, pid = id(req.params.partner);
+    if (b.customer_price_percent != null && b.customer_price_percent !== VIP_SELF_PERCENT)
+      throw new HttpError(403, '非 5 折付款码须由管理员特批');
+    const requestedCode = normalizedInvite(b.code);
+    if (requestedCode && !/^[A-Z0-9_-]{2,32}$/.test(requestedCode)) throw new HttpError(400, '付款码格式不正确');
+    const endsAt = b.ends_at ? new Date(b.ends_at) : null;
+    if (endsAt && (!Number.isFinite(endsAt.getTime()) || endsAt <= new Date()))
+      throw new HttpError(400, '付款码有效期不正确');
+    const note = optionalNote(b.note, 200);
     const c = await transaction(pool, async (db) => {
-      const p = (await db.query("SELECT id,status FROM cw_partners WHERE id=$1 FOR UPDATE", [pid])).rows[0];
-      if (!p) throw new HttpError(404, 'VIP 不存在');
-      if (p.status !== 'confirmed' && p.status !== 'active')
-        throw new HttpError(409, '请先确认面试通过，再发放打折码');
-      const code = normalizedInvite(b.code);
-      if (code && !/^[A-Z0-9_-]{2,32}$/.test(code)) throw new HttpError(400, '打折码格式不正确');
-      const taskCode = code || (await uniqueCode(db));
-      const end = b.ends_at ? new Date(b.ends_at) : null;
-      if (b.ends_at && (!Number.isFinite(end.getTime()) || end <= new Date()))
-        throw new HttpError(400, '打折码有效期不正确');
-      const row = (
-        await db.query(
-          `INSERT INTO vip_task_codes(partner_id,code,customer_price_percent,created_by,ends_at,note)
-           VALUES($1,$2,$3,$4,$5,$6)
-           ON CONFLICT(code) DO UPDATE SET customer_price_percent=EXCLUDED.customer_price_percent,status='active',ends_at=EXCLUDED.ends_at,note=EXCLUDED.note
-           RETURNING id,code,customer_price_percent,status,starts_at,ends_at`,
-          [pid, taskCode, percent, req.staff.subject, end, optionalNote(b.note, 200)],
-        )
-      ).rows[0];
-      await audit(db, req.actor, 'cw.task_code_issued', null, row.id, {
-        partner_id: pid,
-        percent,
-        code: taskCode,
-      });
-      return row;
+      canIssuePaymentCode(await ownedPartner(db, pid, req.staff));
+      const current = (await db.query(
+        `SELECT id,code,customer_price_percent,status,starts_at,ends_at FROM vip_task_codes
+          WHERE partner_id=$1 AND ${validTaskCode} ORDER BY created_at DESC,id DESC LIMIT 1`, [pid],
+      )).rows[0];
+      if (current && requestedCode && current.code !== requestedCode)
+        throw new HttpError(409, '已有可用付款码');
+      return current || issuePaymentCode(db, req, pid, VIP_SELF_PERCENT, { requestedCode, endsAt, note });
     });
     res.status(201).json(c);
+  });
+
+  app.post('/api/staff/cw/:partner/discount-requests', requireStaff, async (req, res) => {
+    business(req);
+    const pid = id(req.params.partner);
+    const percent = integer(req.body?.customer_price_percent, 1, 100, '实付比例');
+    if (percent === VIP_SELF_PERCENT) throw new HttpError(400, '5 折可直接生成付款码');
+    const reason = text(req.body?.reason, '特批原因', 300);
+    const request = await transaction(pool, async (db) => {
+      canIssuePaymentCode(await ownedPartner(db, pid, req.staff));
+      const proposed = (await db.query(
+        `INSERT INTO vip_payment_discount_requests(partner_id,customer_price_percent,reason,requested_by)
+         VALUES($1,$2,$3,$4) ON CONFLICT(partner_id) WHERE status='pending' DO NOTHING
+         RETURNING id,customer_price_percent,status`, [pid, percent, reason, req.staff.subject],
+      )).rows[0];
+      if (!proposed) throw new HttpError(409, '该客户已有待审批的折扣申请');
+      await audit(db, req.actor, 'cw.payment_discount_requested', null, proposed.id, { partner_id: pid, percent });
+      return proposed;
+    });
+    res.status(201).json(request);
+  });
+
+  app.post('/api/staff/cw/:partner/discount-requests/:request/decision', requireStaff, async (req, res) => {
+    admin(req);
+    const pid = id(req.params.partner), rid = id(req.params.request), state = req.body?.status;
+    if (!['approved', 'rejected'].includes(state)) throw new HttpError(400, '审批结果不正确');
+    const note = state === 'rejected' ? text(req.body?.decision_note, '退回原因', 300) : optionalNote(req.body?.decision_note, 300);
+    const result = await transaction(pool, async (db) => {
+      const p = await ownedPartner(db, pid, req.staff);
+      const pending = (await db.query(
+        'SELECT customer_price_percent,status FROM vip_payment_discount_requests WHERE id=$1 AND partner_id=$2 FOR UPDATE',
+        [rid, pid],
+      )).rows[0];
+      if (!pending) throw new HttpError(404, '折扣申请不存在');
+      if (pending.status !== 'pending') throw new HttpError(409, '该折扣申请已处理');
+      let issued = null;
+      if (state === 'approved') {
+        canIssuePaymentCode(p);
+        await db.query("UPDATE vip_task_codes SET status='paused' WHERE partner_id=$1 AND status='active'", [pid]);
+        issued = await issuePaymentCode(db, req, pid, pending.customer_price_percent);
+      }
+      await db.query(
+        `UPDATE vip_payment_discount_requests SET status=$2,decision_note=$3,decided_by=$4,decided_at=now(),issued_code_id=$5 WHERE id=$1`,
+        [rid, state, note, req.staff.subject, issued?.id || null],
+      );
+      await audit(db, req.actor, 'cw.payment_discount_decided', null, rid, {
+        partner_id: pid, status: state, percent: pending.customer_price_percent, issued_code_id: issued?.id || null,
+      });
+      return issued;
+    });
+    res.json({ ok: true, payment_code: result });
   });
 
   app.post('/api/staff/cw/:partner/status', requireStaff, async (req, res) => {
@@ -682,26 +844,28 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     });
     res.json({ ok: true });
   });
-  // Contact is needed for sales phone interviews (any business staff).
-  // Bank details stay finance-only.
   app.post('/api/staff/cw/:partner/private', requireStaff, async (req, res) => {
     business(req);
-    const scope = req.body.scope;
+    const scope = req.body?.scope;
     if (scope === 'bank') requireFinance(req);
     const finance = scope !== 'contact' && hasFinance(req.staff);
-    const pid = id(req.params.partner),
-      p = (await pool.query('SELECT * FROM cw_partners WHERE id=$1', [pid])).rows[0];
-    if (!p) throw new HttpError(404, 'VIP 不存在');
-    await audit(pool, req.actor, 'cw.private_viewed', null, pid, {
-      reason: text(req.body.reason, '查看原因', 200),
-      scope: scope === 'bank' ? 'bank' : finance ? 'contact+bank' : 'contact',
+    const pid = id(req.params.partner), reason = text(req.body?.reason, '查看原因', 200);
+    const result = await transaction(pool, async (db) => {
+      const p = scope === 'bank'
+        ? (await db.query('SELECT * FROM cw_partners WHERE id=$1', [pid])).rows[0]
+        : await ownedPartner(db, pid, req.staff, false);
+      if (!p) throw new HttpError(404, 'VIP 不存在');
+      await audit(db, req.actor, 'cw.private_viewed', null, pid, {
+        reason, scope: scope === 'bank' ? 'bank' : finance ? 'contact+bank' : 'contact',
+      });
+      return {
+        contact: scope === 'bank' ? undefined : box.open(p.contact_cipher),
+        bank: finance && p.bank_cipher ? box.open(p.bank_cipher) : null,
+        bank_version: finance ? p.bank_version : undefined,
+      };
     });
     res.set('Cache-Control', 'no-store');
-    res.json({
-      contact: scope === 'bank' ? undefined : box.open(p.contact_cipher),
-      bank: finance && p.bank_cipher ? box.open(p.bank_cipher) : null,
-      bank_version: finance ? p.bank_version : undefined,
-    });
+    res.json(result);
   });
   app.post('/api/staff/cw/:partner/bank-verify', requireStaff, async (req, res) => {
     requireFinance(req);

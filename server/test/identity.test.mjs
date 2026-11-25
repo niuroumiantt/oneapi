@@ -248,6 +248,14 @@ test('supplier lab link resumes after staff sign-in and rejects arbitrary return
  assert.equal((await visitor.call('/api/staff/lab/config')).status,200);
  const unsafe=jar();const login=await unsafe.call('/api/staff/login?next=https://example.test/');const redirect=await unsafe.call(login.location);const callback=await unsafe.call(redirect.location);assert.equal(callback.location,'/#staff-account');
 });
+test('VIP customer links restore the specified lead after staff OIDC login',async()=>{
+ const partner='1ac344ff-74f2-48aa-bca5-a55d9f694683';
+ for(const value of [partner,'https://example.test/']){
+  const browser=jar(),start=await browser.call('/api/staff/login?next=vip&partner='+encodeURIComponent(value));
+  const code=await browser.call(start.location),done=await browser.call(code.location);
+  assert.equal(done.location,'/promotion/vip.html?staff=1'+(value===partner?'&partner='+partner:''));
+ }
+});
 test('supplier drafts and validation records persist with staff permissions and never become sale-ready',async()=>{
  const outsider=jar();assert.equal((await outsider.call('/api/staff/suppliers')).status,401);
  const created=await staff.call('/api/staff/suppliers',{method:'POST',body:{legal_name:'Fixture Model Ltd',display_name:'Fixture Model',source_type:'official',service_type:'managed_inference',next_action:'取得 SLA 与接口文档',region:'CN',reference_url:'https://example.test/provider'}});

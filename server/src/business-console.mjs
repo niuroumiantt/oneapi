@@ -239,6 +239,9 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
     (SELECT count(*) FROM support_tickets WHERE status<>'closed' AND tier='first_line')::int AS tickets,
     (SELECT count(*) FROM support_tickets WHERE status<>'closed' AND tier='technical')::int AS tickets_technical,
     (SELECT count(*) FROM discount_grants WHERE status='pending')::int AS discounts_pending,
+    (SELECT count(*) FROM cw_partners WHERE status='pending' AND ($1 OR owner_subject=$2))::int AS vip_pending,
+    (SELECT count(*) FROM vip_payment_discount_requests r JOIN cw_partners p ON p.id=r.partner_id
+      WHERE r.status='pending' AND p.status IN ('confirmed','active') AND ($1 OR p.owner_subject=$2))::int AS vip_discount_pending,
     (SELECT count(*) FROM discount_grants WHERE status='active' AND now()>=starts_at AND now()<ends_at)::int AS discounts_active,
     (SELECT count(*) FROM tax_invoices WHERE direction='output' AND status='requested')::int AS invoices_requested,
     (SELECT count(*) FROM payment_refunds WHERE status='pending')::int AS refunds_pending,
@@ -248,7 +251,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
     (SELECT count(*) FROM customers WHERE kind='personal')::int AS individuals,
     (SELECT count(*) FROM customers WHERE created_at>=now()-interval '30 days')::int AS customers_new_30d,
     (SELECT count(DISTINCT owner_id) FROM employee_calls WHERE created_at>=now()-interval '30 days')::int AS users_active_30d,
-    (SELECT count(*) FROM suppliers)::int AS suppliers`),
+    (SELECT count(*) FROM suppliers)::int AS suppliers`, [isAdmin(req.staff), req.staff.subject]),
    summary ? Promise.resolve({ rows: [] }) : pool.query(`${CUSTOMER_ROWS} WHERE used.calls_30d>0 ORDER BY used.calls_30d DESC LIMIT 5`)]);
   const c = counts.rows[0];
   if (!finance) { delete c.invoices_requested; delete c.refunds_pending; delete c.bank_transfers_pending; }

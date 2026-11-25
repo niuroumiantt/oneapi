@@ -2,6 +2,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
 import express from 'express';
+import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { createApp } from '../src/app.mjs';
 import { config, transaction, HttpError } from '../src/core.mjs';
@@ -12,7 +13,8 @@ import { creditPaidOrder, paymentRoutes } from '../src/payments.mjs';
 import { refundCW, commissionFen } from '../src/cw-ledger.mjs';
 const url = process.env.TEST_CW_DATABASE_URL;
 let pool, server, origin, cfg;
-const ids = { a: randomUUID(), b: randomUUID(), buyer: randomUUID(), candidate: randomUUID() };
+const ids = { a: randomUUID(), b: randomUUID(), buyer: randomUUID(), candidate: randomUUID(), lead: randomUUID(), legacy: randomUUID() };
+const notifications = [];
 const skip = !url;
 before(async () => {
   if (skip) return;
@@ -35,6 +37,11 @@ before(async () => {
   await pool.query(
     "INSERT INTO staff_members(subject,email,name,role,status) VALUES('cw-test-admin','admin@cw.example.test','CW test admin','platform_admin','active')",
   );
+  await pool.query(`INSERT INTO staff_members(subject,email,name,role,status) VALUES
+    ('cw-sales-a','sales-a@cw.example.test','Sales A','operations','active'),
+    ('cw-sales-b','sales-b@cw.example.test','Sales B','operations','active'),
+    ('cw-finance','finance@cw.example.test','Finance','finance','active'),
+    ('cw-former','former@cw.example.test','Former sales','operations','suspended')`);
   const app = express();
   app.use(express.json());
   const customer = (req, _res, next) => {
@@ -47,15 +54,21 @@ before(async () => {
   const staff = (req, _res, next) => {
     if (!req.headers['x-test-role']) throw new HttpError(401, 'staff');
     req.staff = {
-      subject: 'cw-test-admin',
+      subject: req.headers['x-test-subject'] || 'cw-test-admin',
       status: 'active',
       role: req.headers['x-test-role'],
-      finance_access: req.headers['x-test-role'] === 'platform_admin',
+      finance_access: ['platform_admin', 'finance'].includes(req.headers['x-test-role']),
     };
-    req.actor = { kind: 'staff', id: 'cw-test-admin' };
+    req.actor = { kind: 'staff', id: req.staff.subject };
     next();
   };
-  cwRoutes(app, pool, customer, staff, cfg, { queue: async () => ({}) });
+  cwRoutes(app, pool, customer, staff, cfg, {
+    ready: true,
+    queue: async (message, db) => {
+      assert.notEqual(db, pool, 'enqueue through the application transaction');
+      notifications.push(message);
+    },
+  });
   paymentRoutes(app, pool, customer, cfg, {
     wechat: { native: async () => ({ status: 200, data: { code_url: 'weixin://local-test-only' } }) },
   });
@@ -68,18 +81,18 @@ after(async () => {
   server?.close();
   await pool?.end();
 });
-async function call(path, body, user = 'a', role = null) {
+async function call(path, body, user = 'a', role = null, subject = 'cw-test-admin') {
   const r = await fetch(origin + path, {
     headers: {
       'x-test-user': user,
-      ...(role ? { 'x-test-role': role } : {}),
+      ...(role ? { 'x-test-role': role, 'x-test-subject': subject } : {}),
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
     ...(body ? { method: 'POST', body: JSON.stringify(body) } : {}),
   });
   return { status: r.status, data: await r.json() };
 }
-const staff = (path, b, role = 'platform_admin') => call('/api/staff/cw' + path, b, 'a', role);
+const staff = (path, b, role = 'platform_admin', subject) => call('/api/staff/cw' + path, b, 'a', role, subject);
 test('CW commission uses cumulative cash precision (percent - 40) * 100', () => {
   assert.equal(commissionFen('10000', 50), 1000n);
   assert.equal(commissionFen('9', 50), 0n);
@@ -571,4 +584,123 @@ test('sales activates formal VIP after verifying discount recharge ≥ ¥100', {
   const row = (await pool.query('SELECT status,activated_at FROM cw_partners WHERE id=$1', [pid])).rows[0];
   assert.equal(row.status, 'active');
   assert.ok(row.activated_at);
+});
+
+test('VIP invitation ownership, scoped leads, manager notifications and reassignment', { skip }, async () => {
+  const sales = (subject, path, body) => staff(path, body, 'operations', 'cw-sales-' + subject);
+  const a = (path, body) => sales('a', path, body);
+  const b = (path, body) => sales('b', path, body);
+  assert.equal((await a('/invite-codes', { code: 'SALESA' })).status, 201);
+  assert.equal((await b('/invite-codes', { code: 'SALESB' })).status, 201);
+  assert.equal((await b('/invite-codes/SALESA/status', { status: 'disabled' })).status, 404);
+
+  const beforeMail = notifications.length;
+  const application = {
+    legal_name: 'Follow-up fixture', contact: '13800000012', invite_code: 'SALESA', consent_version: 'cw-privacy-v1',
+  };
+  const applied = await call('/api/cw/apply', application, 'lead');
+  assert.equal(applied.status, 201, JSON.stringify(applied.data));
+  const partner = '/' + applied.data.partner.id;
+  assert.equal((await call('/api/cw/apply', application, 'lead')).status, 201);
+  const mail = notifications.slice(beforeMail);
+  assert.deepEqual(mail.map(m => m.to).sort(), ['admin@cw.example.test', 'sales-a@cw.example.test']);
+  const administrator = mail.find(m => m.to.startsWith('admin@'));
+  assert.match(administrator.text, /13800000012/);
+  assert.match(administrator.text, /lead@cw\.example\.test/);
+  assert.match(administrator.text, /北京时间/);
+  for (const item of mail) {
+    assert.ok(item.text.includes('?staff=1&partner=' + applied.data.partner.id));
+    assert.ok(item.text.includes('SALESA'));
+  }
+  const ownerMail = mail.find(m => m.to.startsWith('sales-a@'));
+  assert.doesNotMatch(ownerMail.text, /13800000012|lead@cw.example.test/);
+
+  assert.deepEqual((await a('')).data.partners.map(p => p.id), [applied.data.partner.id]);
+  assert.deepEqual((await b('')).data.partners, []);
+  assert.deepEqual((await b('')).data.invite_codes.map(i => i.code), ['SALESB']);
+  assert.equal((await staff('')).data.partners.find(p => p.id === applied.data.partner.id).invite_code, 'SALESA');
+  assert.equal((await b(partner)).status, 404);
+  assert.equal((await staff(partner, null, 'finance', 'cw-finance')).status, 404);
+  const contact = { reason: '电话面试', scope: 'contact' };
+  assert.equal((await b(partner + '/private', contact)).status, 404);
+  assert.equal((await a(partner + '/private', contact)).data.contact.contact, '13800000012');
+
+  const followup = { body: '已预约电话面试', next_contact_on: '2026-12-04' };
+  assert.equal((await a(partner + '/followups', { ...followup, next_contact_on: '2026-02-31' })).status, 400);
+  assert.equal((await a(partner + '/followups', followup)).status, 201);
+  assert.equal((await b(partner + '/followups', followup)).status, 404);
+  const details = (await a(partner)).data;
+  assert.equal(details.partner.next_contact_on, '2026-12-04');
+  assert.equal(details.followups[0].author_name, 'Sales A');
+  assert.equal(details.followups[0].body, followup.body);
+  assert.deepEqual(details.payouts, []);
+  assert.equal((await b(partner + '/confirm', {})).status, 404);
+  assert.equal((await b(partner + '/task-code', {})).status, 404);
+  assert.equal((await b(partner + '/activate', {})).status, 404);
+  assert.equal((await a(partner + '/owner', { owner_subject: 'cw-sales-b' })).status, 403);
+  assert.equal((await staff(partner + '/owner', { owner_subject: 'cw-former' })).status, 400);
+
+  const migration = await readFile(new URL('../migrations/083_vip_sales_followup.sql', import.meta.url), 'utf8');
+  await pool.query('UPDATE cw_partners SET owner_subject=NULL,invite_code_id=NULL WHERE id=$1', [applied.data.partner.id]);
+  await pool.query(migration);
+  assert.equal((await a(partner)).data.partner.owner_subject, 'cw-sales-a');
+  assert.equal((await staff(partner + '/owner', { owner_subject: 'cw-sales-b' })).status, 200);
+  await pool.query(migration);
+  assert.equal((await a(partner)).status, 404);
+  assert.equal((await a(partner + '/private', contact)).status, 404);
+  const reassigned = (await b(partner)).data;
+  assert.equal(reassigned.partner.owner_subject, 'cw-sales-b');
+  assert.equal(reassigned.partner.invite_code, 'SALESA');
+  assert.equal(reassigned.followups[0].body, followup.body);
+  assert.equal((await b(partner + '/followups', { body: '面试已完成' })).status, 201);
+  assert.equal((await b(partner)).data.partner.next_contact_on, null);
+  assert.equal((await b(partner + '/confirm', {})).status, 200);
+  const second = await call('/api/cw/apply', { ...application, invite_code: 'SALESB' }, 'legacy');
+  assert.equal(second.status, 201);
+  const other = '/' + second.data.partner.id;
+  assert.equal((await b(other + '/confirm', {})).status, 200);
+  assert.equal((await b(other + '/task-code', { code: 'LEADSALE50' })).status, 201);
+  assert.equal((await b(partner + '/task-code', { code: 'LEADSALE50' })).status, 409);
+  const issued = await Promise.all([b(partner + '/task-code', {}), b(partner + '/task-code', {})]);
+  assert.equal(issued[0].status, 201);
+  assert.equal(issued[1].data.code, issued[0].data.code);
+  assert.equal(issued[0].data.customer_price_percent, 50);
+  const original = issued[0].data.code;
+  assert.equal((await b(partner + '/task-code', { customer_price_percent: 40 })).status, 403);
+  assert.equal((await staff(partner + '/task-code', { customer_price_percent: 40 })).status, 403);
+  assert.equal((await call('/api/cw/me', null, 'lead')).data.task_codes[0].code, original);
+  const proposal = { customer_price_percent: 40, reason: '具备长期采购需求' };
+  const firstRequest = await b(partner + '/discount-requests', proposal);
+  assert.equal(firstRequest.status, 201);
+  assert.equal((await b(partner + '/discount-requests', proposal)).status, 409);
+  assert.equal((await staff('')).data.partners.find(p => p.id === applied.data.partner.id).discount_pending, true);
+  const firstDecision = partner + '/discount-requests/' + firstRequest.data.id + '/decision';
+  assert.equal((await b(firstDecision, { status: 'approved' })).status, 403);
+  assert.equal((await staff(firstDecision, { status: 'approved' }, 'finance', 'cw-finance')).status, 403);
+  assert.equal((await staff(firstDecision, { status: 'rejected' })).status, 400);
+  assert.equal((await staff(firstDecision, { status: 'rejected', decision_note: '请补充预计用量' })).status, 200);
+  assert.equal((await call('/api/cw/me', null, 'lead')).data.task_codes[0].code, original);
+
+  const nextRequest = await b(partner + '/discount-requests', { ...proposal, reason: '已补充预计用量' });
+  const decision = partner + '/discount-requests/' + nextRequest.data.id + '/decision';
+  const approved = await staff(decision, { status: 'approved' });
+  assert.equal(approved.status, 200, JSON.stringify(approved.data));
+  const discounted = approved.data.payment_code;
+  assert.equal(discounted.customer_price_percent, 40);
+  assert.notEqual(discounted.code, original);
+  assert.equal((await staff(decision, { status: 'approved' })).status, 409);
+  assert.equal((await b(partner + '/task-code', {})).data.code, discounted.code);
+  assert.equal((await call('/api/cw/offers/' + original, null, 'lead')).status, 404);
+  assert.deepEqual((await call('/api/cw/me', null, 'lead')).data.task_codes.map(k => k.code), [discounted.code]);
+  const quote = await transaction(pool, db =>
+    quotePack(db, { owner_id: ids.lead }, 10000, discounted.code, { cashFen: 10000, buyerId: ids.lead, cwEnabled: true }),
+  );
+  assert.equal(quote.amount_fen, 10000);
+  assert.equal(quote.face_fen, 25000);
+  await assert.rejects(transaction(pool, db =>
+    quotePack(db, { owner_id: ids.legacy }, 10000, discounted.code, { cashFen: 10000, buyerId: ids.legacy, cwEnabled: true }),
+  ), /仅限本人/);
+
+  assert.equal((await a('/invite-codes/SALESA/status', { status: 'disabled' })).status, 200);
+  assert.equal((await a('/invite-codes/SALESA/status', { status: 'active' })).status, 200);
 });

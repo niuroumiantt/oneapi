@@ -1,5 +1,10 @@
 import * as oidc from 'openid-client';
 import { HttpError,token,hash,vault,transaction,audit,text,hasBusiness } from './core.mjs';
+const vipPath = '/promotion/vip.html?staff=1';
+const vipPartnerPrefix = vipPath + '&partner=';
+const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+const vipDestination = partner => typeof partner==='string' && uuid.test(partner) ? vipPartnerPrefix+partner : vipPath;
+const staffDestination = next => next==='lab' ? '/api/staff/lab/console' : next==='business' ? '/api/staff/workspace/console' : '/#staff-account';
 export const staffRoles=['platform_admin','operations','supply','finance','support'];
 export function staffRoutes(app,pool,cfg){
  const box=vault(cfg.secret),cookieName=cfg.production?'__Host-oneapi_staff':'oneapi_staff',bindingName=cfg.production?'__Host-oneapi_oidc':'oneapi_oidc';
@@ -22,7 +27,7 @@ export function staffRoutes(app,pool,cfg){
  function administrator(req,res,next){if(req.staff.role!=='platform_admin'||req.staff.status!=='active')throw new HttpError(403,'仅平台管理员可执行此操作');next();}
  app.get('/api/staff/login',async(req,res)=>{
   const c=await client(),state=oidc.randomState(),nonce=oidc.randomNonce(),verifier=oidc.randomPKCECodeVerifier(),binding=token();
-  const destination=req.query.next==='lab'?'/api/staff/lab/console':req.query.next==='business'?'/api/staff/workspace/console':'/#staff-account';
+  const destination=req.query.next==='vip' ? vipDestination(req.query.partner) : staffDestination(req.query.next);
   await pool.query('INSERT INTO staff_oidc_states(state_hash,binding_hash,payload) VALUES($1,$2,$3)',[hash(state),hash(binding),box.seal({state,nonce,verifier,destination})]);
   res.cookie(bindingName,binding,{...cookieOptions,maxAge:600000});
   const url=oidc.buildAuthorizationUrl(c,{redirect_uri:cfg.origin+'/api/staff/callback',scope:'openid profile email',code_challenge:await oidc.calculatePKCECodeChallenge(verifier),code_challenge_method:'S256',state,nonce});
@@ -42,7 +47,9 @@ export function staffRoutes(app,pool,cfg){
     await db.query('INSERT INTO staff_sessions(token_hash,subject,access_payload,expires_at) VALUES($1,$2,$3,$4)',[hash(value),claims.sub,box.seal({accessToken:tokens.access_token}),new Date(Date.now()+Math.min(tokens.expires_in||300,8*3600)*1000)]);
     await audit(db,{kind:'staff',id:claims.sub},bootstrap?'staff.bootstrap':'staff.signed_in',null,claims.sub);
    });
-   res.clearCookie(bindingName,cookieOptions);res.cookie(cookieName,value,{...cookieOptions,maxAge:8*3600*1000});res.redirect(['/api/staff/lab/console','/api/staff/workspace/console'].includes(flow.destination)?flow.destination:'/#staff-account');
+   res.clearCookie(bindingName,cookieOptions);res.cookie(cookieName,value,{...cookieOptions,maxAge:8*3600*1000});const partner = flow.destination?.startsWith(vipPartnerPrefix) ? flow.destination.slice(vipPartnerPrefix.length) : '';
+   const destinations=[staffDestination('lab'),staffDestination('business'),vipDestination(partner)];
+   res.redirect(destinations.includes(flow.destination)?flow.destination:'/#staff-account');
   }catch{res.clearCookie(bindingName,cookieOptions);res.redirect('/#staff?error=authentication_failed');}
  });
  app.get('/api/staff/me',requireStaff,async(req,res)=>res.json({staff:req.staff}));

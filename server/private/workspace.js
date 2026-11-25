@@ -8,8 +8,9 @@ const att = v => esc(v ?? '');
 const NAV = [
  ['总览', [['overview', '老板驾驶舱']]],
  ['财务', [['pnl', '经营损益'], ['payments', '收款与退款'], ['transfers', '对公入账'], ['invoices', '发票'], ['payables', '上游付款']], 'finance'],
- ['供应链', [['suppliers', '上游供应商'], ['customers', '客户'], ['upgrades', '企业认证审核']]],
- ['产品', [['products', '产品与运营'], ['discounts', '促销与折扣'], ['cw', 'VIP 合作伙伴']]],
+ ['客户', [['customers', '客户档案'], ['cw', 'VIP 客户跟进'], ['upgrades', '企业认证审核']]],
+ ['供应链', [['suppliers', '上游供应商']]],
+ ['产品', [['products', '产品与运营'], ['discounts', '促销与折扣']]],
  ['客户支持', [['tickets', '工单与反馈'], ['answers', '快捷问答库']]]
 ];
 const PAGES = Object.fromEntries(NAV.flatMap(([, items, gate]) => items.map(([key, label]) => [key, { label, gate }])));
@@ -182,7 +183,7 @@ pages.overview = () => {
   html += `<div class="metrics">${metric('本月已确认收入', yuan(a.revenue), '客户现金实际扣费')}${metric('本月上游成本', yuan(a.upstream_cost), `其中销售 ${yuan(a.sales_cost)}，测试与系统 ${yuan(a.other_cost)}`)}${metric('本月毛利', yuan(a.gross_profit), '已确认收入 − 上游成本', a.gross_profit < 0)}${metric('本月净现金流', yuan(k.net), `收款 ${yuan(k.received)} − 退款 ${yuan(k.refunded)} − 付上游 ${yuan(k.supplier_paid)} − 渠道费 ${yuan(k.channel_cost)}`, k.net < 0)}</div>`;
   if (!a.revenue && a.credit_list) html += `<div class="callout">本月还没有现金收入：客户调用目前只扣公司发放的内部额度（按标价 ${yuan(a.credit_list)}），不计入收入。按标价计算的毛利率为 ${pct(a.list_margin)}。</div>`;
  }
- html += section('今天要处理', `<div class="todo">${todo('upgrades', c.upgrades, '待审企业认证')}${todo('tickets', c.tickets, '未关闭工单')}${todo('invoices', c.invoices_requested, '待开票申请')}${todo('transfers', c.bank_transfers_pending, '对公待复核')}${todo('payments', c.refunds_pending, '退款待确认')}${todo('discounts', c.discounts_pending, '待审批折扣')}${todo('products', c.models_paused, '已暂停的产品')}</div>`);
+ html += section('今天要处理', `<div class="todo">${todo('cw', c.vip_pending, '待面试的 VIP 申请')}${todo('cw', c.vip_discount_pending, '待特批的 VIP 付款折扣')}${todo('upgrades', c.upgrades, '待审企业认证')}${todo('tickets', c.tickets, '未关闭工单')}${todo('invoices', c.invoices_requested, '待开票申请')}${todo('transfers', c.bank_transfers_pending, '对公待复核')}${todo('payments', c.refunds_pending, '退款待确认')}${todo('discounts', c.discounts_pending, '待审批折扣')}${todo('products', c.models_paused, '已暂停的产品')}</div>`);
  html += section('经营概况', `<div class="metrics">${metric('企业客户', c.enterprises, `个人客户 ${c.individuals}，近 30 天新增 ${c.customers_new_30d}`)}${metric('近 30 天活跃用户', c.users_active_30d, '有过模型调用')}${metric('在售产品运行中', `${running} / ${models.length}`, '运行状态由技术后台维护')}${metric('上游供应商', c.suppliers, `生效中的折扣授权 ${c.discounts_active} 条`)}</div>`);
  if (f) html += section('近 12 个月', `<div class="panel pad">${monthChart(f.series)}</div>`, '<button class="link" data-go="pnl">查看经营损益 →</button>');
  html += section('近 30 天调用最多的客户', table(['编码', '客户', '类型', ['30 天调用'], '最近调用'], state.dash.top_customers.map(r => `<tr class="clickable" data-customer="${att(r.id)}"><td><code>${esc(r.code)}</code></td><td><b>${esc(r.name)}</b><small>${esc(r.kind === 'personal' ? r.orgs || r.email : r.email)}</small></td><td>${pill('kind', r.kind)}</td>${num(r.calls_30d)}<td>${when(r.last_call_at)}</td></tr>`).join(''), '近 30 天还没有客户调用。'));
@@ -276,7 +277,7 @@ pages.products = () => {
 };
 
 const audienceText = g => g.audience === 'customer' ? `<code>${esc(g.customer_code)}</code> ${esc(g.customer_name)}` : g.audience === 'tag' ? `分群 <span class="pill">${esc(g.tag)}</span>` : '全部客户';
-pages.cw = () => section('VIP 合作伙伴', '<p>管理申请、合同、推广码、邀请码、客户月结、佣金和提现。</p><a class="button" href="/promotion/vip.html?staff=1" target="_top">打开 VIP 合作伙伴管理</a>');
+pages.cw = () => section('VIP 客户跟进', '<p>查看邀请码带来的客户，记录电话面试和下次联系时间，跟进打折码充值与 VIP 开通。</p><a class="button" href="/promotion/vip.html?staff=1" target="_top">打开 VIP 客户跟进</a>');
 pages.discounts = d => {
  const models = Object.fromEntries(d.models.map(m => [m.id, m.name]));
  const rows = d.grants.map(g => `<tr><td><b>${esc(g.name)}</b><small>${g.promo_code?'促销码：'+esc(g.promo_code)+' · ':''}${esc(g.reason)}</small></td><td>${audienceText(g)}</td><td>${g.model_id ? esc(models[g.model_id] || g.model_id) : '全部产品'}</td>${num(discountText(g.customer_price_percent) + (g.cap_fen ? `<small>优惠上限 ${fen(g.cap_fen)}</small>` : ''), g.customer_price_percent)}<td>${dayOf(g.starts_at)} – ${lastDay(g.ends_at)}</td><td>${pill('discount', g.state)}<small>提出 ${esc(g.created_by_name)}${g.decided_by_name && g.decided_by_name !== g.created_by_name ? ' · 处理 ' + esc(g.decided_by_name) : ''}</small>${g.decision_note ? `<small>${esc(g.decision_note)}</small>` : ''}</td><td>${g.status === 'pending' ? (d.can_decide && g.created_by !== d.me ? `<button data-act="discount" data-id="${att(g.id)}" data-action="approve">批准</button> <button data-act="discount" data-id="${att(g.id)}" data-action="reject">驳回</button>` : '<small>等待财务或管理员审批</small>') : g.status === 'active' && g.state !== 'expired' && (d.can_decide || g.created_by === d.me) ? `<button data-act="discount" data-id="${att(g.id)}" data-action="revoke">收回</button>` : '—'}</td></tr>`).join('');
