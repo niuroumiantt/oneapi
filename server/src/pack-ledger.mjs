@@ -19,21 +19,27 @@ export async function quotePack(db,account,faceFen,promo='',options={}){
  if(!Number.isSafeInteger(faceFen)||faceFen<500||faceFen>5000000)throw new HttpError(400,'额度包面额须为 ¥5 至 ¥50,000');
  promo=String(promo||'').trim().toUpperCase();if(!/^[A-Z0-9_-]{0,40}$/.test(promo))throw new HttpError(400,'促销码格式不正确');
  const cw=await quoteCW(db,account,faceFen,promo,options);if(cw)return cw;
- if(options.cashFen!==undefined&&options.cashFen!==null)throw new HttpError(400,'实付金额模式需要有效的 CW 推广码');
+ const cashInput=options.cashFen??null;
+ const cashSnapshot=cashInput===null?{}:{requested_cash_fen:cashInput};
  const grants=(await db.query(`SELECT d.* FROM discount_grants d LEFT JOIN customers c ON c.id=d.customer_id
  WHERE d.status='active' AND now()>=d.starts_at AND now()<d.ends_at AND d.model_id IS NULL
  AND (d.promo_code IS NULL OR upper(d.promo_code)=$3) AND
  (d.audience='all' OR d.audience='customer' AND (c.user_id=$1 OR c.organization_id=$2) OR d.audience='tag' AND EXISTS(SELECT 1 FROM customers t WHERE (t.user_id=$1 OR t.organization_id=$2) AND d.tag=ANY(t.tags)))
  ORDER BY d.customer_price_percent,d.id FOR UPDATE OF d`,[account.owner_id,account.organization_id,promo])).rows;
  if(promo&&!grants.some(g=>g.promo_code?.toUpperCase()===promo))throw new HttpError(400,'促销码无效、未生效或不适用于当前账户');
+ let exceedsLimit=false;
  for(const g of grants){
-  const cash=Math.ceil(faceFen*g.customer_price_percent/100),saving=faceFen-cash;
+  const face=cashInput===null?faceFen:Math.floor(cashInput*100/g.customer_price_percent);
+  if(face>5000000){exceedsLimit=true;continue;}
+  const cash=cashInput??Math.ceil(face*g.customer_price_percent/100),saving=face-cash;
   // Pending orders reserve discount budget too. Expiry alone cannot release it: a delayed paid notification may still arrive.
   const used=(await db.query(`SELECT coalesce(sum(face_fen-amount_fen),0) AS n FROM payment_orders WHERE discount_snapshot->>'grant_id'=$1 AND status IN ('pending','paid')`,[g.id])).rows[0].n;
   if(g.cap_fen!==null&&BigInt(used)+BigInt(saving)>BigInt(g.cap_fen))continue;
-  return {face_fen:faceFen,amount_fen:cash,discount_snapshot:{grant_id:g.id,name:g.name,percent:g.customer_price_percent,promo_code:g.promo_code||null}};
+  return {face_fen:face,amount_fen:cash,discount_snapshot:{grant_id:g.id,name:g.name,percent:g.customer_price_percent,promo_code:g.promo_code||null,...cashSnapshot}};
  }
- return {face_fen:faceFen,amount_fen:faceFen,discount_snapshot:{percent:100}};
+ if(cashInput!==null&&promo)throw new HttpError(400,exceedsLimit?'到账额度超过 ¥50,000，请减少实付金额':'此促销码没有剩余优惠额度，请调整实付金额或移除促销码');
+ const amount=cashInput??faceFen;
+ return {face_fen:amount,amount_fen:amount,discount_snapshot:{percent:100,...cashSnapshot}};
 }
 export async function settlePaidCall(pool,callId,amount,usage,source,requestId,latency){
  return transaction(pool,async db=>{
