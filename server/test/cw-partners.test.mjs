@@ -13,7 +13,7 @@ import { creditPaidOrder, paymentRoutes } from '../src/payments.mjs';
 import { refundCW, commissionFen } from '../src/cw-ledger.mjs';
 const url = process.env.TEST_CW_DATABASE_URL;
 let pool, server, origin, cfg;
-const ids = { a: randomUUID(), b: randomUUID(), buyer: randomUUID(), candidate: randomUUID(), lead: randomUUID(), legacy: randomUUID(), triage: randomUUID(), triageOther: randomUUID(), exception: randomUUID(), exceptionOther: randomUUID(), exceptionLegacy: randomUUID() };
+const ids = { a: randomUUID(), b: randomUUID(), buyer: randomUUID(), candidate: randomUUID(), lead: randomUUID(), legacy: randomUUID(), triage: randomUUID(), triageOther: randomUUID(), exception: randomUUID(), exceptionOther: randomUUID(), exceptionLegacy: randomUUID(), trialVip: randomUUID(), trialOther: randomUUID(), trialPending: randomUUID() };
 const notifications = [], paymentNotices = [];
 const mockWechatTrades = new Map();
 let failPaymentNotice = false;
@@ -902,4 +902,110 @@ test('VIP original-order exception requires a settled unused payment and a separ
   const credits = (await pool.query("SELECT count(*)::int AS n FROM billing_ledger WHERE reference_kind='payment' AND reference_id=$1", [clean.id])).rows[0];
   assert.equal(credits.n, 1);
   assert.equal((await call('/api/cw/status')).data.activate_min_cash_fen, 10000);
+});
+
+
+test('administrator can grant and revoke a single formal VIP promotion trial', { skip }, async () => {
+  const application = (await pool.query(
+    "INSERT INTO cw_partners(user_id,public_code,legal_name,contact_cipher,consent_version,status,owner_subject) VALUES($1,'TRLVPAAA','Trial VIP','test','cw-privacy-v1','active','cw-sales-a') RETURNING id",
+    [ids.trialVip],
+  )).rows[0];
+  const pending = (await pool.query(
+    "INSERT INTO cw_partners(user_id,public_code,legal_name,contact_cipher,consent_version) VALUES($1,'TRLPNDNG','Pending VIP','test','cw-privacy-v1') RETURNING id",
+    [ids.trialPending],
+  )).rows[0];
+  assert.equal((await call('/api/cw/codes', {name:'Awaiting activation'}, 'trialPending')).status, 403);
+  const activeUnverified = (await pool.query(
+    "INSERT INTO cw_partners(user_id,public_code,legal_name,contact_cipher,consent_version,status) VALUES($1,'TRLUTHAA','Other VIP','test','cw-privacy-v1','active') RETURNING id",
+    [ids.trialOther],
+  )).rows[0];
+  const trial = '/' + application.id + '/promotion-trial';
+  const grant = { enabled: true, reason: 'Local promotion trial' };
+  assert.equal((await staff(trial, grant, 'operations', 'cw-sales-a')).status, 403);
+  assert.equal((await staff(trial, grant, 'finance', 'cw-finance')).status, 403);
+  assert.equal((await staff('/' + pending.id + '/promotion-trial', grant)).status, 409);
+  const legacy = (await pool.query(
+    "INSERT INTO cw_codes(partner_id,code,name,customer_price_percent) VALUES($1,'TRLPASTX','Legacy trial promotion',50) RETURNING code",
+    [application.id],
+  )).rows[0];
+  const allowed = await staff(trial, grant);
+  assert.equal(allowed.status, 200, JSON.stringify(allowed.data));
+  const until = allowed.data.promotion_trial_until;
+  assert.ok(Date.parse(until) > Date.now());
+  assert.equal((await staff(trial, grant)).data.promotion_trial_until, until);
+  assert.equal((await staff('/' + activeUnverified.id)).data.partner.promotion_trial_until, null);
+  assert.equal((await call('/api/cw/codes', {name:'Unverified'}, 'trialOther')).status, 409);
+  assert.equal((await call('/api/cw/offers/' + legacy.code)).status, 200);
+  const me = (await call('/api/cw/me', null, 'trialVip')).data;
+  assert.equal(me.partner.promotion_trial_until, until);
+  assert.deepEqual(me.contracts, []);
+  assert.equal(me.codes.find((c) => c.code === legacy.code).status, 'active');
+
+  const codes = [];
+  for (const name of ['Trial A', 'Trial B']) {
+    const result = await call('/api/cw/codes', { name }, 'trialVip');
+    assert.equal(result.status, 201, JSON.stringify(result.data));
+    assert.equal(result.data.status, 'active');
+    assert.equal(result.data.ends_at, until);
+    assert.equal(result.data.commission_bps, 1000);
+    codes.push(result.data.code);
+  }
+  const [code, otherCode] = codes;
+  assert.notEqual(code, otherCode);
+  assert.equal((await call('/api/cw/offers/' + code)).data.kind, 'referral');
+
+  const quote = await call('/api/billing/quote', { cash_fen: 5000, promo_code: code }, 'buyer');
+  assert.equal(quote.status, 200, JSON.stringify(quote.data));
+  assert.equal(quote.data.amount_fen, 5000);
+  assert.equal(quote.data.face_fen, 10000);
+  assert.equal(quote.data.discount_snapshot.cw.rate_bps, 1000);
+  const created = await call('/api/billing/personal/wechat-orders', {
+    cash_fen: 5000, promo_code: code, idempotency_key: randomUUID(),
+    expected_cash_fen: 5000, expected_face_fen: 10000,
+  }, 'buyer');
+  assert.equal(created.status, 201, JSON.stringify(created.data));
+  const order = (await pool.query('SELECT id,out_trade_no FROM payment_orders WHERE id=$1', [created.data.order.id])).rows[0];
+
+  const expired = await pool.query(
+    "UPDATE cw_partners SET promotion_trial_until=now()-interval '1 second' WHERE id=$1",
+    [application.id],
+  );
+  assert.equal(expired.rowCount, 1);
+  assert.equal((await call('/api/cw/offers/' + code)).status, 404);
+  assert.equal((await call('/api/cw/codes', { name:'Expired' }, 'trialVip')).status, 409);
+  assert.equal((await staff(trial, grant)).status, 200);
+  assert.equal((await call('/api/cw/offers/' + code)).status, 200);
+  const revoked = await staff(trial, { enabled: false, reason: 'Test revoke' });
+  assert.deepEqual(revoked, { status: 200, data: { promotion_trial_until: null } });
+  assert.equal((await call('/api/cw/offers/' + code)).status, 404);
+  assert.equal((await call('/api/billing/quote', { cash_fen: 5000, promo_code: code }, 'buyer')).status, 400);
+
+  const paid = { provider: 'wechat_native', tradeNo: 'trial-payment', totalFen: 5000 };
+  await creditPaidOrder(pool, order.out_trade_no, paid, 'trial-fixture');
+  await creditPaidOrder(pool, order.out_trade_no, paid, 'trial-fixture');
+  const rebate = (await pool.query(
+    'SELECT partner_id, rate_bps, expected_fen, unlocked_fen FROM cw_commissions WHERE order_id=$1', [order.id],
+  )).rows[0];
+  assert.deepEqual(rebate, { partner_id: application.id, rate_bps: 1000, expected_fen: '500', unlocked_fen: '0' });
+  const audit = (await pool.query(
+    "SELECT actor_id,detail FROM audit_events WHERE action='cw.promotion_trial_changed' AND subject_id=$1 ORDER BY id DESC LIMIT 1",
+    [application.id],
+  )).rows[0];
+  assert.equal(audit.actor_id, 'cw-test-admin');
+  assert.equal(audit.detail.reason, 'Test revoke');
+  assert.equal(audit.detail.enabled, false);
+
+  const verified = await staff('/' + activeUnverified.id + '/contract', {
+    template_version: 'fixture', document_sha256: 'a'.repeat(64),
+    signature_reference: 'Local signature evidence', identity_reference: 'Local identity evidence',
+    expires_at: '2098-01-01', verified: true,
+  });
+  assert.equal(verified.status, 200, JSON.stringify(verified.data));
+  for (const [name, percent, rate] of [['Verified A', 50, 1000], ['Verified B', 80, 4000]]) {
+    const result = await call('/api/cw/codes', {name, customer_price_percent: percent}, 'trialOther');
+    assert.equal(result.status, 201, JSON.stringify(result.data));
+    assert.equal(result.data.status, 'active');
+    assert.equal(result.data.commission_bps, rate);
+    assert.equal((await call('/api/cw/offers/' + result.data.code)).status, 200);
+  }
 });

@@ -3,6 +3,8 @@ import { HttpError } from './core.mjs';
 // commission_bps = (customer_price_percent - 40) * 100. Sell at 50% -> 10%, at 80% -> 40%.
 export const VIP_BASE_PERCENT = 40;
 export const VIP_SELF_PERCENT = 50;
+export const promotionEligible = (selfCode) => `((NOT ${selfCode} AND p.promotion_trial_until > statement_timestamp())
+  OR EXISTS(SELECT 1 FROM cw_contracts k WHERE k.partner_id=p.id AND k.expires_at>statement_timestamp())) IS TRUE`;
 // Provisional floor: sales may grant formal VIP only after verifying a discount-code
 // recharge of at least this cash amount. Change later when the business number is final.
 export const VIP_ACTIVATE_MIN_CASH_FEN = 10000;
@@ -123,7 +125,7 @@ export async function quoteCW(
   const c = (
     await db.query(
       `SELECT c.*,p.status AS partner_status,p.user_id,
- EXISTS(SELECT 1 FROM cw_contracts k WHERE k.partner_id=p.id AND k.expires_at>now()) AS signed
+ ${promotionEligible('c.is_self_code')} AS promotion_eligible
  FROM cw_codes c JOIN cw_partners p ON p.id=c.partner_id WHERE c.code=$1 FOR SHARE OF c,p`,
       [code],
     )
@@ -133,7 +135,7 @@ export async function quoteCW(
   if (
     c.status !== 'active' ||
     c.partner_status !== 'active' ||
-    !c.signed ||
+    !c.promotion_eligible ||
     new Date(c.starts_at) > new Date() ||
     new Date(c.ends_at) <= new Date()
   )

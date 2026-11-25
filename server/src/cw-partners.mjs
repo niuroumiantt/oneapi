@@ -3,7 +3,7 @@ import qrcode from 'qrcode-generator';
 import { randomInt } from 'node:crypto';
 import { HttpError, id, text, transaction, audit, vault, hasBusiness } from './core.mjs';
 import { requireFinance, hasFinance } from './business-console.mjs';
-import { commissionBps, VIP_SELF_PERCENT, VIP_ACTIVATE_MIN_CASH_FEN } from './cw-ledger.mjs';
+import { commissionBps, VIP_SELF_PERCENT, VIP_ACTIVATE_MIN_CASH_FEN, promotionEligible } from './cw-ledger.mjs';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const code = () => Array.from({ length: 8 }, () => ALPHABET[randomInt(ALPHABET.length)]).join('');
 const optionalNote = (value, max) =>
@@ -55,6 +55,7 @@ const publicPartner = (p) =>
         bank_verified: p.bank_verified_version !== null && p.bank_verified_version === p.bank_version,
         confirmed_at: p.confirmed_at,
         activated_at: p.activated_at,
+        promotion_trial_until: p.promotion_trial_until,
         created_at: p.created_at,
       }
     : null;
@@ -140,7 +141,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     if (task) return res.json({ ...task, kind: 'task' });
     const r = (
       await pool.query(
-        `SELECT c.code,c.customer_price_percent FROM cw_codes c JOIN cw_partners p ON p.id=c.partner_id WHERE c.code=$1 AND c.status='active' AND p.status='active' AND c.starts_at<=now() AND c.ends_at>now() AND EXISTS(SELECT 1 FROM cw_contracts k WHERE k.partner_id=p.id AND k.expires_at>now())`,
+        `SELECT c.code,c.customer_price_percent FROM cw_codes c JOIN cw_partners p ON p.id=c.partner_id WHERE c.code=$1 AND c.status='active' AND p.status='active' AND c.starts_at<=now() AND c.ends_at>now() AND ${promotionEligible('c.is_self_code')}`,
         [code],
       )
     ).rows[0];
@@ -313,8 +314,14 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       percent = integer(b.customer_price_percent ?? 50, 50, 100, '客户价格比例');
     const c = await transaction(pool, async (db) => {
       const p = await partner(db, req.customer.id, true);
-      if (['suspended', 'rejected'].includes(p.status))
-        throw new HttpError(403, '当前合作资格不可申请推广码');
+      if (p.status !== 'active') throw new HttpError(403, '请先开通正式 VIP');
+      const { expires_at: expiresAt } = (await db.query(
+        `SELECT greatest($2::timestamptz, max(expires_at)) AS expires_at
+           FROM cw_contracts WHERE partner_id=$1 AND expires_at>statement_timestamp()`,
+        [p.id, p.promotion_trial_until],
+      )).rows[0];
+      if (!expiresAt || new Date(expiresAt) <= new Date())
+        throw new HttpError(409, '请联系负责销售，完成合同与身份核验后再生成推广码');
       if (
         Number((await db.query('SELECT count(*) FROM cw_codes WHERE partner_id=$1', [p.id])).rows[0].count) >=
         50
@@ -322,11 +329,15 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         throw new HttpError(409, '每名 VIP 最多 50 个推广码，停用码也保留在记录中');
       const r = (
         await db.query(
-          'INSERT INTO cw_codes(partner_id,code,name,customer_price_percent,commission_bps) VALUES($1,$2,$3,$4,$5) RETURNING id,code,name,status,customer_price_percent,commission_bps',
-          [p.id, await uniqueCode(db), name, percent, commissionBps(percent)],
+          `INSERT INTO cw_codes(partner_id,code,name,customer_price_percent,commission_bps,status,starts_at,ends_at)
+           VALUES($1,$2,$3,$4,$5,'active',statement_timestamp(),$6)
+           RETURNING id,code,name,status,customer_price_percent,commission_bps,starts_at,ends_at`,
+          [p.id, await uniqueCode(db), name, percent, commissionBps(percent), expiresAt],
         )
       ).rows[0];
-      await audit(db, req.actor, 'cw.code_requested', null, r.id, { partner_id: p.id, percent });
+      await audit(db, req.actor, 'cw.code_created', null, r.id, {
+        partner_id: p.id, percent, commission_bps: r.commission_bps,
+      });
       return r;
     });
     res.status(201).json(c);
@@ -647,6 +658,34 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     res.set('Cache-Control', 'no-store');
     res.json(detail);
   });
+  app.post('/api/staff/cw/:partner/promotion-trial', requireStaff, async (req, res) => {
+    admin(req);
+    const pid = id(req.params.partner);
+    const enabled = req.body?.enabled;
+    if (typeof enabled !== 'boolean') throw new HttpError(400, '请选择开通或撤回试用');
+    const reason = text(req.body?.reason, '原因', 300);
+    const result = await transaction(pool, async (db) => {
+      const p = await ownedPartner(db, pid, req.staff);
+      if (enabled && p.status !== 'active') throw new HttpError(409, '只有正式 VIP 可开通推广试用');
+      const row = (await db.query(
+        `UPDATE cw_partners SET promotion_trial_until=CASE WHEN $2 THEN
+            CASE WHEN promotion_trial_until > statement_timestamp() THEN promotion_trial_until
+              ELSE statement_timestamp()+interval '7 days' END
+            ELSE NULL END
+          WHERE id=$1 RETURNING promotion_trial_until`,
+        [pid, enabled],
+      )).rows[0];
+      const enabledCodes = enabled
+        ? (await db.query('SELECT enable_eligible_cw_promotions($1) AS count', [pid])).rows[0].count
+        : 0;
+      await audit(db, req.actor, 'cw.promotion_trial_changed', null, pid, {
+        reason, enabled, until: row.promotion_trial_until, enabled_pending_codes: enabledCodes,
+      });
+      return row;
+    });
+    res.json(result);
+  });
+
   app.post('/api/staff/cw/:partner/contract', requireStaff, async (req, res) => {
     admin(req);
     const b = req.body || {},
@@ -666,10 +705,10 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         'INSERT INTO cw_contracts(partner_id,template_version,document_sha256,signature_reference,identity_reference,expires_at,verified_by) VALUES($1,$2,$3,$4,$5,$6,$7)',
         [pid, version, sha, reference, identity, expires, req.staff.subject],
       );
-      // Contract signing alone does NOT activate the partner. The sales confirmation
-      // (POST /:partner/confirm) is what turns a pending application into an active VIP,
-      // and the task code is issued separately by an approver after confirmation.
-      await audit(db, req.actor, 'cw.contract_verified', null, pid, { version, document_sha256: sha });
+      const { count } = (await db.query('SELECT enable_eligible_cw_promotions($1) AS count', [pid])).rows[0];
+      await audit(db, req.actor, 'cw.contract_verified', null, pid, {
+        version, document_sha256: sha, enabled_pending_codes: count,
+      });
     });
     res.json({ ok: true });
   });
@@ -713,6 +752,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         "UPDATE cw_partners SET status='active',activated_at=coalesce(activated_at,now()) WHERE id=$1",
         [pid],
       );
+      await db.query('SELECT enable_eligible_cw_promotions($1)', [pid]);
       await audit(db, req.actor, 'cw.activated', null, pid, {
         order_id: paid.id,
         amount_fen: paid.amount_fen,
@@ -778,6 +818,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         evidence.amount_fen = paid.amount_fen;
         evidence.credited_at = paid.credited_at;
         await db.query("UPDATE cw_partners SET status='active',activated_at=now() WHERE id=$1", [pid]);
+        await db.query('SELECT enable_eligible_cw_promotions($1)', [pid]);
       }
       await db.query(
         'UPDATE vip_activation_exceptions SET status=$2,decided_by=$3,decided_at=now(),decision_reason=$4 WHERE id=$1',
@@ -892,12 +933,12 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         if (
           !(
             await db.query(
-              "SELECT 1 FROM cw_partners p WHERE p.id=$1 AND p.status='active' AND EXISTS(SELECT 1 FROM cw_contracts k WHERE k.partner_id=p.id AND k.expires_at>now())",
-              [c.partner_id],
+              `SELECT 1 FROM cw_partners p WHERE p.id=$1 AND p.status='active' AND ${promotionEligible('$2::boolean')}`,
+              [c.partner_id, c.is_self_code],
             )
           ).rowCount
         )
-          throw new HttpError(409, '请先完成有效合同和身份核验');
+          throw new HttpError(409, '请先完成合同与身份核验，或由管理员开通推广试用');
         const percent = integer(b.customer_price_percent, 50, 100, '价格比例'),
           start = new Date(b.starts_at),
           end = new Date(b.ends_at);
