@@ -159,7 +159,7 @@
  const cwAuthQuery=()=>{
   const params=new URLSearchParams(location.search),query=new URLSearchParams();
   const promo=params.get('cw')||'',join=params.get('cw_join')||'';
-  if(/^[A-Z]{8}$/i.test(promo))query.set('cw',promo);
+  if(/^(?:[A-Z]{8}|\p{Script=Han}{8})$/iu.test(promo))query.set('cw',promo);
   if(join==='1'||/^[A-Z]{8}$/i.test(join)){
    query.set('cw_join',join);
    const inviteCode=params.get('invite_code')||'';
@@ -169,8 +169,8 @@
  };
  let cwOfferCode='',cwOfferKind='',cwInputCode=new URLSearchParams(location.search).get('cw')||'';
  const cwOfferHelp=()=>cwOfferCode
-  ? (cwOfferKind==='task'?'已填入专属 VIP 付款码。请填写实付金额，付款前核对到账额度。':'已识别 VIP 推广码，请填写实付金额。')
-  : 'VIP 付款码和推广码按实付金额购买额度，付款前会显示到账额度。';
+  ? (cwOfferKind==='direct'?'已识别员工直营折扣码。请填写实付金额，付款前核对到账额度。':cwOfferKind==='task'?'已填入专属 VIP 付款码。请填写实付金额，付款前核对到账额度。':'已识别 VIP 推广码，请填写实付金额。')
+  : '填写实付金额，使用折扣码后请在付款前核对到账额度。';
 
  let alipayPay=null,alipayTimer=null,alipayFen=10000,payChannel='alipay_f2f',rechargeReview=null;
   const PAY_CHANNELS={alipay_f2f:{name:'支付宝',path:'alipay',chip:'支付宝电脑网站支付'},wechat_native:{name:'微信支付',path:'wechat',chip:'微信支付 Native'}};
@@ -585,7 +585,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    (org?tab('support','circle-alert','支持'):link('support','#support','circle-alert','支持'))+
    tab('compare','layers','API 对比');
  }
- const panelPage=(org,active,stage)=>`<div class="personal-console" data-workspace-scope="${org?esc(org.id):'personal'}">${customerHeader(org)}<aside class="pc-sidebar"><nav aria-label="工作台导航">${panelNav(org,active)}</nav></aside><div class="pc-stage ${active==='billing'?'billing-stage':''}">${stage}</div>${window.SiteHeader.footer()}</div>`;
+ const panelPage=(org,active,stage)=>`<div class="personal-console" data-workspace-scope="${org?esc(org.id):'personal'}">${customerHeader(org)}<aside class="pc-sidebar"><nav aria-label="工作台导航">${panelNav(org,active)}${me?.backoffice?.business?`<a href="#console/business/acquisition">${ico('briefcase-business')} 商务管理</a>`:!org?`<a href="/promotion/vip.html">${ico('users-round')} 我的 VIP 申请与推广</a>`:''}</nav></aside><div class="pc-stage ${active==='billing'?'billing-stage':''}">${stage}</div>${window.SiteHeader.footer()}</div>`;
  const comparePanel=()=>'<iframe class="workspace-compare-frame" title="API 对比台" src="/compare.html?embedded=1"></iframe>';
  const panelBody=content=>`<div data-personal-content>${content}</div>`;
  const panelLoading='<p class="personal-model-empty">正在读取…</p>';

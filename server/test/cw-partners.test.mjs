@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { createApp } from '../src/app.mjs';
 import { config, transaction, HttpError } from '../src/core.mjs';
 import { migrate } from '../src/migrate.mjs';
+import { businessConsoleRoutes } from '../src/business-console.mjs';
 import { cwRoutes } from '../src/cw-partners.mjs';
 import { quotePack, settlePaidCall } from '../src/pack-ledger.mjs';
 import { creditPaidOrder, paymentRoutes } from '../src/payments.mjs';
@@ -65,6 +66,7 @@ before(async () => {
     req.actor = { kind: 'staff', id: req.staff.subject };
     next();
   };
+  businessConsoleRoutes(app,pool,staff,cfg);
   cwRoutes(app, pool, customer, staff, cfg, {
     ready: true,
     queue: async (message, db) => {
@@ -1008,4 +1010,49 @@ test('administrator can grant and revoke a single formal VIP promotion trial', {
     assert.equal(result.data.commission_bps, rate);
     assert.equal((await call('/api/cw/offers/' + result.data.code)).status, 200);
   }
+});
+
+test('employee direct codes: exact custom text, owner scope, admin-only exceptions, expiry and no commission', {skip}, async()=>{
+ const biz=(path,body,subject='cw-sales-a',role='operations')=>call('/api/staff/business/'+path,body,'buyer',role,subject);
+ const body=(code,percent=50)=>({business_line:'direct',promo_code:code,name:'直营测试',audience:'all',customer_price_percent:percent,
+  starts_at:new Date(Date.now()-60000).toISOString(),ends_at:new Date(Date.now()+86400000).toISOString(),reason:'独立测试，不对外发放'});
+ for(const bad of ['SHORT','ABCDEFG1','中文测试','中文测试ABCDEFGH'])assert.equal((await biz('discounts',body(bad))).status,400);
+ const en=await biz('discounts',body('directab'));assert.equal(en.status,201,JSON.stringify(en.data));assert.equal(en.data.status,'active');
+ const zh=await biz('discounts',body('格洛可客户专享码'));assert.equal(zh.status,201);assert.equal(zh.data.status,'active');
+ assert.equal((await biz('discounts',body('DIRECTAB'),'cw-sales-b')).status,409);
+ const race=await Promise.all([biz('discounts',body('DIRECTAC')),biz('discounts',body('DIRECTAC'),'cw-sales-b')]);
+ assert.deepEqual(race.map(x=>x.status).sort(),[201,409]);
+ const special=await biz('discounts',body('DIRECTAD',40));assert.equal(special.data.status,'pending');
+ assert.equal((await biz(`discounts/${special.data.id}/approve`,{})).status,403);
+ assert.equal((await biz(`discounts/${special.data.id}/approve`,{},'cw-finance','finance')).status,403);
+ assert.equal((await biz(`discounts/${special.data.id}/approve`,{note:'测试管理员批准'},'cw-test-admin','platform_admin')).status,200);
+ const list=await biz('acquisition');assert.equal(list.status,200,JSON.stringify(list.data));
+ assert.ok(list.data.grants.some(g=>g.promo_code==='DIRECTAB'));assert.ok(!list.data.administrator);
+ const other=await biz('acquisition',undefined,'cw-sales-b');assert.equal(other.status,200);assert.ok(!other.data.grants.some(g=>g.id===en.data.id));
+ const all=await biz('acquisition',undefined,'cw-test-admin','platform_admin');assert.equal(all.status,200);assert.ok(all.data.grants.some(g=>g.id===en.data.id));
+ assert.equal((await biz(`discounts/${en.data.id}/revoke`,{},'cw-sales-b')).status,403);
+ for(const code of ['DIRECTAB','格洛可客户专享码']){
+  const account=(await pool.query('INSERT INTO billing_accounts(owner_id) VALUES($1) ON CONFLICT(owner_id) WHERE owner_id IS NOT NULL DO UPDATE SET owner_id=excluded.owner_id RETURNING *',[ids.buyer])).rows[0];
+  const quote=await transaction(pool,db=>quotePack(db,account,10000,code,{cashFen:10000,buyerId:ids.buyer,cwEnabled:true}));
+  assert.equal(quote.amount_fen,10000);assert.equal(quote.face_fen,20000);assert.equal(quote.discount_snapshot.business_line,'direct');
+  assert.equal(quote.discount_snapshot.owner_subject,'cw-sales-a');assert.equal(quote.discount_snapshot.cw,undefined);
+  const order=(await pool.query(`INSERT INTO payment_orders(out_trade_no,account_id,created_by,provider,amount_fen,face_fen,discount_snapshot,idempotency_key,expires_at)
+    VALUES($1,$2,$3,'wechat_native',$4,$5,$6,$7,now()+interval '15 minutes') RETURNING *`,['DIRECT-'+randomUUID(),account.id,ids.buyer,quote.amount_fen,quote.face_fen,quote.discount_snapshot,randomUUID()])).rows[0];
+  await creditPaidOrder(pool,order.out_trade_no,{provider:'wechat_native',tradeNo:'test-'+order.id,totalFen:10000},'direct-test');
+  assert.equal((await pool.query('SELECT 1 FROM cw_commissions WHERE order_id=$1',[order.id])).rowCount,0);
+  const updated=await biz('acquisition');assert.ok(updated.data.orders.some(o=>o.out_trade_no===order.out_trade_no));
+  const hidden=await biz('acquisition',undefined,'cw-sales-b');assert.ok(!hidden.data.orders.some(o=>o.out_trade_no===order.out_trade_no));
+  const found=await biz('acquisition?q='+encodeURIComponent(order.out_trade_no));assert.equal(found.status,200);assert.equal(found.data.orders.length,1);assert.equal(found.data.orders[0].out_trade_no,order.out_trade_no);
+  const hiddenSearch=await biz('acquisition?q='+encodeURIComponent(order.out_trade_no),undefined,'cw-sales-b');assert.equal(hiddenSearch.status,200);assert.equal(hiddenSearch.data.orders.length,0);
+  const offer=await call('/api/cw/offers/'+encodeURIComponent(code));assert.equal(offer.data.kind,'direct');
+ }
+ const qr=await fetch(origin+'/api/staff/business/direct-codes/'+zh.data.id+'/qr',{headers:{'x-test-role':'operations','x-test-subject':'cw-sales-a'}});
+ assert.equal(qr.status,200);assert.match(await qr.text(),/<svg/);
+ const hiddenQr=await fetch(origin+'/api/staff/business/direct-codes/'+zh.data.id+'/qr',{headers:{'x-test-role':'operations','x-test-subject':'cw-sales-b'}});assert.equal(hiddenQr.status,404);
+ await pool.query("UPDATE discount_grants SET starts_at=now()-interval '2 days',ends_at=now()-interval '1 day' WHERE id=$1",[en.data.id]);
+ await assert.rejects(()=>transaction(pool,db=>quotePack(db,{owner_id:ids.buyer},10000,'DIRECTAB',{cashFen:10000,buyerId:ids.buyer,cwEnabled:true})),/未生效/);
+ assert.equal((await biz(`discounts/${en.data.id}/approve`,{},'cw-test-admin','platform_admin')).status,409);
+ assert.equal((await biz('discounts',body('DIRECTAB'))).status,409);
+ const retained=await biz('acquisition');assert.ok(retained.data.orders.some(o=>o.promo_code==='DIRECTAB'));
+ assert.equal((await biz('discounts')).data.grants.some(g=>g.business_line==='direct'),false,'direct codes have a separate register');
 });

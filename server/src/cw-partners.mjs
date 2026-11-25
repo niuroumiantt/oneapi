@@ -129,7 +129,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     }),
   );
   app.get('/api/cw/offers/:code', enabled, async (req, res) => {
-    const code = String(req.params.code).toUpperCase();
+    const code = String(req.params.code).normalize('NFKC').trim().toUpperCase();
     // Task code: a VIP's own self-purchase discount. The quote path enforces self-use;
     // here we only surface the discount ratio so the top-up form can switch to "pay amount" mode.
     const task = (
@@ -145,7 +145,11 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         [code],
       )
     ).rows[0];
-    if (!r) throw new HttpError(404, '推广码未生效');
+    if (!r) {
+      const direct=(await pool.query("SELECT promo_code AS code,customer_price_percent FROM discount_grants WHERE business_line='direct' AND upper(promo_code)=$1 AND status='active' AND starts_at<=now() AND ends_at>now()",[code])).rows[0];
+      if(direct)return res.json({...direct,kind:'direct'});
+      throw new HttpError(404, '推广码未生效');
+    }
     res.json({ ...r, kind: 'referral' });
   });
   app.post('/api/cw/apply', requireCustomer, enabled, async (req, res) => {
@@ -283,7 +287,11 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         [p.id],
       )
     ).rows;
+    const recharges=(await pool.query(`SELECT ${rechargeFields} FROM cw_partners p JOIN billing_accounts a ON a.owner_id=p.user_id
+      JOIN payment_orders o ON o.account_id=a.id ${rechargeLedger} WHERE p.id=$1 ORDER BY o.created_at DESC LIMIT 100`,[p.id])).rows;
+    const owner=(await pool.query('SELECT s.name FROM staff_members s WHERE s.subject=$1',[p.owner_subject])).rows[0];
     res.json({
+      owner_name:owner?.name||null,recharges,activate_min_cash_fen:VIP_ACTIVATE_MIN_CASH_FEN,
       partner: publicPartner(p),
       totals: { ...totals, available_fen: await available(pool, p.id) },
       codes,
@@ -464,6 +472,8 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     const maxUses = integer(b.max_uses ?? 1, 1, 100000, '使用次数上限');
     const note = optionalNote(b.note, 200);
     const r = await transaction(pool, async (db) => {
+      await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',['cw-code:'+inviteCode]);
+      if((await db.query('SELECT 1 FROM discount_grants WHERE upper(promo_code)=$1 UNION ALL SELECT 1 FROM cw_codes WHERE code=$1 UNION ALL SELECT 1 FROM cw_partners WHERE public_code=$1 UNION ALL SELECT 1 FROM vip_task_codes WHERE code=$1',[inviteCode])).rowCount)throw new HttpError(409,'此码已被使用或保留');
       const row = (
         await db.query(
           `INSERT INTO vip_invite_codes(code,max_uses,note,created_by) VALUES($1,$2,$3,$4)
@@ -550,7 +560,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     const orderNumber = req.query.order === undefined ? null : text(req.query.order, '商户订单号', 64);
     const detail = await transaction(pool, async (db) => {
       const p = (await db.query(
-        `SELECT p.*,i.code AS invite_code,s.name AS owner_name,to_char(p.next_contact_on,'YYYY-MM-DD') AS contact_day
+        `SELECT p.*,EXISTS(SELECT 1 FROM cw_contracts k WHERE k.partner_id=p.id AND k.expires_at>now()) AS contract_current,i.code AS invite_code,s.name AS owner_name,to_char(p.next_contact_on,'YYYY-MM-DD') AS contact_day
            FROM cw_partners p LEFT JOIN vip_invite_codes i ON i.id=p.invite_code_id
            LEFT JOIN staff_members s ON s.subject=p.owner_subject
           WHERE p.id=$1 AND ($2 OR p.owner_subject=$3 OR ($4 AND (${financePartner}))) FOR SHARE OF p`,
@@ -638,7 +648,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
           bank_verified: finance ? publicPartner(p).bank_verified : undefined,
           invite_code: follow ? p.invite_code : null, next_contact_on: follow ? p.contact_day : null,
         },
-        can_follow: follow, finance, followups,
+        can_follow: follow, finance, followups, contract_current:p.contract_current,
         codes,
         contracts,
         orders,
@@ -929,6 +939,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     await transaction(pool, async (db) => {
       const c = (await db.query('SELECT * FROM cw_codes WHERE id=$1 FOR UPDATE', [cid])).rows[0];
       if (!c) throw new HttpError(404, '推广码不存在');
+      if(c.ends_at && new Date(c.ends_at)<=new Date())throw new HttpError(409,'推广码已过期作废，不能恢复或复用');
       if (state === 'active') {
         if (
           !(

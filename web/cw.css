@@ -509,3 +509,6 @@ body.cw-applicant {
 .cw-recharge-history .cw-table {
   max-height: min(42vh, 380px);
 }
+
+.cw-embedded #cw-header,.cw-embedded #cw-footer,.cw-embedded .cw-heading{display:none!important}
+.cw-embedded body{height:100dvh}.cw-embedded main{padding:0;max-width:none;width:100%;min-height:0}.cw-embedded #cw-content{min-height:0}

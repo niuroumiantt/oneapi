@@ -1,3 +1,4 @@
+import { acquisitionRoutes } from './business-acquisition.mjs';
 import {bankSnapshot,transferDay} from './bank-transfers.mjs';
 import {addPack} from './pack-ledger.mjs';
 // Business console: the owner's and finance's view of the company (revenue, cost, margin, invoices),
@@ -212,6 +213,7 @@ async function yearSeries(pool) {
 }
 
 export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
+ acquisitionRoutes(app,pool,requireStaff,cfg);
  const staffName = async subject => (await pool.query('SELECT name FROM staff_members WHERE subject=$1', [subject])).rows[0]?.name || null;
 
  app.put('/api/staff/members/:subject/finance-access', requireStaff, async (req, res) => {
@@ -238,13 +240,13 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
    pool.query(`SELECT (SELECT count(*) FROM account_upgrade_requests WHERE status='pending')::int AS upgrades,
     (SELECT count(*) FROM support_tickets WHERE status<>'closed' AND tier='first_line')::int AS tickets,
     (SELECT count(*) FROM support_tickets WHERE status<>'closed' AND tier='technical')::int AS tickets_technical,
-    (SELECT count(*) FROM discount_grants WHERE status='pending')::int AS discounts_pending,
+    (SELECT count(*) FROM discount_grants WHERE business_line='general' AND status='pending')::int AS discounts_pending,
     (SELECT count(*) FROM cw_partners WHERE status='pending' AND ($1 OR owner_subject=$2))::int AS vip_pending,
     (SELECT count(*) FROM vip_activation_exceptions e JOIN cw_partners p ON p.id=e.partner_id
       WHERE e.status='pending' AND ($1 OR p.owner_subject=$2))::int AS vip_activation_exception_pending,
     (SELECT count(*) FROM vip_payment_discount_requests r JOIN cw_partners p ON p.id=r.partner_id
       WHERE r.status='pending' AND p.status IN ('confirmed','active') AND ($1 OR p.owner_subject=$2))::int AS vip_discount_pending,
-    (SELECT count(*) FROM discount_grants WHERE status='active' AND now()>=starts_at AND now()<ends_at)::int AS discounts_active,
+    (SELECT count(*) FROM discount_grants WHERE business_line='general' AND status='active' AND now()>=starts_at AND now()<ends_at)::int AS discounts_active,
     (SELECT count(*) FROM tax_invoices WHERE direction='output' AND status='requested')::int AS invoices_requested,
     (SELECT count(*) FROM payment_refunds WHERE status='pending')::int AS refunds_pending,
     ((SELECT count(*) FROM bank_transfer_entries WHERE status='pending')+(SELECT count(*) FROM bank_transfer_notices WHERE status='submitted'))::int AS bank_transfers_pending,
@@ -482,7 +484,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
    pool.query('SELECT n.id,n.body,n.created_at,m.name AS created_by_name FROM customer_notes n LEFT JOIN staff_members m ON m.subject=n.created_by WHERE n.customer_id=$1 ORDER BY n.created_at DESC LIMIT 100', [customerId]),
    customer.kind === 'enterprise' ? pool.query(`SELECT u.name,u.email,m.role FROM memberships m JOIN "user" u ON u.id=m.user_id WHERE m.organization_id=$1 AND m.status='active' ORDER BY m.role,u.name LIMIT 200`, [customer.organization_id]) : { rows: [] },
    pool.query(`SELECT t.id,t.subject,t.status,t.category,t.created_at FROM support_tickets t WHERE ${people} ORDER BY t.created_at DESC LIMIT 20`, [customer.organization_id || customer.user_id]),
-   pool.query(`${DISCOUNT_ROWS} WHERE d.status IN ('pending','active') AND d.ends_at>now() AND (d.customer_id=$1 OR d.audience='all' OR (d.audience='tag' AND d.tag=ANY($2::text[]))) ORDER BY d.ends_at`, [customerId, customer.tags]),
+   pool.query(`${DISCOUNT_ROWS} WHERE d.business_line='general' AND d.status IN ('pending','active') AND d.ends_at>now() AND (d.customer_id=$1 OR d.audience='all' OR (d.audience='tag' AND d.tag=ANY($2::text[]))) ORDER BY d.ends_at`, [customerId, customer.tags]),
    finance ? pool.query(`${INVOICE_ROWS} WHERE i.customer_id=$1 ORDER BY i.created_at DESC LIMIT 50`, [customerId]) : { rows: [] },
    finance ? pool.query(`SELECT o.out_trade_no,o.amount_fen,o.refunded_fen,o.paid_at FROM payment_orders o JOIN billing_accounts b ON b.id=o.account_id WHERE o.status='paid' AND (b.organization_id=$1 OR b.owner_id=$2) ORDER BY o.paid_at DESC LIMIT 20`, [customer.organization_id, customer.user_id]) : { rows: [] }]);
   res.json({ customer, notes: notes.rows, members: members.rows, tickets: tickets.rows, discounts: discounts.rows, finance: finance ? { invoices: invoices.rows, orders: orders.rows, invoice_limit: await invoiceLimit(pool, customerId) } : null });
@@ -511,7 +513,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
  // A register of who may pay less than list price. Charging does not read it yet; the page says so.
  app.get('/api/staff/business/discounts', requireStaff, async (req, res) => {
   requireBusiness(req);
-  const [grants, campaigns, tags] = await Promise.all([pool.query(`${DISCOUNT_ROWS} ORDER BY d.status='pending' DESC,d.created_at DESC LIMIT 500`),
+  const [grants, campaigns, tags] = await Promise.all([pool.query(`${DISCOUNT_ROWS} WHERE d.business_line='general' ORDER BY d.status='pending' DESC,d.created_at DESC LIMIT 500`),
    pool.query('SELECT c.id,c.name,c.customer_price_percent,c.starts_at,c.ends_at,c.total_discount_budget_fen,p.display_name AS product_name FROM promotion_campaigns c JOIN model_products p ON p.id=c.model_product_id ORDER BY c.created_at DESC LIMIT 100'),
    pool.query('SELECT t AS tag,count(*)::int AS customers FROM customers,unnest(tags) t GROUP BY 1 ORDER BY 2 DESC,1')]);
   res.json({ grants: grants.rows, campaigns: campaigns.rows, tags: tags.rows, models: OFFICIAL_MODELS.map(m => ({ id: m.id, name: m.name })), can_decide: hasFinance(req.staff), me: req.staff.subject, billing_connected: true });
@@ -525,17 +527,20 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
   if (ends <= starts || ends - starts > 366 * 86400000) throw new HttpError(400, '有效期须在一年以内且结束晚于开始');
   if (ends <= new Date()) throw new HttpError(400, '结束时间须晚于现在');
   const model = b.model_id ? choice(b.model_id, OFFICIAL_MODELS.map(m => m.id), '适用产品') : null, cap = b.cap_yuan === undefined || b.cap_yuan === '' ? null : fen(b.cap_yuan, '优惠上限');
-  const promo=String(b.promo_code||'').trim().toUpperCase();if(!/^[A-Z0-9_-]{0,40}$/.test(promo))throw new HttpError(400,'促销码格式不正确');
+  const direct=b.business_line==='direct';
+  const promo=String(b.promo_code||'').normalize('NFKC').trim().toUpperCase();
+  if(direct ? !/^(?:[A-Z]{8}|\p{Script=Han}{8})$/u.test(promo) : !/^[A-Z0-9_-]{0,40}$/.test(promo))throw new HttpError(400,direct?'直营码须为 8 个英文字母或 8 个中文字符':'促销码格式不正确');
+  if(direct && (audience!=='all'||model||cap!==null))throw new HttpError(400,'直营折扣码适用于全部产品，不设置单独客户或优惠预算');
   const tag = audience === 'tag' ? tagList([b.tag])[0] : null, customer = audience === 'customer' ? id(b.customer_id) : null;
   // The platform administrator's own grants take effect at once; everyone else's wait for a second person.
-  const status = isAdmin(req.staff) ? 'active' : 'pending';
+  const status = isAdmin(req.staff) || (direct && percent===50) ? 'active' : 'pending';
   const row = await transaction(pool, async db => {
-   if(promo){await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',['cw-code:'+promo]);if((await db.query('SELECT 1 FROM cw_codes WHERE code=$1 UNION ALL SELECT 1 FROM cw_partners WHERE public_code=$1',[promo])).rowCount)throw new HttpError(409,'此码已被 VIP 保留');}
+   if(promo){await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',['cw-code:'+promo]);if((await db.query('SELECT 1 FROM cw_codes WHERE code=$1 UNION ALL SELECT 1 FROM cw_partners WHERE public_code=$1 UNION ALL SELECT 1 FROM vip_task_codes WHERE code=$1 UNION ALL SELECT 1 FROM vip_invite_codes WHERE code=$1 UNION ALL SELECT 1 FROM discount_grants WHERE upper(promo_code)=$1',[promo])).rowCount)throw new HttpError(409,'此码已被使用或保留，请换一个码（已过期的码也不能复用）');}
    if (customer && !(await db.query('SELECT 1 FROM customers WHERE id=$1', [customer])).rowCount) throw new HttpError(404, '客户不存在');
    const created = (await db.query(`INSERT INTO discount_grants(name,audience,customer_id,tag,model_id,customer_price_percent,cap_fen,starts_at,ends_at,reason,status,created_by,decided_by,decided_at)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id,status`, [name, audience, customer, tag, model, percent, cap, starts, ends, reason, status, req.staff.subject, status === 'active' ? req.staff.subject : null, status === 'active' ? new Date() : null])).rows[0];
-   if(promo)await db.query('UPDATE discount_grants SET promo_code=$2 WHERE id=$1',[created.id,promo]);
-   await audit(db, req.actor, 'discount_grant.created', null, created.id, { audience, customer_price_percent: percent, status });
+   if(promo)await db.query('UPDATE discount_grants SET promo_code=$2,business_line=$3 WHERE id=$1',[created.id,promo,direct?'direct':'general']);
+   await audit(db, req.actor, 'discount_grant.created', null, created.id, { audience, customer_price_percent: percent, status, business_line: direct?'direct':'general', promo_code:promo });
    return created;
   });
   res.status(201).json(row);
@@ -546,6 +551,10 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
   const row = await transaction(pool, async db => {
    const grant = (await db.query('SELECT * FROM discount_grants WHERE id=$1 FOR UPDATE', [grantId])).rows[0];
    if (!grant) throw new HttpError(404, '折扣授权不存在');
+   if(grant.business_line==='direct'){
+    if(action==='revoke' ? (!isAdmin(req.staff)&&grant.created_by!==req.staff.subject) : !isAdmin(req.staff))throw new HttpError(403,'直营特殊折扣只有管理员能审批；发码员工只能停用自己的码');
+   }
+   if(new Date(grant.ends_at)<=new Date())throw new HttpError(409,'折扣码已过期作废，不能恢复或复用');
    let status;
    if (action === 'revoke') {
     if (grant.status !== 'active') throw new HttpError(409, '只有生效中的授权可以收回');

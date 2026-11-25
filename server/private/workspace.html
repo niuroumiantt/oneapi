@@ -80,6 +80,11 @@ body>header{display:none!important}.shell{height:100dvh!important;min-height:0!i
 
 :root{--ui-small:13px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:15px}
 button,input,select,textarea{font-family:inherit}
+.acquisition-tabs{display:flex;gap:8px;flex-wrap:wrap;padding:4px 0 16px;margin-bottom:16px;border-bottom:1px solid var(--line)}
+.acquisition-tabs button[aria-current=page]{background:var(--accent-soft);color:var(--accent-ink);border-color:var(--accent-ink)}
+.acquisition-filter{display:flex;align-items:end;gap:16px;flex-wrap:wrap;margin-bottom:20px}.acquisition-filter label{min-width:180px;flex:1}.acquisition-filter input{width:100%}
+.acquisition-vip{border:0;width:100%;height:calc(100dvh - 250px);min-height:520px;display:block}
+@media(max-width:650px){#content>.acquisition-tabs:first-child{display:none}.acquisition-vip{height:900px}.acquisition-tabs button{min-height:44px}.acquisition-filter label{min-width:0;flex-basis:100%}}
 </style><header><b>semifly.ai</b><span>商务后台</span><div class="right"><a id="technical" href="/api/staff/lab/console" hidden>切换技术后台 ↗</a><a href="/#staff-account">账户与权限</a></div></header>
 <div class="shell"><aside><nav id="nav" aria-label="商务后台导航"></nav><a href="/#personal">返回个人空间 ↗</a></aside>
 <main><div class="heading"><div><h1 id="title">商务后台</h1><p id="subtitle">正在读取实际业务数据…</p></div><div class="tools" id="tools"><button id="refresh">刷新</button></div></div>

@@ -1,0 +1,91 @@
+// Isolated real-database browser acceptance. Never targets a production origin.
+import assert from 'node:assert/strict';
+import {generateKeyPairSync} from 'node:crypto';
+import {spawn} from 'node:child_process';
+import {readFile,writeFile,mkdtemp,readdir} from 'node:fs/promises';
+import path from 'node:path';
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
+import {setTimeout as delay} from 'node:timers/promises';
+const repo=process.argv[2],root=process.argv[3]||path.join(repo,'web');
+const staticFiles=await readdir(root);
+const staticAsset=name=>'/'+(staticFiles.includes(name)?name:staticFiles.find(f=>f.startsWith(name.replace(/\.[^.]+$/,'' )+'.')&&f.endsWith(name.slice(name.lastIndexOf('.')))));
+const require=createRequire(path.join(repo,'package.json')),express=require('express'),pg=require('pg');
+const load=n=>import(pathToFileURL(path.join(repo,'server/src',n+'.mjs')).href);
+const [{createApp},{migrate},{config},{cwRoutes},{businessConsoleRoutes},{quotePack},{creditPaidOrder}]=await Promise.all(['app','migrate','core','cw-partners','business-console','pack-ledger','payments'].map(load));
+const db=process.env.TEST_CW_DATABASE_URL;assert.match(new URL(db).pathname,/_test$/);
+const pool=new pg.Pool({connectionString:db}),app=express();app.use('/api/staff',express.json());
+const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
+const origin='http://127.0.0.1:'+server.address().port;
+const cfg=config({APP_ORIGIN:origin,DATABASE_URL:db,CW_ENABLED:'true',BETTER_AUTH_SECRET:'business-fixture-auth-secret-not-production-1234'});
+const keyDir=await mkdtemp('/private/tmp/business-pay-fixture.');
+const keys=generateKeyPairSync('rsa',{modulusLength:2048,privateKeyEncoding:{type:'pkcs8',format:'pem'},publicKeyEncoding:{type:'spki',format:'pem'}});
+await writeFile(keyDir+'/private.pem',keys.privateKey);await writeFile(keyDir+'/public.pem',keys.publicKey);
+cfg.alipay={...cfg.alipay,enabled:true,appId:'test-only',privateKeyFile:keyDir+'/private.pem',publicKeyFile:keyDir+'/public.pem'};cfg.alipayFetch=async()=>{throw Error('No external payment calls permitted in this test');};
+const service=createApp(pool,cfg,{sendMail:async()=>({}),verify:async()=>true});await migrate(pool,service.auth);
+await pool.query('TRUNCATE "user",staff_members,"rateLimit" CASCADE');
+await pool.query(`INSERT INTO staff_members(subject,email,name,role,status) VALUES
+ ('ui-sales','sales@ui.example.test','销售甲','operations','active'),('ui-other','other@ui.example.test','销售乙','operations','active'),('ui-admin','admin@ui.example.test','管理员','platform_admin','active')`);
+const staff=(req,_res,next)=>{const who=/fixture_role=(admin|other)/.exec(req.headers.cookie||'')?.[1]||'sales';req.staff={subject:'ui-'+who,status:'active',role:who==='admin'?'platform_admin':'operations',finance_access:who==='admin'};req.actor={kind:'staff',id:req.staff.subject};next();};
+app.get('/api/staff/workspace/access',(_req,res)=>res.json({business:true,technical:false}));
+const privateFiles={'/api/staff/workspace/view':'workspace.html','/api/staff/workspace/console.js':'workspace.js','/api/staff/workspace/bridge.js':'workspace-bridge.js','/api/staff/select-menu.js':'select-menu.js','/api/staff/table-sort.js':'table-sort.js'};
+for(const [url,file]of Object.entries(privateFiles))app.get(url,(_req,res)=>res.sendFile(file,{root:path.join(repo,'server/private')}));
+businessConsoleRoutes(app,pool,staff,cfg);cwRoutes(app,pool,(_req,res)=>res.sendStatus(401),staff,cfg);
+app.get('/_console',(_req,res)=>res.type('html').send('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/site-header.css"><link rel="stylesheet" href="/console.css"><body><script src="/site-header.js"></script><script src="/console.js"></script><script>const show=()=>ConsoleUI.render(location.hash.slice(1)||"console/business/acquisition");show();addEventListener("hashchange",show)</script></body></html>'.replace(/\/(site-header|console)\.(css|js)/g,(_m,base,ext)=>staticAsset(base+'.'+ext))));
+app.use((req,res,next)=>{if(req.url.startsWith('/api/'))return service.app(req,res);next();});app.use(express.static(root));
+app.use((e,_req,res,_next)=>res.status(e.status||500).json({error:e.message}));
+// Real customer auth is used for the customer-facing link and quote confirmation.
+const registered=await fetch(origin+'/api/auth/sign-up/email',{method:'POST',headers:{'Content-Type':'application/json',origin},body:JSON.stringify({name:'直营测试客户',email:'buyer@ui.example.test',password:'Customer-ui-test-12345!'})});
+assert.ok(registered.ok,String(registered.status)+' '+await registered.text());
+await pool.query('UPDATE "user" SET "emailVerified"=true WHERE email=$1',['buyer@ui.example.test']);
+const user=(await pool.query('SELECT id FROM "user" WHERE email=$1',['buyer@ui.example.test'])).rows[0];assert.ok(user);
+const account=(await pool.query('INSERT INTO billing_accounts(owner_id) VALUES($1) RETURNING *',[user.id])).rows[0];
+const partner=(await pool.query(`INSERT INTO cw_partners(user_id,public_code,legal_name,contact_cipher,consent_version,owner_subject,status) VALUES($1,'ABCDEFGH','待开通测试 VIP','test-encrypted','v1','ui-sales','confirmed') RETURNING id`,[user.id])).rows[0];
+const profile=await mkdtemp('/private/tmp/business-ui-chrome.');
+const chrome=spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',['--headless','--remote-debugging-port=0','--user-data-dir='+profile,'--no-first-run','--disable-background-networking','about:blank'],{stdio:'ignore'});
+let ws;
+try{
+ let port;for(let n=0;n<80&&!port;n++){try{port=(await readFile(path.join(profile,'DevToolsActivePort'),'utf8')).split('\n')[0];}catch{await delay(100);}}
+ const tabs=await(await fetch('http://127.0.0.1:'+port+'/json/list')).json();ws=new WebSocket(tabs.find(t=>t.type==='page').webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);
+ let seq=0;const pending=new Map(),errors=[];ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){pending.get(m.id)?.(m);pending.delete(m.id);}if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text);};
+ const cmd=(method,params={})=>new Promise(r=>{const id=++seq;pending.set(id,r);ws.send(JSON.stringify({id,method,params}));});
+ const ev=async expression=>{const x=await cmd('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(x.result?.exceptionDetails)throw Error(JSON.stringify(x.result.exceptionDetails));return x.result?.result?.value;};
+ const ready=async x=>{for(let n=0;n<90;n++){if(await ev(x))return;await delay(80);}throw Error('Timed out: '+x+' '+await ev('document.body.innerText+document.querySelector("iframe")?.contentDocument?.body.innerText'));};
+ const open=async p=>{await cmd('Page.navigate',{url:origin+p});await delay(200);};
+ const f='document.querySelector("iframe").contentDocument';
+ const pick=s=>f+'.querySelector('+JSON.stringify(s)+')';
+ const click=s=>ev(pick(s)+'.click()'),set=(s,v)=>ev(pick(s)+'.value='+JSON.stringify(v));
+ await cmd('Page.enable');await cmd('Runtime.enable');await cmd('Emulation.setFocusEmulationEnabled',{enabled:true});await cmd('Browser.grantPermissions',{origin,permissions:['clipboardReadWrite','clipboardSanitizedWrite']});
+ await cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+ await open('/_console#console/business/acquisition');await ready(f+'.body.innerText.includes("等待开通的 VIP")');
+ assert.ok(await ev(f+'.querySelector("[data-go=direct]")'));
+ await click('[data-go=direct]');await ready(pick('[data-act=direct-new]'));
+ async function create(code,percent){await click('[data-act=direct-new]');await ready(pick('#dialog[open]'));await set('[name=promo_code]',code);await set('[name=name]','UI 直营活动');await set('[name=customer_price_percent]',String(percent));await set('[name=reason]','隔离测试');await ev(pick('#dialogForm')+'.requestSubmit()');await ready('!'+pick('#dialog')+'.open');await ready(f+'.querySelector("#content").innerText.includes('+JSON.stringify(code)+')');}
+ await create('DIRECTUI',50);await create('格洛可客户专享码',50);await create('SPECIALA',40);
+ assert.ok(await ev(f+'.querySelector("#content").innerText.includes("无 VIP 返佣")'));
+ await ev(f+'.querySelectorAll("[data-act=direct-link]")[0].click()');await ready(f+'.querySelector("#notice").innerText.includes("已复制")');
+ const link=await ev('navigator.clipboard.readText()');assert.equal(new URL(link).searchParams.get('cw'),'格洛可客户专享码');
+ await click('[data-go=approvals]');await ready(f+'.querySelector("#content").innerText.includes("SPECIALA")');assert.equal(await ev(f+'.querySelectorAll("[data-action=approve]").length'),0);
+ await ev('document.cookie="fixture_role=other;path=/"');await open('/_console#console/business/direct');await ready(pick('[data-act=direct-new]'));assert.ok(!await ev(f+'.querySelector("#content").innerText.includes("DIRECTUI")'));
+ console.log('PASS sales creates English/Chinese codes, copies encoded link, and other sales cannot see them');
+ await ev('document.cookie="fixture_role=admin;path=/"');await open('/_console#console/business/approvals');await ready(pick('[data-action=approve]'));await click('[data-action=approve]');await ready(pick('#dialog[open]'));await ev(pick('#dialogForm')+'.requestSubmit()');await ready('!'+pick('#dialog')+'.open');await ready(f+'.querySelector("#content").innerText.includes("没有待审批事项")');
+ await click('[data-go=direct]');await ready(pick('[data-act=direct-new]'));assert.ok(await ev(f+'.querySelector("#content").innerText.includes("SPECIALA")'));
+ await set('#acquisitionOwner','ui-other');await ev(pick('#acquisitionOwner')+'.dispatchEvent(new Event("change",{bubbles:true}))');await ready(f+'.querySelector("#content").innerText.includes("暂无直营折扣码")');
+ await set('#acquisitionOwner','');await ev(pick('#acquisitionOwner')+'.dispatchEvent(new Event("change",{bubbles:true}))');await ready(f+'.querySelector("#content").innerText.includes("DIRECTUI")');
+ await writeFile('/private/tmp/business-direct-desktop.png',Buffer.from((await cmd('Page.captureScreenshot',{format:'png'})).result.data,'base64'));
+ await click('[data-go=cw]');await ready(f+'.querySelector(".acquisition-vip")?.contentDocument?.querySelector("[data-partner]")');
+ const vf=f+'.querySelector(".acquisition-vip").contentDocument';assert.equal(await ev('getComputedStyle('+vf+'.querySelector("#cw-header")).display'),'none');
+ await ev(vf+'.querySelector("[data-partner]").click()');await ready(vf+'.querySelector("#vip-recharge-history")');
+ await writeFile('/private/tmp/business-vip-desktop.png',Buffer.from((await cmd('Page.captureScreenshot',{format:'png'})).result.data,'base64'));
+ console.log('PASS administrator approves special rate, filters by owner, and opens VIP archive inside fixed navigation');
+ await cmd('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await open('/_console#console/business/direct');await ready(pick('[data-act=direct-new]'));
+ assert.ok(await ev(f+'.documentElement.scrollWidth<='+f+'.documentElement.clientWidth+2'));
+ await writeFile('/private/tmp/business-direct-mobile.png',Buffer.from((await cmd('Page.captureScreenshot',{format:'png'})).result.data,'base64'));
+ // Establish a normal customer session, then follow the copied Chinese link.
+ const auth=await ev(`fetch('/api/auth/sign-in/email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'buyer@ui.example.test',password:'Customer-ui-test-12345!'})}).then(r=>r.status)`);assert.equal(auth,200);
+ await open(new URL(link).pathname+new URL(link).search+new URL(link).hash);await ready('document.querySelector("#pack-promo")');assert.equal(await ev('document.querySelector("#pack-promo").value'),'格洛可客户专享码');
+ await ev('document.querySelector("[data-live=alipay-create]").click()');await ready('document.querySelector("#live-recharge-confirm")');
+ assert.equal((await pool.query('SELECT count(*)::int n FROM payment_orders')).rows[0].n,0,'confirmation must not create any order');
+ await writeFile('/private/tmp/business-customer-confirmation.png',Buffer.from((await cmd('Page.captureScreenshot',{format:'png'})).result.data,'base64'));
+ assert.deepEqual(errors,[]);console.log('PASS mobile layout and Chinese promotion link reach actual-cash confirmation without creating an order');
+}finally{ws?.close();chrome.kill();server.closeAllConnections();await new Promise(r=>server.close(r));await pool.end();}

@@ -9,6 +9,7 @@
     money = (v) => '¥' + (Number(v || 0) / 100).toFixed(2),
     when = (v) => (v ? new Date(v).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '—');
   const params = new URLSearchParams(location.search);
+  if(params.get('embedded')==='1' && window.parent!==window)document.documentElement.classList.add('cw-embedded');
   const referrer = params.get('invite') || '';
   const inviteParam = (params.get('invite_code') || '').normalize('NFKC').trim().toUpperCase();
   const employeeInviteCode = /^[A-Z0-9_-]{2,32}$/.test(inviteParam) ? inviteParam : '';
@@ -35,7 +36,7 @@
   let data = null,
     selected = staff ? requestedPartner : null,
     tab = selected ? 'manage' : 'overview',
-    salesFilter = { query: '', stage: '' },
+    salesFilter = { query: '', stage: '', owner: '' },
     orderLookup = null,
     offset = 0,
     filter = '',
@@ -123,7 +124,7 @@
     const items = staff
       ? [
           ['overview', data.administrator ? '全部 VIP 客户' : '我的 VIP 客户'],
-          ['invite-codes', 'VIP 邀请码'],
+          ['invite-codes', '招募邀请码'],
           ['manage', '客户档案'],
           ...(data.finance ? [['settlement', '月结与提现']] : []),
         ]
@@ -215,14 +216,17 @@
     }
     const p = data.partner,
       t = data.totals;
+    const ownPaid=(data.recharges||[]).filter(o=>o.status==='paid'&&o.credited_at);
+    const paidProgress=ownPaid.length?`<div class="cw-callout"><p><b>已收到你的充值，待销售核验</b></p><p>近期已到账实付 ${money(ownPaid.reduce((n,o)=>n+Number(o.amount_fen),0))}，已退款 ${money(ownPaid.reduce((n,o)=>n+Number(o.refunded_fen),0))}。</p><p>正常开通需使用本人 VIP 付款码单笔实付满 ¥100。已有付款请先由销售核验原单；不满足门槛的原单可由销售提交管理员特批。</p></div>`:'';
+    const ownerProgress=`<p>负责销售：${esc(data.owner_name||'待公司分配')} · <a href="/#support">联系支持</a></p>`;
     if (p.status === 'pending')
-      c.innerHTML = `<h2>申请已提交，等待公司销售电话面试并确认</h2><p>你的 VIP 编号：<strong>${esc(p.public_code)}</strong></p><div class="cw-callout"><p><b>你提交的申请信息</b></p><p>真实姓名：<strong>${esc(p.legal_name || '—')}</strong></p><p>申请时间：${when(p.created_at)}</p><p>当前状态：${labels[p.status]}</p><p class="cw-muted">联系方式已加密保存在系统中，用于电话面试和申请处理。</p></div><p>公司销售会主动联系你面试；面试通过后会发放 <strong>VIP 付款码</strong>。你充值后联系销售核验到账，销售确认后才成为正式 VIP（顶栏显示金色 VIP 角标）。请留意邮件或电话。</p><p><button data-refresh-status>刷新状态</button></p>`;
+      c.innerHTML = `<h2>申请已提交，等待公司销售电话面试并确认</h2><p>你的 VIP 编号：<strong>${esc(p.public_code)}</strong></p><div class="cw-callout"><p><b>你提交的申请信息</b></p><p>真实姓名：<strong>${esc(p.legal_name || '—')}</strong></p><p>申请时间：${when(p.created_at)}</p><p>当前状态：${labels[p.status]}</p>${ownerProgress}${paidProgress}<p class="cw-muted">联系方式已加密保存在系统中，用于电话面试和申请处理。</p></div><p>公司销售会主动联系你面试；面试通过后会发放 <strong>VIP 付款码</strong>。你充值后联系销售核验到账，销售确认后才成为正式 VIP（顶栏显示金色 VIP 角标）。请留意邮件或电话。</p><p><button data-refresh-status>刷新状态</button></p>`;
     if (p.status === 'rejected')
       c.innerHTML = `<h2>申请未通过</h2><p>很抱歉，你的 VIP 申请未通过。如有疑问请联系邀请你的员工或 sales。</p>`;
     if (p.status === 'confirmed') {
       const current = data.task_codes?.[0];
-      c.innerHTML = `<h2>${current ? '付款码已发放' : '面试已通过，等待销售发放付款码'}</h2>
-        <p>你的 VIP 编号：<strong>${esc(p.public_code)}</strong></p>
+      c.innerHTML = `<h2>${ownPaid.length ? '已收到充值，等待销售核验开通' : current ? '付款码已发放' : '面试已通过，等待销售发放付款码'}</h2>
+        <p>你的 VIP 编号：<strong>${esc(p.public_code)}</strong></p>${ownerProgress}${paidProgress}
         ${current ? `<p>使用下方付款码单笔实付至少 <strong>¥100</strong>，付款后请联系销售核验开通。</p>${paymentCard(current)}`
           : '<p>销售发放付款码后会显示在这里，你可以用它直接充值。</p>'}
         <p><button data-refresh-status>刷新状态</button></p>`;
@@ -309,6 +313,7 @@
     const partners = data.partners.filter((p) => {
       const inSalesQueue = p.can_follow || data.administrator;
       if (stage === 'finance' ? inSalesQueue : !inSalesQueue) return false;
+      if(salesFilter.owner && p.owner_subject!==salesFilter.owner)return false;
       if (stage === 'due' && !(p.next_contact_on && p.next_contact_on <= today)) return false;
       if (stage === 'unassigned' && p.owner_subject) return false;
       if (stage === 'discount' && !p.discount_pending) return false;
@@ -328,6 +333,7 @@
         ${rechargeTable([orderLookup])}
       </section>` : ''}
       <form class="cw-sales-filters" data-action="sales-filter">
+        ${data.administrator?`<label>负责销售<select name="owner"><option value="">全部员工</option>${(data.owners||[]).map(o=>`<option value="${esc(o.subject)}" ${salesFilter.owner===o.subject?'selected':''}>${esc(o.name)}</option>`).join('')}</select></label>`:''}
         ${field('query', '搜索客户或邀请码', 'search', `value="${esc(salesFilter.query)}" maxlength="120"`, false)}
         <label>状态<select name="stage">${stageOptions.map(([value, label]) => `<option value="${value}"${value === stage ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
         <button type="submit">筛选</button>
@@ -460,6 +466,9 @@
     const p = d.partner;
     c.innerHTML = `<button data-tab="overview">返回客户列表</button><h2 class="cw-partner-title">${esc(p.legal_name)} · ${esc(p.public_code)}</h2><p>申请状态：${esc(labels[p.status])}${d.finance ? ' · 可提现（税前）' + money(d.available_fen) : ''}</p>`;
     if (tab === 'manage') {
+      const verified=d.contract_current??hasCurrentContract(d.contracts);
+      const trial=hasPromotionTrial(p);
+      c.innerHTML+=`<div class="cw-callout"><p>VIP 身份：${esc(labels[p.status])}</p><p>合同与实名核验：${verified?'已完成且有效':'尚未完成或已过期'}</p><p>推广资格：${p.status!=='active'?'待正式开通 VIP':verified?'已具备，可自行生成推广码':trial?'单独试用中，至 '+when(p.promotion_trial_until):'待合同与实名核验'}</p></div>`;
       if (d.can_follow) {
         const contact = `<div class="cw-contact-box"><p><b>申请人联系方式</b></p><div id="contact-details" aria-live="polite"><p class="cw-muted">查看操作会记入审计。</p></div>${form('contact', field('reason', '查看原因', 'text', p.status === 'pending' ? 'value="电话面试" maxlength="200"' : 'maxlength="200"'), '查看联系方式')}</div>`;
         c.innerHTML += `${rechargeHistory(d)}${activationExceptions(d)}${staffPaymentCodes(d)}${contact}
@@ -630,7 +639,7 @@
         return;
       }
       if (action === 'sales-filter') {
-        salesFilter = { query: b.query.trim(), stage: b.stage };
+        salesFilter = { query: b.query.trim(), stage: b.stage, owner:b.owner||'' };
         drawSalesList($('#cw-content'));
         $('.cw-sales-filters button').focus({ preventScroll: true });
         return;

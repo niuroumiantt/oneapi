@@ -6,23 +6,25 @@ const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '—').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const att = v => esc(v ?? '');
 const NAV = [
- ['总览', [['overview', '老板驾驶舱']]],
+ ['商务管理', [['acquisition','工作概览'], ['cw','VIP 招募与管理'], ['direct','直营客户与折扣码'], ['promotions','VIP 推广与返佣'], ['approvals','审批中心']]],
+ ['经营总览', [['overview', '经营概况']]],
  ['财务', [['pnl', '经营损益'], ['payments', '收款与退款'], ['transfers', '对公入账'], ['invoices', '发票'], ['payables', '上游付款']], 'finance'],
- ['客户', [['customers', '客户档案'], ['cw', 'VIP 客户跟进'], ['upgrades', '企业认证审核']]],
+ ['客户', [['customers', '客户档案'], ['upgrades', '企业认证审核']]],
  ['供应链', [['suppliers', '上游供应商']]],
  ['产品', [['products', '产品与运营'], ['discounts', '促销与折扣']]],
  ['客户支持', [['tickets', '工单与反馈'], ['answers', '快捷问答库']]]
 ];
 const PAGES = Object.fromEntries(NAV.flatMap(([, items, gate]) => items.map(([key, label]) => [key, { label, gate }])));
 const SUBTITLES = {
+ acquisition:'查看负责客户的进度、实付和待办。',cw:'招募邀请码、电话面试、付款核验与 VIP 客户档案。',direct:'员工直接招募最终用户，不产生 VIP 返佣。',promotions:'VIP 推荐客户的充值、使用与返佣。',approvals:'特殊折扣与原单开通特批，由管理员处理。',
  overview: '收入、成本、利润和今天要处理的事。', pnl: '按月看收入、成本和毛利，按产品、客户、上游拆开。', payments: '客户付款订单与原路退款。',
  transfers: '对公转账：财务登记实付与官价面额，复核后入账。',
  invoices: '开给客户的销项发票，和上游开给我们的进项发票。', payables: '付给上游的充值和结算款，对照收到的发票。',
  suppliers: '上游档案、编码、联系人和采购成本。', customers: '下游客户档案、编码、分群和跟进记录。', upgrades: '个人账号升级为企业账号的审核。',
  products: '在售产品的价格、用量和上架流程。', discounts: '促销活动，以及对客户、分群授予的折扣。', tickets: '一线支持：回复、分类、转技术。', answers: '标准问答，回复工单时一键引用。'
 };
-const ALIASES = { accounts: 'customers', reports: 'products', upstream: 'products', finance: 'pnl' };
-const SOURCES = { pnl: () => 'business/finance?month=' + (ui.month || ''), payments: () => 'payments/orders', transfers: () => 'business/bank-transfers', invoices: () => 'business/invoices', payables: () => 'business/supplier-payments', suppliers: () => 'business/suppliers', customers: () => 'business/customers', discounts: () => 'business/discounts', tickets: () => 'business/support', answers: () => 'business/support' };
+const ALIASES = { home:'acquisition', accounts: 'customers', reports: 'products', upstream: 'products', finance: 'pnl' };
+const SOURCES = { acquisition:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),direct:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),promotions:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),approvals:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''), pnl: () => 'business/finance?month=' + (ui.month || ''), payments: () => 'payments/orders', transfers: () => 'business/bank-transfers', invoices: () => 'business/invoices', payables: () => 'business/supplier-payments', suppliers: () => 'business/suppliers', customers: () => 'business/customers', discounts: () => 'business/discounts', tickets: () => 'business/support', answers: () => 'business/support' };
 const LABEL = {
  stage: { new: '新客户', following: '跟进中', key: '重点客户', risk: '流失风险', lost: '已流失' },
  kind: { enterprise: '企业', personal: '个人' },
@@ -69,7 +71,7 @@ async function api(path, body) {
 }
 const get = path => { const started = generation; return cache[path] ? Promise.resolve(cache[path]) : api(path).then(d => { if (started === generation) cache[path] = d; return d; }); };
 function notify(text, ok = false) { const n = $('#notice'); n.textContent = text || ''; n.classList.toggle('ok', ok); }
-const currentPage = () => { let page = ALIASES[location.hash.slice(1)] || location.hash.slice(1) || 'overview'; return PAGES[page] ? page : 'overview'; };
+const currentPage = () => { let page = ALIASES[location.hash.slice(1)] || location.hash.slice(1) || 'acquisition'; return PAGES[page] ? page : 'overview'; };
 const options = (map, selected, blank) => (blank === undefined ? '' : `<option value="">${blank}</option>`) + Object.entries(map).map(([k, v]) => `<option value="${att(k)}" ${k === selected ? 'selected' : ''}>${esc(v)}</option>`).join('');
 const table = (head, rows, empty = '暂无记录。') => `<div class="panel"><table><thead><tr>${head.map(h => Array.isArray(h) ? `<th class="num">${h[0]}</th>` : `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${head.length}" class="empty">${empty}</td></tr>`}</tbody></table></div>`;
 const paymentOrderWidths = new Map();
@@ -183,7 +185,7 @@ pages.overview = () => {
   html += `<div class="metrics">${metric('本月已确认收入', yuan(a.revenue), '客户现金实际扣费')}${metric('本月上游成本', yuan(a.upstream_cost), `其中销售 ${yuan(a.sales_cost)}，测试与系统 ${yuan(a.other_cost)}`)}${metric('本月毛利', yuan(a.gross_profit), '已确认收入 − 上游成本', a.gross_profit < 0)}${metric('本月净现金流', yuan(k.net), `收款 ${yuan(k.received)} − 退款 ${yuan(k.refunded)} − 付上游 ${yuan(k.supplier_paid)} − 渠道费 ${yuan(k.channel_cost)}`, k.net < 0)}</div>`;
   if (!a.revenue && a.credit_list) html += `<div class="callout">本月还没有现金收入：客户调用目前只扣公司发放的内部额度（按标价 ${yuan(a.credit_list)}），不计入收入。按标价计算的毛利率为 ${pct(a.list_margin)}。</div>`;
  }
- html += section('今天要处理', `<div class="todo">${todo('cw', c.vip_pending, '待面试的 VIP 申请')}${todo('cw', c.vip_discount_pending, '待特批的 VIP 付款折扣')}${todo('cw', c.vip_activation_exception_pending, '待审批的 VIP 原单特批')}${todo('upgrades', c.upgrades, '待审企业认证')}${todo('tickets', c.tickets, '未关闭工单')}${todo('invoices', c.invoices_requested, '待开票申请')}${todo('transfers', c.bank_transfers_pending, '对公待复核')}${todo('payments', c.refunds_pending, '退款待确认')}${todo('discounts', c.discounts_pending, '待审批折扣')}${todo('products', c.models_paused, '已暂停的产品')}</div>`);
+ html += section('今天要处理', `<div class="todo">${todo('cw', c.vip_pending, '待面试的 VIP 申请')}${todo('approvals', c.vip_discount_pending, '待特批的 VIP 付款折扣')}${todo('approvals', c.vip_activation_exception_pending, '待审批的 VIP 原单特批')}${todo('upgrades', c.upgrades, '待审企业认证')}${todo('tickets', c.tickets, '未关闭工单')}${todo('invoices', c.invoices_requested, '待开票申请')}${todo('transfers', c.bank_transfers_pending, '对公待复核')}${todo('payments', c.refunds_pending, '退款待确认')}${todo('discounts', c.discounts_pending, '待审批折扣')}${todo('products', c.models_paused, '已暂停的产品')}</div>`);
  html += section('经营概况', `<div class="metrics">${metric('企业客户', c.enterprises, `个人客户 ${c.individuals}，近 30 天新增 ${c.customers_new_30d}`)}${metric('近 30 天活跃用户', c.users_active_30d, '有过模型调用')}${metric('在售产品运行中', `${running} / ${models.length}`, '运行状态由技术后台维护')}${metric('上游供应商', c.suppliers, `生效中的折扣授权 ${c.discounts_active} 条`)}</div>`);
  if (f) html += section('近 12 个月', `<div class="panel pad">${monthChart(f.series)}</div>`, '<button class="link" data-go="pnl">查看经营损益 →</button>');
  html += section('近 30 天调用最多的客户', table(['编码', '客户', '类型', ['30 天调用'], '最近调用'], state.dash.top_customers.map(r => `<tr class="clickable" data-customer="${att(r.id)}"><td><code>${esc(r.code)}</code></td><td><b>${esc(r.name)}</b><small>${esc(r.kind === 'personal' ? r.orgs || r.email : r.email)}</small></td><td>${pill('kind', r.kind)}</td>${num(r.calls_30d)}<td>${when(r.last_call_at)}</td></tr>`).join(''), '近 30 天还没有客户调用。'));
@@ -294,6 +296,43 @@ pages.tickets = d => {
 
 pages.answers = d => section('快捷问答库', table(['分类', '问题', '标准答复', '对客户公开', ['引用次数'], '操作'], d.answers.map(a => `<tr><td>${esc(LABEL.category[a.category])}</td><td><b>${esc(a.question)}</b></td><td style="white-space:pre-wrap">${esc(a.answer.length > 160 ? a.answer.slice(0, 160) + '…' : a.answer)}</td><td>${a.published ? '<span class="pill good">公开</span>' : '<span class="pill off">仅内部</span>'}</td>${num(a.use_count)}<td><button data-act="answer-edit" data-id="${att(a.id)}">编辑</button> <button data-act="answer-archive" data-id="${att(a.id)}">归档</button></td></tr>`).join(''), '还没有标准问答。先把最常被问到的三五个问题写进来。'), '<button class="primary" data-act="answer-edit">新建问答</button>', '回复工单时可以一键引用；勾选“对客户公开”的问答会显示在客户面板的“支持 → 常见问题”里。');
 
+// Business acquisition has one stable navigation surface across both sales channels.
+const acquisitionPages = [['acquisition','工作概览'],['cw','VIP 招募与管理'],['direct','直营客户与折扣码'],['promotions','VIP 推广与返佣'],['approvals','审批中心']];
+const acquisitionTabs = page => `<div class="acquisition-tabs" role="navigation" aria-label="商务管理">${acquisitionPages.map(([key,label])=>`<button data-go="${key}" aria-current="${page===key?'page':'false'}">${label}</button>`).join('')}</div>`;
+const scopeRows=(rows,ownerKey='owner_subject')=>rows.filter(x=>(!ui.acquisitionOwner||x[ownerKey]===ui.acquisitionOwner)&&(!ui.acquisitionQuery||Object.values(x).some(v=>String(v??'').toLowerCase().includes(ui.acquisitionQuery.toLowerCase()))));
+const scopeControls=d=>`<div class="acquisition-filter">${d.administrator?`<label>负责员工<select id="acquisitionOwner"><option value="">全部员工</option>${d.owners.map(o=>`<option value="${att(o.subject)}" ${ui.acquisitionOwner===o.subject?'selected':''}>${esc(o.name)}</option>`).join('')}</select></label>`:'<p>仅显示你负责的客户和发出的直营码。</p>'}<label>查找客户、码或商户订单号<input id="acquisitionQuery" type="search" value="${att(ui.acquisitionQuery||'')}" placeholder="输入关键词，按回车查找"></label><button data-act="acquisition-search">查找</button></div>${d.truncated?'<p class="notice">每类最多显示最近 500 条，当前结果不是全量统计。</p>':''}`;
+const vipButton=p=>`<button data-act="vip-open" data-id="${att(p.id||p.partner_id)}">${esc(p.legal_name)}<small>${esc(p.public_code||'查看档案')}</small></button>`;
+const total=(rows,key)=>rows.reduce((sum,x)=>sum+Number(x[key]||0),0);
+pages.acquisition = d => {
+ const ps=scopeRows(d.partners),gs=scopeRows(d.grants,'created_by'),cs=scopeRows(d.codes);
+ const pending=ps.filter(p=>p.status==='pending'),confirmed=ps.filter(p=>p.status==='confirmed');
+ return scopeControls(d)+section('今天要处理',`<div class="todo"><button data-go="cw"><b>${pending.length}</b>待面试 VIP</button><button data-go="cw"><b>${confirmed.length}</b>待核验开通</button><button data-go="approvals"><b>${ps.reduce((n,p)=>n+p.discount_pending+p.exception_pending,0)+gs.filter(g=>g.status==='pending'&&g.state!=='expired').length}</b>待审批事项</button><button data-go="tickets">客户诉求与工单</button></div>`)
+ +section('当前范围的业务情况',table(['业务','客户／合作伙伴','累计实付','退款／佣金'],`<tr><td>VIP 招募</td><td>${ps.length} 位，其中正式 VIP ${ps.filter(p=>p.status==='active').length} 位</td><td>${fen(total(ps,'paid_fen'))}</td><td>退款 ${fen(total(ps,'refunded_fen'))}</td></tr><tr><td>员工直营</td><td>${gs.length} 个折扣码</td><td>${fen(total(gs,'paid_fen'))}</td><td>退款 ${fen(total(gs,'refunded_fen'))} · 无 VIP 返佣</td></tr><tr><td>VIP 推广</td><td>${cs.length} 个推广码</td><td>${fen(total(cs,'paid_fen'))}</td><td>预计 ${fen(total(cs,'expected_fen'))} · 已解锁 ${fen(total(cs,'unlocked_fen'))}</td></tr>`),'','VIP 招募实付属于申请人本人；VIP 推广实付属于其推荐客户，两项可能重叠，不合计为公司收入。')
+ +section('等待开通的 VIP',table(['客户','负责销售','当前进度','已到账／退款','下一步'],confirmed.map(p=>`<tr><td>${vipButton(p)}</td><td>${esc(p.owner_name||'待分配')}</td><td>面试已通过，待核验开通</td><td>${fen(p.paid_fen)} / ${fen(p.refunded_fen)}</td><td>正常开通门槛实付 ¥100${Number(p.paid_fen)>0?'<small>已有付款先核验原单，可提交原单特批</small>':'<small>发放本人付款码并跟进</small>'}</td></tr>`).join(''),'没有待核验开通的客户。'));
+};
+pages.cw=()=>`<iframe class="acquisition-vip" title="VIP 招募与客户档案" src="/promotion/vip.html?staff=1&amp;embedded=1${ui.vipPartner?'&amp;partner='+encodeURIComponent(ui.vipPartner):''}"></iframe>`;
+pages.direct=d=>{
+ const gs=scopeRows(d.grants,'created_by'),os=scopeRows(d.orders,'created_by');
+ if(ui.acquisitionQuery&&os.some(o=>o.out_trade_no===ui.acquisitionQuery))ui.directView='orders';
+ const customers=Object.values(os.reduce((map,o)=>{const x=map[o.account_id]||={...o,paid:0,refunded:0,codes:new Set(),owners:new Set()};x.codes.add(o.promo_code);x.owners.add(o.owner_name);if(o.status==='paid'){x.paid+=Number(o.amount_fen);x.refunded+=Number(o.refunded_fen);}return map;},{}));
+ const tabs=`<div class="acquisition-tabs"><button data-act="direct-view" data-view="codes" aria-current="${!ui.directView||ui.directView==='codes'?'page':'false'}">直营折扣码</button><button data-act="direct-view" data-view="customers" aria-current="${ui.directView==='customers'?'page':'false'}">直营客户</button><button data-act="direct-view" data-view="orders" aria-current="${ui.directView==='orders'?'page':'false'}">使用订单</button></div>`;
+ if(ui.directView==='customers')return scopeControls(d)+tabs+table(['客户','负责员工','使用折扣码','累计实付','已退款'],customers.map(o=>`<tr><td>${esc(o.customer_name)}</td><td>${esc([...o.owners].join('、'))}</td><td>${esc([...o.codes].join('、'))}</td><td>${fen(o.paid)}</td><td>${fen(o.refunded)}</td></tr>`).join(''),'客户使用直营码下单后，会自动显示在这里。');
+ if(ui.directView==='orders')return scopeControls(d)+tabs+table(['商户订单号／客户','直营折扣码','负责员工','实付／到账额度','已退款','状态'],os.map(o=>`<tr><td>${esc(o.out_trade_no)}<small>${esc(o.customer_name)}</small></td><td>${esc(o.promo_code)}<small>${discountText(o.customer_price_percent)} · 无 VIP 返佣</small></td><td>${esc(o.owner_name)}</td><td>${fen(o.amount_fen)} / ${fen(o.face_fen)}</td><td>${fen(o.refunded_fen)}</td><td>${pill('order',o.status)}<small>${when(o.paid_at||o.created_at)}</small></td></tr>`).join(''),'暂无使用订单。');
+ return scopeControls(d)+tabs+section('员工直营折扣码',table(['折扣码／用途','折扣','有效期','发码员工','使用客户／实付','状态','操作'],gs.map(g=>`<tr><td><b>${esc(g.promo_code)}</b><small>${esc(g.name)}</small></td><td>${discountText(g.customer_price_percent)}<small>无 VIP 返佣</small></td><td>${dayOf(g.starts_at)} – ${lastDay(g.ends_at)}</td><td>${esc(g.created_by_name)}</td><td>${g.customers} 人<small>${fen(g.paid_fen)}</small></td><td>${pill('discount',g.state)}</td><td>${g.state==='active'||g.state==='scheduled'?`<button data-act="direct-copy" data-id="${att(g.id)}">复制折扣码</button> <button data-act="direct-link" data-id="${att(g.id)}">复制推广链接</button> <a href="/api/staff/business/direct-codes/${att(g.id)}/qr" download="直营码.svg">下载二维码</a> <button data-act="discount" data-id="${att(g.id)}" data-action="revoke">停用</button>`:g.state==='pending'?'<button data-go="approvals">查看审批</button>':'历史记录保留'}</td></tr>`).join(''),'暂无直营折扣码。'),'<button class="primary" data-act="direct-new">生成直营折扣码</button>','8 个英文字母或 8 个中文字符，全站唯一。默认 5 折直接生效，其他折扣由管理员审批；到期作废，原码不复用。');
+};
+pages.promotions=d=>scopeControls(d)+section('VIP 推广码',table(['VIP／负责销售','推广码','客户折扣／返佣比例','有效期','状态','客户实付','预计／已解锁佣金'],scopeRows(d.codes).map(k=>`<tr><td>${vipButton({...k,id:k.partner_id})}<small>${esc(k.owner_name||'待分配')}</small></td><td>${esc(k.code)}<small>${esc(k.name)}</small></td><td>${discountText(k.customer_price_percent)}<small>返佣 ${k.commission_bps/100}%</small></td><td>${dayOf(k.starts_at)} – ${dayOf(k.ends_at)}</td><td>${k.state==='ineligible'?'待恢复推广资格':pill('discount',k.state)}</td><td>${fen(k.paid_fen)}</td><td>${fen(k.expected_fen)} / ${fen(k.unlocked_fen)}</td></tr>`).join(''),'暂无 VIP 客户推广码。'),'','正式 VIP 完成合同与实名核验，或具有有效的单独试用资格后，可以自行生成系统随机码，无需逐码审批。')
+ +section('推广客户的充值与返佣',table(['客户／商户订单号','推广 VIP','推广码','实付／已退款','预计／已解锁佣金'],scopeRows(d.vip_orders).map(o=>`<tr><td>${esc(o.customer_name)}<small>${esc(o.out_trade_no)}</small></td><td>${esc(o.legal_name)}</td><td>${esc(o.code)}</td><td>${fen(o.amount_fen)} / ${fen(o.refunded_fen)}</td><td>${fen(o.expected_fen)} / ${fen(o.unlocked_fen)}</td></tr>`).join(''),'暂无推广订单。'),'','预计佣金不等于可提现金额，月结与提现在对应 VIP 档案中处理。');
+pages.approvals=d=>scopeControls(d)+section(d.administrator?'待我审批':'我提交的审批',table(['业务','客户或折扣码','事项','操作'],scopeRows(d.partners).filter(p=>p.discount_pending||p.exception_pending).map(p=>`<tr><td>VIP 招募</td><td>${esc(p.legal_name)}<small>${esc(p.public_code)}</small></td><td>${p.discount_pending?'本人付款码特殊折扣':''}${p.discount_pending&&p.exception_pending?'、':''}${p.exception_pending?'按原单特批开通':''}</td><td>${vipButton(p)}</td></tr>`).join('')+scopeRows(d.grants,'created_by').filter(g=>g.state==='pending').map(g=>`<tr><td>员工直营</td><td>${esc(g.promo_code)}<small>${esc(g.created_by_name)}</small></td><td>${discountText(g.customer_price_percent)}<small>${esc(g.reason)}</small></td><td>${d.administrator?`<button data-act="discount" data-id="${att(g.id)}" data-action="approve">批准</button> <button data-act="discount" data-id="${att(g.id)}" data-action="reject">驳回</button>`:'等待管理员审批'}</td></tr>`).join(''),'没有待审批事项。'))
+ +section('直营折扣审批记录',table(['折扣码','申请折扣','状态','处理时间／原因'],scopeRows(d.grants,'created_by').filter(g=>g.status!=='pending'&&g.customer_price_percent!==50).map(g=>`<tr><td>${esc(g.promo_code)}</td><td>${discountText(g.customer_price_percent)}</td><td>${pill('discount',g.state)}</td><td>${when(g.decided_at)}<small>${esc(g.decision_note||'—')}</small></td></tr>`).join(''),'暂无记录。'),'','VIP 折扣和原单特批的完整记录保留在客户档案内。');
+function directDialog(){
+ const end=new Date(Date.now()+90*86400000).toISOString().slice(0,10);
+ openForm({title:'生成直营折扣码',submit:'生成／提交审批',body:`<p>给公司直接招募的最终用户使用，不产生 VIP 返佣。</p><label>折扣码<input name="promo_code" required maxlength="16" autocomplete="off" placeholder="8 个英文字母或 8 个中文字符"></label><label>用途名称<input name="name" required maxlength="100"></label><label>客户实付比例（%）<input name="customer_price_percent" type="number" min="1" max="99" required value="50"></label><p>50 为 5 折。员工发放其他折扣需管理员特批。</p><div class="row2"><label>开始日期<input name="starts_at" type="date" required value="${today()}"></label><label>结束日期（含当天）<input name="ends_at" type="date" required value="${end}"></label></div><label>用途或特批原因<textarea name="reason" required maxlength="500"></textarea></label><p>到期作废，原码永久保留，不能重新发放或恢复使用。</p>`,onSubmit:async v=>{
+  if(!/^(?:[A-Za-z]{8}|\p{Script=Han}{8})$/u.test(v.promo_code.normalize('NFKC').trim()))throw Error('请输入 8 个英文字母或 8 个中文字符，不混用数字或符号。');
+  const result=await api('business/discounts',{...v,business_line:'direct',audience:'all',customer_price_percent:Number(v.customer_price_percent),starts_at:v.starts_at+'T00:00:00+08:00',ends_at:new Date(Date.parse(v.ends_at+'T00:00:00+08:00')+86400000).toISOString()});
+  return result.status==='active'?'直营折扣码已生效，可以复制链接发给客户。':'已提交管理员审批，通过后才能使用。';
+ }});
+}
+
 // ---- Rendering ------------------------------------------------------------------------------
 function drawNav(page) {
  const c = state.dash.counts, counts = { tickets: c.tickets, upgrades: c.upgrades, invoices: c.invoices_requested, transfers: c.bank_transfers_pending, discounts: c.discounts_pending };
@@ -322,7 +361,7 @@ async function draw() {
   if (turn !== drawing || started !== generation || currentPage() !== page) return;
   Object.assign(state, { overview, biz });
   if (dash) state.dash = dash;
-  content.innerHTML = pages[page](source ? cache[source] : null);
+  content.innerHTML = (acquisitionPages.some(([key])=>key===page)?acquisitionTabs(page):'')+pages[page](source ? cache[source] : null);
   if (page === 'customers' && ui.customers.q) filterRows(ui.customers.q);
  } catch (e) {
   if (turn === drawing && started === generation && currentPage() === page) content.innerHTML = `<div class="panel empty">${esc(e.message)}，请点击刷新重试。</div>`;
@@ -447,6 +486,12 @@ const ACTIONS = {
  },
  async listing(b) { await api('workspace/listings', { product_id: b.dataset.id }); await reload(); notify('申请已送达技术后台。', true); },
  async withdraw(b) { await api(`workspace/listings/${b.dataset.id}/withdraw`, {}); await reload(); notify('已撤回。', true); },
+ 'acquisition-search':()=>{ui.acquisitionQuery=$('#acquisitionQuery')?.value.trim()||'';return draw();},
+ 'vip-open':b=>{ui.vipPartner=b.dataset.id;location.hash='cw';if(currentPage()==='cw')return draw();},
+ 'direct-new':()=>directDialog(),
+ 'direct-view':b=>{ui.directView=b.dataset.view;return draw();},
+ 'direct-copy':async b=>{const g=cache[SOURCES[currentPage()]()].grants.find(g=>g.id===b.dataset.id);await navigator.clipboard.writeText(g.promo_code);notify('折扣码已复制。',true);},
+ 'direct-link':async b=>{const g=cache[SOURCES[currentPage()]()].grants.find(g=>g.id===b.dataset.id);await navigator.clipboard.writeText(location.origin+'/?cw='+encodeURIComponent(g.promo_code)+'#billing/personal');notify('推广链接已复制。',true);},
  'discount-new': () => discountDialog(),
  discount(b) {
   const action = b.dataset.action, title = { approve: '批准折扣授权', reject: '驳回折扣授权', revoke: '收回折扣授权' }[action];
@@ -477,6 +522,7 @@ document.addEventListener('click', async e => {
  const row = e.target.closest('tr[data-customer]');
  if (row && !e.target.closest('a,button')) customerDialog(row.dataset.customer).catch(err => notify(err.message));
 });
+document.addEventListener('keydown',e=>{if(e.target.id==='acquisitionQuery'&&e.key==='Enter'){e.preventDefault();ui.acquisitionQuery=e.target.value.trim();void draw();}});
 document.addEventListener('input', e => {
  if (e.target.id !== 'find') return;
  if (currentPage() === 'customers') ui.customers.q = e.target.value;
@@ -484,6 +530,7 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('change', e => {
  const t = e.target;
+ if(t.id==='acquisitionOwner'){ui.acquisitionOwner=t.value;return draw();}
  if (t.id === 'pnlMonth') { ui.month = t.value; return draw(); }
  if (t.id === 'invoiceDirection') { ui.invoices = t.value; return draw(); }
  if (t.dataset.filter) { ui.customers[t.dataset.filter] = t.value; return draw(); }

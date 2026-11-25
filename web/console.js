@@ -2,11 +2,11 @@
 (() => {
  'use strict';
  const known = {
-  business: ['overview', 'pnl', 'payments', 'transfers', 'invoices', 'payables', 'suppliers', 'customers', 'upgrades', 'products', 'discounts', 'cw', 'tickets', 'answers'],
+  business: ['acquisition','direct','promotions','approvals','overview', 'pnl', 'payments', 'transfers', 'invoices', 'payables', 'suppliers', 'customers', 'upgrades', 'products', 'discounts', 'cw', 'tickets', 'answers'],
   technical: ['overview', 'keys', 'evalkeys', 'features', 'agents', 'agentcmp', 'matrix', 'supplier', 'suppliers', 'credentials', 'models', 'tests', 'transactions', 'compare', 'identity', 'stress', 'monitor', 'routing', 'handoff', 'releases', 'billing', 'upstream', 'servers', 'capacity', 'prices', 'catalog', 'market']
  };
  const titles = { business: '商务后台', technical: '技术后台' };
- const positions = { business: 'overview', technical: 'overview' }, frames = {};
+ const positions = { business: 'acquisition', technical: 'overview' }, frames = {};
  let host = null, access = null, accessPromise = null, current = null, supplier = '';
  const handles = view => view === 'console' || view.startsWith('console/');
 
