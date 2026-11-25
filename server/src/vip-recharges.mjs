@@ -12,15 +12,21 @@ export const rechargeFields = `o.id,o.out_trade_no,o.provider,o.status,o.amount_
 export const rechargeLedger = `LEFT JOIN billing_ledger l
   ON l.account_id=o.account_id AND l.kind='recharge' AND l.reference_kind='payment' AND l.reference_id=o.id::text`;
 
+// All verified personal recharges count, including ordinary payments. Gifts never count.
+export async function vipActivationProgress(db, partnerId) {
+ const orders=(await db.query(`SELECT o.id,o.out_trade_no,(o.amount_fen-o.refunded_fen)::text AS amount_fen,o.paid_at
+ FROM cw_partners p JOIN billing_accounts a ON a.owner_id=p.user_id JOIN payment_orders o ON o.account_id=a.id
+ JOIN credit_packs cp ON cp.source_kind='payment' AND cp.source_id=o.id
+ WHERE p.id=$1 AND o.status='paid' AND o.amount_fen>o.refunded_fen AND o.provider_trade_no IS NOT NULL
+ AND EXISTS(SELECT 1 FROM billing_ledger l WHERE l.account_id=a.id AND l.kind='recharge' AND l.reference_kind='payment' AND l.reference_id=o.id::text AND l.amount_fen=o.amount_fen)
+ AND NOT EXISTS(SELECT 1 FROM payment_refunds r WHERE r.order_id=o.id AND r.status='pending')
+ ORDER BY o.paid_at,o.id`,[partnerId])).rows;
+ const total=orders.reduce((n,o)=>n+Number(o.amount_fen),0);
+ return {orders,total_fen:String(total),required_fen:String(VIP_ACTIVATE_MIN_CASH_FEN),shortfall_fen:String(Math.max(0,VIP_ACTIVATE_MIN_CASH_FEN-total)),eligible:total>=VIP_ACTIVATE_MIN_CASH_FEN};
+}
 export async function qualifyingVipRecharge(db, partnerId) {
-  return (await db.query(
-    `SELECT o.id,o.out_trade_no,o.amount_fen::text,o.paid_at
-       FROM cw_partners p JOIN billing_accounts a ON a.owner_id=p.user_id
-       JOIN payment_orders o ON o.account_id=a.id
-      WHERE p.id=$1 AND o.status='paid' AND (${vipPayment}) AND o.amount_fen>=$2
-      ORDER BY o.paid_at DESC,o.id DESC LIMIT 1`,
-    [partnerId, VIP_ACTIVATE_MIN_CASH_FEN],
-  )).rows[0];
+ const p=await vipActivationProgress(db,partnerId);
+ return p.eligible?{...p.orders[0],amount_fen:p.total_fen,orders:p.orders}:null;
 }
 
 export async function verifiedExceptionOrder(db, userId, orderNumber) {

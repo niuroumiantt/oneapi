@@ -297,6 +297,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
    const created = (await db.query(`INSERT INTO tax_invoices(direction,customer_id,supplier_id,invoice_type,title,tax_number,email,amount_fen,status,invoice_number,issued_on,note,created_by_staff,handled_by)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id,status`,
     [direction, direction === 'output' ? target : null, direction === 'input' ? target : null, type, title, taxNumber, optional(b.email, '收票邮箱', 254), amount, number ? 'issued' : 'requested', number || null, issuedOn, optional(b.note, '备注', 500), req.staff.subject, number ? req.staff.subject : null])).rows[0];
+   if(direction==='output')await db.query('SELECT allocate_invoice_refund_hold($1)',[created.id]);
    await audit(db, req.actor, 'tax_invoice.created', null, created.id, { direction, amount_fen: amount, status: created.status });
    return created;
   }).catch(duplicateNumber);
@@ -528,19 +529,21 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
   if (ends <= new Date()) throw new HttpError(400, '结束时间须晚于现在');
   const model = b.model_id ? choice(b.model_id, OFFICIAL_MODELS.map(m => m.id), '适用产品') : null, cap = b.cap_yuan === undefined || b.cap_yuan === '' ? null : fen(b.cap_yuan, '优惠上限');
   const direct=b.business_line==='direct';
+  if(b.non_refundable!==undefined&&typeof b.non_refundable!=='boolean')throw new HttpError(400,'退款规则格式不正确');
+  const nonRefundable=b.non_refundable===true,minCash=b.min_cash_yuan!=null&&String(b.min_cash_yuan).trim()!==''&&!/^0(?:\.0{1,2})?$/.test(String(b.min_cash_yuan).trim())?fen(b.min_cash_yuan,'单笔实付门槛',50000):0;
   const promo=String(b.promo_code||'').normalize('NFKC').trim().toUpperCase();
   if(direct ? !/^(?:[A-Z]{8}|\p{Script=Han}{8})$/u.test(promo) : !/^[A-Z0-9_-]{0,40}$/.test(promo))throw new HttpError(400,direct?'直营码须为 8 个英文字母或 8 个中文字符':'促销码格式不正确');
   if(direct && (audience!=='all'||model||cap!==null))throw new HttpError(400,'直营折扣码适用于全部产品，不设置单独客户或优惠预算');
   const tag = audience === 'tag' ? tagList([b.tag])[0] : null, customer = audience === 'customer' ? id(b.customer_id) : null;
   // The platform administrator's own grants take effect at once; everyone else's wait for a second person.
-  const status = isAdmin(req.staff) || (direct && percent===50) ? 'active' : 'pending';
+  const status = isAdmin(req.staff) || (direct && percent===50 && !nonRefundable && minCash===0) ? 'active' : 'pending';
   const row = await transaction(pool, async db => {
    if(promo){await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',['cw-code:'+promo]);if((await db.query('SELECT 1 FROM cw_codes WHERE code=$1 UNION ALL SELECT 1 FROM cw_partners WHERE public_code=$1 UNION ALL SELECT 1 FROM vip_task_codes WHERE code=$1 UNION ALL SELECT 1 FROM vip_invite_codes WHERE code=$1 UNION ALL SELECT 1 FROM discount_grants WHERE upper(promo_code)=$1',[promo])).rowCount)throw new HttpError(409,'此码已被使用或保留，请换一个码（已过期的码也不能复用）');}
    if (customer && !(await db.query('SELECT 1 FROM customers WHERE id=$1', [customer])).rowCount) throw new HttpError(404, '客户不存在');
    const created = (await db.query(`INSERT INTO discount_grants(name,audience,customer_id,tag,model_id,customer_price_percent,cap_fen,starts_at,ends_at,reason,status,created_by,decided_by,decided_at)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id,status`, [name, audience, customer, tag, model, percent, cap, starts, ends, reason, status, req.staff.subject, status === 'active' ? req.staff.subject : null, status === 'active' ? new Date() : null])).rows[0];
-   if(promo)await db.query('UPDATE discount_grants SET promo_code=$2,business_line=$3 WHERE id=$1',[created.id,promo,direct?'direct':'general']);
-   await audit(db, req.actor, 'discount_grant.created', null, created.id, { audience, customer_price_percent: percent, status, business_line: direct?'direct':'general', promo_code:promo });
+   await db.query('UPDATE discount_grants SET promo_code=$2,business_line=$3,non_refundable=$4,min_cash_fen=$5 WHERE id=$1',[created.id,promo||null,direct?'direct':'general',nonRefundable,minCash]);
+   await audit(db, req.actor, 'discount_grant.created', null, created.id, { audience, customer_price_percent: percent, status, business_line: direct?'direct':'general', promo_code:promo,non_refundable:nonRefundable,min_cash_fen:minCash });
    return created;
   });
   res.status(201).json(row);
@@ -551,7 +554,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
   const row = await transaction(pool, async db => {
    const grant = (await db.query('SELECT * FROM discount_grants WHERE id=$1 FOR UPDATE', [grantId])).rows[0];
    if (!grant) throw new HttpError(404, '折扣授权不存在');
-   if(grant.business_line==='direct'){
+   if(grant.business_line==='direct'||grant.non_refundable||Number(grant.min_cash_fen)>0){
     if(action==='revoke' ? (!isAdmin(req.staff)&&grant.created_by!==req.staff.subject) : !isAdmin(req.staff))throw new HttpError(403,'直营特殊折扣只有管理员能审批；发码员工只能停用自己的码');
    }
    if(new Date(grant.ends_at)<=new Date())throw new HttpError(409,'折扣码已过期作废，不能恢复或复用');
@@ -654,9 +657,10 @@ export function customerBusinessRoutes(app, pool, requireCustomer) {
   if ((await db.query("SELECT count(*)::int AS n FROM tax_invoices WHERE customer_id=$1 AND status='requested'", [customer.id])).rows[0].n >= 5) throw new HttpError(429, '待处理的开票申请过多，请等待财务处理');
   await lockInvoiceAccount(db,customer.id);
   const limit = await invoiceLimit(db, customer.id);
-  if (amount > limit.available_fen) throw new HttpError(409, `可开票金额为 ¥${(limit.available_fen / 100).toFixed(2)}，按实付扣除已退款和已申请/已开具发票计算。开票后不可退款；未开票可申请退红条实付剩余`);
+  if (amount > limit.available_fen) throw new HttpError(409, `可开票金额为 ¥${(limit.available_fen / 100).toFixed(2)}，按实付扣除已退款和已申请/已开具发票计算。已开票部分不可自助退款；未开票部分按退款约定处理`);
   const created = (await db.query(`INSERT INTO tax_invoices(direction,customer_id,invoice_type,title,tax_number,email,amount_fen,status,note,requested_by_user) VALUES('output',$1,$2,$3,$4,$5,$6,'requested',$7,$8) RETURNING id,status,amount_fen,created_at`,
    [customer.id, type, title, taxNumber, email, amount, optional(b.note, '备注', 500), req.customer.id])).rows[0];
+  await db.query('SELECT allocate_invoice_refund_hold($1)',[created.id]);
   await audit(db, req.actor, 'tax_invoice.requested', column === 'organization_id' ? value : null, created.id, { amount_fen: amount });
   return created;
  });

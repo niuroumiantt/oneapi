@@ -1470,12 +1470,12 @@ test('wechat pack refunds settle by signed notification and restore rejected res
  const order=(await buyer.j.call('/api/billing/personal/wechat-orders',{method:'POST',body:{amount_fen:3000,idempotency_key:'wx-refund-order-0001'}})).data.order;
  const o=(await pool.query('SELECT out_trade_no FROM payment_orders WHERE id=$1',[order.id])).rows[0];wxTrades.get(o.out_trade_no).state='SUCCESS';
  assert.equal((await buyer.j.call('/api/billing/payment-orders/'+order.id)).data.order.status,'paid');
- const ask=key=>admin.call(`/api/staff/payments/orders/${order.id}/refunds`,{method:'POST',body:{amount_fen:2550,reason:'退回剩余额度',idempotency_key:key}});
+ const ask=key=>admin.call(`/api/staff/payments/orders/${order.id}/refunds`,{method:'POST',body:{expected_amount_fen:3000,reason:'退回剩余额度',idempotency_key:key}});
  wxRefundMode='reject';const rejected=await ask('wx-refund-reject-0001');wxRefundMode='ok';assert.equal(rejected.data.status,'failed');
  assert.equal((await buyer.j.call('/api/billing/personal')).data.list_credit_fen,'3000');
  wxRefundMode='processing';const pending=await ask('wx-refund-notify-0001');wxRefundMode='ok';assert.equal(pending.data.status,'pending');
  const n=(await pool.query('SELECT out_request_no FROM payment_refunds WHERE id=$1',[pending.data.refund_id])).rows[0].out_request_no;
- const notify=()=>wxNotify('REFUND.SUCCESS',{mchid:WX.mchId,out_trade_no:o.out_trade_no,out_refund_no:n,refund_status:'SUCCESS',amount:{total:3000,refund:2550}});
+ const notify=()=>wxNotify('REFUND.SUCCESS',{mchid:WX.mchId,out_trade_no:o.out_trade_no,out_refund_no:n,refund_status:'SUCCESS',amount:{total:3000,refund:3000}});
  assert.equal((await notify()).status,204);assert.equal((await notify()).status,204);
  assert.equal((await buyer.j.call('/api/billing/personal')).data.cash_balance_fen,'0');
  assert.equal((await admin.call(`/api/staff/payments/refunds/${pending.data.refund_id}/retry`,{method:'POST',body:{}})).data.status,'succeeded');assert.ok(wxCalls.every(c=>c.ok));
@@ -1642,7 +1642,7 @@ test('business console helpers parse money, months and tags strictly',async()=>{
 });
 test('list-credit refund formula and dual-approval bank transfer',async()=>{
  const {refundCashFen,REFUND_POLICY_ZH,INVOICE_POLICY_ZH}=await import('../src/list-credit.mjs');
- assert.match(REFUND_POLICY_ZH,/无手续费/);assert.match(REFUND_POLICY_ZH,/整条收回/);assert.match(REFUND_POLICY_ZH,/已申请或已开具发票的账户不可退款/);
+ assert.match(REFUND_POLICY_ZH,/无手续费/);assert.match(REFUND_POLICY_ZH,/整条收回/);assert.match(REFUND_POLICY_ZH,/首次 VIP 激活款/);assert.match(REFUND_POLICY_ZH,/重复限制不重复扣除/);
  assert.match(INVOICE_POLICY_ZH,/充值即可按实际付款金额申请开票/);assert.match(INVOICE_POLICY_ZH,/30 天内/);assert.match(INVOICE_POLICY_ZH,/已消耗的那部分实付仍可开票/);
  // 3折买100，用掉10官价后 red left 2000, green 7000, no fee.
  assert.deepEqual(refundCashFen({faceFen:10000,cashPaidFen:3000,remainingFen:9000,consumedCashFen:1000,hasIssuedInvoice:false}),{ok:true,faceFen:10000,redLeftFen:2000,greenFen:7000,netFen:2000,feeFen:0});
@@ -1840,7 +1840,7 @@ test('payment rounding, actual channel cost isolation and audited admin waiver',
  await admin.call('/api/staff/members/fee-finance-fixture/finance-access',{method:'PUT',body:{enabled:true}});await staffLogin(financeStaff);
  assert.equal((await financeStaff.call(path+'/refund-quote')).status,200);
 
- const body={reason:'unused funds',idempotency_key:'rounding-refund-000001'};
+ const body={reason:'unused funds',expected_amount_fen:500,idempotency_key:'rounding-refund-000001'};
  const result=await admin.call(path+'/refunds',{method:'POST',body});assert.equal(result.data.status,'succeeded',JSON.stringify(result.data));
  assert.equal((await admin.call(path+'/refunds',{method:'POST',body})).data.refund_id,result.data.refund_id);
  const record=(await pool.query('SELECT * FROM payment_refunds WHERE id=$1',[result.data.refund_id])).rows[0];assert.equal(record.amount_fen,'500');assert.equal(record.fee_fen,'0');assert.equal(Number(record.bonus_fen),0);

@@ -762,7 +762,7 @@ test('VIP order lookup and recharge history reconcile ordinary and VIP payments 
   assert.equal((await sales('/' + application.data.partner.id)).data.recharges[0].vip_payment, false);
   assert.equal((await otherSales(lookup(ordinary.out_trade_no))).status, 404);
   assert.equal((await sales(partner + '/confirm', {})).status, 200);
-  assert.equal((await sales(partner)).data.can_activate, false);
+  assert.equal((await sales(partner)).data.can_activate, true);
   const found = (await sales(lookup(ordinary.out_trade_no))).data.order;
   assert.equal(found.partner_id, application.data.partner.id);
   assert.equal(found.promo_code, 'TRIAGE50');

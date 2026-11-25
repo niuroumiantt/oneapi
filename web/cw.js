@@ -217,7 +217,8 @@
     const p = data.partner,
       t = data.totals;
     const ownPaid=(data.recharges||[]).filter(o=>o.status==='paid'&&o.credited_at);
-    const paidProgress=ownPaid.length?`<div class="cw-callout"><p><b>已收到你的充值，待销售核验</b></p><p>近期已到账实付 ${money(ownPaid.reduce((n,o)=>n+Number(o.amount_fen),0))}，已退款 ${money(ownPaid.reduce((n,o)=>n+Number(o.refunded_fen),0))}。</p><p>正常开通需使用本人 VIP 付款码单笔实付满 ¥100。已有付款请先由销售核验原单；不满足门槛的原单可由销售提交管理员特批。</p></div>`:'';
+    const progress=data.activation_progress;
+    const paidProgress=progress?`<div class="cw-callout"><p><b>${progress.eligible?'累计实付已达标，等待销售核验':'累计有效实付尚未满 ¥100'}</b></p><p>已核实 ${money(progress.total_fen)} · 还差 ${money(progress.shortfall_fen)}。允许分多次充值；赠送和已退款金额不计入，处理中退款核实后再计算。</p><p>开通后首次 ¥100 实付作为激活款，不支持自助退款，但仍可用于消费。特殊诉求请提交工单。已有付款请先核验原单，不要重复支付。</p></div>`:'';
     const ownerProgress=`<p>负责销售：${esc(data.owner_name||'待公司分配')} · <a href="/#support">联系支持</a></p>`;
     if (p.status === 'pending')
       c.innerHTML = `<h2>申请已提交，等待公司销售电话面试并确认</h2><p>你的 VIP 编号：<strong>${esc(p.public_code)}</strong></p><div class="cw-callout"><p><b>你提交的申请信息</b></p><p>真实姓名：<strong>${esc(p.legal_name || '—')}</strong></p><p>申请时间：${when(p.created_at)}</p><p>当前状态：${labels[p.status]}</p>${ownerProgress}${paidProgress}<p class="cw-muted">联系方式已加密保存在系统中，用于电话面试和申请处理。</p></div><p>公司销售会主动联系你面试；面试通过后会发放 <strong>VIP 付款码</strong>。你充值后联系销售核验到账，销售确认后才成为正式 VIP（顶栏显示金色 VIP 角标）。请留意邮件或电话。</p><p><button data-refresh-status>刷新状态</button></p>`;
@@ -227,7 +228,7 @@
       const current = data.task_codes?.[0];
       c.innerHTML = `<h2>${ownPaid.length ? '已收到充值，等待销售核验开通' : current ? '付款码已发放' : '面试已通过，等待销售发放付款码'}</h2>
         <p>你的 VIP 编号：<strong>${esc(p.public_code)}</strong></p>${ownerProgress}${paidProgress}
-        ${current ? `<p>使用下方付款码单笔实付至少 <strong>¥100</strong>，付款后请联系销售核验开通。</p>${paymentCard(current)}`
+        ${current ? `<p>累计有效实付满 <strong>¥100</strong> 后联系销售核验开通；已达标无需再次付款。</p>${paymentCard(current)}`
           : '<p>销售发放付款码后会显示在这里，你可以用它直接充值。</p>'}
         <p><button data-refresh-status>刷新状态</button></p>`;
       return;
@@ -452,7 +453,8 @@
       ${recent ? `<p class="cw-muted">上次申请 ${discount(recent.customer_price_percent)} · ${recent.status === 'approved' ? '已批准' : '已退回'} · ${when(recent.decided_at)}${recent.decision_note ? ' · ' + esc(recent.decision_note) : ''}</p>` : ''}
       ${d.task_codes?.length > 1 ? `<details><summary>历史付款码</summary>${table(['付款码', '折扣', '状态', '发放时间'], d.task_codes.map((k) =>
         `<tr><td>${esc(k.code)}</td><td>${discount(k.customer_price_percent)}</td><td>${k.usable ? '可用' : '已失效'}</td><td>${when(k.created_at)}</td></tr>`).join(''))}</details>` : ''}
-      ${p.status === 'confirmed' ? `<button data-activate="${p.id}"${d.can_activate ? '' : ' disabled'}>${d.can_activate ? '确认正式 VIP' : '待单笔实付满 ¥' + ((d.activate_min_cash_fen || 10000) / 100).toFixed(0)}</button>` : ''}
+      ${d.activation_progress?`<p>累计有效实付 ${money(d.activation_progress.total_fen)} · 距 ¥100 还差 ${money(d.activation_progress.shortfall_fen)}。激活款不支持自助退款，可继续消费。</p>`:''}
+      ${p.status === 'confirmed' ? `<button data-activate="${p.id}"${d.can_activate ? '' : ' disabled'}>${d.can_activate ? '确认正式 VIP' : '待累计实付满 ¥' + ((d.activate_min_cash_fen || 10000) / 100).toFixed(0)}</button>` : ''}
     </section>`;
   }
   function drawStaff(c) {

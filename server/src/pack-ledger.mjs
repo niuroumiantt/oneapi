@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {quoteCW,consumeCW} from './cw-ledger.mjs';
 import {HttpError,transaction} from './core.mjs';
 // All decimal arithmetic stays in PostgreSQL. Cash is recognised cumulatively per pack,
@@ -32,10 +33,13 @@ export async function quotePack(db,account,faceFen,promo='',options={}){
   const face=cashInput===null?faceFen:Math.floor(cashInput*100/g.customer_price_percent);
   if(face>5000000){exceedsLimit=true;continue;}
   const cash=cashInput??Math.ceil(face*g.customer_price_percent/100),saving=face-cash;
+  if(cash<Number(g.min_cash_fen||0))throw new HttpError(400,`本优惠要求单笔实付至少 ¥${(Number(g.min_cash_fen)/100).toFixed(2)}`);
+  const refundPolicy={version:1,non_refundable:g.non_refundable,minimum_cash_fen:String(g.min_cash_fen),reason:g.non_refundable?'本次特殊优惠充值不可自助退款；特殊情况请提交工单，由管理员处理。':''};
+  const policyKey=createHash('sha256').update(JSON.stringify([g.id,refundPolicy])).digest('hex');
   // Pending orders reserve discount budget too. Expiry alone cannot release it: a delayed paid notification may still arrive.
   const used=(await db.query(`SELECT coalesce(sum(face_fen-amount_fen),0) AS n FROM payment_orders WHERE discount_snapshot->>'grant_id'=$1 AND status IN ('pending','paid')`,[g.id])).rows[0].n;
   if(g.cap_fen!==null&&BigInt(used)+BigInt(saving)>BigInt(g.cap_fen))continue;
-  return {face_fen:face,amount_fen:cash,discount_snapshot:{grant_id:g.id,name:g.name,percent:g.customer_price_percent,promo_code:g.promo_code||null,...(g.business_line==='direct'?{business_line:'direct',owner_subject:g.created_by}:{}),...cashSnapshot}};
+  return {face_fen:face,amount_fen:cash,discount_snapshot:{grant_id:g.id,name:g.name,percent:g.customer_price_percent,promo_code:g.promo_code||null,refund_policy:refundPolicy,refund_policy_key:policyKey,...(g.business_line==='direct'?{business_line:'direct',owner_subject:g.created_by}:{}),...cashSnapshot}};
  }
  if(cashInput!==null&&promo)throw new HttpError(400,exceedsLimit?'到账额度超过 ¥50,000，请减少实付金额':'此促销码没有剩余优惠额度，请调整实付金额或移除促销码');
  const amount=cashInput??faceFen;
@@ -59,7 +63,7 @@ export async function settlePaidCall(pool,callId,amount,usage,source,requestId,l
    // Red-first: spend the customer's own cash (red) before the gifted credit (green).
    // consumed_cash_fen is cumulative official-price consumption capped at cash paid, so
    // repeated sub-cent calls neither vanish nor over-charge. Green = remaining - red left.
-   const part=(await db.query(`UPDATE credit_packs SET remaining_fen=remaining_fen-least(remaining_fen,$2::numeric),consumed_cash_fen=least(cash_fen,floor(face_fen-(remaining_fen-least(remaining_fen,$2::numeric))))::bigint WHERE id=$1 RETURNING $3::numeric-remaining_fen AS face,consumed_cash_fen-$4::bigint AS cash`,[pack.id,need,pack.remaining_fen,pack.consumed_cash_fen])).rows[0];
+   const part=(await db.query(`UPDATE credit_packs SET remaining_fen=remaining_fen-least(remaining_fen,$2::numeric),consumed_cash_fen=least(cash_fen-refunded_cash_fen,greatest(0,floor(face_fen-removed_face_fen-(remaining_fen-least(remaining_fen,$2::numeric)))))::bigint WHERE id=$1 RETURNING $3::numeric-remaining_fen AS face,consumed_cash_fen-$4::bigint AS cash`,[pack.id,need,pack.remaining_fen,pack.consumed_cash_fen])).rows[0];
    await db.query('INSERT INTO credit_consumptions(call_id,pack_id,face_fen,cash_fen) VALUES($1,$2,$3,$4)',[callId,pack.id,part.face,part.cash]);
    await consumeCW(db,pack.id,callId);
    cash+=BigInt(part.cash);need=(await db.query('SELECT $1::numeric-$2::numeric AS n',[need,part.face])).rows[0].n;
@@ -75,30 +79,43 @@ export async function settlePaidCall(pool,callId,amount,usage,source,requestId,l
 // once cash_fen is fully consumed. Remaining red = cash_fen - consumed_cash_fen.
 // When a pack's gift expires, the unconsumed green is zeroed out and the account's
 // list credit drops by that amount; red stays untouched. All decimal math stays in SQL.
-export async function expirePackGifts(db){
- const expired=(await db.query(`SELECT p.id,p.account_id,p.remaining_fen,p.cash_fen,p.consumed_cash_fen FROM credit_packs p
-   WHERE p.gift_expires_at IS NOT NULL AND p.gift_expires_at<now() AND p.remaining_fen>0 AND p.refund_id IS NULL`)).rows;
- for(const p of expired){
-  const redLeft=BigInt(p.cash_fen)-BigInt(p.consumed_cash_fen);
-  // green left = remaining (numeric, may have decimals) - red left; round to whole fen.
-  const remainingFen=Math.round(Number(p.remaining_fen));
-  const greenLeft=remainingFen>Number(redLeft)?BigInt(remainingFen)-redLeft:0n;
-  if(greenLeft<=0n)continue;
-  await db.query(`UPDATE credit_packs SET remaining_fen=remaining_fen-$2 WHERE id=$1`,[p.id,greenLeft.toString()]);
-  await db.query(`UPDATE billing_accounts SET list_credit_fen=list_credit_fen-$2 WHERE id=$1`,[p.account_id,greenLeft.toString()]);
- }
+export async function expirePackGifts(pool){
+ const accounts=(await pool.query(`SELECT DISTINCT account_id FROM credit_packs WHERE gift_expires_at<now() AND remaining_fen>0 AND refund_id IS NULL`)).rows;
+ for(const {account_id} of accounts)await transaction(pool,async db=>{
+  // Same lock order as consumption and refunds; an overlapping cleanup is harmless.
+  await db.query('SELECT id FROM billing_accounts WHERE id=$1 FOR UPDATE',[account_id]);
+  const expired=(await db.query(`SELECT id,greatest(0,remaining_fen-greatest(0,cash_fen-consumed_cash_fen-refunded_cash_fen))::text AS gift FROM credit_packs WHERE account_id=$1 AND gift_expires_at<now() AND remaining_fen>0 AND refund_id IS NULL ORDER BY id FOR UPDATE`,[account_id])).rows;
+  for(const p of expired){
+   if(Number(p.gift)<=0)continue;
+   await db.query('UPDATE credit_packs SET remaining_fen=remaining_fen-$2,removed_face_fen=removed_face_fen+$2 WHERE id=$1',[p.id,p.gift]);
+   await db.query('UPDATE billing_accounts SET list_credit_fen=list_credit_fen-$2 WHERE id=$1',[account_id,p.gift]);
+  }
+ });
 }
 // Red/green refund quote (owner decision 2026-11-21):
 //   red left  = cash_fen - consumed_cash_fen  -> refunded in full, no fee
 //   green     = remaining_fen - red left      -> forfeited in full when refunding
 // The gift exists only because the customer paid; refund the cash and the gift goes with it.
-export async function refundQuote(db,packId){
- const p=(await db.query(`SELECT p.*,(cash_fen-consumed_cash_fen)::bigint AS refundable_fen,round(remaining_fen-(cash_fen-consumed_cash_fen))::bigint AS bonus_fen FROM credit_packs p WHERE id=$1`,[packId])).rows[0];
+export async function refundQuote(db,packId,{override=false}={}){
+ const p=(await db.query(`SELECT p.*,o.discount_snapshot,
+  greatest(0,p.cash_fen-p.consumed_cash_fen-p.refunded_cash_fen)::bigint AS red_fen,
+  greatest(0,round(p.remaining_fen-(p.cash_fen-p.consumed_cash_fen-p.refunded_cash_fen)))::bigint AS bonus_fen,
+  coalesce((SELECT sum(v.amount_fen) FROM vip_activation_payments v WHERE v.pack_id=p.id),0)::bigint AS activation_fen,
+  coalesce((SELECT sum(z.amount_fen) FROM invoice_pack_allocations z JOIN tax_invoices i ON i.id=z.invoice_id WHERE z.pack_id=p.id AND i.status IN ('requested','issued')),0)::bigint AS invoice_fen
+ FROM credit_packs p LEFT JOIN payment_orders o ON p.source_kind='payment' AND o.id=p.source_id WHERE p.id=$1`,[packId])).rows[0];
  if(!p)throw new HttpError(404,'额度包不存在');
- // Owner policy 2026-11-21: invoicing locks out refunds. Both a requested (not yet issued) and an
- // issued output invoice block self-service refund, so money cannot be refunded out from under an invoice.
- const block=(await db.query(`SELECT 1 FROM tax_invoices i JOIN customers c ON c.id=i.customer_id JOIN billing_accounts a ON a.owner_id=c.user_id OR a.organization_id=c.organization_id WHERE a.id=$1 AND i.direction='output' AND i.status IN ('requested','issued')`,[p.account_id])).rowCount;
+ const red=BigInt(p.red_fen),spent=BigInt(p.consumed_cash_fen);
+ const left=n=>{const v=BigInt(n)-spent;return v<0n?0n:v>red?red:v;};
+ const activation=left(p.activation_fen),invoice=left(p.invoice_fen),special=p.discount_snapshot?.refund_policy?.non_refundable?red:0n;
+ const restricted=[activation,invoice,special].reduce((a,b)=>a>b?a:b,0n);
+ // An administrator can override activation/promotion terms with a customer ticket.
+ // Invoiced cash still requires a real cancellation/red invoice before refund.
+ const protectedCash=override?invoice:restricted,refundable=red-protectedCash;
+ const reasons=[];if(activation>0n)reasons.push({kind:'vip_activation',amount_fen:String(activation),label:'首次 VIP 激活款'});
+ if(invoice>0n)reasons.push({kind:'invoice',amount_fen:String(invoice),label:'已申请或已开具发票'});
+ if(special>0n)reasons.push({kind:'promotion',amount_fen:String(special),label:'约定不可自助退款的优惠'});
+ const invoiceGap=(await db.query(`SELECT 1 FROM tax_invoices i JOIN customers c ON c.id=i.customer_id JOIN billing_accounts a ON a.owner_id=c.user_id OR a.organization_id=c.organization_id WHERE a.id=$1 AND i.direction='output' AND i.status IN ('requested','issued') AND i.amount_fen>(SELECT coalesce(sum(z.amount_fen),0) FROM invoice_pack_allocations z WHERE z.invoice_id=i.id) LIMIT 1`,[p.account_id])).rowCount;
  const busy=(await db.query("SELECT 1 FROM customer_calls WHERE account_id=$1 AND status IN ('pending','awaiting_bill')",[p.account_id])).rowCount;
- return {...p,refundable_fen:String(p.refundable_fen),bonus_fen:String(p.bonus_fen),net_fen:String(p.refundable_fen),fee_fen:'0',
-  blocked:p.source_kind==='bank'?'对公退款请联系财务人工处理':block?'该账户已申请或已开具发票，开票后不可退款；请先作废或红冲发票':busy?'仍有调用或用量待结算，请结算后退款':p.refund_id?'该包已申请退款':BigInt(p.refundable_fen)<=0n?'红色实付已用完，无可退金额':null};
+ const blocked=p.source_kind==='bank'?'对公退款请提交工单，由管理员核对':invoiceGap?'存在尚未关联原单的发票，请提交工单核对':busy?'仍有调用或用量待结算，请结算后退款':p.refund_id?'该包已申请退款':refundable<=0n?(invoice>0n?'该部分已申请或已开具发票，请提交工单处理':restricted>0n?'该部分不支持自助退款，请提交工单由管理员处理':'实付已用完，无可退金额'):null;
+ return {...p,refundable_fen:String(refundable),net_fen:String(refundable),fee_fen:'0',non_refundable_fen:String(restricted),retained_fen:String(protectedCash),restrictions:reasons,manual_only:restricted>0n,blocked};
 }

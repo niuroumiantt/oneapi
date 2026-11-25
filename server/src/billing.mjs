@@ -40,7 +40,7 @@ export function billingRoutes(app,pool,requireCustomer,cfg,payments){
    LEFT JOIN payment_refunds f ON f.id=p.refund_id
    LEFT JOIN LATERAL (
     SELECT status,amount_fen,created_at,processing_at,completed_at FROM payment_refunds
-    WHERE p.refund_id IS NULL AND order_id=o.id AND pack_id=p.id AND status='failed'
+    WHERE p.refund_id IS NULL AND order_id=o.id AND pack_id=p.id AND status IN ('failed','succeeded')
     ORDER BY created_at DESC,id DESC LIMIT 1
    ) failed ON true
    WHERE p.account_id=$1 ORDER BY p.created_at DESC LIMIT 100`,[account.id])).rows:[];
@@ -48,24 +48,25 @@ export function billingRoutes(app,pool,requireCustomer,cfg,payments){
   // Aggregate red/green for one dashboard progress bar. Red = remaining paid cash (refundable),
   // green = remaining gift. Spent = paid cash already consumed. Only active packs count.
   // Gift expires 180 days after recharge (per-pack); expired gift vanishes, paid cash stays.
-  let redFen=0n,greenFen=0n,spentRedFen=0n,paidFen=0n,faceFen=0n,expiredGiftFen=0n;
+  let redFen=0n,greenFen=0n,spentRedFen=0n,paidFen=0n,faceFen=0n,expiredGiftFen=0n,refundableFen=0n,restrictedFen=0n;
   const now=Date.now();
   for(const p of packs){
    const q=await refundQuote(pool,p.id);
    const giftExpiresAt=p.gift_expires_at?new Date(p.gift_expires_at).getTime():null;
    const giftExpired=giftExpiresAt!==null&&giftExpiresAt<now;
-   packViews.push({...p,net_fen:q.refundable_fen,red_fen:q.refundable_fen,refundable_fen:q.refundable_fen,bonus_fen:giftExpired?'0':q.bonus_fen,fee_fen:'0',refund_blocked:q.blocked,gift_expires_at:p.gift_expires_at,gift_expired:giftExpired});
+   packViews.push({...p,net_fen:q.refundable_fen,red_fen:q.red_fen,refundable_fen:q.refundable_fen,non_refundable_fen:q.non_refundable_fen,retained_fen:q.retained_fen,refund_restrictions:q.restrictions,manual_only:q.manual_only,bonus_fen:giftExpired?'0':q.bonus_fen,fee_fen:'0',refund_blocked:q.blocked,gift_expires_at:p.gift_expires_at,gift_expired:giftExpired});
    if(!p.refund_id){
-    const red=BigInt(q.refundable_fen),green=giftExpired?0n:BigInt(q.bonus_fen);
+    const red=BigInt(q.red_fen),green=giftExpired?0n:BigInt(q.bonus_fen);
     redFen+=red;greenFen+=green;paidFen+=BigInt(p.cash_fen);faceFen+=BigInt(p.face_fen);
-    spentRedFen+=BigInt(p.cash_fen)-BigInt(p.consumed_cash_fen)-red;
+    spentRedFen+=BigInt(p.consumed_cash_fen);
+    restrictedFen+=BigInt(q.non_refundable_fen);if(!q.blocked&&!p.refund_request_status)refundableFen+=BigInt(q.refundable_fen);
     if(giftExpired)expiredGiftFen+=BigInt(q.bonus_fen);
    }
   }
   const creditSplit={
    face_fen:String(faceFen),paid_fen:String(paidFen),
    red_fen:String(redFen),green_fen:String(greenFen),spent_red_fen:String(spentRedFen),
-   remaining_fen:String(redFen+greenFen),refundable_fen:String(redFen),
+   remaining_fen:String(redFen+greenFen),refundable_fen:String(refundableFen),non_refundable_fen:String(restrictedFen),
    gift_fen:String(faceFen-paidFen),expired_gift_fen:String(expiredGiftFen),
    // Historical maximum list total: the dashed outline the bar draws around.
    // It never shrinks while any pack is active; a new recharge grows it.

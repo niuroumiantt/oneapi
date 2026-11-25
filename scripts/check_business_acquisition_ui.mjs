@@ -12,7 +12,7 @@ const staticFiles=await readdir(root);
 const staticAsset=name=>'/'+(staticFiles.includes(name)?name:staticFiles.find(f=>f.startsWith(name.replace(/\.[^.]+$/,'' )+'.')&&f.endsWith(name.slice(name.lastIndexOf('.')))));
 const require=createRequire(path.join(repo,'package.json')),express=require('express'),pg=require('pg');
 const load=n=>import(pathToFileURL(path.join(repo,'server/src',n+'.mjs')).href);
-const [{createApp},{migrate},{config},{cwRoutes},{businessConsoleRoutes},{quotePack},{creditPaidOrder}]=await Promise.all(['app','migrate','core','cw-partners','business-console','pack-ledger','payments'].map(load));
+const [{createApp},{migrate},{config},{cwRoutes},{businessConsoleRoutes,requireFinance},{quotePack},{creditPaidOrder,staffPaymentRoutes}]=await Promise.all(['app','migrate','core','cw-partners','business-console','pack-ledger','payments'].map(load));
 const db=process.env.TEST_CW_DATABASE_URL;assert.match(new URL(db).pathname,/_test$/);
 const pool=new pg.Pool({connectionString:db}),app=express();app.use('/api/staff',express.json());
 const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
@@ -30,7 +30,7 @@ const staff=(req,_res,next)=>{const who=/fixture_role=(admin|other)/.exec(req.he
 app.get('/api/staff/workspace/access',(_req,res)=>res.json({business:true,technical:false}));
 const privateFiles={'/api/staff/workspace/view':'workspace.html','/api/staff/workspace/console.js':'workspace.js','/api/staff/workspace/bridge.js':'workspace-bridge.js','/api/staff/select-menu.js':'select-menu.js','/api/staff/table-sort.js':'table-sort.js'};
 for(const [url,file]of Object.entries(privateFiles))app.get(url,(_req,res)=>res.sendFile(file,{root:path.join(repo,'server/private')}));
-businessConsoleRoutes(app,pool,staff,cfg);cwRoutes(app,pool,(_req,res)=>res.sendStatus(401),staff,cfg);
+staffPaymentRoutes(app,pool,staff,requireFinance,cfg,{});businessConsoleRoutes(app,pool,staff,cfg);cwRoutes(app,pool,(_req,res)=>res.sendStatus(401),staff,cfg);
 app.get('/_console',(_req,res)=>res.type('html').send('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/site-header.css"><link rel="stylesheet" href="/console.css"><body><script src="/site-header.js"></script><script src="/console.js"></script><script>const show=()=>ConsoleUI.render(location.hash.slice(1)||"console/business/acquisition");show();addEventListener("hashchange",show)</script></body></html>'.replace(/\/(site-header|console)\.(css|js)/g,(_m,base,ext)=>staticAsset(base+'.'+ext))));
 app.use((req,res,next)=>{if(req.url.startsWith('/api/'))return service.app(req,res);next();});app.use(express.static(root));
 app.use((e,_req,res,_next)=>res.status(e.status||500).json({error:e.message}));
@@ -60,7 +60,7 @@ try{
  await open('/_console#console/business/acquisition');await ready(f+'.body.innerText.includes("等待开通的 VIP")');
  assert.ok(await ev(f+'.querySelector("[data-go=direct]")'));
  await click('[data-go=direct]');await ready(pick('[data-act=direct-new]'));
- async function create(code,percent){await click('[data-act=direct-new]');await ready(pick('#dialog[open]'));await set('[name=promo_code]',code);await set('[name=name]','UI 直营活动');await set('[name=customer_price_percent]',String(percent));await set('[name=reason]','隔离测试');await ev(pick('#dialogForm')+'.requestSubmit()');await ready('!'+pick('#dialog')+'.open');await ready(f+'.querySelector("#content").innerText.includes('+JSON.stringify(code)+')');}
+ async function create(code,percent){await click('[data-act=direct-new]');await ready(pick('#dialog[open]'));await set('[name=promo_code]',code);await set('[name=name]','UI 直营活动');await set('[name=customer_price_percent]',String(percent));await set('[name=reason]','隔离测试');if(percent===40){await set('[name=min_cash_yuan]','10000');await ev(pick('[name=non_refundable]')+'.checked=true');}await ev(pick('#dialogForm')+'.requestSubmit()');await ready('!'+pick('#dialog')+'.open');await ready(f+'.querySelector("#content").innerText.includes('+JSON.stringify(code)+')');}
  await create('DIRECTUI',50);await create('格洛可客户专享码',50);await create('SPECIALA',40);
  assert.ok(await ev(f+'.querySelector("#content").innerText.includes("无 VIP 返佣")'));
  await ev(f+'.querySelectorAll("[data-act=direct-link]")[0].click()');await ready(f+'.querySelector("#notice").innerText.includes("已复制")');
@@ -88,4 +88,41 @@ try{
  assert.equal((await pool.query('SELECT count(*)::int n FROM payment_orders')).rows[0].n,0,'confirmation must not create any order');
  await writeFile('/private/tmp/business-customer-confirmation.png',Buffer.from((await cmd('Page.captureScreenshot',{format:'png'})).result.data,'base64'));
  assert.deepEqual(errors,[]);console.log('PASS mobile layout and Chinese promotion link reach actual-cash confirmation without creating an order');
+ // Special terms are explicit before checkout; checking a box alone creates no payment.
+ await open('/?cw=SPECIALA#billing/personal');await ready('document.querySelector("#pack-promo")');
+ await ev('document.querySelector("#alipay-yuan").value="10000"');
+ await ev('document.querySelector("[data-live=alipay-create]").click()');await ready('document.querySelector("[name=accept_refund_terms]")');
+ assert.equal(await ev('document.querySelector("#live-recharge-confirm").checkValidity()'),false);
+ assert.ok(await ev('document.querySelector("#live-recharge-confirm").innerText.includes("不可自助退款")'));
+ await ev('document.querySelector("[name=accept_refund_terms]").checked=true');
+ assert.equal(await ev('document.querySelector("#live-recharge-confirm").checkValidity()'),true);
+ assert.equal((await pool.query('SELECT count(*)::int n FROM payment_orders')).rows[0].n,0);
+ await writeFile('/private/tmp/vip-policy-special-confirm.png',Buffer.from((await cmd('Page.captureScreenshot',{format:'png'})).result.data,'base64'));
+ // Synthetic settled order: no gateway requests or real customer data.
+ const paid=(await pool.query("INSERT INTO payment_orders(out_trade_no,account_id,created_by,provider,amount_fen,face_fen,discount_snapshot,idempotency_key,expires_at) VALUES('UI-POLICY-ORDER',$1,$2,'alipay_f2f',30000,60000,'{}','UI-POLICY-ORDER',now()+interval '15 minutes') RETURNING *",[account.id,user.id])).rows[0];
+ await creditPaidOrder(pool,paid.out_trade_no,{provider:'alipay_f2f',tradeNo:'UI-TEST-ONLY',totalFen:30000},'ui-fixture');
+ const active=await ev(`fetch('/api/staff/cw/${partner.id}/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.status)`);assert.equal(active,200);
+ await cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+ await open('/#account');await ready('document.querySelector(".credit-bar-refund")');
+ assert.match(await ev('document.querySelector(".credit-bar-refund").innerText'),/200[.]00/);
+ assert.match(await ev('document.querySelector(".seg-red").textContent'),/300[.]00/);
+ assert.match(await ev('document.querySelector(".seg-green").textContent'),/300[.]00/);
+ assert.equal(await ev('getComputedStyle(document.querySelector(".seg-green")).backgroundColor'),'rgb(37, 99, 235)');
+ assert.ok(await ev('document.querySelector(".credit-bar-policy").innerText.includes("首次 VIP 激活款")'));
+ await writeFile('/private/tmp/vip-policy-balance-desktop.png',Buffer.from((await cmd('Page.captureScreenshot',{format:'png'})).result.data,'base64'));
+ await cmd('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+ await open('/#billing/personal/refunds');await ready('document.querySelector(".refund-policy-note")');
+ assert.match(await ev('document.querySelector(".refund-policy-note").innerText'),/100[.]00/);
+ assert.ok(await ev('document.documentElement.scrollWidth<=document.documentElement.clientWidth+2'));
+ await writeFile('/private/tmp/vip-policy-refunds-mobile.png',Buffer.from((await cmd('Page.captureScreenshot',{format:'png'})).result.data,'base64'));
+ const ti=(await pool.query("INSERT INTO support_tickets(user_id,subject,body,category) VALUES($1,'退款测试','仅本地测试','billing') RETURNING id",[user.id])).rows[0];
+ await cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+ await open('/_console#console/business/payments');await ready(pick('[data-act=refund-policy]'));
+ await click('[data-act=refund-policy]');await ready(pick('#dialog[open]'));await set('[name=ticket]',ti.id);await set('[name=reason]','已核对原付款及客户账单工单');
+ await ev(pick('#dialogForm')+'.requestSubmit()');await ready(pick('[name=confirmed]'));
+ assert.match(await ev(pick('#policy-refund-preview')+'.innerText'),/300[.]00/);
+ assert.equal(await ev(pick('#dialog')+'.open'),true);
+ assert.equal((await pool.query('SELECT count(*)::int n FROM payment_refunds')).rows[0].n,0);
+ await writeFile('/private/tmp/vip-policy-admin-preview.png',Buffer.from((await cmd('Page.captureScreenshot',{format:'png'})).result.data,'base64'));
+ assert.deepEqual(errors,[]);console.log('PASS explicit special terms, red/blue amounts, protected activation cash, mobile refund page and administrator ticket preview; no payment/refund submitted');
 }finally{ws?.close();chrome.kill();server.closeAllConnections();await new Promise(r=>server.close(r));await pool.end();}

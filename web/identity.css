@@ -1174,3 +1174,14 @@ td>.live-dot:first-child{margin-right:5px}
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* Amounts remain visible in the legend when a segment is too narrow for text. */
+.credit-bar{height:24px}.credit-bar i{font-style:normal;text-align:center;color:#fff;font-size:12px;font-weight:600;line-height:24px;white-space:nowrap;overflow:hidden}
+.credit-bar .seg-green,.credit-bar-legend .dot-green{background:#2563eb}
+.credit-bar .seg-red,.credit-bar-legend .dot-red{background:#b83130}
+.credit-bar-policy,.refund-policy-note{font-size:12px;line-height:1.6;color:#50596d;margin:4px 0}
+.refund-policy-note{grid-column:1/-1}.refund-terms{line-height:1.7}.refund-terms input{width:auto!important;display:inline-block!important;margin-right:8px}
+
+.live-form .refund-terms{display:flex;align-items:flex-start;gap:8px;font-size:13px;font-weight:400}
+.live-form .refund-terms input[type=checkbox]{width:18px!important;height:18px;min-height:0;margin:3px 0 0;flex:none;accent-color:#7429d4}
+@media(max-width:480px){#live-recharge-confirm .recharge-breakdown{grid-template-columns:1fr}#live-recharge-confirm .recharge-breakdown>div{grid-template-columns:1fr auto;align-items:baseline}#live-recharge-confirm .recharge-breakdown dd{white-space:nowrap}}

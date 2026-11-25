@@ -5,8 +5,7 @@ export const VIP_BASE_PERCENT = 40;
 export const VIP_SELF_PERCENT = 50;
 export const promotionEligible = (selfCode) => `((NOT ${selfCode} AND p.promotion_trial_until > statement_timestamp())
   OR EXISTS(SELECT 1 FROM cw_contracts k WHERE k.partner_id=p.id AND k.expires_at>statement_timestamp())) IS TRUE`;
-// Provisional floor: sales may grant formal VIP only after verifying a discount-code
-// recharge of at least this cash amount. Change later when the business number is final.
+// Normal activation requires verified cumulative net personal cash of at least ¥100.
 export const VIP_ACTIVATE_MIN_CASH_FEN = 10000;
 export const commissionBps = (percent) => Math.max(0, (percent - VIP_BASE_PERCENT) * 100);
 export const commissionFen = (cash, percent) => (BigInt(cash) * BigInt(commissionBps(percent))) / 10000n;
@@ -61,18 +60,23 @@ export async function consumeCW(db, packId, callId) {
     ((BigInt(c.consumed_cash_fen) * rate) / 10000n).toString(),
   ]);
 }
-// Existing refund flow returns all unused credit in this pack; already-used cash is not refunded by that flow.
+// Each successful partial refund cancels only its unused-cash commission, once.
 export async function refundCW(db, refund) {
   const c = (await db.query('SELECT * FROM cw_commissions WHERE order_id=$1 FOR UPDATE', [refund.order_id]))
     .rows[0];
   if (!c) return;
-  const cancelled = BigInt(c.expected_fen) - BigInt(c.unlocked_fen);
+  if ((await db.query('SELECT 1 FROM cw_commission_events WHERE event_key=$1',['refund:' + refund.id])).rowCount) return;
+  const previous=(await db.query("SELECT coalesce(sum(cash_fen),0)::text cash FROM cw_commission_events WHERE order_id=$1 AND kind='refund'",[refund.order_id])).rows[0];
+  const net=BigInt(c.cash_fen)-BigInt(previous.cash)-BigInt(refund.gross_fen || refund.amount_fen);
+  const expected=(net*BigInt(c.rate_bps))/10000n;
+  const next=expected<BigInt(c.unlocked_fen)?BigInt(c.unlocked_fen):expected;
+  const cancelled=BigInt(c.expected_fen)-next;
   const inserted = await db.query(
     `INSERT INTO cw_commission_events(order_id,event_key,kind,cash_fen,commission_fen) VALUES($1,$2,'refund',$3,$4) ON CONFLICT(event_key) DO NOTHING RETURNING id`,
     [c.order_id, 'refund:' + refund.id, refund.gross_fen || refund.amount_fen, (-cancelled).toString()],
   );
   if (inserted.rowCount)
-    await db.query('UPDATE cw_commissions SET expected_fen=unlocked_fen WHERE order_id=$1', [c.order_id]);
+    await db.query('UPDATE cw_commissions SET expected_fen=$2 WHERE order_id=$1', [c.order_id,next.toString()]);
 }
 export async function quoteCW(
   db,

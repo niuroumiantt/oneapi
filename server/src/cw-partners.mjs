@@ -1,4 +1,4 @@
-import { qualifyingVipRecharge, rechargeFields, rechargeLedger, verifiedExceptionOrder } from './vip-recharges.mjs';
+import { vipActivationProgress, qualifyingVipRecharge, rechargeFields, rechargeLedger, verifiedExceptionOrder } from './vip-recharges.mjs';
 import qrcode from 'qrcode-generator';
 import { randomInt } from 'node:crypto';
 import { HttpError, id, text, transaction, audit, vault, hasBusiness } from './core.mjs';
@@ -291,7 +291,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       JOIN payment_orders o ON o.account_id=a.id ${rechargeLedger} WHERE p.id=$1 ORDER BY o.created_at DESC LIMIT 100`,[p.id])).rows;
     const owner=(await pool.query('SELECT s.name FROM staff_members s WHERE s.subject=$1',[p.owner_subject])).rows[0];
     res.json({
-      owner_name:owner?.name||null,recharges,activate_min_cash_fen:VIP_ACTIVATE_MIN_CASH_FEN,
+      owner_name:owner?.name||null,recharges,activation_progress:await vipActivationProgress(pool,p.id),activate_min_cash_fen:VIP_ACTIVATE_MIN_CASH_FEN,
       partner: publicPartner(p),
       totals: { ...totals, available_fen: await available(pool, p.id) },
       codes,
@@ -661,6 +661,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         activation_exceptions: activationExceptions,
         discount_payments: recharges.filter((order) => order.vip_payment),
         activate_min_cash_fen: VIP_ACTIVATE_MIN_CASH_FEN,
+        activation_progress: await vipActivationProgress(db,pid),
         can_activate: p.status === 'confirmed' && Boolean(qualifying),
         available_fen: finance ? await available(db, pid) : null,
       };
@@ -744,11 +745,15 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     res.json({ ok: true });
   });
 
-  // Sales grants formal VIP after verifying a successful discount-code recharge (≥ ¥100 provisional).
+  // Sales grants formal VIP after verified cumulative net cash reaches ¥100.
   app.post('/api/staff/cw/:partner/activate', requireStaff, async (req, res) => {
     business(req);
     const pid = id(req.params.partner);
     const result = await transaction(pool, async (db) => {
+      const ref=(await db.query('SELECT user_id,owner_subject FROM cw_partners WHERE id=$1',[pid])).rows[0];
+      if(!ref||!canFollow(req.staff,ref))throw new HttpError(404,'VIP 客户不存在或不在你的名下');
+      // Checkout and metering lock account before partner/pack: keep that order.
+      await db.query('SELECT id FROM billing_accounts WHERE owner_id=$1 FOR UPDATE',[ref.user_id]);
       const p = await ownedPartner(db, pid, req.staff);
       if (p.status === 'active') throw new HttpError(409, '已是正式 VIP');
       if (p.status !== 'confirmed') throw new HttpError(409, '请先完成面试确认并等待客户充值');
@@ -756,14 +761,16 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       if (!paid)
         throw new HttpError(
           409,
-          `尚未找到实付 ≥ ¥${(VIP_ACTIVATE_MIN_CASH_FEN / 100).toFixed(0)} 的打折码充值记录，请核验后再确认`,
+          `累计有效实付尚未满 ¥${(VIP_ACTIVATE_MIN_CASH_FEN / 100).toFixed(0)}，请核验原单；赠送和已退款金额不计入`,
         );
       await db.query(
         "UPDATE cw_partners SET status='active',activated_at=coalesce(activated_at,now()) WHERE id=$1",
         [pid],
       );
+      await db.query("SELECT reserve_vip_activation($1,'activation',10000)",[pid]);
       await db.query('SELECT enable_eligible_cw_promotions($1)', [pid]);
       await audit(db, req.actor, 'cw.activated', null, pid, {
+        order_ids: paid.orders.map(o=>o.id),
         order_id: paid.id,
         amount_fen: paid.amount_fen,
         out_trade_no: paid.out_trade_no,
@@ -780,6 +787,9 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     const merchantOrder = text(req.body?.out_trade_no, '商户订单号', 64);
     const reason = text(req.body?.reason, '申请原因', 500);
     const request = await transaction(pool, async (db) => {
+const ref=(await db.query('SELECT user_id,owner_subject FROM cw_partners WHERE id=$1',[pid])).rows[0];
+      if(!ref||!canFollow(req.staff,ref))throw new HttpError(404,'VIP 客户不存在或不在你的名下');
+      await verifiedExceptionOrder(db,ref.user_id,merchantOrder);
       const p = await ownedPartner(db, pid, req.staff);
       if (p.status !== 'confirmed') throw new HttpError(409, '只有已通过面试、待开通的客户可以申请原单特批');
       const order = await verifiedExceptionOrder(db, p.user_id, merchantOrder);
@@ -813,6 +823,10 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         "SELECT subject FROM staff_members WHERE subject=$1 AND role='platform_admin' AND status='active' FOR SHARE",
         [req.staff.subject],
       )).rowCount) throw new HttpError(403, '需要管理员权限');
+const ref=(await db.query('SELECT e.order_id,o.account_id FROM vip_activation_exceptions e JOIN payment_orders o ON o.id=e.order_id WHERE e.id=$1 AND e.partner_id=$2',[rid,pid])).rows[0];
+      if(!ref)throw new HttpError(404,'原单特批不存在');
+      await db.query('SELECT id FROM payment_orders WHERE id=$1 FOR UPDATE',[ref.order_id]);
+      await db.query('SELECT id FROM billing_accounts WHERE id=$1 FOR UPDATE',[ref.account_id]);
       const p = await ownedPartner(db, pid, req.staff);
       const request = (await db.query(
         `SELECT e.status,e.order_id,o.out_trade_no FROM vip_activation_exceptions e
@@ -835,7 +849,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         [rid, state, req.staff.subject, reason],
       );
       await audit(db, req.actor, 'cw.activation_exception_' + state, null, pid, evidence);
-      if (state === 'approved') await audit(db, req.actor, 'cw.activated', null, pid, evidence);
+      if (state === 'approved') {await db.query("SELECT reserve_vip_activation($1,'exception',10000)",[pid]);await audit(db, req.actor, 'cw.activated', null, pid, evidence);}
     });
     res.json({ ok: true });
   });
