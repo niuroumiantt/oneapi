@@ -1108,7 +1108,7 @@ td>.live-dot:first-child{margin-right:5px}
 .refund-list-heading{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px 16px}
 .refund-list-heading h2,.refund-list-heading h3,.billing-records h2{font-size:16px}
 .refund-orders{list-style:none;margin:0;padding:0;border-top:1px solid var(--site-line)}
-.refund-order{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;align-items:center;gap:8px 20px;padding:12px 0;border-bottom:1px solid var(--site-line)}
+.refund-order{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(108px,max-content);align-items:center;gap:8px 20px;padding:12px 0;border-bottom:1px solid var(--site-line)}
 .refund-order>div{display:grid;gap:4px}
 .refund-order>button{min-height:40px;justify-self:start;white-space:nowrap}
 .refund-confirm{display:grid;gap:6px;margin:0}
@@ -1117,3 +1117,36 @@ td>.live-dot:first-child{margin-right:5px}
 .billing-records{display:grid;gap:20px}
 .billing-records section{min-width:0;display:grid;gap:8px}
 @media(max-width:680px){.refund-order{grid-template-columns:minmax(0,1fr)}.refund-order>button{width:100%}}
+
+.recharge-breakdown{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 16px;margin:4px 0}
+.recharge-breakdown>div{display:grid;gap:4px}
+.recharge-breakdown dt,.recharge-receipt time,.alipay-result time{font-size:var(--ui-small,13px);color:var(--site-muted)}
+.recharge-breakdown dd{margin:0;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.recharge-receipt{padding:14px 0 0;margin-top:16px;border-top:1px solid var(--site-line)}
+.recharge-receipt p,.alipay-result>p{margin:0 0 8px}
+.alipay-result.ok:has(.recharge-breakdown){margin-bottom:16px}
+.alipay-result>p{font-weight:700}
+.alipay-result time{display:block;margin-top:8px}
+.paid-key-models{min-width:0;margin:0;padding:10px 12px 12px;border:1px solid #d9dce7;border-radius:8px}
+.paid-key-models legend{padding:0 5px;font-weight:600;font-size:14px}
+.paid-key-models>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 12px;margin-top:6px}
+.live-form .paid-key-models label{display:flex;flex-direction:row;justify-content:flex-start;align-items:center;gap:8px;min-height:32px;color:inherit}
+.live-form .paid-key-models input[type=checkbox]{width:16px;height:16px;min-height:0;margin:0;flex:none;accent-color:#7429d4}
+.paid-key-amount{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px;line-height:1.5}
+.paid-key-amount span{font-size:var(--ui-small,13px);color:var(--site-muted)}
+.refund-progress{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));list-style:none;padding:0;margin:6px 0 0}
+.refund-progress li{position:relative;min-width:0;display:grid;align-content:start;gap:4px;padding:14px 8px 6px 0;border-top:2px solid #d9dce7}
+.refund-progress li::before{content:"";width:10px;height:10px;position:absolute;left:0;top:-6px;background:#fff;border:2px solid #8992a3;border-radius:50%}
+.refund-progress li:is(.done,.active,.failed){border-color:#8c5bc9}
+.refund-progress li:is(.done,.active,.failed)::before{background:#7429d4;border-color:#7429d4}
+.refund-progress li:is(.active,.failed) span:first-child{font-weight:700;color:#32224b}
+.refund-progress li.failed::before{background:#a32a24;border-color:#a32a24}
+.refund-progress li.failed span:first-child{color:#a32a24}
+.refund-progress time{font-variant-numeric:tabular-nums}
+@media(max-width:480px){
+ .paid-key-models>div{grid-template-columns:minmax(0,1fr)}
+ .refund-progress{gap:0;grid-template-columns:minmax(0,1fr);padding-left:5px}
+ .refund-progress li{border-top:0;border-left:2px solid #d9dce7;padding:2px 0 10px 12px}
+ .refund-progress li::before{left:-6px;top:6px}
+ .refund-progress li:last-child{padding-bottom:0}
+}

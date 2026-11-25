@@ -4,6 +4,7 @@ import {employeeRoutes,holdYuan,officialFromLog,usageFrom} from './employee-cred
 import {accountFor,settlePaidCall,refundQuote} from './pack-ledger.mjs';
 import {guardedModels} from './output-guard.mjs';
 import {GATEWAY_INSTANCE} from './gateway-instance.mjs';
+import {fenToYuan,yuanToFen} from './alipay.mjs';
 const pattern=/^Bearer (sf_paid_[A-Za-z0-9_-]{43})$/;
 export const paidEnabled=cfg=>Boolean(cfg.customerPaid?.enabled&&cfg.customerPaid?.models?.length&&process.env.SUPPLIER_LAB_SECRET);
 export const paidRoutes=async(pool,cfg)=>{const [routes,blocked]=await Promise.all([employeeRoutes(pool,cfg),guardedModels(pool)]);return routes.filter(r=>cfg.customerPaid?.models?.includes(r.model.id)&&!blocked.has(r.model.id)&&!blocked.has(r.model.upstreamModel));};
@@ -45,6 +46,15 @@ export async function settleCustomerCalls(pool){
  for(const r of rows){const amount=officialFromLog(r.price_snapshot,r.evidence);if(amount!==null)await settlePaidCall(pool,r.id,amount,{input:r.evidence.input_tokens,cached:r.evidence.cached_input_tokens||0,output:r.evidence.output_tokens},'supplier_tokens',null,null);}
  await pool.query("UPDATE customer_calls SET status='failed',error_code='USAGE_UNVERIFIED',finished_at=coalesce(finished_at,now()) WHERE status='awaiting_bill' AND created_at<now()-interval '24 hours'");
 }
+async function paidKeyAllocation(db,accountId){
+ return (await db.query(`SELECT a.list_credit_fen,
+   greatest(0,floor(a.list_credit_fen-allocated.yuan*100))::text AS unallocated_fen
+   FROM billing_accounts a CROSS JOIN LATERAL (
+    SELECT coalesce(sum(limit_yuan),0) AS yuan FROM customer_api_keys
+    WHERE account_id=a.id AND purpose='api' AND revoked_at IS NULL
+   ) allocated WHERE a.id=$1`,[accountId])).rows[0];
+}
+
 export function customerCreditRoutes(app,pool,cfg,requireCustomer){
  const account=async req=>accountFor(pool,req.customer.id,req.query.org? id(req.query.org):null,{create:true});
  app.get('/api/customer-credit/status',requireCustomer,async(req,res)=>{
@@ -55,23 +65,32 @@ export function customerCreditRoutes(app,pool,cfg,requireCustomer){
     FROM customer_api_keys k WHERE k.account_id=$1 AND k.purpose='api' ORDER BY k.created_at DESC`,[a.id])).rows;
   const calls=(await pool.query('SELECT id,model_id,status,charged_yuan,input_tokens,cached_input_tokens,output_tokens,latency_ms,error_code,created_at FROM customer_calls WHERE account_id=$1 ORDER BY created_at DESC LIMIT 100',[a.id])).rows;
   const held=(await pool.query("SELECT coalesce(sum(hold_yuan)*100,0) AS n FROM customer_calls WHERE account_id=$1 AND status IN ('pending','awaiting_bill')",[a.id])).rows[0].n;
-  res.json({enabled:paidEnabled(cfg),account_id:a.id,base_url:cfg.origin+'/v1',models:routes.map(r=>({id:r.model.id,name:r.model.name})),keys,calls,list_credit_fen:a.list_credit_fen,held_fen:held});
+  const allocation=await paidKeyAllocation(pool,a.id);
+  res.json({enabled:paidEnabled(cfg),account_id:a.id,base_url:cfg.origin+'/v1',models:routes.map(r=>({id:r.model.id,name:r.model.name})),keys,calls,list_credit_fen:allocation.list_credit_fen,held_fen:held,unallocated_fen:allocation.unallocated_fen});
  });
  app.post('/api/customer-credit/keys',requireCustomer,async(req,res)=>{
   if(!paidEnabled(cfg))throw new HttpError(503,'客户付费调用尚未开放');
   const a=await account(req),b=req.body||{},routes=await paidRoutes(pool,cfg),models=[...new Set(Array.isArray(b.models)?b.models:[])];
   if(!models.length||models.some(m=>!routes.some(r=>r.model.id===m)))throw new HttpError(400,'请选择已开放模型');
-  if(typeof b.limit_yuan!=='string'||!/^\d{1,6}(\.\d{1,2})?$/.test(b.limit_yuan)||Number(b.limit_yuan)<=0)throw new HttpError(400,'请设置这把 Key 的官价额度消费上限');
+  const automatic=b.limit_yuan===undefined||b.limit_yuan==='';
+  if(!automatic&&(typeof b.limit_yuan!=='string'||!/^\d{1,6}(\.\d{1,2})?$/.test(b.limit_yuan)||Number(b.limit_yuan)<=0))
+   throw new HttpError(400,'请输入大于零且最多两位小数的消费上限');
+  const expected=b.expected_unallocated_fen;
+  if(automatic&&expected!==undefined&&(typeof expected!=='string'||!/^\d{1,24}$/.test(expected)))
+   throw new HttpError(400,'请刷新后重新确认可分配额度');
   const secret='sf_paid_'+token();
   const key=await transaction(pool,async db=>{
-   const row=(await db.query('SELECT list_credit_fen FROM billing_accounts WHERE id=$1 FOR UPDATE',[a.id])).rows[0];
-   if(Number(row.list_credit_fen)<=0)throw new HttpError(402,'请先购买额度包');
+   await db.query('SELECT id FROM billing_accounts WHERE id=$1 FOR UPDATE',[a.id]);
+   const allocation=await paidKeyAllocation(db,a.id);
+   if(Number(allocation.list_credit_fen)<=0)throw new HttpError(402,'请先购买额度包');
    if((await db.query("SELECT 1 FROM customer_api_keys WHERE account_id=$1 AND purpose='api' AND revoked_at IS NULL",[a.id])).rowCount>=5)throw new HttpError(409,'每个付费账户最多保留 5 把有效 Key');
-   // 共享额度池：所有有效 Key 的 limit 总和不能超过剩余官价额度，避免额度超发。
-   const poolSum=(await db.query("SELECT coalesce(sum(limit_yuan),0)::numeric AS n FROM customer_api_keys WHERE account_id=$1 AND purpose='api' AND revoked_at IS NULL",[a.id])).rows[0].n;
-   const remaining=Number(row.list_credit_fen)/100;
-   if(Number(poolSum)+Number(b.limit_yuan)>remaining+0.0001)throw new HttpError(409,`所有 Key 的额度总和不能超过剩余官价额度 ¥${remaining.toFixed(2)}，当前已分配 ¥${Number(poolSum).toFixed(2)}`);
-   const k=(await db.query('INSERT INTO customer_api_keys(account_id,owner_id,label,secret_hash,key_hint,model_ids,limit_yuan) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,label,key_hint,model_ids,limit_yuan',[a.id,req.customer.id,text(b.label,'名称',50),hash(secret),secret.slice(-6),models,b.limit_yuan])).rows[0];
+   const available=BigInt(allocation.unallocated_fen);
+   if(automatic&&expected!==undefined&&BigInt(expected)!==available)
+    throw new HttpError(409,'可分配额度已变化，请查看更新后的金额，再生成 Key');
+   const limit=automatic?available:yuanToFen(b.limit_yuan);
+   if(limit<=0n||limit>available)
+    throw new HttpError(409,`当前可分配 ¥${fenToYuan(available)}，请调整其他 Key 的上限或补充额度`);
+   const k=(await db.query('INSERT INTO customer_api_keys(account_id,owner_id,label,secret_hash,key_hint,model_ids,limit_yuan) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,label,key_hint,model_ids,limit_yuan',[a.id,req.customer.id,text(b.label,'名称',50),hash(secret),secret.slice(-6),models,fenToYuan(limit)])).rows[0];
    await audit(db,req.actor,'customer.key_created',a.organization_id,k.id,{models});return k;
   });res.status(201).json({key,secret,base_url:cfg.origin+'/v1'});
  });

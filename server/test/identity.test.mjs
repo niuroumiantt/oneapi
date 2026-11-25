@@ -1132,16 +1132,81 @@ test('pack refunds return only red cash with no fee, forfeit green, survive reje
  assert.equal((await balance()).cash_balance_fen,'3000');
  assert.equal(trade.refundedFen||0,0);
  alipayRefundMode='reject';const rejected=await ask('pack-reject-00000001',3000);alipayRefundMode='ok';assert.equal(rejected.data.status,'failed');assert.equal((await balance()).list_credit_fen,'3000');assert.equal((await balance()).cash_balance_fen,'3000');
+ const failedPack=(await balance()).packs[0];
+ assert.equal(failedPack.refund_status,'failed');
+ assert.ok(failedPack.refund_submitted_at&&failedPack.refund_processing_at&&failedPack.refund_completed_at);
+ assert.equal(failedPack.refund_id,null,'rejected attempt remains visible without locking future requests');
  alipayRefundMode='timeout';const pending=await ask('pack-pending-0000001',3000);assert.equal(pending.data.status,'pending');assert.equal((await balance()).list_credit_fen,'0');assert.equal((await balance()).cash_balance_fen,'0');
  const held=(await balance()).packs[0];assert.equal(held.refund_status,'pending');assert.equal(held.refund_amount_fen,'3000');
+ assert.ok(held.refund_submitted_at&&held.refund_processing_at);
+ assert.equal(held.refund_completed_at,null);
+ assert.ok(Date.parse(held.refund_processing_at)>=Date.parse(held.refund_submitted_at));
  assert.equal((await ask('pack-blocked-0000001')).status,409);
  assert.equal((await buyer.j.call('/api/billing/personal/invoices',{method:'POST',body:{invoice_type:'general',title:'测试个人',email:buyer.email,amount_yuan:'1'}})).status,409,'invoice must wait for pending refund');
  alipayRefundMode='ok';assert.equal((await admin.call(`/api/staff/payments/refunds/${pending.data.refund_id}/retry`,{method:'POST',body:{}})).data.status,'succeeded');
  const settled=await balance();assert.equal(settled.cash_balance_fen,'0');assert.equal(trade.refundedFen,3000);
  assert.equal(settled.packs[0].refund_status,'succeeded');
  assert.equal(settled.packs[0].refund_amount_fen,'3000');
+ assert.equal(settled.packs[0].refund_processing_at,held.refund_processing_at,'retry keeps the first channel submission time');
+ assert.ok(Date.parse(settled.packs[0].refund_completed_at)>=Date.parse(held.refund_processing_at));
  const replay=await ask('pack-pending-0000001',3000);assert.equal(replay.data.refund_id,pending.data.refund_id);assert.equal(trade.refundedFen,3000);
  const ledger=(await balance()).entries;assert.equal(ledger.filter(e=>e.reference_id?.startsWith('refund-fee:')).length,0,'no refund fee ledger');
+});
+
+test('discounted checkout retains three amounts and a paid multi-model Key can atomically use unallocated credit',async()=>{
+ identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;
+ const admin=jar();await staffLogin(admin);
+ const buyer=await user('billing-journeys');appCfg.alipay.allowedEmails.add(buyer.email);
+ const previous=appCfg.customerPaid;
+ const models=['deepseek-flash','deepseek-flash-0910'];
+ appCfg.customerPaid={enabled:true,models};
+ try{
+  const supplier=(await pool.query("INSERT INTO supplier_lab_suppliers(name,kind,created_by) VALUES('Billing journeys','supplier','staff-owner') RETURNING id")).rows[0].id;
+  const credential=(await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by,priority) VALUES($1,'Billing journeys','https://kerapi.cn/v1',$2,'journey-key-fixture','staff-owner',1) RETURNING id",[supplier,vault(process.env.SUPPLIER_LAB_SECRET).seal({key:'fixture-key'})])).rows[0].id;
+  for(const model of ['deepseek-v4.1-flash','deepseek-v4.1-flash-0910']){
+   await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES($1,'supplier','https://kerapi.cn/v1',$1,'journey-key-fixture','staff-owner',$2,$3)",[model,supplier,credential]);
+  }
+  await pool.query('UPDATE channel_states SET paused=false WHERE model_id=ANY($1)',[models]);
+  await pool.query('SELECT ensure_customers()');
+  const customer=(await pool.query('SELECT id FROM customers WHERE user_id=$1',[buyer.user.id])).rows[0].id;
+  await pool.query("INSERT INTO discount_grants(name,audience,customer_id,customer_price_percent,starts_at,ends_at,reason,status,created_by) VALUES('Billing test','customer',$1,50,now()-interval '1 hour',now()+interval '1 day','fixture','active','staff-owner')",[customer]);
+  const post=(path,body)=>buyer.j.call(path,{method:'POST',body});
+  const quote=await post('/api/billing/quote',{face_fen:1000});
+  assert.equal(quote.status,200);
+  assert.equal(quote.data.amount_fen,500);
+  assert.equal(quote.data.face_fen,1000);
+  const purchase=await post('/api/billing/personal/alipay-orders',{face_fen:1000,expected_cash_fen:500,expected_face_fen:1000,idempotency_key:'billing-journey-order-001'});
+  assert.equal(purchase.status,201,JSON.stringify(purchase.data));
+  const order=purchase.data.order;
+  assert.deepEqual([order.amount_fen,order.face_fen],['500','1000']);
+  const tradeNo=(await pool.query('SELECT out_trade_no FROM payment_orders WHERE id=$1',[order.id])).rows[0].out_trade_no;
+  seedAlipayTrade(tradeNo,'5.00').status='TRADE_SUCCESS';
+  const paid=(await buyer.j.call('/api/billing/payment-orders/'+order.id)).data.order;
+  assert.deepEqual([paid.status,paid.amount_fen,paid.face_fen],['paid','500','1000']);
+  const pack=(await buyer.j.call('/api/billing/personal')).data.packs[0];
+  assert.deepEqual([pack.cash_fen,pack.bonus_fen,pack.face_fen],['500','500','1000']);
+
+  const path='/api/customer-credit/keys';
+  const status=async()=>(await buyer.j.call('/api/customer-credit/status')).data;
+  assert.deepEqual((await status()).models.map(m=>m.id).sort(),models.sort());
+  assert.equal((await status()).unallocated_fen,'1000');
+  assert.equal((await post(path,{label:'Explicit limit',models:[models[0]],limit_yuan:'2.00'})).status,201);
+  assert.equal((await status()).unallocated_fen,'800');
+
+  const stale=await post(path,{label:'Old preview',models,limit_yuan:'',expected_unallocated_fen:'1000'});
+  assert.equal(stale.status,409);
+  assert.match(stale.data.error,/可分配额度已变化/);
+  const attempts=await Promise.all(['One','Two'].map(label=>post(path,{label,models,limit_yuan:'',expected_unallocated_fen:'800'})));
+  assert.deepEqual(attempts.map(r=>r.status).sort(),[201,409]);
+  const created=attempts.find(r=>r.status===201).data.key;
+  assert.equal(Number(created.limit_yuan),8);
+  assert.deepEqual(created.model_ids,models);
+  assert.equal((await status()).unallocated_fen,'0');
+  assert.equal((await post(path,{label:'No remaining credit',models,limit_yuan:''})).status,409);
+ }finally{
+  appCfg.customerPaid=previous;
+  appCfg.alipay.allowedEmails.delete(buyer.email);
+ }
 });
 
 test('invoicing a recharge locks out refunds; voiding the invoice releases them',async()=>{

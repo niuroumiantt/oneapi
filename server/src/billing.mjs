@@ -28,11 +28,21 @@ export function billingRoutes(app,pool,requireCustomer,cfg,payments){
    pool.query("SELECT COALESCE(SUM(amount_fen),0) AS total_recharged_fen FROM billing_ledger WHERE account_id=$1 AND kind='recharge'",[account.id])
   ]):[{rows:[]},{rows:[{total_recharged_fen:0}]}];
   const packs=account?(await pool.query(`SELECT p.*,o.provider AS payment_provider,o.paid_at,
-   r.status AS refund_request_status,f.status AS refund_status,f.amount_fen::text AS refund_amount_fen
+   r.status AS refund_request_status,r.created_at AS refund_request_at,
+   coalesce(f.status,failed.status) AS refund_status,
+   coalesce(f.amount_fen,failed.amount_fen)::text AS refund_amount_fen,
+   coalesce(f.created_at,failed.created_at) AS refund_submitted_at,
+   coalesce(f.processing_at,failed.processing_at) AS refund_processing_at,
+   coalesce(f.completed_at,failed.completed_at) AS refund_completed_at
    FROM credit_packs p
    LEFT JOIN payment_orders o ON p.source_kind='payment' AND o.id=p.source_id
    LEFT JOIN credit_refund_requests r ON r.pack_id=p.id AND r.status IN ('requested','processing')
    LEFT JOIN payment_refunds f ON f.id=p.refund_id
+   LEFT JOIN LATERAL (
+    SELECT status,amount_fen,created_at,processing_at,completed_at FROM payment_refunds
+    WHERE p.refund_id IS NULL AND order_id=o.id AND pack_id=p.id AND status='failed'
+    ORDER BY created_at DESC,id DESC LIMIT 1
+   ) failed ON true
    WHERE p.account_id=$1 ORDER BY p.created_at DESC LIMIT 100`,[account.id])).rows:[];
   const packViews=[];
   // Aggregate red/green for one dashboard progress bar. Red = remaining paid cash (refundable),

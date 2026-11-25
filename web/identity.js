@@ -441,7 +441,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   // 个人账户：已充值显示红绿条，未充值显示「待充值」引导，去掉复杂标签。
   const isPersonalEmpty=!panelOrg&&!creditActive()&&!(personalBilling?.credit_split&&BigInt(personalBilling.credit_split.remaining_fen||0)>0);
   const personalEmpty=`<div class="overview-empty-state"><p>还没有可用额度。充值后这里会显示官价额度构成——虚线框是历史累计总额，左侧绿色是赠送、中间红色是你实付的金额，用量永远先扣红色、扣完才扣绿色，随时可退、无手续费。实付长期有效，赠送额度半年内有效。</p><a class="overview-primary" href="#billing/personal">${ico('server')} 去充值</a></div>`;
-  const hero=`<section class="overview-hero"><div class="overview-balance"><span>${d.title}</span><strong>${d.balance===null?'未开通':'¥'+d.balance.toFixed(2)}</strong><small>${isPersonalEmpty?'待充值 · 充值后按官价使用':left===null?d.note:`按近 7 天消费，预计可用 ${left.toLocaleString('zh-CN')} 天 · ${d.note}`}</small></div>${isPersonalEmpty?personalEmpty:creditBarBlock()}<div class="overview-figures">${d.figures.map(([k,v])=>`<div><span>${k}</span><b>${v}</b></div>`).join('')}</div>${recharge}</section>`;
+  const hero=`<section class="overview-hero"><div class="overview-balance"><span>${d.title}</span><strong>${d.balance===null?'未开通':'¥'+d.balance.toFixed(2)}</strong><small>${isPersonalEmpty?'待充值 · 充值后按官价使用':left===null?d.note:`按近 7 天消费，预计可用 ${left.toLocaleString('zh-CN')} 天 · ${d.note}`}</small></div>${isPersonalEmpty?personalEmpty:creditBarBlock()}<div class="overview-figures">${d.figures.map(([k,v])=>`<div><span>${k}</span><b>${v}</b></div>`).join('')}</div>${isPersonalEmpty?'':recharge}</section>`;
   const trend=`<section class="personal-pilot-log"><div class="personal-section-title"><h2>消费趋势</h2><span>最近 14 天 · 按模型</span></div>${d.daily.length?`<div class="team-bars">${bars}</div><div class="chart-legend trend-legend">${modelIds.map(id=>`<span><i class="team-dot" style="background:${color(id)}"></i>${esc(id)}</span>`).join('')}</div>`:`<div class="overview-empty"><p>还没有消费记录。生成 Key 并发起第一次调用后，这里会显示真实消费。</p>${tabLink('keys','去生成 Key')}</div>`}</section>`;
   const credit=creditActive(),base=credit?employeeCredit.base_url:paidCredit?.enabled?paidCredit.base_url:(!panelOrg&&personalPilot?.enabled?personalPilot.base_url:null),keyCount=credit?(employeeCredit.keys||[]).filter(k=>!k.revoked_at).length:paidCredit?.enabled?(paidCredit.keys||[]).filter(k=>!k.revoked_at).length:(!panelOrg&&personalPilot?.enabled?(personalPilot.keys||[]).filter(k=>!k.revoked_at).length:0),sampleModel=credit?employeeCredit.model_ids?.[0]:paidCredit?.enabled?paidCredit.models?.[0]?.id:(!panelOrg?personalPilot?.model_ids?.[0]:null);
   const sample=base&&sampleModel?`curl ${base}/chat/completions -H "Authorization: Bearer 你的Key" -H "Content-Type: application/json" -d '{"model":"${sampleModel}","messages":[{"role":"user","content":"你好"}]}'`:'';
@@ -509,6 +509,45 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  // 同一套页眉和目录：个人与企业只差权限，不差页面。
  let paidCredit=null;
  function paidScope(){return panelOrg?'?org='+encodeURIComponent(panelOrg.organization.id):'';}
+ function updatePaidKeyPreview(form){
+  const options=[...form.querySelectorAll('[name="models"]')];
+  const selected=options.filter(option=>option.checked).length;
+  const selectAll=form.querySelector('[data-paid-key-all]');
+  selectAll.checked=options.length>0&&selected===options.length;
+  selectAll.indeterminate=selected>0&&selected<options.length;
+  const value=form.elements.limit_yuan.value;
+  const available=BigInt(form.dataset.availableFen||0);
+  const match=value.match(/^(\d{1,6})(?:\.(\d{1,2}))?$/);
+  const requested=value===''?available:match?BigInt(match[1])*100n+BigInt((match[2]||'').padEnd(2,'0')):0n;
+  form.querySelector('[data-paid-key-preview]').textContent=requested>0n?`本 Key 消费上限 ${yuanText(requested)}`:'本 Key 消费上限 —';
+  form.querySelector('[data-paid-key-available]').textContent=`当前未分配额度 ${yuanText(available)}`;
+  form.elements.limit_yuan.setCustomValidity(requested>available?'消费上限不能超过当前未分配额度。':value!==''&&!requested?'请输入大于零的金额，最多两位小数。':'');
+  form.querySelector('[type=submit]').disabled=form.dataset.submitting==='true'||!selected||requested<=0n||requested>available;
+ }
+ function paidKeyCreateForm(credit){
+  if(!credit.models.length)throw Error('当前没有已开放的付费模型，请稍后再试。');
+  const preferred=credit.models.some(model=>model.id===personalSelected)?personalSelected:credit.models[0].id;
+  const models=credit.models.map(model=>`<label><input type="checkbox" name="models" value="${esc(model.id)}" ${model.id===preferred?'checked':''}> <span>${esc(model.name)}</span></label>`).join('');
+  form('创建付费 Key',`<label>用途名称<input name="label" required maxlength="50"></label>
+   <fieldset class="paid-key-models"><legend>允许模型</legend>
+    <label><input type="checkbox" data-paid-key-all> <span>全选已开放模型</span></label>
+    <div>${models}</div>
+   </fieldset>
+   <label>消费上限（元，可留空）<input name="limit_yuan" inputmode="decimal" maxlength="9" placeholder="留空使用当前未分配额度" aria-describedby="paid-key-amount"></label>
+   <div class="paid-key-amount" id="paid-key-amount" aria-live="polite"><strong data-paid-key-preview></strong><span data-paid-key-available></span></div>`,'live-paid-key','生成 Key');
+  const editor=document.querySelector('#live-paid-key');
+  editor.dataset.availableFen=credit.unallocated_fen;
+  updatePaidKeyPreview(editor);
+ }
+ document.addEventListener('change',e=>{
+  const editor=e.target.closest('#live-paid-key');
+  if(!editor||!e.target.matches('[data-paid-key-all],[name="models"]'))return;
+  if(e.target.matches('[data-paid-key-all]'))editor.querySelectorAll('[name="models"]').forEach(option=>{option.checked=e.target.checked;});
+  updatePaidKeyPreview(editor);
+ });
+ document.addEventListener('input',e=>{
+  if(e.target.matches('#live-paid-key [name="limit_yuan"]'))updatePaidKeyPreview(e.target.form);
+ });
  function paidKeyPanel(){
   const p=paidCredit;
   const bill=panelOrg?'#billing/organization/'+esc(panelOrg.organization.id):'#billing/personal';
@@ -868,6 +907,11 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  const yuanText=fen=>{const v=BigInt(fen||0);return `¥${v/100n}.${String(v%100n).padStart(2,'0')}`;};
  // 支付宝电脑网站支付 / 微信 Native：选金额 → 支付宝跳转收银台或微信出码 → 轮询，核验后刷新余额。
  const alipayLogo='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" class="alipay-brand-icon" aria-hidden="true" fill="currentColor" fill-rule="evenodd">\n  <path d="M512 64c247.424 0 448 200.576 448 448S759.424 960 512 960 64 759.424 64 512 264.576 64 512 64m32.493 168c-69.66 0-86.056 16.843-86.709 39.079l-.02 1.426v46.623H291.45c-9.92 0-14.28 23.053-14.27 39.31 0 2.696 2.08 4.923 4.77 4.923h175.814v58.301h-116.5c-9.96 0-14.3 23.76-14.271 39.473a4.772 4.772 0 0 0 4.77 4.76l233.448.003c-4.527 41.056-15.432 77.58-30.716 109.315l-1.224 2.494-.32-.275c-60.244-28.47-120.431-52.577-194.407-52.577l-2.61.017c-84.982 1.112-144.718 56.503-145.916 127.04l-.018 1.222.019 2.123c1.238 70.399 63.566 126.452 148.525 126.452 61.245-.008 116.372-16.85 163.457-45.017a138.579 138.579 0 0 0 14.068-7.962c18.09-12.116 34.892-25.955 50.304-41.156l9.452 6.344 12.456 8.322c57.527 38.257 113.763 72.617 169.856 79.27a142.62 142.62 0 0 0 18.314 1.157c43.017 0 54.991-52.68 57.387-95.508l.145-2.84c.392-8.463-6.197-15.595-14.648-15.863-75.468-2.365-136.452-22.043-192.008-46.11l-6.267-2.742c35.146-56.8 56.657-121.816 57.155-186.661l.082-1.083c.401-5.515-3.997-10.198-9.52-10.198H549.33v-58.301h165.732c9.92 0 14.28-22.117 14.27-39.311-.01-2.686-2.089-4.922-4.779-4.922H549.32v-82.35c0-2.656-2.175-4.778-4.827-4.778m-216.5 351.847c54.627 0 107.073 22.417 158.09 52.19l5.77 3.402c-103.575 119.837-247.172 95.903-261.724 26.37a66.89 66.89 0 0 1-1.138-9.83l-.057-2.336.013-.907c.969-40.113 45.337-68.89 99.045-68.89"/>\n</svg>';
+ const rechargeAmounts=data=>{
+  const paid=BigInt(data.amount_fen??data.cash_fen),credit=BigInt(data.face_fen);
+  return [['实付',yuanText(paid)],['赠送额度',yuanText(credit-paid)],['到账额度',yuanText(credit)]];
+ };
+ const rechargeBreakdown=data=>`<dl class="recharge-breakdown">${rechargeAmounts(data).map(([label,value])=>`<div><dt>${label}</dt><dd>${value}</dd></div>`).join('')}</dl>`;
  const wechatLogo='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" class="payment-brand-icon wechat-brand-icon" aria-hidden="true"><path fill="currentColor" d="M16 3C8.3 3 2 8.2 2 14.7c0 3.6 2 6.9 5.2 9L6 29l5.7-3.1c1.4.4 2.8.6 4.3.6 7.7 0 14-5.3 14-11.8S23.7 3 16 3Z"/><path fill="#fff" d="m9 12 5 3 11-7-10 13a1.5 1.5 0 0 1-2.5-.2Z"/></svg>';
  function alipayPanel(scopeKey,channels){
   const cnFiling=document.documentElement.dataset.icpFiling;
@@ -876,11 +920,11 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const o=alipayPay?.scope===scopeKey?alipayPay.order:null,ch=PAY_CHANNELS[o?.status==='pending'&&!o.expired&&o.provider?o.provider:payChannel],wechat=ch.path==='wechat';
   if(o?.status==='pending'&&!o.expired&&(o.qr_svg||o.pay_url)){
    const body=o.qr_svg
-    ?`<div class="alipay-qr" aria-label="${ch.name}付款码">${o.qr_svg}</div><div class="alipay-pay-info"><span class="billing-chip">${ch.name} · 待付款</span><strong>${yuanText(o.amount_fen)}</strong><p>请用手机微信扫码付款。付款码 ${new Date(o.expires_at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})} 前有效。</p><p class="billing-pay-status" role="status" data-alipay-status>正在等待付款，支付后这里会自动更新，请勿重复付款。</p>${btn('我已付款，刷新状态','alipay-refresh','','')} ${btn('换个金额','alipay-reset','','')}</div>`
-    :`<div class="alipay-pay-info"><span class="billing-chip">${ch.name} · 待付款</span><strong>${yuanText(o.amount_fen)}</strong><p>已打开支付宝收银台。用支付宝扫码或登录付款；付完后回到本页，状态会自动更新。链接 ${new Date(o.expires_at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})} 前有效。</p><p class="billing-pay-status" role="status" data-alipay-status>正在等待付款，请勿重复付款。</p><p><a class="live-button primary" href="${esc(o.pay_url)}" target="_blank" rel="noopener">再次打开支付宝收银台</a></p>${btn('我已付款，刷新状态','alipay-refresh','','')} ${btn('换个金额','alipay-reset','','')}</div>`;
+    ?`<div class="alipay-qr" aria-label="${ch.name}付款码">${o.qr_svg}</div><div class="alipay-pay-info"><span class="billing-chip">${ch.name} · 待付款</span>${rechargeBreakdown(o)}<p>请用手机微信扫码付款。付款码 ${new Date(o.expires_at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})} 前有效。</p><p class="billing-pay-status" role="status" data-alipay-status>正在等待付款，支付后这里会自动更新，请勿重复付款。</p>${btn('我已付款，刷新状态','alipay-refresh','','')} ${btn('换个金额','alipay-reset','','')}</div>`
+    :`<div class="alipay-pay-info"><span class="billing-chip">${ch.name} · 待付款</span>${rechargeBreakdown(o)}<p>已打开支付宝收银台。用支付宝扫码或登录付款；付完后回到本页，状态会自动更新。链接 ${new Date(o.expires_at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})} 前有效。</p><p class="billing-pay-status" role="status" data-alipay-status>正在等待付款，请勿重复付款。</p><p><a class="live-button primary" href="${esc(o.pay_url)}" target="_blank" rel="noopener">再次打开支付宝收银台</a></p>${btn('我已付款，刷新状态','alipay-refresh','','')} ${btn('换个金额','alipay-reset','','')}</div>`;
    return `<div class="alipay-pay" id="alipay-pay">${wechat?'':alipayLogo}${body}</div>`;
   }
-  const done=o?.status==='paid'?`<p class="alipay-result ok" role="status">已收到 ${yuanText(o.amount_fen)}，官价额度已增加 ${yuanText(o.face_fen)}。</p>`:o?`<p class="alipay-result" role="status">上一笔付款已失效，未产生扣款。可以重新发起。</p>`:'';
+  const done=o?.status==='paid'?`<section class="alipay-result ok" aria-label="充值成功"><p role="status">充值成功</p>${rechargeBreakdown(o)}${o.paid_at?`<time datetime="${esc(o.paid_at)}">${billingTime(o.paid_at)}（北京时间）</time>`:''}</section>`:o?`<p class="alipay-result" role="status">上一笔付款订单已失效。可以在资金记录查看到账情况。</p>`:'';
   const presets=[5000,10000,50000,100000];
   const pick=channels.length>1?`<div class="alipay-presets pay-channels" role="radiogroup" aria-label="支付方式">${channels.map(c=>`<button type="button" role="radio" aria-checked="${c===payChannel}" class="alipay-preset ${c===payChannel?'active':''}" data-live="pay-channel" data-channel="${c}">${c==='wechat_native'?wechatLogo:alipayLogo}${PAY_CHANNELS[c].name}</button>`).join('')}</div>`:'';
   return `${done}${pick}<div class="recharge-layout"><div class="recharge-entry"><label class="recharge-amount-label" for="alipay-yuan">${cwOfferCode?'支付金额（元）':'充值额度（元）'}</label><div class="recharge-amount"><span aria-hidden="true">¥</span><input id="alipay-yuan" inputmode="decimal" autocomplete="off" maxlength="8" aria-describedby="recharge-amount-help" placeholder="最低 5 元" value="${(alipayFen/100).toFixed(2)}"></div><p id="recharge-amount-help" class="recharge-help">最低 ¥5，最高 ¥50,000。按官网价格抵扣模型调用费用。</p><div class="alipay-presets recharge-presets" aria-label="常用充值额度">${presets.map(f=>`<button type="button" aria-pressed="${alipayFen===f}" class="alipay-preset ${alipayFen===f?'active':''}" data-live="alipay-amount" data-fen="${f}">¥${f/100}</button>`).join('')}</div><details class="recharge-promo" ${cwInputCode?'open':''}><summary>有促销码？</summary><label for="pack-promo">促销码（可不填）</label><input id="pack-promo" autocomplete="off" maxlength="40" placeholder="输入促销码" value="${esc(cwInputCode)}"><p class="recharge-help" id="cw-offer-help">${cwOfferCode?'已识别 VIP 推广码：上方输入实付金额，付款前确认到账官价额度。':'VIP 推广码按实付金额购买额度，付款前会显示实际到账官价额度。'}</p></details><div id="live-form-message" role="status"></div></div><section class="recharge-payment" data-provider="${wechat?'wechat':'alipay'}" aria-label="付款方式"><div class="recharge-provider-row"><div class="recharge-provider">${wechat?wechatLogo:alipayLogo}<div><strong>${wechat?'微信支付':'支付宝'}</strong><span>已开通 · ${wechat?'本页扫码':'官方收银台付款'}</span></div></div><details class="recharge-filing"><summary><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg><span>网站已完成 ICP 备案</span></summary><div class="recharge-filing-info"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" aria-label="${esc(filingNumber)}，打开工信部备案查询">${esc(filingNumber)}</a><p>备案域名：${esc(filingDomain)}<br>网站主办单位：上海艾泽可科技有限公司<br>支付收款方：深圳市格洛可半导体有限公司</p></div></details></div>${btn(wechat?'查看实付，微信付款':'查看实付，去支付宝付款','alipay-create','type="button"','primary recharge-submit')}<details class="recharge-instructions"><summary>付款说明</summary><ol class="recharge-steps"><li>输入额度，确认优惠后的实付金额</li><li>${wechat?'用微信扫描付款码':'在支付宝收银台扫码或登录付款'}</li><li>付款成功后返回，额度自动到账</li></ol></details><p class="recharge-help">点击后先确认金额，再进入付款。<br>收款方：深圳市格洛可半导体有限公司</p></section></div>`;
@@ -895,10 +939,13 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   },3000);
  }
  async function alipayPoll(manual){
-  if(!alipayPay)return;
-  const r=await fetch('/api/billing/payment-orders/'+encodeURIComponent(alipayPay.order.id),{credentials:'same-origin',cache:'no-store'});if(!r.ok){if(manual)throw Error('暂时无法查询订单，请稍后再试。');return;}
-  const o=(await r.json()).order;alipayPay.order=o;
-  if(o.status==='paid'){clearInterval(alipayTimer);alipayTimer=null;lastOrgBilling=null;orgLoadedAt=0;panelDataAt=0;showToast(`充值成功，已到账 ${yuanText(o.amount_fen)}。`);await route(current);return;}
+  const payment=alipayPay;
+  if(payment?.order?.status!=='pending')return;
+  const r=await fetch('/api/billing/payment-orders/'+encodeURIComponent(payment.order.id),{credentials:'same-origin',cache:'no-store'});if(!r.ok){if(manual)throw Error('暂时无法查询订单，请稍后再试。');return;}
+  const o=(await r.json()).order;
+  if(payment!==alipayPay||payment.order.status!=='pending')return;
+  payment.order=o;
+  if(o.status==='paid'){clearInterval(alipayTimer);alipayTimer=null;lastOrgBilling=null;orgLoadedAt=0;panelDataAt=0;showToast(`充值成功，到账额度 ${yuanText(o.face_fen)}。`);await route(current);return;}
   if(o.status!=='pending'||o.expired){clearInterval(alipayTimer);alipayTimer=null;if(panelRedraw)panelRedraw();return;}
   if(manual){const st=host?.querySelector('[data-alipay-status]');if(st)st.textContent='还未收到付款结果。支付完成后通常几秒内到账。';}
  }
@@ -909,7 +956,31 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  const canRefundPack=pack=>!pack.refund_id&&!pack.refund_request_status&&!pack.refund_blocked&&refundableAmount(pack)>0n;
  const refundableTotal=packs=>packs.reduce((total,pack)=>canRefundPack(pack)?total+refundableAmount(pack):total,0n);
  const refundChannelName=pack=>PAY_CHANNELS[pack.payment_provider]?.name||(pack.source_kind==='bank'?'对公转账':'原支付方式');
- const refundDate=pack=>new Date(pack.paid_at||pack.created_at).toLocaleString('zh-CN',{hour12:false});
+ const billingTime=value=>new Date(value).toLocaleString('zh-CN',{hourCycle:'h23',timeZone:'Asia/Shanghai'});
+ const refundDate=pack=>billingTime(pack.paid_at||pack.created_at);
+
+ function refundProgress(pack){
+  const submitted=pack.refund_request_at||pack.refund_submitted_at;
+  const processing=pack.refund_processing_at;
+  const completed=pack.refund_completed_at;
+  const succeeded=pack.refund_status==='succeeded',failed=pack.refund_status==='failed'&&pack.refund_request_status!=='requested';
+  if(!submitted&&!pack.refund_status&&!pack.refund_request_status)return '';
+  const waitingForFinance=pack.refund_request_status==='requested';
+  const inChannel=!waitingForFinance&&(processing||pack.refund_request_status==='processing');
+  const currentStep=succeeded||failed?2:inChannel?1:0;
+  const steps=[
+   [pack.refund_request_status==='requested'?'已提交，待财务处理':'已提交申请',submitted],
+   [currentStep===1?'渠道处理中':'渠道处理',pack.refund_request_status==='requested'?null:processing],
+   [failed?'退款未成功':succeeded?'已原路退回':'原路退回',failed||succeeded?completed:null]
+  ];
+  const stages=steps.map(([label,time],index)=>{
+   const state=index<currentStep?'done':index===currentStep?(failed?'failed':'active'):'';
+   return `<li class="${state}"${index===currentStep?' aria-current="step"':''}>
+    <span>${label}</span>${time?`<time datetime="${esc(time)}">${billingTime(time)}</time>`:index===1&&index<currentStep?'<span>时间未记录</span>':''}
+   </li>`;
+  }).join('');
+  return `<ol class="refund-progress" aria-label="退款进度（北京时间）">${stages}</ol>`;
+ }
 
  function personalRefundContent(packs){
   const total=refundableTotal(packs);
@@ -918,18 +989,19 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    const pending=pack.refund_status==='pending'||pack.refund_request_status==='processing';
    const requested=pack.refund_request_status==='requested';
    const refunded=Boolean(pack.refund_id)&&!pending;
-   const status=pending?'退款处理中':requested?'退款申请待处理':pack.refund_status==='succeeded'?'已退款':refunded?'退款已登记':pack.refund_blocked||'无可退金额';
+   const status=pending?(pack.refund_processing_at||pack.refund_request_status==='processing'?'退款处理中':'退款已提交'):requested?'退款申请待处理':pack.refund_status==='succeeded'?'已退款':refunded?'退款已登记':pack.refund_blocked||'无可退金额';
    const amountText=pending||refunded||requested?`${status} ${yuanText(pack.refund_amount_fen??amount)}`:available?`可退 ${yuanText(amount)}`:'暂不可退';
-   const details=pending||requested?'请稍后刷新进度。':refunded?'请在原付款账户查看。':available?(BigInt(pack.bonus_fen||0)>0n?`退款后收回赠送额度 ${yuanText(pack.bonus_fen)}`:'退款后关闭这笔额度包。'):esc(status);
+   const details=pending||requested?'请稍后刷新进度。':refunded?'款项请在原付款账户查看。':available?(BigInt(pack.bonus_fen||0)>0n?`退款后收回赠送额度 ${yuanText(pack.bonus_fen)}`:'退款后关闭这笔额度包。'):esc(status);
    return `<li class="refund-order">
     <div><strong>${refundChannelName(pack)}</strong><time datetime="${esc(pack.paid_at||pack.created_at)}">${refundDate(pack)}</time><span>实付 ${yuanText(pack.cash_fen)}</span></div>
     <div><strong>${amountText}</strong><span>${details}</span></div>
     ${available?btn('查看并退款','pack-refund',`type="button" data-id="${esc(pack.id)}" aria-label="查看并退款 ${yuanText(amount)}，${refundDate(pack)}"`):''}
+    ${refundProgress(pack)}
    </li>`;
   }).join('');
   return `<section class="billing-refunds" aria-labelledby="refund-heading">
    <div class="refund-heading">
-    <div><h2 id="refund-heading" class="panel-title" tabindex="-1">申请退款</h2><p>选择一笔充值，确认后剩余实付款原路退回，无手续费。</p></div>
+    <div><h2 id="refund-heading" class="panel-title" tabindex="-1">申请退款</h2><p>选择一笔充值，确认后剩余实付款原路退回，无手续费。退款进度按北京时间显示。</p></div>
     <div class="refund-total"><span>${packs.length>=100?'所列订单可自助退款':'当前可自助退款'}</span><strong>${yuanText(total)}</strong></div>
    </div>
    <div class="refund-list-heading"><h3>充值订单</h3><button type="button" class="live-button quiet" data-live="refund-refresh">刷新进度</button></div>
@@ -966,8 +1038,14 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    const channelStatus=data.recharge?.channel_status||{};
    const unavailableMethods=Object.entries(PAY_CHANNELS).filter(([key])=>!channels.includes(key)).map(([key,ch])=>`${ch.name}：${channelStatus[key]==='restricted'?'当前账户暂未开放':'暂未开放'}`).join(' · ');
    const limited=Object.values(channelStatus).includes('restricted');
-   const recharge=`<section class="recharge-checkout"><div class="billing-pay-head"><div><h2 class="panel-title">充值到${org?esc(name):'个人'}账户</h2><p class="recharge-help">${alipayOn?'选择充值额度，付款前会显示实际支付金额。':limited?'在线支付已接入，当前账户暂未开放充值。':'当前暂无可用的在线支付方式。'}</p></div></div>${alipayOn?alipayPanel(scopeKey,channels):`<p class="billing-pay-status" role="status">如需充值，请通过<a href="${org?'#organization/'+esc(org.id)+'/support':'#support'}">支持与工单</a>联系平台。</p>`}${unavailableMethods?`<p class="recharge-unavailable">${unavailableMethods}</p>`:''}</section>`;
-   const packs=`<div class="personal-table-wrap"><table><thead><tr><th>充值时间</th><th>面额 / 实付</th><th>赠送余额</th><th>实付剩余</th></tr></thead><tbody>${(data.packs||[]).map(p=>`<tr><td>${refundDate(p)}</td><td>${money(p.face_fen)} / ${money(p.cash_fen)}</td><td>${money(p.refund_id?'0':p.bonus_fen)}</td><td>${money(p.refund_id?'0':p.red_fen??p.net_fen)}</td></tr>`).join('')}</tbody></table></div>`;
+   const recent=(data.packs||[]).find(p=>p.source_kind==='payment'&&p.paid_at);
+   const activePayment=alipayPay?.scope===scopeKey&&alipayPay.order;
+   const lastReceipt=!activePayment&&recent?`<section class="recharge-receipt" aria-label="最近一笔充值">
+    <p><strong>最近一笔充值</strong> <time datetime="${esc(recent.paid_at)}">${billingTime(recent.paid_at)}（北京时间）</time></p>
+    ${rechargeBreakdown(recent)}
+   </section>`:'';
+   const recharge=`<section class="recharge-checkout"><div class="billing-pay-head"><div><h2 class="panel-title">充值到${org?esc(name):'个人'}账户</h2><p class="recharge-help">${alipayOn?'付款前可核对实付金额、赠送额度和到账额度。':limited?'在线支付已接入，当前账户暂未开放充值。':'当前暂无可用的在线支付方式。'}</p></div></div>${alipayOn?alipayPanel(scopeKey,channels):`<p class="billing-pay-status" role="status">如需充值，请通过<a href="${org?'#organization/'+esc(org.id)+'/support':'#support'}">支持与工单</a>联系平台。</p>`}${unavailableMethods?`<p class="recharge-unavailable">${unavailableMethods}</p>`:''}${lastReceipt}</section>`;
+   const packs=`<div class="personal-table-wrap"><table><thead><tr><th>充值时间</th><th>实付</th><th>赠送额度</th><th>到账额度</th><th>赠送余额</th><th>实付剩余</th></tr></thead><tbody>${(data.packs||[]).map(p=>`<tr><td>${refundDate(p)}</td>${rechargeAmounts(p).map(([,value])=>`<td>${value}</td>`).join('')}<td>${money(p.refund_id?'0':p.bonus_fen)}</td><td>${money(p.refund_id?'0':p.red_fen??p.net_fen)}</td></tr>`).join('')}</tbody></table></div>`;
    const history=data.entries.length?`<div class="personal-table-wrap"><table><thead><tr><th>时间</th><th>事项</th><th>金额</th><th>结余</th></tr></thead><tbody>${data.entries.map(entry=>`<tr><td>${new Date(entry.created_at).toLocaleString('zh-CN')}</td><td>${entry.reference_id?.startsWith('refund-fee:')?'退款手续费':({recharge:'购包实付',usage:'模型使用',refund:'退款',reversal:'冲正'}[entry.kind]||'资金变动')}</td><td>${BigInt(entry.amount_fen)>0n?'+':''}${money(entry.amount_fen)}</td><td>${money(entry.balance_after_fen)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="personal-model-empty">还没有真实资金记录。完成首次充值后，每笔付款和使用会列在这里。</p>';
    const records=`<div class="billing-records">${(data.packs||[]).length?`<section><div class="refund-list-heading"><h2>充值记录</h2>${org?'':'<a href="#'+refundRoute+'">办理退款 →</a>'}</div>${packs}</section>`:''}<section><h2>资金流水</h2>${history}</section></div>`;
    const content={history:records,refund:view==='refund'?personalRefundContent(data.packs||[]):'',transfer,invoice,recharge};
@@ -1068,7 +1146,12 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     const panel=host?.querySelector('[data-key-agent-panel]');if(b.dataset.group==='agent-guide'&&panel&&employeeCredit)panel.outerHTML=employeeKeyPanel(employeeCredit);else if(panelRedraw)panelRedraw();else if(panelOrg&&lastOrg)organizationV2(lastOrg);else updatePersonalDashboard();}
    else if(action==='pay-channel'){cwInputCode=host.querySelector('#pack-promo')?.value??cwInputCode;payChannel=b.dataset.channel;if(panelRedraw)panelRedraw();}
    else if(action==='alipay-amount'){alipayFen=Number(b.dataset.fen);const input=host.querySelector('#alipay-yuan');if(input){input.value=(alipayFen/100).toFixed(2);input.dispatchEvent(new Event('input',{bubbles:true}));}}
-   else if(action==='paid-create'){const remaining=(Number(paidCredit?.list_credit_fen||0)/100)-(paidCredit?.keys||[]).filter(k=>!k.revoked_at).reduce((n,k)=>n+Number(k.limit_yuan||0),0);form('创建付费 Key',`<label>用途名称<input name="label" required maxlength="50"></label><label>允许模型<select name="model_id">${paidCredit.models.map(m=>`<option value="${esc(m.id)}" ${m.id===personalSelected?'selected':''}>${esc(m.name)}</option>`).join('')}</select></label><label>本 Key 官价额度消费上限（元）<input name="limit_yuan" required inputmode="decimal" placeholder="例如 10"></label><p>所有 Key 的额度总和不能超过剩余官价额度，当前还可分配 <b>¥${Math.max(0,remaining).toFixed(2)}</b>。上限不是充值，不会增加余额。生成后复制 Base URL、模型 ID 和 Key 到你的工具。</p>`,'live-paid-key','生成');}
+   else if(action==='paid-create'){
+    const scope=paidScope(),ticket=generation,credit=await api('/api/customer-credit/status'+scope);
+    if(ticket!==generation)return;
+    paidCredit=credit;
+    paidKeyCreateForm(credit);
+   }
    else if(action==='paid-revoke'){await api('/api/customer-credit/keys/'+b.dataset.id+'/revoke'+paidScope(),{});paidCredit=await api('/api/customer-credit/status'+paidScope());if(panelRedraw)panelRedraw();else updatePersonalDashboard();}
    else if(action==='paid-limit'){const curLimit=Number(b.dataset.limit||0),otherSum=(paidCredit?.keys||[]).filter(k=>!k.revoked_at&&k.id!==b.dataset.id).reduce((n,k)=>n+Number(k.limit_yuan||0),0),remaining=(Number(paidCredit?.list_credit_fen||0)/100)-otherSum;form('调整这把 Key 的消费上限',`<input type="hidden" name="key_id" value="${esc(b.dataset.id)}"><p class="live-small">${esc(b.dataset.label)}</p><label>新的官价额度消费上限（元）<input name="limit_yuan" required inputmode="decimal" value="${esc(b.dataset.limit)}" placeholder="例如 10"></label><p class="live-small">这把 Key 加上其他 Key 的额度总和不能超过剩余官价额度，这把最多可设 <b>¥${Math.max(0,remaining).toFixed(2)}</b>。上限不是充值，不会增加余额；调低不能低于这把 Key 已经用掉的额度。</p>`,'live-paid-limit','保存上限');}
    else if(action==='refund-refresh'){await route(current);}
@@ -1093,11 +1176,8 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     const offer=promo?await fetch('/api/cw/offers/'+encodeURIComponent(promo),{credentials:'same-origin'}):null;
     const cw=offer?.ok;const amount=cw?{cash_fen:alipayFen}:{face_fen:alipayFen};
     const quote=await api('/api/billing/quote',{...amount,promo_code:promo,organization_id:orgId});
-    const faceYuan=(Number(quote.face_fen)/100).toFixed(2),payYuan=(Number(quote.amount_fen)/100).toFixed(2);
-    const pct=Number(quote.discount_snapshot?.percent||100);
-    const fold=pct%10===0?String(pct/10):(pct/10).toFixed(1).replace(/\.0$/,'');
-    const promoDesc=quote.discount_snapshot?.promo_code?`您本次使用的促销码是${fold}折码，`:pct<100?`您本次享受${fold}折优惠，`:'';
-    if(!confirm(`${promoDesc}您实付 ${payYuan} 元，可得 ${faceYuan} 元官方额度。\n\n请确认充值？`))return;
+    const amounts=rechargeAmounts(quote).map(([label,value])=>`${label} ${value}`).join('\n');
+    if(!confirm(`${amounts}\n\n确认后继续付款。`))return;
     // 同一次点击重试复用幂等键，避免网络抖动生成两张付款码。
     const key=alipayPay?.pendingKey&&alipayPay.pendingFen===alipayFen&&alipayPay.scope===scope&&alipayPay.pendingChannel===payChannel&&alipayPay.pendingPromo===promo&&alipayPay.pendingQuotedFace===quote.face_fen&&alipayPay.pendingQuotedCash===quote.amount_fen?alipayPay.pendingKey:(crypto.randomUUID?.()||String(Date.now())+Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g,'');
     alipayPay={scope,pendingKey:key,pendingFen:alipayFen,pendingChannel:payChannel,pendingPromo:promo,pendingQuotedFace:quote.face_fen,pendingQuotedCash:quote.amount_fen,order:alipayPay?.scope===scope?alipayPay.order:null};
@@ -1240,7 +1320,13 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  });
  document.addEventListener('submit',async e=>{
   // A field named "id" shadows form.id, so read the attribute.
-  const form=e.target,formId=form.getAttribute('id')||'';if(!formId.startsWith('live-'))return;e.preventDefault();const values=Object.fromEntries(new FormData(form)),button=form.querySelector('[type=submit]'),message=form.querySelector('[role=status]');button.disabled=true;message.innerHTML='';
+  const form=e.target,formId=form.getAttribute('id')||'';if(!formId.startsWith('live-'))return;e.preventDefault();
+  const values=Object.fromEntries(new FormData(form)),button=form.querySelector('[type=submit]'),message=form.querySelector('[role=status]');
+  if(formId==='live-paid-key'){
+   if(button.disabled)return;
+   form.dataset.submitting='true';
+  }
+  button.disabled=true;message.innerHTML='';
   try{
    if(form.dataset.smsPurpose||formId==='live-sms-bind'){
     if(!form.dataset.smsChallenge||form.dataset.smsPhone!==values.phone)throw Error('请先为这个手机号获取验证码。');
@@ -1301,7 +1387,27 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    }
    else if(formId==='live-upgrade'){await api('/api/platform/upgrade',{legal_name:values.legal_name,credit_code:values.credit_code,contact_name:values.contact_name,contact_phone:values.contact_phone,confirm_irreversible:values.confirm_irreversible==='yes'});me=await api('/api/platform/me');upgradePage();showToast('申请已提交。');}
    else if(formId==='live-ticket'){await api('/api/support/tickets',{subject:values.subject,body:values.body,category:values.category});pageViews.support='list';await route(current);showToast('工单已提交。');}
-   else if(formId==='live-paid-key'){const result=await api('/api/customer-credit/keys'+paidScope(),{label:values.label,models:[values.model_id],limit_yuan:values.limit_yuan});paidCredit=await api('/api/customer-credit/status'+paidScope());if(panelRedraw)panelRedraw();else updatePersonalDashboard();dialog('Key 只显示一次',keyIssuedGuide({secret:result.secret,baseUrl:result.base_url,modelIds:[values.model_id],note:'使用你现有的 Agent 接入说明；调用按官网价扣额度，购包折扣不改变模型单价。'}));}
+   else if(formId==='live-paid-key'){
+    const scope=paidScope(),models=new FormData(form).getAll('models'),payload={label:values.label,models,limit_yuan:values.limit_yuan};
+    if(values.limit_yuan==='')payload.expected_unallocated_fen=form.dataset.availableFen;
+    let result;
+    try{result=await api('/api/customer-credit/keys'+scope,payload);}
+    catch(err){
+     if(err.status===409&&values.limit_yuan===''){
+      const updated=await api('/api/customer-credit/status'+scope).catch(()=>null);
+      if(updated)form.dataset.availableFen=updated.unallocated_fen;
+      else throw Error('无法刷新可分配额度，请重新打开创建窗口后确认。');
+     }
+     throw err;
+    }
+    dialog('Key 只显示一次',keyIssuedGuide({secret:result.secret,baseUrl:result.base_url,modelIds:result.key.model_ids,note:`本 Key 消费上限 ¥${Number(result.key.limit_yuan).toFixed(2)}。调用按官网价扣额度。`}));
+    // Show the one-time secret even if refreshing the list fails.
+    const credit=await api('/api/customer-credit/status'+scope).catch(()=>null);
+    if(credit&&paidScope()===scope){
+     paidCredit=credit;
+     if(panelRedraw)panelRedraw();else updatePersonalDashboard();
+    }
+   }
    else if(formId==='live-paid-limit'){await api('/api/customer-credit/keys/'+values.key_id+'/limit'+paidScope(),{limit_yuan:values.limit_yuan});document.querySelector('#config-dialog').close();paidCredit=await api('/api/customer-credit/status'+paidScope());if(panelRedraw)panelRedraw();else updatePersonalDashboard();showToast('消费上限已更新。');}
    else if(formId==='live-pack-refund'){
     const r=await api('/api/customer-credit/packs/'+encodeURIComponent(values.pack_id)+'/refund',{
@@ -1340,7 +1446,10 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    }else if(formId==='live-sms-register'&&err.code==='SMS_PHONE_ALREADY_REGISTERED'){
     message.innerHTML=note(err.message,true)+btn('去登录','auth-mode','type="button" data-mode="sms"','quiet');
    }else message.innerHTML=note(err.message,true);
-  }finally{button.disabled=false;}
+  }finally{
+   if(formId==='live-paid-key'&&form.isConnected){delete form.dataset.submitting;updatePaidKeyPreview(form);}
+   else button.disabled=false;
+  }
  });
  document.addEventListener('input',e=>{if(!e.target.matches('[data-personal-search]'))return;personalSearch=e.target.value;host?.querySelectorAll('[data-personal-search]').forEach(input=>{if(input!==e.target)input.value=personalSearch;});const rows=personalCatalogRows();const body=host?.querySelector('[data-personal-rows]');if(body)body.innerHTML=rows.html;});
  document.addEventListener('change',e=>{if(!e.target.matches('[data-agent-tool]'))return;agentToolId=e.target.value;const panel=host?.querySelector('[data-key-agent-panel]');if(panel&&employeeCredit)panel.outerHTML=employeeKeyPanel(employeeCredit);else updatePersonalDashboard();});

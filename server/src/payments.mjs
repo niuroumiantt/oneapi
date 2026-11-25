@@ -324,6 +324,7 @@ async function createPackRefund(db,{order,packId,reason,requestedBy,key,expected
 async function settleRefund(gw,pool,refundId){
  const r=(await pool.query('SELECT r.*,o.out_trade_no,o.provider,o.amount_fen AS order_amount_fen FROM payment_refunds r JOIN payment_orders o ON o.id=r.order_id WHERE r.id=$1',[refundId])).rows[0];
  if(r.status!=='pending')return r.status;
+ if(!r.processing_at)await pool.query("UPDATE payment_refunds SET processing_at=now() WHERE id=$1 AND processing_at IS NULL AND status='pending'",[r.id]);
  let result;
  try{result=await gw[r.provider].refund(r);}
  catch(e){result={outcome:'pending',code:e.message};console.error(JSON.stringify({event:'refund_unconfirmed',provider:r.provider,code:e.message}));}
