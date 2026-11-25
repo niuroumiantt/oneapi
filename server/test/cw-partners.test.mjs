@@ -13,7 +13,7 @@ import { creditPaidOrder, paymentRoutes } from '../src/payments.mjs';
 import { refundCW, commissionFen } from '../src/cw-ledger.mjs';
 const url = process.env.TEST_CW_DATABASE_URL;
 let pool, server, origin, cfg;
-const ids = { a: randomUUID(), b: randomUUID(), buyer: randomUUID(), candidate: randomUUID(), lead: randomUUID(), legacy: randomUUID(), triage: randomUUID(), triageOther: randomUUID() };
+const ids = { a: randomUUID(), b: randomUUID(), buyer: randomUUID(), candidate: randomUUID(), lead: randomUUID(), legacy: randomUUID(), triage: randomUUID(), triageOther: randomUUID(), exception: randomUUID(), exceptionOther: randomUUID(), exceptionLegacy: randomUUID() };
 const notifications = [], paymentNotices = [];
 const mockWechatTrades = new Map();
 let failPaymentNotice = false;
@@ -803,4 +803,103 @@ test('VIP order lookup and recharge history reconcile ordinary and VIP payments 
   } finally {
     failPaymentNotice = false;
   }
+});
+
+test('VIP original-order exception requires a settled unused payment and a separate administrator decision', { skip }, async () => {
+  const sales = (path, body) => staff(path, body, 'operations', 'cw-sales-a');
+  assert.equal((await sales('/invite-codes', { code: 'ORDER-EXCEPTION', max_uses: 3 })).status, 201);
+  const enroll = async (login) => {
+    const result = await call('/api/cw/apply', {
+      legal_name: 'VIP original-order fixture', contact: 'example-test', invite_code: 'ORDER-EXCEPTION',
+      consent_version: 'cw-privacy-v1',
+    }, login);
+    assert.equal(result.status, 201);
+    const person = result.data.partner;
+    const account = (await pool.query('INSERT INTO billing_accounts(owner_id) VALUES($1) RETURNING id', [ids[login]])).rows[0];
+    return { login, person, account: account.id, path: '/' + person.id };
+  };
+  const orderFor = async (customer, number, { credit = true } = {}) => {
+    const order = (await pool.query(`INSERT INTO payment_orders
+      (out_trade_no,account_id,created_by,provider,amount_fen,face_fen,idempotency_key,expires_at)
+      VALUES($1,$2,$3,'wechat_native',5000,10000,$4,now()+interval '15 minutes') RETURNING id,out_trade_no`,
+    [number, customer.account, ids[customer.login], randomUUID()])).rows[0];
+    if (credit) await creditPaidOrder(pool, number, { provider: 'wechat_native', tradeNo: 'TR-' + number, totalFen: 5000 }, 'exception-test');
+    return order;
+  };
+  const lead = await enroll('exception');
+  const sibling = await enroll('exceptionOther');
+  const historic = await enroll('exceptionLegacy');
+  const endpoint = lead.path + '/activation-exceptions';
+  const submit = (order, reason = '核对原单后申请一次性开通') => sales(endpoint, { out_trade_no: order.out_trade_no, reason });
+  const historicalOrder = await orderFor(historic, 'EXCEPTION-HISTORIC');
+  const historicalAudit = (await pool.query(`INSERT INTO audit_events(actor_kind,actor_id,action,subject_id,detail)
+      VALUES('system','operator-vip-order-exception','cw.activation_exception_approved',$1,$2) RETURNING id`,
+    [historic.person.id, { order_id: historicalOrder.id, reason: '历史审批凭证' }])).rows[0].id;
+  const migration = await readFile(new URL('../migrations/085_vip_activation_exceptions.sql', import.meta.url), 'utf8');
+  await pool.query(migration);
+  await pool.query(migration);
+  const historical = (await sales(historic.path)).data.activation_exceptions;
+  assert.equal(historical.length, 1);
+  assert.equal(historical[0].source_audit_id, historicalAudit);
+  assert.equal(historical[0].decision_reason, '历史审批凭证');
+  assert.equal((await sales(historic.path + '/confirm', {})).status, 200);
+  assert.equal((await sales(historic.path + '/activation-exceptions', {
+    out_trade_no: historicalOrder.out_trade_no, reason: '尝试复用历史订单',
+  })).status, 409);
+
+  const original = await orderFor(lead, 'EXCEPTION-ORIGINAL');
+  const foreign = await orderFor(sibling, 'EXCEPTION-FOREIGN');
+  assert.equal((await submit(original)).status, 409);
+  assert.equal((await sales(lead.path + '/confirm', {})).status, 200);
+  assert.equal((await sales(lead.path + '/activate', {})).status, 409, 'regular VIP still requires a qualifying ¥100 payment');
+  assert.equal((await submit(original, ' ')).status, 400);
+  assert.equal((await submit(foreign)).status, 404);
+  assert.equal((await staff(endpoint, { out_trade_no: original.out_trade_no, reason: '越权账号' }, 'operations', 'cw-sales-b')).status, 404);
+
+  const unpaid = await orderFor(lead, 'EXCEPTION-UNPAID', { credit: false });
+  assert.equal((await submit(unpaid)).status, 409);
+  await pool.query("UPDATE payment_orders SET status='paid',paid_at=now(),provider_trade_no='fixture-no-ledger' WHERE id=$1",[unpaid.id]);
+  assert.equal((await submit(unpaid)).status, 409);
+
+  const first = await submit(original);
+  assert.equal(first.status, 201, JSON.stringify(first.data));
+  assert.equal((await submit(original)).status, 409);
+  assert.equal((await sales(lead.path)).data.activation_exceptions[0].status, 'pending');
+  const decision = endpoint + '/' + first.data.id + '/decision';
+  assert.equal((await sales(decision, { status: 'approved', reason: '销售禁止自审' })).status, 403);
+  assert.equal((await staff(decision, { status: 'approved', reason: '财务不是管理员' }, 'finance', 'cw-finance')).status, 403);
+  assert.equal((await staff(decision, { status: 'approved' })).status, 400);
+
+  const refundId = await transaction(pool, async db => {
+    await db.query('UPDATE payment_orders SET refunded_fen=1000 WHERE id=$1', [original.id]);
+    return (await db.query(`INSERT INTO payment_refunds(order_id,out_request_no,amount_fen,reason,requested_by,idempotency_key)
+      VALUES($1,'REF-EXCEPTION',1000,'fixture','cw-test-admin',$2) RETURNING id`,
+    [original.id, randomUUID()])).rows[0].id;
+  });
+  assert.equal((await staff(decision, { status: 'approved', reason: '退款处理中不可通过' })).status, 409);
+  assert.equal((await sales(lead.path)).data.partner.status, 'confirmed');
+  await pool.query("UPDATE payment_refunds SET status='succeeded',completed_at=now() WHERE id=$1", [refundId]);
+  assert.equal((await staff(decision, { status: 'approved', reason: '已退款不可通过' })).status, 409);
+  assert.equal((await staff(decision, { status: 'rejected', reason: '原单存在退款' })).status, 200);
+
+  const clean = await orderFor(lead, 'EXCEPTION-CLEAN');
+  const next = await submit(clean);
+  assert.equal(next.status, 201);
+  const approval = endpoint + '/' + next.data.id + '/decision';
+  const decisions = await Promise.all([1,2].map(() => staff(approval, { status: 'approved', reason: '核验普通充值已到账，批准一次性开通' })));
+  assert.deepEqual(decisions.map(d => d.status).sort(), [200,409]);
+  const detail = (await sales(lead.path)).data;
+  assert.equal(detail.partner.status, 'active');
+  assert.deepEqual(detail.activation_exceptions.map(e => e.status), ['approved', 'rejected']);
+  assert.equal(detail.activation_exceptions[0].decided_by_name, 'CW test admin');
+  assert.match(detail.activation_exceptions[0].decision_reason, /批准一次性开通/);
+  assert.equal((await submit(clean)).status, 409);
+  assert.equal((await sales(sibling.path)).data.partner.status, 'pending');
+  const evidence = (await pool.query(`SELECT action,detail FROM audit_events WHERE subject_id=$1
+     AND action IN ('cw.activation_exception_approved','cw.activated') ORDER BY id`, [lead.person.id])).rows;
+  assert.deepEqual(evidence.map(e => e.action), ['cw.activation_exception_approved','cw.activated']);
+  assert.ok(evidence.every(e => e.detail.order_id === clean.id && e.detail.exception_id === next.data.id));
+  const credits = (await pool.query("SELECT count(*)::int AS n FROM billing_ledger WHERE reference_kind='payment' AND reference_id=$1", [clean.id])).rows[0];
+  assert.equal(credits.n, 1);
+  assert.equal((await call('/api/cw/status')).data.activate_min_cash_fen, 10000);
 });

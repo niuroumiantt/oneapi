@@ -1,4 +1,4 @@
-import { qualifyingVipRecharge, rechargeFields, rechargeLedger } from './vip-recharges.mjs';
+import { qualifyingVipRecharge, rechargeFields, rechargeLedger, verifiedExceptionOrder } from './vip-recharges.mjs';
 import qrcode from 'qrcode-generator';
 import { randomInt } from 'node:crypto';
 import { HttpError, id, text, transaction, audit, vault, hasBusiness } from './core.mjs';
@@ -417,13 +417,16 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
                 ($1 OR p.owner_subject=$2) AND EXISTS (
                   SELECT 1 FROM vip_payment_discount_requests r WHERE r.partner_id=p.id AND r.status='pending'
                 ) AS discount_pending,
+                ($1 OR p.owner_subject=$2) AND EXISTS (
+                  SELECT 1 FROM vip_activation_exceptions e WHERE e.partner_id=p.id AND e.status='pending'
+                ) AS activation_exception_pending,
                 $1 OR p.owner_subject IS NOT DISTINCT FROM $2 AS can_follow,
                 CASE WHEN ($1 OR p.owner_subject=$2) AND NOT u."phoneOnly" THEN u.email END AS email
            FROM cw_partners p JOIN "user" u ON u.id=p.user_id
            LEFT JOIN vip_invite_codes i ON i.id=p.invite_code_id
            LEFT JOIN staff_members s ON s.subject=p.owner_subject
           WHERE $1 OR p.owner_subject=$2 OR ($3 AND (${financePartner}))
-          ORDER BY discount_pending DESC NULLS LAST,(p.status IN ('pending','confirmed')) DESC,p.next_contact_on ASC NULLS LAST,p.created_at DESC
+          ORDER BY activation_exception_pending DESC NULLS LAST,discount_pending DESC NULLS LAST,(p.status IN ('pending','confirmed')) DESC,p.next_contact_on ASC NULLS LAST,p.created_at DESC
           LIMIT 500`, [administrator, req.staff.subject, finance],
       ),
       pool.query(
@@ -599,6 +602,17 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
            LEFT JOIN vip_task_codes c ON c.id=r.issued_code_id
           WHERE r.partner_id=$1 ORDER BY (r.status='pending') DESC,r.created_at DESC,r.id DESC LIMIT 30`, [pid],
       )).rows : [];
+      const activationExceptions = follow ? (await db.query(
+        `SELECT e.id,e.status,e.request_reason,e.decision_reason,e.created_at,e.decided_at,e.source_audit_id,
+                s.name AS requested_by_name,d.name AS decided_by_name,o.id AS order_id,o.out_trade_no,o.amount_fen::text,o.face_fen::text,
+                o.status AS order_status,o.refunded_fen::text,l.created_at AS credited_at,
+                EXISTS(SELECT 1 FROM payment_refunds r WHERE r.order_id=o.id AND r.status IN ('pending','succeeded')) AS refund
+           FROM vip_activation_exceptions e JOIN cw_partners p ON p.id=e.partner_id
+           JOIN payment_orders o ON o.id=e.order_id ${rechargeLedger}
+           LEFT JOIN staff_members s ON s.subject=e.requested_by LEFT JOIN staff_members d ON d.subject=e.decided_by
+          WHERE e.partner_id=$1 ORDER BY (e.status='pending') DESC,e.created_at DESC,e.id DESC LIMIT 50`,
+        [pid],
+      )).rows : [];
       const recharges = follow ? (await db.query(
         `SELECT ${rechargeFields}
            FROM cw_partners p JOIN billing_accounts a ON a.owner_id=p.user_id
@@ -623,6 +637,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         task_codes: taskCodes,
         discount_requests: discountRequests,
         recharges,
+        activation_exceptions: activationExceptions,
         discount_payments: recharges.filter((order) => order.vip_payment),
         activate_min_cash_fen: VIP_ACTIVATE_MIN_CASH_FEN,
         can_activate: p.status === 'confirmed' && Boolean(qualifying),
@@ -707,6 +722,71 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       return paid;
     });
     res.json({ ok: true, payment: result });
+  });
+
+  app.post('/api/staff/cw/:partner/activation-exceptions', requireStaff, async (req, res) => {
+    business(req);
+    const pid = id(req.params.partner);
+    const merchantOrder = text(req.body?.out_trade_no, '商户订单号', 64);
+    const reason = text(req.body?.reason, '申请原因', 500);
+    const request = await transaction(pool, async (db) => {
+      const p = await ownedPartner(db, pid, req.staff);
+      if (p.status !== 'confirmed') throw new HttpError(409, '只有已通过面试、待开通的客户可以申请原单特批');
+      const order = await verifiedExceptionOrder(db, p.user_id, merchantOrder);
+      const existing = (await db.query(
+        "SELECT 1 FROM vip_activation_exceptions WHERE order_id=$1", [order.id],
+      )).rowCount || (await db.query(
+        "SELECT 1 FROM audit_events WHERE action='cw.activated' AND subject_id=$1 AND detail->>'order_id'=$2 LIMIT 1",
+        [pid, order.id],
+      )).rowCount;
+      if (existing) throw new HttpError(409, '该原单已用于开通或提交过特批');
+      const row = (await db.query(
+        `INSERT INTO vip_activation_exceptions(partner_id,order_id,request_reason,requested_by)
+         VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING id,status`, [pid, order.id, reason, req.staff.subject],
+      )).rows[0];
+      if (!row) throw new HttpError(409, '该客户已有待审批的原单特批');
+      await audit(db, req.actor, 'cw.activation_exception_requested', null, pid, {
+        exception_id: row.id, order_id: order.id, out_trade_no: order.out_trade_no, amount_fen: order.amount_fen, reason,
+      });
+      return row;
+    });
+    res.status(201).json(request);
+  });
+
+  app.post('/api/staff/cw/:partner/activation-exceptions/:request/decision', requireStaff, async (req, res) => {
+    admin(req);
+    const pid = id(req.params.partner), rid = id(req.params.request), state = req.body?.status;
+    if (!['approved', 'rejected'].includes(state)) throw new HttpError(400, '审批结果不正确');
+    const reason = text(req.body?.reason, '审批原因', 500);
+    await transaction(pool, async (db) => {
+      if (!(await db.query(
+        "SELECT subject FROM staff_members WHERE subject=$1 AND role='platform_admin' AND status='active' FOR SHARE",
+        [req.staff.subject],
+      )).rowCount) throw new HttpError(403, '需要管理员权限');
+      const p = await ownedPartner(db, pid, req.staff);
+      const request = (await db.query(
+        `SELECT e.status,e.order_id,o.out_trade_no FROM vip_activation_exceptions e
+         JOIN payment_orders o ON o.id=e.order_id WHERE e.id=$1 AND e.partner_id=$2 FOR UPDATE OF e`, [rid, pid],
+      )).rows[0];
+      if (!request) throw new HttpError(404, '原单特批不存在');
+      if (request.status !== 'pending') throw new HttpError(409, '该特批已处理');
+      const evidence = { exception_id: rid, order_id: request.order_id, out_trade_no: request.out_trade_no, reason };
+      if (state === 'approved') {
+        if (p.status !== 'confirmed') throw new HttpError(409, '当前客户状态不可特批开通');
+        const paid = await verifiedExceptionOrder(db, p.user_id, request.out_trade_no);
+        if (paid.id !== request.order_id) throw new HttpError(409, '原单关联已变化，请重新核对');
+        evidence.amount_fen = paid.amount_fen;
+        evidence.credited_at = paid.credited_at;
+        await db.query("UPDATE cw_partners SET status='active',activated_at=now() WHERE id=$1", [pid]);
+      }
+      await db.query(
+        'UPDATE vip_activation_exceptions SET status=$2,decided_by=$3,decided_at=now(),decision_reason=$4 WHERE id=$1',
+        [rid, state, req.staff.subject, reason],
+      );
+      await audit(db, req.actor, 'cw.activation_exception_' + state, null, pid, evidence);
+      if (state === 'approved') await audit(db, req.actor, 'cw.activated', null, pid, evidence);
+    });
+    res.json({ ok: true });
   });
 
   // The default payment code is bound to the applicant. A retry returns the current code.

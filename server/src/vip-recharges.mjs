@@ -1,4 +1,4 @@
-import { audit } from './core.mjs';
+import { HttpError, audit } from './core.mjs';
 import { VIP_ACTIVATE_MIN_CASH_FEN } from './cw-ledger.mjs';
 
 // Classify by the snapshot at purchase time. An expired or replaced code stays visible on the original order.
@@ -21,6 +21,29 @@ export async function qualifyingVipRecharge(db, partnerId) {
       ORDER BY o.paid_at DESC,o.id DESC LIMIT 1`,
     [partnerId, VIP_ACTIVATE_MIN_CASH_FEN],
   )).rows[0];
+}
+
+export async function verifiedExceptionOrder(db, userId, orderNumber) {
+  const order = (await db.query(
+    `SELECT o.id,o.out_trade_no,o.status,o.amount_fen::text,o.face_fen::text,o.refunded_fen::text,
+            o.account_id,o.paid_at,o.provider_trade_no
+       FROM payment_orders o JOIN billing_accounts a ON a.id=o.account_id
+      WHERE a.owner_id=$1 AND o.out_trade_no=$2
+      FOR UPDATE OF o`, [userId, orderNumber],
+  )).rows[0];
+  if (!order) throw new HttpError(404, '找不到该原单，或该订单未充值到此客户的个人账户');
+  const proof = (await db.query(
+    `SELECT (SELECT l.created_at FROM billing_ledger l
+               WHERE l.account_id=$1 AND l.reference_kind='payment' AND l.reference_id=$2
+                 AND l.kind='recharge' AND l.amount_fen=$3) AS credited_at,
+            EXISTS(SELECT 1 FROM payment_refunds r WHERE r.order_id=$2::uuid AND r.status IN ('pending','succeeded')) AS refund`,
+    [order.account_id, order.id, order.amount_fen],
+  )).rows[0];
+  if (order.status !== 'paid' || !order.paid_at || !order.provider_trade_no || !proof.credited_at)
+    throw new HttpError(409, '原单尚未核实到账，请先核对支付和入账记录');
+  if (order.refunded_fen !== '0' || proof.refund)
+    throw new HttpError(409, '原单已退款或正在退款，不能用于特批');
+  return { ...order, credited_at: proof.credited_at };
 }
 
 const money = (fen) => '¥' + (Number(fen) / 100).toFixed(2);

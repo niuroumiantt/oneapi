@@ -264,7 +264,7 @@
   }
   function drawSalesList(c) {
     const stageOptions = [
-      ['', '全部状态'], ['due', '到期需跟进'], ['discount', '付款折扣待特批'], ['pending', '待电话面试'],
+      ['', '全部状态'], ['due', '到期需跟进'], ['activation-exception', '原单开通待特批'], ['discount', '付款折扣待特批'], ['pending', '待电话面试'],
       ['confirmed', '面试通过，待开通'], ['active', '正式 VIP'], ['suspended', '已暂停'], ['rejected', '未通过'],
     ];
     if (data.administrator) stageOptions.splice(2, 0, ['unassigned', '待分配']);
@@ -279,7 +279,8 @@
       if (stage === 'due' && !(p.next_contact_on && p.next_contact_on <= today)) return false;
       if (stage === 'unassigned' && p.owner_subject) return false;
       if (stage === 'discount' && !p.discount_pending) return false;
-      if (stage && !['due', 'unassigned', 'discount', 'finance'].includes(stage) && p.status !== stage) return false;
+      if (stage === 'activation-exception' && !p.activation_exception_pending) return false;
+      if (stage && !['due', 'unassigned', 'discount', 'activation-exception', 'finance'].includes(stage) && p.status !== stage) return false;
       return !query || [p.legal_name, p.public_code, p.invite_code, p.email, p.owner_name]
         .some((value) => String(value || '').toLowerCase().includes(query));
     });
@@ -301,7 +302,8 @@
       ${partners.length ? '<div class="cw-sales-table">' + table(['客户／VIP 编号', '来源邀请码', '负责销售', '申请状态', '下次联系'], partners.map((p) => `<tr>
         <td><button class="cw-lead-link" data-partner="${esc(p.id)}" aria-label="打开 ${esc(p.legal_name)} 的档案">${esc(p.legal_name)}</button><small>${esc(p.public_code)}${p.email ? ' · ' + esc(p.email) : ''}</small></td>
         <td>${esc(p.invite_code || '—')}</td><td>${esc(p.owner_name || '待分配')}</td>
-        <td>${esc(labels[p.status] || p.status)}${p.discount_pending ? '<small class="cw-status">付款折扣待特批</small>' : ''}</td>
+        <td>${esc(labels[p.status] || p.status)}${p.activation_exception_pending ? '<small class="cw-status">原单开通待特批</small>' : ''}
+          ${p.discount_pending ? '<small class="cw-status">付款折扣待特批</small>' : ''}</td>
         <td>${p.next_contact_on ? `<time datetime="${esc(p.next_contact_on)}">${esc(p.next_contact_on)}</time>` : '—'}</td>
       </tr>`).join('')) + '</div>' : `<p class="cw-muted">${query || stage || salesPartners.length ? '暂无符合条件的 VIP 客户。' : '已有邀请码带来的申请会显示在这里。'}</p>`}`;
   }
@@ -342,6 +344,42 @@
         field('next_contact_on', '下次联系日期（留空清除）', 'date', `value="${esc(p.next_contact_on || '')}"`, false),
         '保存跟进')}</details>
       ${notes ? `<ol class="cw-followup-list">${notes}</ol>` : '<p class="cw-muted">还没有跟进记录。</p>'}
+    </section>`;
+  }
+  function activationExceptions(d) {
+    const p = d.partner;
+    const requests = d.activation_exceptions || [];
+    const pending = requests.find((r) => r.status === 'pending');
+    const history = requests.filter((r) => r.status !== 'pending');
+    if (p.status !== 'confirmed' && !requests.length) return '';
+    const orderNumber = orderLookup?.partner_id === p.id ? orderLookup.out_trade_no : '';
+    const refundBlocked = pending?.refund || Number(pending?.refunded_fen) > 0;
+    const credited = pending?.order_status === 'paid' && pending?.credited_at;
+    const eligible = p.status === 'confirmed' && credited && !refundBlocked;
+    return `<section class="cw-sales-section" aria-labelledby="vip-order-exceptions">
+      <h3 id="vip-order-exceptions">原单特批开通</h3>
+      ${pending ? `<p><strong>待管理员审批</strong> · ${esc(pending.out_trade_no)} · 实付 ${money(pending.amount_fen)}</p>
+        <p>申请原因：${esc(pending.request_reason)}</p>
+        <p class="cw-muted">${esc(pending.requested_by_name)} · ${when(pending.created_at)} ·
+          ${credited ? '已到账 ' + when(pending.credited_at) : '待核对入账'} · ${refundBlocked ? '已退款或退款处理中' : '无退款记录'}</p>
+        ${data.administrator ? `<form class="cw-form" data-action="activation-exception-decision">
+          <input type="hidden" name="request_id" value="${esc(pending.id)}">
+          <label>审批原因<textarea name="reason" maxlength="500" rows="3" required></textarea></label>
+          <div class="cw-inline">
+            <button type="submit" name="decision" value="approved"${eligible ? '' : ' disabled'}>批准并开通 VIP</button>
+            <button type="submit" name="decision" value="rejected">退回特批</button>
+          </div>
+        </form>` : ''}`
+        : p.status === 'confirmed' ? `<details><summary>提交原单特批</summary>
+          <p>填写本客户已到账、未退款的商户订单号。审批通过后，客户可凭原付款开通。</p>
+          ${form('activation-exception', field('out_trade_no', '特批商户订单号', 'text', `maxlength="64" value="${esc(orderNumber)}"`) +
+            '<label>申请原因<textarea name="reason" maxlength="500" rows="3" required></textarea></label>', '提交原单特批')}</details>` : ''}
+      ${history.length ? table(['原单／实付', '申请人／原因', '结果', '审批人／时间', '审批原因'], history.map((r) =>
+        `<tr><td>${esc(r.out_trade_no)}<small>${money(r.amount_fen)}</small></td>
+          <td>${r.source_audit_id ? '历史运维特批' : esc(r.requested_by_name) + '<small>' + esc(r.request_reason) + '</small>'}</td>
+          <td>${r.status === 'approved' ? '已批准' : '已退回'}</td>
+          <td>${r.source_audit_id ? '历史审计 #' + esc(r.source_audit_id) : esc(r.decided_by_name)}<small>${when(r.decided_at)}</small></td>
+          <td>${esc(r.decision_reason)}</td></tr>`).join('')) : ''}
     </section>`;
   }
   function staffPaymentCodes(d) {
@@ -388,7 +426,7 @@
     if (tab === 'manage') {
       if (d.can_follow) {
         const contact = `<div class="cw-contact-box"><p><b>申请人联系方式</b></p><div id="contact-details" aria-live="polite"><p class="cw-muted">查看操作会记入审计。</p></div>${form('contact', field('reason', '查看原因', 'text', p.status === 'pending' ? 'value="电话面试" maxlength="200"' : 'maxlength="200"'), '查看联系方式')}</div>`;
-        c.innerHTML += `${rechargeHistory(d)}${staffPaymentCodes(d)}${contact}
+        c.innerHTML += `${rechargeHistory(d)}${activationExceptions(d)}${staffPaymentCodes(d)}${contact}
           ${p.status === 'pending' ? `<button data-confirm="${p.id}">确认面试通过</button>` : ''}
           ${salesFollowups(d)}`;
       }
@@ -578,6 +616,13 @@
       if (action === 'task-code') {
         path = base + '/' + selected + '/task-code';
       }
+      if (action === 'activation-exception') {
+        path = base + '/' + selected + '/activation-exceptions';
+      }
+      if (action === 'activation-exception-decision') {
+        path = base + '/' + selected + '/activation-exceptions/' + encodeURIComponent(b.request_id) + '/decision';
+        body = { status: submit.value, reason: b.reason };
+      }
       if (action === 'discount-request') {
         path = base + '/' + selected + '/discount-requests';
         body = { customer_price_percent: Number(b.customer_price_percent), reason: b.reason };
@@ -630,7 +675,9 @@
       }
       await api(path, body);
       await load();
-      $('#cw-message').textContent = '已保存。';
+      $('#cw-message').textContent = action === 'activation-exception' ? '原单特批已提交，等待管理员审批。'
+        : action === 'activation-exception-decision' ? (submit.value === 'approved' ? '已按原单特批开通 VIP。' : '原单特批已退回。')
+        : '已保存。';
     } catch (err) {
       $('#cw-message').textContent = err.message;
     } finally {
