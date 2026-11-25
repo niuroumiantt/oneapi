@@ -1,3 +1,4 @@
+import {queueVipRechargeNotice} from './vip-recharges.mjs';
 import {creditCW,refundCW} from './cw-ledger.mjs';
 import {syncWechatBill} from './wechat-bills.mjs';
 import {syncAlipayBill,billDay} from './alipay-bills.mjs';
@@ -36,7 +37,7 @@ function orderView(o){
 // Single place where a confirmed payment becomes money. Row lock + ledger unique key make
 // repeated notifies, queries and TRADE_FINISHED-after-TRADE_SUCCESS credit exactly once.
 // `provider` must match the order's own channel, so one channel's result never pays another's order.
-export async function creditPaidOrder(pool,outTradeNoValue,{provider,tradeNo,totalFen},source){
+export async function creditPaidOrder(pool,outTradeNoValue,{provider,tradeNo,totalFen},source,notifyVip){
  return transaction(pool,async db=>{
   const o=(await db.query('SELECT * FROM payment_orders WHERE out_trade_no=$1 FOR UPDATE',[outTradeNoValue])).rows[0];
   if(!o)throw Error('PAYMENT_ORDER_UNKNOWN');
@@ -53,6 +54,15 @@ export async function creditPaidOrder(pool,outTradeNoValue,{provider,tradeNo,tot
   // activates via POST /api/staff/cw/:partner/activate.
   const order=(await db.query("UPDATE payment_orders SET status='paid',provider_trade_no=$2,paid_at=now(),updated_at=now() WHERE id=$1 RETURNING *",[o.id,tradeNo])).rows[0];
   await audit(db,{kind:'system',id:source},`billing.recharge.${CHANNELS[provider].audit}_paid`,account.organization_id,o.id,{amount_fen:String(o.amount_fen),face_fen:String(o.face_fen),provider_trade_no:tradeNo});
+  if(notifyVip){
+   await db.query('SAVEPOINT vip_recharge_notice');
+   try{await notifyVip(db,order);}
+   catch{
+    await db.query('ROLLBACK TO SAVEPOINT vip_recharge_notice');
+    console.error(JSON.stringify({event:'vip_recharge_notice_failed',order_id:order.id}));
+   }
+   await db.query('RELEASE SAVEPOINT vip_recharge_notice');
+  }
   return {order,credited:true};
  });
 }
@@ -130,6 +140,9 @@ function gateways(cfg,{alipay,wechat}){
 }
 
 export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
+ const notifyVip=cfg.cw?.enabled&&clients.mail?.ready
+  ? (db,order)=>queueVipRechargeNotice(db,{cfg,mail:clients.mail,order})
+  : undefined;
  const gw=gateways(cfg,clients);
  const allowed=(customer,provider)=>Boolean(gw[provider])&&
   (provider!=='wechat_native'||!cfg.wechat?.pilotEnabled||cfg.wechat.allowedEmails?.has(customer.email.toLowerCase()))&&(!gw[provider].allowedEmails?.size||gw[provider].allowedEmails.has(customer.email.toLowerCase()));
@@ -187,7 +200,7 @@ export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
   if(order.status==='pending'&&gw[order.provider]){
    try{
     const r=await gw[order.provider].check(order);
-    if(r.paid)order=(await creditPaidOrder(pool,order.out_trade_no,{provider:order.provider,...r.paid},CHANNELS[order.provider].audit+'-query')).order;
+    if(r.paid)order=(await creditPaidOrder(pool,order.out_trade_no,{provider:order.provider,...r.paid},CHANNELS[order.provider].audit+'-query',notifyVip)).order;
     else if(r.closed)await closeOrder(pool,order.out_trade_no,order.provider);
    }catch(e){console.error(JSON.stringify({event:'payment_query_failed',provider:order.provider,code:e.message}));}
    order=(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[order.id])).rows[0];
@@ -205,7 +218,7 @@ export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
   if(!alipay||!alipay.verifyNotify(p)){console.error(JSON.stringify({event:'alipay_notify_rejected',reason:'signature'}));return reply(false);}
   if(p.app_id!==alipay.appId||(alipay.sellerId&&p.seller_id!==alipay.sellerId)){console.error(JSON.stringify({event:'alipay_notify_rejected',reason:'merchant'}));return reply(false);}
   try{
-   if(PAID.has(p.trade_status))await creditPaidOrder(pool,p.out_trade_no,{provider:'alipay_f2f',tradeNo:p.trade_no,totalFen:yuanToFen(p.total_amount)},'alipay-notify');
+   if(PAID.has(p.trade_status))await creditPaidOrder(pool,p.out_trade_no,{provider:'alipay_f2f',tradeNo:p.trade_no,totalFen:yuanToFen(p.total_amount)},'alipay-notify',notifyVip);
    else if(p.trade_status==='TRADE_CLOSED')await closeOrder(pool,p.out_trade_no,'alipay_f2f');
   }catch(e){console.error(JSON.stringify({event:'alipay_notify_failed',code:e.message}));return reply(false);}
   reply(true);
@@ -220,7 +233,7 @@ export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
   const r=n.resource;
   if(r.mchid!==wechat.mchId||(r.appid!==undefined&&r.appid!==wechat.appId))return fail('merchant');
   try{
-   if(n.event_type==='TRANSACTION.SUCCESS'&&WECHAT_PAID.has(r.trade_state))await creditPaidOrder(pool,r.out_trade_no,{provider:'wechat_native',tradeNo:r.transaction_id,totalFen:r.amount?.total},'wechat-notify');
+   if(n.event_type==='TRANSACTION.SUCCESS'&&WECHAT_PAID.has(r.trade_state))await creditPaidOrder(pool,r.out_trade_no,{provider:'wechat_native',tradeNo:r.transaction_id,totalFen:r.amount?.total},'wechat-notify',notifyVip);
    else if(n.event_type?.startsWith('REFUND.')){
     const refund=(await pool.query("SELECT r.id FROM payment_refunds r JOIN payment_orders o ON o.id=r.order_id WHERE r.out_request_no=$1 AND o.out_trade_no=$2 AND o.provider='wechat_native'",[r.out_refund_no,r.out_trade_no])).rows[0];
     if(refund&&r.refund_status==='SUCCESS')await finishRefund(pool,refund.id,{outcome:'succeeded'},'wechat-refund-notify');

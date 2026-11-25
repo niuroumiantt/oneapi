@@ -33,6 +33,7 @@
     selected = staff ? requestedPartner : null,
     tab = selected ? 'manage' : 'overview',
     salesFilter = { query: '', stage: '' },
+    orderLookup = null,
     offset = 0,
     filter = '',
     requestKey = crypto.randomUUID();
@@ -136,7 +137,8 @@
       let unavailable = false;
       if (staff && partnerId) {
         try {
-          result.detail = await api(base + '/' + partnerId);
+          const order = orderLookup?.partner_id === partnerId ? '?order=' + encodeURIComponent(orderLookup.out_trade_no) : '';
+          result.detail = await api(base + '/' + partnerId + order);
         } catch (error) {
           if (error.status !== 404) throw error;
           if (version !== loadVersion) return;
@@ -239,6 +241,27 @@
     else url.searchParams.delete('partner');
     history.replaceState(history.state, '', url);
   }
+  function rechargeTable(orders) {
+    return table(['商户订单号／渠道', '充值类型', '实付／到账额度', '退款（含处理中）', '状态', '下单／入账时间'], orders.map((o) => {
+      const channel = o.provider === 'wechat_native' ? '微信支付' : '支付宝';
+      const status = o.credited_at ? '已到账' : o.status === 'paid' ? '已支付，待核对入账' : o.status === 'pending' ? '待支付' : '已关闭';
+      return `<tr><td><strong>${esc(o.out_trade_no)}</strong><small>${channel}</small></td>
+        <td>${o.vip_payment ? 'VIP 付款码' : '普通充值'}${o.promo_code ? '<small>' + esc(o.promo_code) + '</small>' : ''}</td>
+        <td>${money(o.amount_fen)} / ${money(o.face_fen)}</td>
+        <td>${Number(o.refunded_fen) > 0 ? money(o.refunded_fen) : '—'}</td>
+        <td>${status}</td><td>${when(o.created_at)}${o.credited_at ? '<small>入账 ' + when(o.credited_at) + '</small>' : ''}</td></tr>`;
+    }).join(''));
+  }
+  function rechargeHistory(d) {
+    const orders = d.recharges || [];
+    const matched = orderLookup?.partner_id === d.partner.id ? orders.find((o) => o.id === orderLookup.id) : null;
+    const rows = matched ? [matched, ...orders.filter((o) => o.id !== matched.id)] : orders;
+    return `<section class="cw-sales-section cw-recharge-history" aria-labelledby="vip-recharge-history">
+      <h3 id="vip-recharge-history" tabindex="-1">充值记录</h3>
+      ${matched ? `<p class="cw-callout">已定位原单 ${esc(matched.out_trade_no)}，显示在第一行。</p>` : ''}
+      ${rows.length ? rechargeTable(rows) : '<p class="cw-muted">该客户暂无在线充值订单。</p>'}
+    </section>`;
+  }
   function drawSalesList(c) {
     const stageOptions = [
       ['', '全部状态'], ['due', '到期需跟进'], ['discount', '付款折扣待特批'], ['pending', '待电话面试'],
@@ -261,6 +284,15 @@
         .some((value) => String(value || '').toLowerCase().includes(query));
     });
     c.innerHTML = `<h2>${stage === 'finance' ? '财务结算客户' : data.administrator ? '全部 VIP 客户' : '我的 VIP 客户'}</h2>
+      <form class="cw-order-lookup" data-action="order-lookup">
+        ${field('out_trade_no', '商户订单号', 'search', `value="${esc(orderLookup?.out_trade_no || '')}" maxlength="64"`)}
+        <button type="submit">按订单查客户</button>
+      </form>
+      ${data.administrator && orderLookup && !orderLookup.partner_id ? `<section aria-labelledby="vip-order-result">
+        <h3 id="vip-order-result" tabindex="-1">订单归属 · ${esc(orderLookup.account_name)}</h3>
+        <p>${orderLookup.account_kind === 'organization' ? '企业账户' : '个人账户'} · 未关联 VIP 申请</p>
+        ${rechargeTable([orderLookup])}
+      </section>` : ''}
       <form class="cw-sales-filters" data-action="sales-filter">
         ${field('query', '搜索客户或邀请码', 'search', `value="${esc(salesFilter.query)}" maxlength="120"`, false)}
         <label>状态<select name="stage">${stageOptions.map(([value, label]) => `<option value="${value}"${value === stage ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
@@ -340,11 +372,6 @@
       ${recent ? `<p class="cw-muted">上次申请 ${discount(recent.customer_price_percent)} · ${recent.status === 'approved' ? '已批准' : '已退回'} · ${when(recent.decided_at)}${recent.decision_note ? ' · ' + esc(recent.decision_note) : ''}</p>` : ''}
       ${d.task_codes?.length > 1 ? `<details><summary>历史付款码</summary>${table(['付款码', '折扣', '状态', '发放时间'], d.task_codes.map((k) =>
         `<tr><td>${esc(k.code)}</td><td>${discount(k.customer_price_percent)}</td><td>${k.usable ? '可用' : '已失效'}</td><td>${when(k.created_at)}</td></tr>`).join(''))}</details>` : ''}
-      <h4>付款码充值记录</h4>
-      ${d.discount_payments?.length ? table(['付款单', '付款码', '实付／官价额度', '状态', '付款时间'],
-         d.discount_payments.map((o) => `<tr><td>${esc(o.out_trade_no)}</td><td>${esc(o.promo_code || '—')}</td>
-         <td>${money(o.amount_fen)} / ${money(o.face_fen)}</td><td>${o.status === 'paid' ? '已支付' : esc(o.status)}</td><td>${when(o.paid_at)}</td></tr>`).join(''))
-         : '<p class="cw-muted">暂无通过付款码完成的充值。</p>'}
       ${p.status === 'confirmed' ? `<button data-activate="${p.id}"${d.can_activate ? '' : ' disabled'}>${d.can_activate ? '确认正式 VIP' : '待单笔实付满 ¥' + ((d.activate_min_cash_fen || 10000) / 100).toFixed(0)}</button>` : ''}
     </section>`;
   }
@@ -361,7 +388,7 @@
     if (tab === 'manage') {
       if (d.can_follow) {
         const contact = `<div class="cw-contact-box"><p><b>申请人联系方式</b></p><div id="contact-details" aria-live="polite"><p class="cw-muted">查看操作会记入审计。</p></div>${form('contact', field('reason', '查看原因', 'text', p.status === 'pending' ? 'value="电话面试" maxlength="200"' : 'maxlength="200"'), '查看联系方式')}</div>`;
-        c.innerHTML += `${staffPaymentCodes(d)}${contact}
+        c.innerHTML += `${rechargeHistory(d)}${staffPaymentCodes(d)}${contact}
           ${p.status === 'pending' ? `<button data-confirm="${p.id}">确认面试通过</button>` : ''}
           ${salesFollowups(d)}`;
       }
@@ -376,7 +403,10 @@
     try {
       if (b.dataset.tab) {
         tab = b.dataset.tab;
-        if (staff && ['overview','invite-codes'].includes(tab)) setSelected(null);
+        if (staff && ['overview','invite-codes'].includes(tab)) {
+          setSelected(null);
+          orderLookup = null;
+        }
         await draw();
         $('#cw-content').scrollTop = 0;
       } else if (b.id === 'refresh' || b.hasAttribute('data-refresh-status')) await load();
@@ -501,6 +531,21 @@
     try {
       let path,
         body = b;
+      if (action === 'order-lookup') {
+        const result = await api(base + '/order-lookup?out_trade_no=' + encodeURIComponent(b.out_trade_no.trim()));
+        if (!f.isConnected) return;
+        orderLookup = result.order;
+        if (orderLookup.partner_id) {
+          setSelected(orderLookup.partner_id);
+          tab = 'manage';
+          await load();
+          $('#vip-recharge-history')?.focus();
+        } else {
+          drawSalesList($('#cw-content'));
+          $('#vip-order-result')?.focus();
+        }
+        return;
+      }
       if (action === 'sales-filter') {
         salesFilter = { query: b.query.trim(), stage: b.stage };
         drawSalesList($('#cw-content'));

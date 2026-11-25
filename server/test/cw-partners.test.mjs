@@ -13,8 +13,10 @@ import { creditPaidOrder, paymentRoutes } from '../src/payments.mjs';
 import { refundCW, commissionFen } from '../src/cw-ledger.mjs';
 const url = process.env.TEST_CW_DATABASE_URL;
 let pool, server, origin, cfg;
-const ids = { a: randomUUID(), b: randomUUID(), buyer: randomUUID(), candidate: randomUUID(), lead: randomUUID(), legacy: randomUUID() };
-const notifications = [];
+const ids = { a: randomUUID(), b: randomUUID(), buyer: randomUUID(), candidate: randomUUID(), lead: randomUUID(), legacy: randomUUID(), triage: randomUUID(), triageOther: randomUUID() };
+const notifications = [], paymentNotices = [];
+const mockWechatTrades = new Map();
+let failPaymentNotice = false;
 const skip = !url;
 before(async () => {
   if (skip) return;
@@ -25,6 +27,7 @@ before(async () => {
     DATABASE_URL: url,
     BETTER_AUTH_SECRET: 'cw-local-integration-secret-not-production-12345',
     CW_ENABLED: 'true',
+    CW_PAYMENT_NOTICE_EMAIL: 'admin@cw.example.test',
   });
   const service = createApp(pool, cfg, { sendMail: async () => ({}), verify: async () => true });
   await migrate(pool, service.auth);
@@ -70,7 +73,20 @@ before(async () => {
     },
   });
   paymentRoutes(app, pool, customer, cfg, {
-    wechat: { native: async () => ({ status: 200, data: { code_url: 'weixin://local-test-only' } }) },
+    wechat: {
+      mchId: 'test-merchant', appId: 'test-app',
+      native: async () => ({ status: 200, data: { code_url: 'weixin://local-test-only' } }),
+      query: async (number) => ({ status: 200, data: {
+        out_trade_no: number, mchid: 'test-merchant', appid: 'test-app',
+        ...(mockWechatTrades.has(number) ? { trade_state: 'SUCCESS', transaction_id: 'test-' + number,
+          amount: { total: mockWechatTrades.get(number) } } : { trade_state: 'NOTPAY' }),
+      } }),
+    },
+    mail: { ready: true, queue: async (message, db) => {
+      assert.notEqual(db, pool);
+      if (failPaymentNotice) throw Error('temporary mail queue failure');
+      paymentNotices.push(message);
+    } },
   });
   app.use((e, _req, res, _next) => res.status(e.status || 500).json({ error: e.message }));
   server = app.listen(0, '127.0.0.1');
@@ -703,4 +719,88 @@ test('VIP invitation ownership, scoped leads, manager notifications and reassign
 
   assert.equal((await a('/invite-codes/SALESA/status', { status: 'disabled' })).status, 200);
   assert.equal((await a('/invite-codes/SALESA/status', { status: 'active' })).status, 200);
+});
+
+test('VIP order lookup and recharge history reconcile ordinary and VIP payments and notify only once', { skip }, async () => {
+  const sales = (path, body) => staff(path, body, 'operations', 'cw-sales-a');
+  const otherSales = (path) => staff(path, null, 'operations', 'cw-sales-b');
+  assert.equal((await sales('/invite-codes', { code: 'TRIAGEA' })).status, 201);
+  const application = await call('/api/cw/apply', {
+    legal_name: 'Order fixture', contact: 'test-contact-not-for-email', invite_code: 'TRIAGEA', consent_version: 'cw-privacy-v1',
+  }, 'triage');
+  assert.equal(application.status, 201);
+  const partner = '/' + application.data.partner.id;
+  const lookup = (number) => '/order-lookup?out_trade_no=' + encodeURIComponent(number);
+  const account = (await pool.query('INSERT INTO billing_accounts(owner_id) VALUES($1) RETURNING *', [ids.triage])).rows[0];
+  const payer = (await pool.query('INSERT INTO billing_accounts(owner_id) VALUES($1) RETURNING *', [ids.triageOther])).rows[0];
+  await pool.query('SELECT ensure_customers()');
+  await pool.query(`INSERT INTO discount_grants(name,audience,customer_id,customer_price_percent,starts_at,ends_at,reason,status,created_by,promo_code)
+    SELECT 'Triage fixture','customer',c.id,50,now()-interval '1 hour',now()+interval '1 day','test','active','cw-test-admin','TRIAGE50'
+    FROM customers c WHERE c.user_id=$1`, [ids.triage]);
+  const makeOrder = async (number, userId, billing, cash, code = '') => {
+    const q = await transaction(pool, db => quotePack(db, billing, cash, code, { cashFen: cash, buyerId: userId, cwEnabled: true }));
+    return (await pool.query(`INSERT INTO payment_orders(out_trade_no,account_id,created_by,provider,amount_fen,face_fen,discount_snapshot,idempotency_key,expires_at)
+       VALUES($1,$2,$3,'wechat_native',$4,$5,$6,$7,now()+interval '15 minutes') RETURNING *`,
+    [number, billing.id, userId, q.amount_fen, q.face_fen, q.discount_snapshot, randomUUID()])).rows[0];
+  };
+  const refresh = (order, login = 'triage') => call('/api/billing/payment-orders/' + order.id, null, login);
+  const start = paymentNotices.length;
+  const ordinary = await makeOrder('TRIAGE-ORDINARY', ids.triage, account, 10000, 'TRIAGE50');
+  assert.equal((await sales(lookup(ordinary.out_trade_no))).data.order.status, 'pending');
+  mockWechatTrades.set(ordinary.out_trade_no, 10000);
+  const polled = await Promise.all([refresh(ordinary), refresh(ordinary)]);
+  assert.ok(polled.every(r => r.data.order.status === 'paid'));
+  const ordinaryMail = paymentNotices.slice(start);
+  assert.deepEqual(ordinaryMail.map(m => m.to).sort(), ['admin@cw.example.test', 'sales-a@cw.example.test']);
+  for (const mail of ordinaryMail) {
+    assert.match(mail.text, /TRIAGE-ORDINARY/);
+    assert.match(mail.text, /普通充值/);
+    assert.doesNotMatch(mail.text, /test-contact-not-for-email/);
+  }
+  assert.equal((await sales('/' + application.data.partner.id)).data.recharges[0].vip_payment, false);
+  assert.equal((await otherSales(lookup(ordinary.out_trade_no))).status, 404);
+  assert.equal((await sales(partner + '/confirm', {})).status, 200);
+  assert.equal((await sales(partner)).data.can_activate, false);
+  const found = (await sales(lookup(ordinary.out_trade_no))).data.order;
+  assert.equal(found.partner_id, application.data.partner.id);
+  assert.equal(found.promo_code, 'TRIAGE50');
+  assert.ok(found.credited_at);
+
+  const issued = await sales(partner + '/task-code', {});
+  assert.equal(issued.status, 201);
+  const vip = await makeOrder('TRIAGE-VIP', ids.triage, account, 10000, issued.data.code);
+  mockWechatTrades.set(vip.out_trade_no, 10000);
+  assert.equal((await refresh(vip)).data.order.status, 'paid');
+  await refresh(vip);
+  assert.equal(paymentNotices.length - start, 4);
+  assert.ok(paymentNotices.slice(start + 2).every(m => m.text.includes('VIP 付款码')));
+  const detail = (await sales(partner + '?order=TRIAGE-ORDINARY')).data;
+  assert.equal(detail.can_activate, true);
+  assert.deepEqual(detail.recharges.map(o => o.vip_payment), [false, true]);
+  const queued = (await pool.query(`SELECT count(*)::int AS count FROM audit_events
+    WHERE action='cw.recharge_notice_queued' AND subject_id IN ($1,$2)`, [ordinary.id, vip.id])).rows[0].count;
+  assert.equal(queued, 2);
+
+  const unmatched = await makeOrder('TRIAGE-NON-VIP', ids.triageOther, payer, 500);
+  mockWechatTrades.set(unmatched.out_trade_no, 500);
+  assert.equal((await refresh(unmatched, 'triageOther')).data.order.status, 'paid');
+  assert.equal((await staff(lookup(unmatched.out_trade_no))).data.order.partner_id, null);
+  assert.equal((await sales(lookup(unmatched.out_trade_no))).status, 404);
+  assert.equal(paymentNotices.length - start, 4);
+
+  await staff(partner + '/owner', { owner_subject: 'cw-test-admin' });
+  const sameMailbox = await makeOrder('TRIAGE-DEDUP', ids.triage, account, 500);
+  mockWechatTrades.set(sameMailbox.out_trade_no, 500);
+  assert.equal((await refresh(sameMailbox)).data.order.status, 'paid');
+  assert.deepEqual(paymentNotices.slice(start + 4).map(m => m.to), ['admin@cw.example.test']);
+
+  const failure = await makeOrder('TRIAGE-MAIL-FAIL', ids.triage, account, 500);
+  mockWechatTrades.set(failure.out_trade_no, 500);
+  failPaymentNotice = true;
+  try {
+    assert.equal((await refresh(failure)).data.order.status, 'paid');
+    assert.ok((await staff(lookup(failure.out_trade_no))).data.order.credited_at);
+  } finally {
+    failPaymentNotice = false;
+  }
 });

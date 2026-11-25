@@ -485,3 +485,27 @@ body.cw-applicant {
 .cw-primary:hover {
   background: #502494;
 }
+
+.cw-order-lookup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  max-width: 680px;
+  margin-bottom: 16px;
+}
+.cw-order-lookup label {
+  margin: 0;
+}
+.cw-order-lookup button {
+  min-height: 42px;
+}
+@media (max-width: 570px) {
+  .cw-order-lookup {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.cw-recharge-history .cw-table {
+  max-height: min(42vh, 380px);
+}

@@ -1,3 +1,4 @@
+import { qualifyingVipRecharge, rechargeFields, rechargeLedger } from './vip-recharges.mjs';
 import qrcode from 'qrcode-generator';
 import { randomInt } from 'node:crypto';
 import { HttpError, id, text, transaction, audit, vault, hasBusiness } from './core.mjs';
@@ -510,9 +511,29 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     res.status(201).json({ ok: true });
   });
 
+  app.get('/api/staff/cw/order-lookup', requireStaff, async (req, res) => {
+    business(req);
+    const number = text(req.query.out_trade_no, '商户订单号', 64);
+    const order = (await pool.query(
+      `SELECT ${rechargeFields},p.id AS partner_id,p.public_code,
+              coalesce(p.legal_name,g.name,u.name) AS account_name,
+              CASE WHEN a.organization_id IS NULL THEN 'personal' ELSE 'organization' END AS account_kind
+         FROM payment_orders o JOIN billing_accounts a ON a.id=o.account_id
+         LEFT JOIN cw_partners p ON p.user_id=a.owner_id
+         LEFT JOIN "user" u ON u.id=a.owner_id LEFT JOIN organizations g ON g.id=a.organization_id
+         ${rechargeLedger}
+        WHERE o.out_trade_no=$1 AND ($2 OR p.owner_subject=$3)`,
+      [number, isAdmin(req.staff), req.staff.subject],
+    )).rows[0];
+    if (!order) throw new HttpError(404, '未找到该订单，或该客户不在你的管理范围内');
+    res.set('Cache-Control', 'no-store');
+    res.json({ order });
+  });
+
   app.get('/api/staff/cw/:partner', requireStaff, async (req, res) => {
     business(req);
     const pid = id(req.params.partner), finance = hasFinance(req.staff);
+    const orderNumber = req.query.order === undefined ? null : text(req.query.order, '商户订单号', 64);
     const detail = await transaction(pool, async (db) => {
       const p = (await db.query(
         `SELECT p.*,i.code AS invite_code,s.name AS owner_name,to_char(p.next_contact_on,'YYYY-MM-DD') AS contact_day
@@ -578,24 +599,13 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
            LEFT JOIN vip_task_codes c ON c.id=r.issued_code_id
           WHERE r.partner_id=$1 ORDER BY (r.status='pending') DESC,r.created_at DESC,r.id DESC LIMIT 30`, [pid],
       )).rows : [];
-      // Self-purchase discount-code payments — sales uses this list to verify recharge before activate.
-      const discountPayments = follow ? (
-        await db.query(
-          `SELECT o.id,o.out_trade_no,o.amount_fen::text,o.face_fen::text,o.paid_at,o.status,
-                  o.discount_snapshot->>'promo_code' AS promo_code
-             FROM payment_orders o
-             JOIN billing_accounts a ON a.id=o.account_id
-            WHERE a.owner_id=$1
-              AND coalesce((o.discount_snapshot->'cw'->>'is_self_code')::boolean,false)=true
-              AND nullif(o.discount_snapshot->>'task_code','') IS NOT NULL
-            ORDER BY o.paid_at DESC NULLS LAST, o.created_at DESC
-            LIMIT 50`,
-          [p.user_id],
-        )
-      ).rows : [];
-      const qualifying = discountPayments.find(
-        (o) => o.status === 'paid' && Number(o.amount_fen) >= VIP_ACTIVATE_MIN_CASH_FEN,
-      );
+      const recharges = follow ? (await db.query(
+        `SELECT ${rechargeFields}
+           FROM cw_partners p JOIN billing_accounts a ON a.owner_id=p.user_id
+           JOIN payment_orders o ON o.account_id=a.id ${rechargeLedger}
+          WHERE p.id=$1 ORDER BY (o.out_trade_no=$2) DESC NULLS LAST,o.created_at DESC,o.id DESC LIMIT 100`, [pid, orderNumber],
+      )).rows : [];
+      const qualifying = follow && p.status === 'confirmed' ? await qualifyingVipRecharge(db, pid) : null;
       return {
         partner: {
           ...publicPartner(p), owner_subject: p.owner_subject, owner_name: p.owner_name,
@@ -612,7 +622,8 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         closes,
         task_codes: taskCodes,
         discount_requests: discountRequests,
-        discount_payments: discountPayments,
+        recharges,
+        discount_payments: recharges.filter((order) => order.vip_payment),
         activate_min_cash_fen: VIP_ACTIVATE_MIN_CASH_FEN,
         can_activate: p.status === 'confirmed' && Boolean(qualifying),
         available_fen: finance ? await available(db, pid) : null,
@@ -677,20 +688,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       const p = await ownedPartner(db, pid, req.staff);
       if (p.status === 'active') throw new HttpError(409, '已是正式 VIP');
       if (p.status !== 'confirmed') throw new HttpError(409, '请先完成面试确认并等待客户充值');
-      const paid = (
-        await db.query(
-          `SELECT o.id,o.out_trade_no,o.amount_fen::text,o.paid_at
-             FROM payment_orders o
-             JOIN billing_accounts a ON a.id=o.account_id
-            WHERE a.owner_id=$1 AND o.status='paid'
-              AND coalesce((o.discount_snapshot->'cw'->>'is_self_code')::boolean,false)=true
-              AND nullif(o.discount_snapshot->>'task_code','') IS NOT NULL
-              AND o.amount_fen>=$2
-            ORDER BY o.paid_at DESC NULLS LAST
-            LIMIT 1`,
-          [p.user_id, VIP_ACTIVATE_MIN_CASH_FEN],
-        )
-      ).rows[0];
+      const paid = await qualifyingVipRecharge(db, pid);
       if (!paid)
         throw new HttpError(
           409,
