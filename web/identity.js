@@ -617,9 +617,9 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  }
  function personalVisible(){const orgs=me.organizations||[];return !orgs.length||(me.upgrade?.status!=='approved'&&Boolean(me.personal_assets));}
  function customerHeader(org=null){
-  const orgs=me.organizations||[],approved=me.upgrade?.status==='approved',role=org?(customerRoles[lastOrg?.membership?.role]||'企业成员'):'个人账号',settings=org?`#organization/${esc(org.id)}/settings`:'#security';
-  const spaces=[...(!org||personalVisible()?[{value:'personal',name:'个人工作区',current:!org}]:[]),...orgs.map(o=>({value:'organization/'+o.id,name:o.name,current:org?.id===o.id})),...(approved||orgs.length?[]:[{value:'upgrade',name:'＋ 升级为企业账号'}])];
-  const workspace=spaces.length>1?`<label class="pc-workspace">${ico('building-2')}<select data-workspace-select aria-label="当前工作空间">${spaces.map(s=>`<option value="${esc(s.value)}" ${s.current?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>`:`<span class="pc-workspace">${ico('building-2')}<span class="pc-workspace-name" title="${esc(spaces[0]?.name||'')}">${esc(spaces[0]?.name||'')}</span></span>`;
+  const orgs=me.organizations||[],role=org?(customerRoles[lastOrg?.membership?.role]||'企业成员'):'个人账号',settings=org?`#organization/${esc(org.id)}/settings`:'#security';
+  const spaces=[...(!org||personalVisible()?[{value:'personal',name:'个人工作区',current:!org}]:[]),...orgs.map(o=>({value:'organization/'+o.id,name:o.name,current:org?.id===o.id}))];
+  const workspace=spaces.length>1?`<label class="pc-workspace">${ico('building-2')}<select data-workspace-select aria-label="当前工作空间">${spaces.map(s=>`<option value="${esc(s.value)}" ${s.current?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>`:org?`<span class="pc-workspace">${ico('building-2')}<span class="pc-workspace-name" title="${esc(org.name)}">${esc(org.name)}</span></span>`:'';
   return window.SiteHeader.render('workspace',{className:'pc-topbar',account:accountMenu(me.user,'customer',settings),tools:`${surfaceSwitch()||'<strong class="pc-product-title">工作台</strong>'}<div class="pc-topbar-actions"><span class="pc-identity">${role}</span>${workspace}${purchaseEntry('header',true)}<label class="pc-global-search">${ico('search')}<input data-personal-search aria-label="搜索模型" placeholder="搜索模型，回车查看" value="${esc(personalSearch)}"></label></div>`});
  }
  const analytics={range:'24h',data:null,at:0,loading:false,cost:'bar',calls:'trend'};
@@ -1372,6 +1372,6 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  document.addEventListener('change',e=>{if(!e.target.matches?.('[data-direct-model]'))return;e.target.checked?directPicked.add(e.target.value):directPicked.delete(e.target.value);e.target.closest('.direct-model')?.classList.toggle('on',e.target.checked);const n=[...document.querySelectorAll('[data-direct-model]:checked')].length,btn=document.querySelector('[data-direct-submit]');if(btn){btn.disabled=!n;btn.innerHTML=`${ico('command')} 生成 API Key · ${n} 个模型`;}});
  // A new sort order starts again from page 1.
  document.addEventListener('table-sorted',e=>{const key=e.detail.group+':page';if((pageViews[key]||1)===1)return;pageViews[key]=1;if(panelRedraw)panelRedraw();else if(panelOrg&&lastOrg)organizationV2(lastOrg);else updatePersonalDashboard();});
- document.addEventListener('change',e=>{if(!e.target.matches('[data-workspace-select]'))return;if(e.target.value!=='upgrade')try{localStorage.setItem(spaceKey,e.target.value);}catch{}location.hash=e.target.value;});
+ document.addEventListener('change',e=>{if(!e.target.matches('[data-workspace-select]'))return;try{localStorage.setItem(spaceKey,e.target.value);}catch{}location.hash=e.target.value;});
  document.addEventListener('keydown',e=>{if(e.key!=='Enter'||!e.target.closest?.('.pc-global-search')||host?.querySelector('[data-personal-rows]'))return;if(panelOrg&&lastOrg)location.hash='organization/'+lastOrg.organization.id+'/models';else{personalTab='models';if(panelRedraw)location.hash='personal';else updatePersonalDashboard();}});
 })();
