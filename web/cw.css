@@ -86,6 +86,7 @@ label select {
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
+textarea:focus-visible,
 select:focus-visible,
 summary:focus-visible {
   outline: 3px solid #7640ce;
@@ -375,5 +376,112 @@ body.cw-applicant {
   font-weight: 700;
 }
 .cw-applicant .cw-form button[type='submit']:hover {
+  background: #502494;
+}
+
+.cw-sales-filters {
+  display: grid;
+  grid-template-columns: minmax(160px, 2fr) minmax(150px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  max-width: 680px;
+}
+.cw-sales-filters label {
+  margin: 0;
+}
+.cw-sales-filters button {
+  min-height: 42px;
+}
+.cw-sales-section {
+  border-top: 1px solid #d5dae5;
+  margin: 20px 0;
+}
+.cw-lead-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 30px;
+  margin: 0;
+}
+.cw-lead-facts dt,
+.cw-followup-list small {
+  color: #4b5871;
+  font-size: 14px;
+}
+.cw-lead-facts dd {
+  margin: 0;
+}
+.cw-form textarea {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 12px;
+  font: inherit;
+  color: inherit;
+  border: 1px solid #b6bece;
+  border-radius: 8px;
+  resize: vertical;
+}
+.cw-followup-list {
+  padding: 0;
+  list-style: none;
+  max-width: 720px;
+}
+.cw-followup-list li {
+  padding: 12px 0;
+  border-top: 1px solid #dde2eb;
+}
+.cw-followup-list p {
+  margin: 4px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 570px) {
+  .cw-sales-filters {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: stretch;
+  }
+}
+
+.cw-sales-table table {
+  min-width: 650px;
+}
+.cw-lead-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #6430bb;
+  font-weight: 650;
+  text-align: start;
+  text-underline-offset: 3px;
+}
+.cw-lead-link:hover {
+  background: transparent;
+  text-decoration: underline;
+}
+.cw-payment-card {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 14px;
+  margin: 12px 0;
+  border: 1px solid #d5dae5;
+  border-radius: 8px;
+  background: #f7f6fc;
+}
+.cw-payment-card div {
+  display: grid;
+}
+.cw-payment-card div span {
+  color: #4b5871;
+  font-size: 14px;
+}
+.cw-primary {
+  background: #6430bb;
+  color: #fff;
+  border-color: #6430bb;
+  font-weight: 700;
+}
+.cw-primary:hover {
   background: #502494;
 }
