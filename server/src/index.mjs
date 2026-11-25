@@ -13,6 +13,7 @@ import { runOfficialPriceWatch, PRICE_WATCH_INTERVAL_MS } from './official-price
 import pg from 'pg';
 import { config } from './core.mjs';
 import { createApp } from './app.mjs';
+import { fadadaSigningWorker } from './cw-fadada-signing.mjs';
 import { heartbeat,markStopped,releaseInterruptedCalls,HEARTBEAT_MS } from './gateway-instance.mjs';
 const cfg=config(),pool=new pg.Pool({connectionString:cfg.databaseURL,max:10,connectionTimeoutMillis:5000,idleTimeoutMillis:30000});
 const {app,mail}=createApp(pool,cfg);await pool.query('SELECT 1');
@@ -20,6 +21,15 @@ const {app,mail}=createApp(pool,cfg);await pool.query('SELECT 1');
 const lifeline=async()=>{try{await heartbeat(pool);const r=await releaseInterruptedCalls(pool);if(r.released)console.log(JSON.stringify({event:'gateway_interrupted_calls_released',...r}));}catch(e){console.error('gateway_heartbeat_unavailable',String(e?.message||e).slice(0,200));}};
 await heartbeat(pool);await lifeline();const lifelineWorker=setInterval(lifeline,HEARTBEAT_MS);
 const server=app.listen(cfg.port,'0.0.0.0',()=>console.log(JSON.stringify({event:'identity_ready',port:cfg.port,mail_configured:mail.ready,source:cfg.source})));
+const checkFadada = fadadaSigningWorker(pool, cfg);
+let checkingFadada = false;
+const fadadaWorker = cfg.fadada && setInterval(async () => {
+  if (checkingFadada) return;
+  checkingFadada = true;
+  try { for (let i = 0; i < 5 && await checkFadada(); i++); }
+  catch { console.error('fadada_signing_worker_unavailable'); }
+  finally { checkingFadada = false; }
+}, 5000);
 let sending=false;
 const worker=setInterval(async()=>{if(sending)return;sending=true;try{for(let i=0;i<5&&await mail.drain();i++);}catch{console.error('mail_worker_unavailable');}finally{sending=false;}},3000);
 const cleanup=setInterval(async()=>{try{await pool.query("DELETE FROM staff_oidc_states WHERE expires_at<now(); DELETE FROM staff_sessions WHERE expires_at<now(); DELETE FROM request_limits WHERE expires_at<now()-interval '1 hour'; UPDATE mail_outbox SET payload=NULL,status='failed',error_code='EXPIRED' WHERE expires_at<now() AND status IN ('pending','sending','failed') AND payload IS NOT NULL;");await expirePackGifts(pool);}catch{console.error('cleanup_unavailable');}},600000);
@@ -39,4 +49,4 @@ const billStart=setTimeout(billOnce,60000),billWorker=setInterval(billOnce,36000
 let syncingCloud=false;const cloudOnce=async()=>{if(syncingCloud||!process.env.SUPPLIER_LAB_SECRET)return;syncingCloud=true;try{await syncAliyun(pool,vault(process.env.SUPPLIER_LAB_SECRET),{scheduled:true})}catch{console.error('aliyun_sync_unavailable')}finally{syncingCloud=false}};
 const cloudStart=setTimeout(cloudOnce,90000),cloudWorker=setInterval(cloudOnce,60000);
 // A stopping process serves its open calls for at most 20 seconds, less than gateway-instance.mjs GONE_AFTER.
-for(const signal of ['SIGTERM' ,'SIGINT'])process.on(signal,()=>{clearTimeout(cloudStart);clearInterval(cloudWorker);clearTimeout(billStart);clearInterval(billWorker);clearInterval(lifelineWorker);clearInterval(worker);clearInterval(cleanup);clearInterval(usageWorker);clearTimeout(watchStart);clearInterval(watchWorker);clearTimeout(priceWatchStart);clearInterval(priceWatchWorker);server.close(async()=>{await markStopped(pool).catch(()=>{});await pool.end();process.exit(0);});setTimeout(()=>process.exit(1),20000).unref();});
+for(const signal of ['SIGTERM' ,'SIGINT'])process.on(signal,()=>{clearInterval(fadadaWorker);clearTimeout(cloudStart);clearInterval(cloudWorker);clearTimeout(billStart);clearInterval(billWorker);clearInterval(lifelineWorker);clearInterval(worker);clearInterval(cleanup);clearInterval(usageWorker);clearTimeout(watchStart);clearInterval(watchWorker);clearTimeout(priceWatchStart);clearInterval(priceWatchWorker);server.close(async()=>{await markStopped(pool).catch(()=>{});await pool.end();process.exit(0);});setTimeout(()=>process.exit(1),20000).unref();});
