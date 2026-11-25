@@ -1,3 +1,4 @@
+import { fadadaSigningRoutes, fadadaState } from './cw-fadada-signing.mjs';
 import { qualifyingVipRecharge, rechargeFields, rechargeLedger, verifiedExceptionOrder } from './vip-recharges.mjs';
 import qrcode from 'qrcode-generator';
 import { randomInt } from 'node:crypto';
@@ -119,6 +120,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     if (!cfg.cw?.enabled) throw new HttpError(503, 'VIP 合作伙伴功能尚未开放');
     next();
   };
+  fadadaSigningRoutes(app, pool, requireCustomer, requireStaff, cfg, enabled, admin);
   app.get('/api/cw/status', (_req, res) =>
     res.json({
       enabled: !!cfg.cw?.enabled,
@@ -254,7 +256,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     ).rows;
     const contracts = (
       await pool.query(
-        'SELECT template_version,document_sha256,expires_at,verified_at FROM cw_contracts WHERE partner_id=$1 ORDER BY verified_at DESC',
+        'SELECT template_version,document_sha256,expires_at,verified_at,fadada_signing_id FROM cw_contracts WHERE partner_id=$1 ORDER BY verified_at DESC',
         [p.id],
       )
     ).rows;
@@ -288,6 +290,8 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       totals: { ...totals, available_fen: await available(pool, p.id) },
       codes,
       contracts,
+      signing: await fadadaState(pool, cfg.fadada, p),
+      signing_phone_required: Boolean(req.customer.phoneOnly || req.customer.email?.length > 60),
       payouts,
       invited,
       task_codes: taskCodes,
@@ -571,7 +575,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       ).rows : [];
       const contracts = finance ? (
         await db.query(
-          'SELECT id,template_version,document_sha256,expires_at,verified_at,verified_by FROM cw_contracts WHERE partner_id=$1 ORDER BY verified_at DESC',
+          'SELECT id,template_version,document_sha256,expires_at,verified_at,verified_by,fadada_signing_id FROM cw_contracts WHERE partner_id=$1 ORDER BY verified_at DESC',
           [pid],
         )
       ).rows : [];
@@ -641,6 +645,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         can_follow: follow, finance, followups,
         codes,
         contracts,
+        signing: follow ? await fadadaState(db, cfg.fadada, p) : null,
         orders,
         events,
         payouts,

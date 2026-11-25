@@ -25,6 +25,36 @@ function smsConfig(env){
   phoneHashSecret:SMS_PHONE_HASH_SECRET,dailySendLimit,pilotIp:SMS_PILOT_IP};
 }
 
+const gateways = {
+  sandbox: 'https://uat-api.fadada.com/api/v5',
+  live: 'https://api.fadada.com/api/v5',
+};
+const publicHosts = new Set(['semifly.cn', 'www.semifly.cn', 'semifly.ai', 'www.semifly.ai']);
+
+function fadadaConfig(env, origin) {
+  const mode = env.FADADA_SIGNING_MODE;
+  if (!mode || mode === 'off') return null;
+  const settings = {
+    mode, appId: env.FADADA_APP_ID, secret: env.FADADA_APP_SECRET,
+    corpId: env.FADADA_CORP_ID, memberId: env.FADADA_MEMBER_ID,
+    templateId: env.FADADA_TEMPLATE_ID, version: env.FADADA_TEMPLATE_VERSION,
+    corpActor: env.FADADA_COMPANY_ACTOR_ID, personActor: env.FADADA_PERSON_ACTOR_ID,
+  };
+  const hostname = new URL(origin).hostname;
+  if (!Object.hasOwn(gateways, mode) ||
+      (mode === 'sandbox' && (publicHosts.has(hostname) || !/_(?:sandbox|test)$/.test(new URL(env.DATABASE_URL).pathname))) ||
+      (mode === 'live' && (new URL(origin).protocol !== 'https:' || !publicHosts.has(hostname))) ||
+      Object.values(settings).some((value) => !value?.trim() || value.length > 100) ||
+      settings.corpActor === settings.personActor)
+    throw Error('Invalid Fadada signing configuration');
+  return {
+    ...settings,
+    gateway: gateways[mode],
+    downloadHosts: new Set((env.FADADA_DOWNLOAD_HOSTS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)),
+    partnerIds: new Set((env.FADADA_PARTNER_IDS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)),
+  };
+}
+
 export function config(env=process.env){
  const origin=env.APP_ORIGIN||'http://127.0.0.1:4180';const production=env.NODE_ENV==='production';
  if(!env.DATABASE_URL||!env.BETTER_AUTH_SECRET||env.BETTER_AUTH_SECRET.length<32)throw Error('DATABASE_URL and strong BETTER_AUTH_SECRET are required');
@@ -37,5 +67,5 @@ export function config(env=process.env){
 
  // Holidays: built-in State Council 放假 days ∪ EMPLOYEE_CREDIT_HOLIDAYS (env only adds temporary dates).
  const envHolidays=(env.EMPLOYEE_CREDIT_HOLIDAYS||'').split(',').map(x=>x.trim()).filter(Boolean);
- return {origin,production,alipay,wechat,sms:smsConfig(env),cw:{enabled:env.CW_ENABLED==='true',paymentNoticeEmail:env.CW_PAYMENT_NOTICE_EMAIL||(production&&new URL(origin).hostname==='semifly.cn'?'sales@glocalstorage.com':'')},customerPaid:{enabled:env.CUSTOMER_PAID_ENABLED==='true',models:(env.CUSTOMER_PAID_MODELS||'').split(',').map(x=>x.trim()).filter(Boolean)},employeeCredit:{organizationId:env.EMPLOYEE_CREDIT_ORG_ID||'',holidays:mergeHolidays(envHolidays)},pilot:{emails:new Set((env.PILOT_USER_EMAILS||'').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean)),keyFile:env.PILOT_DEEPSEEK_KEY_FILE||''},secret:env.BETTER_AUTH_SECRET,databaseURL:env.DATABASE_URL,port:Number(env.PORT||4180),staffIssuer:env.STAFF_OIDC_ISSUER,staffClientId:env.STAFF_OIDC_CLIENT_ID,staffClientSecret:env.STAFF_OIDC_CLIENT_SECRET,bootstrapSub:env.STAFF_BOOTSTRAP_SUB||'',bankTransfer,smtp:{host:env.SMTP_HOST,port:Number(env.SMTP_PORT||465),secure:env.SMTP_PORT!=='587',auth:{user:env.SMTP_USER,pass:env.SMTP_PASSWORD}},mailFrom:env.SMTP_FROM||env.SMTP_USER,source:env.SOURCE_SHA||'local'};
+ return {origin,production,alipay,wechat,fadada:fadadaConfig(env,origin),sms:smsConfig(env),cw:{enabled:env.CW_ENABLED==='true',paymentNoticeEmail:env.CW_PAYMENT_NOTICE_EMAIL||(production&&new URL(origin).hostname==='semifly.cn'?'sales@glocalstorage.com':'')},customerPaid:{enabled:env.CUSTOMER_PAID_ENABLED==='true',models:(env.CUSTOMER_PAID_MODELS||'').split(',').map(x=>x.trim()).filter(Boolean)},employeeCredit:{organizationId:env.EMPLOYEE_CREDIT_ORG_ID||'',holidays:mergeHolidays(envHolidays)},pilot:{emails:new Set((env.PILOT_USER_EMAILS||'').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean)),keyFile:env.PILOT_DEEPSEEK_KEY_FILE||''},secret:env.BETTER_AUTH_SECRET,databaseURL:env.DATABASE_URL,port:Number(env.PORT||4180),staffIssuer:env.STAFF_OIDC_ISSUER,staffClientId:env.STAFF_OIDC_CLIENT_ID,staffClientSecret:env.STAFF_OIDC_CLIENT_SECRET,bootstrapSub:env.STAFF_BOOTSTRAP_SUB||'',bankTransfer,smtp:{host:env.SMTP_HOST,port:Number(env.SMTP_PORT||465),secure:env.SMTP_PORT!=='587',auth:{user:env.SMTP_USER,pass:env.SMTP_PASSWORD}},mailFrom:env.SMTP_FROM||env.SMTP_USER,source:env.SOURCE_SHA||'local'};
 }

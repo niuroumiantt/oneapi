@@ -34,7 +34,7 @@
     loadVersion = 0;
   let data = null,
     selected = staff ? requestedPartner : null,
-    tab = selected ? 'manage' : 'overview',
+    tab = selected ? 'manage' : (!staff && params.get('contract') === '1' ? 'profile' : 'overview'),
     salesFilter = { query: '', stage: '' },
     orderLookup = null,
     offset = 0,
@@ -80,6 +80,55 @@
     `<dl class="cw-proof">${r.contact ? `<dt>联系方式</dt><dd>${esc(r.contact.contact)}</dd>` : ''}${r.bank ? `<dt>收款人</dt><dd>${esc(r.bank.holder)}</dd><dt>开户银行</dt><dd>${esc(r.bank.bank)}</dd><dt>银行卡号</dt><dd>${esc(r.bank.number)}</dd>` : r.bank_version !== undefined ? '<dt>银行卡</dt><dd>尚未填写</dd>' : ''}${r.bank_version !== undefined ? `<dt>银行卡版本</dt><dd>${r.bank_version}</dd>` : ''}${r.net_fen !== undefined ? `<dt>应付税后金额</dt><dd>${money(r.net_fen)}</dd>` : ''}</dl>`;
   const hasCurrentContract = (contracts) => contracts.some((entry) => Date.parse(entry.expires_at) > Date.now());
   const hasPromotionTrial = (partner) => partner.status === 'active' && Date.parse(partner.promotion_trial_until) > Date.now();
+
+  const signingLabels = {
+    requested: '待管理员准备合同', creating: '待核对法大大草稿', draft: '草稿待提交',
+    starting: '正在核对发起结果', pending_both: '待双方签署', pending_person: '待本人实名签署',
+    pending_company: '待公司盖章', archiving: '已签署，待归档核验', verified: '签署与实名已核验',
+    rejected: '已拒签', expired: '已过期', canceled: '已撤销', voided: '已作废', review: '身份或签署记录待核对',
+  };
+  const signingState = (job) =>
+    '<p>' + (job.mode === 'sandbox' ? '<strong>沙箱内部试签</strong> · ' : '') +
+    esc(signingLabels[job.status] || '可申请线上签约') +
+    (job.ends_on ? ' · 有效期至 ' + esc(job.ends_on) : '') +
+    ' · 版本 ' + esc(job.template_version) + '</p>';
+  const signingLink = (path, title) => '<a href="' + path + '">' + title + '</a>';
+  const signingInput = (job) => '<input type="hidden" name="signing_id" value="' + esc(job.id) + '">';
+  const customerSigning = (job) => {
+    if (!job) return '';
+    let action = '';
+    if (!hasCurrentContract(data.contracts) && ['available', 'verified', 'rejected', 'expired', 'canceled', 'voided'].includes(job.status)) {
+      const phone = data.signing_phone_required
+        ? field('phone', '当前账号已验证的手机号', 'tel', 'inputmode="tel" autocomplete="tel" maxlength="16"') : '';
+      action = form('fadada-request', phone +
+        '<input type="hidden" name="template_version" value="' + esc(job.request_version) + '">' +
+        '<label class="cw-check"><input type="checkbox" name="consent" required><span>我同意将我的实名姓名和已验证的联系方式提供给<a href="https://legal.fadada.com/policy/1597793752477609984" target="_blank" rel="noopener noreferrer">法大大</a>，用于核验身份、签署和保存本协议的签署凭证。</span></label>',
+        '申请线上签约');
+    }
+    if (['pending_both', 'pending_person'].includes(job.status))
+      action = form('fadada-open', signingInput(job), '去法大大实名并签署');
+    return signingState(job) + action;
+  };
+  const staffSigning = (d) => {
+    const job = d.signing;
+    if (!job || job.status === 'available') return '';
+    let action = '';
+    if (data.administrator) {
+      if (job.status === 'requested')
+        action = form('fadada-draft', signingInput(job) + field('ends_on', '合同截止日期（北京时间）', 'date'), '创建法大大草稿');
+      if (job.status === 'creating')
+        action = '<p>请在法大大以业务编号 ' + esc(job.id.replaceAll('-', '').slice(0, 30)) + ' 查询草稿。</p>' +
+          form('fadada-recover', signingInput(job) + field('provider_id', '法大大任务编号（选填）', 'text', 'maxlength="100"', false), '核对草稿');
+      if (job.status === 'draft')
+        action = form('fadada-start', signingInput(job) +
+          '<label class="cw-check"><input type="checkbox" name="confirmed" required>已审核本版本协议与截止日期，且经办人已获本协议用印授权。</label>',
+          '提交双方签署');
+      if (['pending_both', 'pending_company'].includes(job.status))
+        action = form('fadada-seal', signingInput(job), '去法大大盖章');
+    }
+    return '<h3>法大大在线签约</h3>' + signingState(job) + action +
+      (job.last_error && data.administrator ? '<p>法大大核对或归档未完成，系统会重试。状态码 ' + esc(job.last_error) + '。</p>' : '');
+  };
   function promotionStatus(code, active, contractVerified, trialActive) {
     if (!['pending','active'].includes(code.status)) return labels[code.status];
     if (!active) return '待开通正式 VIP';
@@ -263,7 +312,7 @@
     if (tab === 'payouts')
       c.innerHTML = `<h2>佣金与提现</h2><div class="cw-metrics">${stat('已解锁（累计，税前）', t.unlocked_fen)}${stat('当前可提现（税前）', t.available_fen)}</div><p>自然月结束后，公司完成客户账单核对和结算确认，再释放可提现金额。提现审核时确认适用的代扣税额，税后金额以结算单为准。</p><p>收款银行卡：${p.bank_last4 ? '尾号 ' + p.bank_last4 : '未填写'} · ${p.bank_verified ? '已核验' : '待核验'}</p><button data-withdraw ${!p.bank_verified || Number(t.available_fen) <= 0 ? 'disabled' : ''}>申请提现全部可提现佣金</button>${table(['申请时间', '税前佣金', '代扣税额', '税后金额', '状态', '到账时间'], data.payouts.map((r) => `<tr><td>${when(r.created_at)}</td><td>${money(r.gross_fen)}</td><td>${money(r.withholding_fen)}</td><td>${r.status === 'requested' ? '审核后确定' : money(Number(r.gross_fen) - Number(r.withholding_fen))}</td><td>${labels[r.status]}</td><td>${when(r.paid_at)}</td></tr>`).join(''))}`;
     if (tab === 'profile')
-      c.innerHTML = `<h2>合同与资料</h2><p>合作状态：${labels[p.status]}。<a href="/cw-terms.html" target="_blank" rel="noopener">查看推广合作协议草案</a>。由公司提供正式合同。签署及实名核验结果登记在下方。</p>${table(['合同版本', '核验时间', '有效期'], data.contracts.map((k) => `<tr><td>${esc(k.template_version)}</td><td>${when(k.verified_at)}</td><td>${when(k.expires_at)}</td></tr>`).join(''))}<details><summary>填写／更换本人收款银行卡</summary>${form('bank', field('holder', '本人姓名', 'text', `value="${esc(p.legal_name)}" maxlength="60"`) + field('bank', '开户银行及支行', 'text', 'maxlength="120"') + field('number', '银行卡号', 'text', 'inputmode="numeric" autocomplete="off" maxlength="32"') + `<label class="cw-check"><input type="checkbox" required>我已阅读<a href="/cw-terms.html#privacy" target="_blank" rel="noopener">资料处理说明</a>，单独同意为佣金结算处理本人银行卡信息。</label>`, '提交收款账户核验')}</details>`;
+      c.innerHTML = `<h2>合同与资料</h2><p>合作状态：${labels[p.status]}。<a href="/cw-terms.html" target="_blank" rel="noopener">查看推广合作协议草案</a>。由公司提供正式合同。签署及实名核验结果登记在下方。</p>${customerSigning(data.signing)}${table(['合同版本', '核验时间', '有效期', '归档'], data.contracts.map((k) => `<tr><td>${esc(k.template_version)}</td><td>${when(k.verified_at)}</td><td>${when(k.expires_at)}</td><td>${k.fadada_signing_id ? signingLink("/api/cw/signing/" + esc(k.fadada_signing_id) + "/pdf", "下载已签 PDF") : "—"}</td></tr>`).join(''))}<details><summary>填写／更换本人收款银行卡</summary>${form('bank', field('holder', '本人姓名', 'text', `value="${esc(p.legal_name)}" maxlength="60"`) + field('bank', '开户银行及支行', 'text', 'maxlength="120"') + field('number', '银行卡号', 'text', 'inputmode="numeric" autocomplete="off" maxlength="32"') + `<label class="cw-check"><input type="checkbox" required>我已阅读<a href="/cw-terms.html#privacy" target="_blank" rel="noopener">资料处理说明</a>，单独同意为佣金结算处理本人银行卡信息。</label>`, '提交收款账户核验')}</details>`;
     if (tab === 'invites')
       c.innerHTML = `<h2>邀请新的 VIP 伙伴</h2><p>受邀伙伴独立申请、独立签约、使用自己的推广码。邀请关系不产生佣金，也不分享对方的客户与收入数据。</p><button data-copy="${esc(location.origin + '/promotion/vip.html?invite=' + p.public_code)}">复制邀请链接</button>${table(['伙伴编号', '加入时间', '合作状态'], data.invited.map((i) => `<tr><td>${i.public_code}</td><td>${when(i.created_at)}</td><td>${labels[i.status]}</td></tr>`).join(''))}`;
   }
@@ -475,7 +524,8 @@
           field('reason', trialActive ? '撤回原因' : '试用原因', 'text', 'maxlength="300"'),
           trialActive ? '撤回试用' : '开通 7 天试用')}
         </details>`;
-      if (d.finance) c.innerHTML += `<h3>推广码</h3>${table(['推广码／名称', '客户价格', '提成', '有效期', '状态', '实付／实用', '预计／解锁佣金', '操作'], d.codes.map((k) => `<tr><td>${k.code}${k.is_self_code ? '<small>专属自购码</small>' : ''}<small>${esc(k.name)}</small></td><td>${k.customer_price_percent}%</td><td>${k.is_self_code ? '无' : (k.customer_price_percent - 40) + '%'}</td><td>${when(k.starts_at)} 至 ${when(k.ends_at)}</td><td>${promotionStatus(k, p.status === 'active', contractVerified, trialActive)}</td><td>${money(k.paid_fen)} / ${money(k.used_fen)}</td><td>${money(k.expected_fen)} / ${money(k.unlocked_fen)}</td><td>${k.is_self_code ? '' : `<button data-code-review="${k.id}">设置／停用</button>`}</td></tr>`).join(''))}<div id="code-editor"></div><h3>签约记录</h3>${table(['合同版本', '文件摘要', '核验人／时间', '有效期'], d.contracts.map((k) => `<tr><td>${esc(k.template_version)}</td><td>${esc(k.document_sha256)}</td><td>${esc(k.verified_by)}<small>${when(k.verified_at)}</small></td><td>${when(k.expires_at)}</td></tr>`).join(''))}<details><summary>合同与身份核验（管理员）</summary><p>请核验真实签约服务凭证，不能把提交申请视为已签约。</p>${form('contract', field('template_version', '正式合同版本') + field('document_sha256', '已签署文件 SHA-256', 'text', 'pattern="[a-f0-9]{64}"') + field('signature_reference', '签约服务商及凭证编号') + field('identity_reference', '实名核验服务及凭证编号') + field('expires_at', '合同截止时间', 'datetime-local') + `<label class="cw-check"><input type="checkbox" required>已核验双方签署证据和合作人身份</label>`, '登记签署证据')}</details><details><summary>收款账户（财务）</summary>${form('bank-details', field('reason', '查看原因', 'text', 'maxlength="200"'), '查看收款资料')}<div id="private-details" aria-live="polite"></div>${form('bank-verify', field('bank_version', '已核验银行卡版本', 'number', 'min="1"') + field('evidence', '本人账户核验凭证编号'), '确认核验（财务）')}</details><details><summary>暂停合作</summary>${form('suspend', field('reason', '暂停原因'), '暂停新推广与提现')}</details>`;
+      c.innerHTML += staffSigning(d);
+      if (d.finance) c.innerHTML += `<h3>推广码</h3>${table(['推广码／名称', '客户价格', '提成', '有效期', '状态', '实付／实用', '预计／解锁佣金', '操作'], d.codes.map((k) => `<tr><td>${k.code}${k.is_self_code ? '<small>专属自购码</small>' : ''}<small>${esc(k.name)}</small></td><td>${k.customer_price_percent}%</td><td>${k.is_self_code ? '无' : (k.customer_price_percent - 40) + '%'}</td><td>${when(k.starts_at)} 至 ${when(k.ends_at)}</td><td>${promotionStatus(k, p.status === 'active', contractVerified, trialActive)}</td><td>${money(k.paid_fen)} / ${money(k.used_fen)}</td><td>${money(k.expected_fen)} / ${money(k.unlocked_fen)}</td><td>${k.is_self_code ? '' : `<button data-code-review="${k.id}">设置／停用</button>`}</td></tr>`).join(''))}<div id="code-editor"></div><h3>签约记录</h3>${table(['合同版本', '文件摘要', '核验人／时间', '有效期', '归档'], d.contracts.map((k) => `<tr><td>${esc(k.template_version)}</td><td>${esc(k.document_sha256)}</td><td>${k.fadada_signing_id ? '法大大' : esc(k.verified_by)}<small>${when(k.verified_at)}</small></td><td>${when(k.expires_at)}</td><td>${data.administrator && k.fadada_signing_id ? signingLink(base + '/' + esc(selected) + '/signing/' + esc(k.fadada_signing_id) + '/file/pdf', '已签 PDF') + ' · ' + signingLink(base + '/' + esc(selected) + '/signing/' + esc(k.fadada_signing_id) + '/file/evidence', '保全报告') : '—'}</td></tr>`).join(''))}<details><summary>合同与身份核验（管理员）</summary><p>请核验真实签约服务凭证，不能把提交申请视为已签约。</p>${form('contract', field('template_version', '正式合同版本') + field('document_sha256', '已签署文件 SHA-256', 'text', 'pattern="[a-f0-9]{64}"') + field('signature_reference', '签约服务商及凭证编号') + field('identity_reference', '实名核验服务及凭证编号') + field('expires_at', '合同截止时间', 'datetime-local') + `<label class="cw-check"><input type="checkbox" required>已核验双方签署证据和合作人身份</label>`, '登记签署证据')}</details><details><summary>收款账户（财务）</summary>${form('bank-details', field('reason', '查看原因', 'text', 'maxlength="200"'), '查看收款资料')}<div id="private-details" aria-live="polite"></div>${form('bank-verify', field('bank_version', '已核验银行卡版本', 'number', 'min="1"') + field('evidence', '本人账户核验凭证编号'), '确认核验（财务）')}</details><details><summary>暂停合作</summary>${form('suspend', field('reason', '暂停原因'), '暂停新推广与提现')}</details>`;
     }
     if (tab === 'settlement' && d.finance)
       c.innerHTML += `<h3>客户付款订单</h3><p class="cw-muted">最近 200 笔成交</p>${table(['客户／付款订单', '推广码', '付款时间', '客户实付／实用', '预计／解锁佣金', '客户计费账户'], d.orders.map((o) => `<tr><td>${esc(o.customer_email)}<small>${esc(o.out_trade_no)}</small></td><td>${o.code}</td><td>${when(o.paid_at)}</td><td>${money(o.cash_fen)} / ${money(o.used_cash_fen)}</td><td>${money(o.expected_fen)} / ${money(o.unlocked_fen)}</td><td>${o.account_id}${o.channel_fee_issue ? '<small>' + esc(o.channel_fee_issue) + '</small>' : ''}</td></tr>`).join(''))}<h3>付款与使用明细</h3>${table(['时间', '码／付款订单', '事件', '实付／实用', '预计／解锁变化'], d.events.map((e) => `<tr><td>${when(e.occurred_at)}</td><td>${e.code}<small>${esc(e.out_trade_no)}</small></td><td>${e.kind === 'paid' ? '充值实付' : labels[e.kind]}</td><td>${money(e.cash_fen)}</td><td>${money(e.commission_fen)}</td></tr>`).join(''))}<details><summary>确认客户月结（财务）</summary><p>自然月已结束、调用结算与支付账单核对完成，并已与客户完成结算，才可确认。</p>${form('close', `<label>客户计费账户<select name="account_id" required><option value="">请选择客户账户</option>${[...new Map(d.orders.map((o) => [o.account_id, o])).values()].map((o) => `<option value="${o.account_id}">${esc(o.customer_email)} · ${o.account_id}</option>`).join('')}</select></label>` + field('month', '结算月份', 'month') + field('evidence', '客户结算单／确认凭证编号'), '确认客户月结')}${table(['已结月份', '客户账户', '结算凭证', '确认时间'], d.closes.map((x) => `<tr><td>${x.month}</td><td>${x.account_id}</td><td>${esc(x.evidence)}</td><td>${when(x.closed_at)}</td></tr>`).join(''))}</details><h3>提现申请与付款结果</h3>${table(['申请时间', '税前／代扣税', '状态', '银行卡', '操作'], d.payouts.map((r) => `<tr><td>${when(r.created_at)}</td><td>${money(r.gross_fen)} / ${money(r.withholding_fen)}</td><td>${labels[r.status]}</td><td>尾号 ${r.bank_last4}</td><td>${r.status === 'requested' ? `<button data-payout-review="${r.id}">审核</button>` : r.status === 'approved' ? `<button data-payout-complete="${r.id}">付款与结果确认</button>` : ''}</td></tr>`).join(''))}<div id="payout-editor"></div>`;
@@ -657,6 +707,21 @@
       if (action === 'promotion-trial') {
         path = base + '/' + selected + '/promotion-trial';
         body = { enabled: b.enabled === 'true', reason: b.reason };
+      }
+
+      if (action === 'fadada-request') {
+        path = '/api/cw/signing/request';
+        body = { consent: b.consent === 'on', template_version: b.template_version, phone: b.phone };
+      }
+      if (['fadada-draft', 'fadada-recover', 'fadada-start', 'fadada-seal', 'fadada-open'].includes(action)) {
+        const pathSuffix = '/' + encodeURIComponent(b.signing_id) + '/' + action.slice(7);
+        path = (staff ? base + '/' + selected : base) + '/signing' + pathSuffix;
+        body = { ends_on: b.ends_on, provider_id: b.provider_id, confirmed: b.confirmed === 'on' };
+        if (['fadada-open', 'fadada-seal'].includes(action)) {
+          const { url } = await api(path, body);
+          location.assign(url);
+          return;
+        }
       }
       if (action === 'contract') {
         path = base + '/' + selected + '/contract';
