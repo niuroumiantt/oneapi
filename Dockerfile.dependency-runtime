@@ -1,0 +1,18 @@
+# Existing production may be shell-free. npm runs directly with the verified Node binary.
+ARG NODE_RUNTIME_DONOR
+FROM ${NODE_RUNTIME_DONOR} AS dependencies
+USER 0
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY release-npm /release-npm
+RUN ["/usr/local/bin/node", "/release-npm/bin/npm-cli.js", "ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"]
+FROM ${NODE_RUNTIME_DONOR}
+USER 0
+WORKDIR /app
+RUN ["/usr/local/bin/node", "-e", "require('fs').rmSync('/app/node_modules',{recursive:true,force:true})"]
+COPY --from=dependencies /app/node_modules /app/node_modules
+COPY package.json package-lock.json ./
+COPY --chown=1000:1000 server ./server
+USER 1000:1000
+EXPOSE 4180
+CMD ["/usr/local/bin/node", "server/src/index.mjs"]
