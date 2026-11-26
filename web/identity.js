@@ -13,10 +13,25 @@
 
  let host,current='account',authMode='login',generation=0,lastOrg=null,lastOrgBilling=null,joinPreview=null,me=null,staff=null,staffList=[],customers=[],sessions=[],resetToken=new URL(location.href).searchParams.get('reset_token'),supplyData={suppliers:[],offers:[]},offerDetail=null,promotionData={campaigns:[],products:[]},pricingData={products:[],proposals:[],decisions:[]},reviewData={products:[],reviews:[]},resetScrollOnMount=false;
  const opsPageCache=new Map();
+ const navigationData=window.NavigationData.create({read:path=>api(path),owner:()=>me?.user?.id||null});
+ const accountReadPaths=['/api/billing/personal','/api/pilot/status','/api/employee-credit/status','/api/customer-credit/status'];
+ const navigationRead=(path,prefetched)=>navigationData.get(path,prefetched);
+ function accountLoading(tab){
+  const title={overview:'概览',models:'我的模型',keys:'API 密钥',usage:'用量',connect:'模型接入',billing:'充值与账单'}[tab]||'工作台';
+  mount(panelPage(null,tab,`<section class="pc-route-state" aria-busy="true"><h1>${title}</h1><p role="status">正在加载…</p></section>`));
+ }
  if(resetToken)history.replaceState(null,'',location.pathname+'#reset-password');
  const handles=v=>['workspace','enterprise-register','enterprise-login','register','personal','personal/models','personal/keys','personal/usage','personal/compare','personal/vip','enterprise','account','reset-password','staff','staff-account','admin','security','demo/personal','upgrade','support'].includes(v)||v.startsWith('personal/connect/')||personalBillingRoute(v)||v.startsWith('billing/organization/')||v.startsWith('demo/organization/')||v.startsWith('organization/')||v.startsWith('join/')||v.startsWith('ops/');
  let orgLoadedAt=0,panelDataAt=0,modelHealth=null,modelHealthAt=0,modelHealthTried=0,modelHealthLoading=false;
- async function api(path,body,method){if(body||method){orgLoadedAt=0;panelDataAt=0;lastOrgBilling=null;}const r=await fetch(path,{method:method||(body?'POST':'GET'),headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,credentials:'same-origin',cache:'no-store'});let data;try{data=await r.json();}catch{data={};}if(!r.ok){const err=Error(data.error||translate(data.code,data.message)||'暂时无法完成，请稍后重试。');err.status=r.status;err.code=data.code;throw err;}return data;}
+ async function api(path,body,method){
+  const mutation=Boolean(body||method);
+  if(mutation){navigationData.clear();orgLoadedAt=0;panelDataAt=0;lastOrgBilling=null;}
+  const r=await fetch(path,{method:method||(body?'POST':'GET'),headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,credentials:'same-origin',cache:'no-store'});
+  let data;try{data=await r.json();}catch{data={};}
+  if(mutation||r.status===401)navigationData.clear();
+  if(!r.ok){const err=Error(data.error||translate(data.code,data.message)||'暂时无法完成，请稍后重试。');err.status=r.status;err.code=data.code;throw err;}
+  return data;
+ }
  async function customerSignedIn(){try{return !!(await api('/api/platform/me')).user;}catch(e){return e.status!==401;}}
  function translate(code,message){const known={SESSION_NOT_FRESH:'查看登录设备前，请退出后重新登录以验证身份。',INVALID_EMAIL_OR_PASSWORD:'邮箱或密码不正确。',EMAIL_NOT_VERIFIED:'请先到邮箱完成验证；可重发验证邮件。',PASSWORD_POLICY:'密码须为 8–128 位，包含大写字母、小写字母和符号。',PASSWORD_TOO_SHORT:'密码至少需要 8 个字符。',PASSWORD_TOO_LONG:'密码不能超过 128 个字符。',INVALID_TOKEN:'链接无效或已经过期，请重新申请。',INVALID_PASSWORD:'当前密码不正确。',TOO_MANY_REQUESTS:'操作频繁，请稍后重试。',USER_ALREADY_EXISTS:'该邮箱已注册，请直接登录；忘记密码请点击「找回密码」。',USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL:'该邮箱已注册，请直接登录；忘记密码请点击「找回密码」。',EMAIL_ALREADY_VERIFIED:'邮箱已经验证，无需再等验证邮件，请直接登录。'};return known[code]||(message&&/^[\u3400-\u9fff]/.test(message)?message:'操作未完成，请检查输入或稍后重试。');}
  const btn=(label,action,attrs='',kind='')=>`<button class="live-button ${kind}" data-live="${action}" ${attrs}>${label}</button>`;
@@ -76,7 +91,7 @@
   if(!wasIdentityActive){document.querySelectorAll('#market-view,#login-view').forEach(el=>el.hidden=true);window.LandingUI?.hide();}
   host.hidden=false;document.body.classList.remove('market-active','welcome-active','universe-active','ops-active','catalog-active','identity-context-personal','identity-context-enterprise','identity-context-staff');document.body.classList.add('identity-active','identity-context-'+contextKind());document.body.classList.toggle('personal-console-active',content.includes('class="personal-console"'));window.UniverseScene?.setActive(false);document.title='semifly.ai · '+(content.includes('personal-connect')?'模型接入':content.includes('my-models')?'我的模型':{personal:'个人工作台',enterprise:'企业管理工作台',staff:'内部工作台'}[contextKind()]);
   document.body.classList.remove('identity-route-pending');
-  if(resetScrollOnMount){window.scrollTo(0,0);resetScrollOnMount=false;}
+  if(resetScrollOnMount){window.scrollTo(0,0);const stage=host.querySelector('.pc-stage');if(stage){stage.scrollTop=0;stage.scrollLeft=0;}resetScrollOnMount=false;}
   host.classList.remove('route-loading');
   syncPersonalUsageCharts();
  }
@@ -592,12 +607,13 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   // The comparison endpoint owns eligibility; do not wait for unrelated dashboard data.
   if(personalTab==='compare'){panelRedraw=null;mount(panelPage(null,'compare',comparePanel()));return;}
   const intent=readModelIntent();if(current.startsWith('personal/connect/'))personalSelected=current.slice('personal/connect/'.length);else if(intent?.scope==='personal')personalSelected=intent.id;
-  const billingPromise=earlyBilling?earlyBilling.then(result=>{if(result.error)throw result.error;return result.data;}):api('/api/billing/personal');
+  if(!accountReadPaths.every(path=>navigationData.fresh(path)))accountLoading(personalTab);
+  const billingPromise=navigationRead('/api/billing/personal',earlyBilling?.then(result=>{if(result.error)throw result.error;return result.data;}));
   const [billing,pilot,employee,credit]=await Promise.all([
    billingPromise.catch(e=>{if(e.status===401)throw e;return null;}),
-   api('/api/pilot/status').catch(()=>({enabled:false})),
-   api('/api/employee-credit/status').catch(()=>({enabled:false})),
-   api('/api/customer-credit/status').catch(()=>null)
+   navigationRead('/api/pilot/status').catch(()=>({enabled:false})),
+   navigationRead('/api/employee-credit/status').catch(()=>({enabled:false})),
+   navigationRead('/api/customer-credit/status').catch(()=>null)
   ]);
   if(ticket!==generation)return;
   personalBilling=billing;personalPilot=pilot;employeeCredit=employee;paidCredit=credit;
@@ -1243,7 +1259,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const o=(await r.json()).order;
   if(payment!==alipayPay||payment.order.status!=='pending')return;
   payment.order=o;
-  if(o.status==='paid'){clearInterval(alipayTimer);alipayTimer=null;lastOrgBilling=null;orgLoadedAt=0;panelDataAt=0;showToast(`充值成功，到账额度 ${yuanText(o.face_fen)}。`);await route(current);return;}
+  if(o.status==='paid'){navigationData.clear();clearInterval(alipayTimer);alipayTimer=null;lastOrgBilling=null;orgLoadedAt=0;panelDataAt=0;showToast(`充值成功，到账额度 ${yuanText(o.face_fen)}。`);await route(current);return;}
   if(o.status!=='pending'||o.expired){clearInterval(alipayTimer);alipayTimer=null;if(panelRedraw)panelRedraw();return;}
   if(manual){const st=host?.querySelector('[data-alipay-status]');if(st)st.textContent='还未收到付款结果。支付完成后通常几秒内到账。';}
  }
@@ -1388,9 +1404,10 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const money=value=>{const cents=BigInt(value||0),negative=cents<0n,absolute=negative?-cents:cents;return `${negative?'-':''}¥${absolute/100n}.${String(absolute%100n).padStart(2,'0')}`;};
   const orgId=current.startsWith('billing/organization/')?current.slice('billing/organization/'.length):null;
   if(orgId){if(lastOrg?.organization?.id!==orgId)lastOrg=await api('/api/platform/organizations/'+encodeURIComponent(orgId));if(ticket!==generation)return;if(!lastOrg.permissions.manager){location.replace('#organization/'+orgId+'/overview');return;}}
+  if(!orgId&&!navigationData.fresh('/api/billing/personal'))accountLoading('billing');
   const prefetched=earlyBilling?await earlyBilling:null;if(prefetched?.error)throw prefetched.error;
   const cachedBilling=orgId&&lastOrgBilling?.id===orgId&&Date.now()-lastOrgBilling.at<orgFreshMs?lastOrgBilling.data:null;
-  const data=prefetched?prefetched.data:cachedBilling||await api(orgId?'/api/billing/organizations/'+encodeURIComponent(orgId):'/api/billing/personal');if(ticket!==generation)return;
+  const data=cachedBilling||await (orgId?api('/api/billing/organizations/'+encodeURIComponent(orgId)):navigationRead('/api/billing/personal',prefetched?Promise.resolve(prefetched.data):null));if(ticket!==generation)return;
   if(!orgId&&current===refundRoute)pageViews.billing='refund';
   else if(!orgId&&current===billingHistoryRoute)pageViews.billing='history';
   else if(!orgId&&['refund','history'].includes(pageViews.billing))pageViews.billing='recharge';

@@ -10,7 +10,7 @@ test('comparison mounts without waiting on four unrelated dashboard endpoints',a
  await vm.runInNewContext(account+';account(1)',ctx);assert.equal(mounts,1);
 });
 test('dashboard reads start together and stale responses never replace current account data',async()=>{
- const calls=[],waits=[];const ctx={me:{user:{}},current:'personal/overview',generation:1,personalBilling:'unchanged',paidCredit:'unchanged',readModelIntent:()=>null,api:path=>{calls.push(path);const d=deferred();waits.push(d);return d.promise;}};
+ const calls=[],waits=[];const ctx={accountReadPaths:[],navigationData:{fresh:()=>true},accountLoading(){},me:{user:{}},current:'personal/overview',generation:1,personalBilling:'unchanged',paidCredit:'unchanged',readModelIntent:()=>null,navigationRead:path=>{calls.push(path);const d=deferred();waits.push(d);return d.promise;}};
  const work=vm.runInNewContext(account+';account(1)',ctx);
  assert.equal(calls.length,4);ctx.generation=2;for(const d of waits)d.resolve({enabled:true});await work;
  assert.equal(ctx.personalBilling,'unchanged');assert.equal(ctx.paidCredit,'unchanged');

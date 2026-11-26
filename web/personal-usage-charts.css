@@ -75,7 +75,6 @@
 .pd-month:has(.pd-data[open])>.pd-month-help{display:none}
 @media(min-width:1001px){
  .personal-console:has(.pd-usage){min-height:100dvh}
- .personal-console:has(.pd-usage) .pc-stage{padding:20px 32px}
  .personal-home:has(.pd-usage){display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:18px 28px;max-width:1100px}
  .personal-home:has(.pd-usage) h1{grid-column:1/-1;margin:0;font-size:22px}
  .personal-home:has(.pd-usage) .ph-balance{gap:8px 16px;padding:0 28px 0 0;border-bottom:0;border-right:1px solid var(--ph-line)}
@@ -103,10 +102,8 @@
  .pd-chart-wide{height:166px}.pd-chart-wide .pd-y-axis{height:138px}.pd-chart-wide .pd-plot{height:134px}
  .pd-data{margin-top:10px;padding-top:8px}
  .pd-state{min-height:160px}
- .personal-console:has(.pd-usage) .pc-sidebar{padding-top:18px;padding-bottom:18px}
 }
 @media(min-width:1001px) and (max-height:680px){
- .personal-console:has(.pd-usage) .pc-stage{padding:12px 24px}
  .personal-home:has(.pd-usage){gap:12px 24px}
  .personal-home:has(.pd-usage) .ph-balance-main strong{font-size:30px;margin:3px 0}
  .pd-card{padding:12px 14px}.pd-card-head,.pd-month .pd-card-head{margin-bottom:10px}
@@ -114,8 +111,6 @@
  .pd-activity .pd-heatmap,.pd-activity .pd-heat-footer{max-width:242px}
  .pd-chart-wide{height:140px}.pd-chart-wide .pd-y-axis{height:112px}.pd-chart-wide .pd-plot{height:108px}
  .pd-month .pd-table-wrap{max-height:132px}
- .personal-console:has(.pd-usage) .pc-sidebar{padding:12px}
- .personal-console:has(.pd-usage) .pc-sidebar nav :is(button,a){min-height:36px;height:36px;padding:7px 14px}
 }
 @media(min-width:1001px){
  .pd-month{display:grid;grid-template-columns:minmax(0,1fr) auto}
