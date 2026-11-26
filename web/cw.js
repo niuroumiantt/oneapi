@@ -184,7 +184,7 @@
   }
   let personalPage=0;
   const compactVIP=!staff&&params.get('personal')==='1';
-  if(compactVIP)document.documentElement.classList.add('cw-personal');
+  if(compactVIP){document.documentElement.classList.add('cw-personal');tab='intro';}
   function personalList(heads,rows,more=false,rowLimit=0){
     const size=rowLimit||(innerWidth<700?2:innerHeight<600?3:5),total=Math.max(1,Math.ceil(rows.length/size));
     personalPage=Math.max(0,Math.min(personalPage,total-1));
@@ -192,10 +192,27 @@
   }
   async function drawPersonalVIP(c,version){
     const p=data.partner,t=data.totals||{},active=p?.status==='active',codes=data.codes||[],contracts=data.contracts||[];
-    $('#cw-title').textContent='我的 VIP 申请与推广';$('#cw-description').textContent='';$('#cw-guide-link').textContent='申请指南';$('#cw-guide-link').target='_blank';$('#refresh').hidden=false;
-    const items=p?(active?[['overview','我的 VIP'],['codes','推广码'],['events','推广明细'],['payouts','佣金'],['profile','资料']]:[['overview','申请进度'],['profile','申请资料']]):[];
-    $('#cw-nav').innerHTML=items.map(([k,v])=>`<button data-tab="${k}" aria-current="${tab===k||['new-code','rules'].includes(tab)&&k==='codes'||['bank','invites','feedback','contracts'].includes(tab)&&k==='profile'?'page':'false'}">${v}</button>`).join('');
+    $('#cw-title').textContent='VIP 合作计划';$('#cw-description').textContent='';$('#cw-guide-link').textContent='申请指南';$('#cw-guide-link').target='_blank';$('#refresh').hidden=['intro','process','terms'].includes(tab);
+    const guide=['intro','process','terms'].includes(tab),destination=p?'overview':'apply';
+    if(guide)document.querySelector('.cv-management-nav')?.remove();
+    const items=[['intro','计划介绍'],['process','申请流程'],['terms','合作规则'],[destination,active?'我的 VIP':'我的申请']];
+    const navButton=([k,v],selected)=>`<button data-tab="${k}" aria-current="${selected?'page':'false'}">${v}</button>`;
+    $('#cw-nav').innerHTML=items.map(item=>navButton(item,guide?tab===item[0]:item[0]===destination)).join('');
     const go=(k,v)=>`<button data-tab="${k}">${v}</button>`;
+    if(tab==='intro'){
+      c.innerHTML=`<section class="cv-program"><p class="cv-kicker">VIP PROGRAM</p><h2>用模型，也把好模型推荐给客户。</h2><p>了解专属充值与推广合作，按自己的需要申请。</p><dl class="cv-benefits"><div><dt>专属充值</dt><dd>审核后领取付款码，付款前核对折扣与到账额度。</dd></div><div><dt>推广合作</dt><dd>符合条件后使用推广码，查看客户用量与佣金明细。</dd></div><div><dt>清楚可查</dt><dd>申请进度、资料、推广和结算，都在这里管理。</dd></div></dl><div class="cw-inline"><button class="cw-primary" data-tab="${destination}">${p?(active?'进入我的 VIP':'查看我的申请'):'开始申请'}</button>${go('process','了解申请流程')}</div></section>`;return;
+    }
+    if(tab==='process'){
+      c.innerHTML=`<section class="cv-program"><h2>四步开通</h2><ol class="cv-program-steps"><li><strong>提交申请</strong><p>准备真实姓名、联系方式和员工提供的邀请码。</p></li><li><strong>电话面试</strong><p>通过后，由负责员工发放 VIP 付款码。</p></li><li><strong>充值与核验</strong><p>累计有效实付满 ¥100，由负责员工核验开通。</p></li><li><strong>开始使用与推广</strong><p>开通后查看专属充值；推广须符合合同与实名核验要求。</p></li></ol><div class="cw-inline"><button class="cw-primary" data-tab="${destination}">${p?'查看我的申请':'填写申请资料'}</button>${go('terms','查看合作规则')}</div></section>`;return;
+    }
+    if(tab==='terms'){
+      c.innerHTML=`<section class="cv-program"><h2>申请前，了解这三点</h2><dl class="cv-benefits"><div><dt>充值与退款</dt><dd>有效实付不含赠送和已退款金额。开通后首次 ¥100 激活款可消费，不支持自助退款。</dd></div><div><dt>佣金与结算</dt><dd>客户实际使用后解锁佣金，月结核对后可提现；预计佣金不等于可提现金额。</dd></div><div><dt>推广与邀请</dt><dd>推广资格、折扣与期限以核验结果为准。邀请伙伴独立申请，邀请关系不产生佣金。</dd></div></dl><div class="cw-inline"><a href="/cw-terms.html" target="_blank" rel="noopener">完整合作说明 ↗</a><a href="/cw-terms.html#privacy" target="_blank" rel="noopener">资料处理说明 ↗</a></div></section>`;return;
+    }
+    const sections=active?[['overview','概况'],['codes','推广码'],['events','推广明细'],['payouts','佣金'],['profile','资料']]:p?[['overview','申请进度'],['profile','申请资料']]:[];
+    c.innerHTML='';
+    let subnav=document.querySelector('.cv-management-nav');
+    if(!subnav){subnav=document.createElement('nav');subnav.className='cv-management-nav';subnav.setAttribute('aria-label','我的 VIP 管理');$('#cw-nav').after(subnav);}
+    subnav.innerHTML=sections.map(item=>navButton(item,tab===item[0]||['new-code','rules'].includes(tab)&&item[0]==='codes'||['bank','invites','feedback','contracts'].includes(tab)&&item[0]==='profile')).join('');
     if(!p){c.innerHTML=`<h2>申请成为 VIP</h2><p>提交资料后，由负责员工联系你。当前无需付款。</p>`+form('apply',field('legal_name','真实姓名','text','maxlength="60" autocomplete="name"')+field('contact','联系方式','text','maxlength="160"')+field('invite_code','员工提供的邀请码','text',`maxlength="32" value="${esc(employeeInviteCode)}"`)+field('invite','邀请人 VIP 编号（选填）','text',`maxlength="8" value="${esc(referrer)}"`,false)+'<label class="cw-check"><input type="checkbox" name="consent" required><span>我已阅读<a href="/cw-terms.html#privacy" target="_blank" rel="noopener">资料处理说明</a>，同意处理申请资料。</span></label>','提交申请');return;}
     if(tab==='overview'){
       const prog=document.createElement('div');prog.innerHTML=applicationProgress(data);prog.querySelectorAll('time,.cw-steps small').forEach(e=>e.remove());if(active){prog.querySelector('.cw-steps')?.remove();prog.querySelector('.cw-next')?.remove();}

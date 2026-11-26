@@ -109,3 +109,4 @@
 @media(max-width:760px){.compare-personal .cp-connections>.connection:not(.platform-panel){gap:5px}.compare-personal .cp-key-note{font-size:10px}.compare-personal .cp-connections .key-cleanup button{min-height:22px}.compare-personal .cp-connections .field{gap:2px!important;font-size:11px}}
 
 .compare-personal .cp-source-row{display:grid;grid-template-columns:1fr;gap:10px}.compare-personal .cp-source-row.cp-custom{grid-template-columns:minmax(120px,.8fr) minmax(150px,1.2fr)}
+@media(max-height:550px) and (min-width:761px){html.compare-personal.compare-embedded .compare-page>main{padding-block:4px}}

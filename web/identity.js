@@ -44,6 +44,10 @@
   document.querySelectorAll('[data-account-slot]').forEach(slot=>slot.innerHTML=accountMenu(customer?.user||employee,customer?'customer':'staff'));
   const label=document.getElementById('welcome-continue-label');if(label)label.textContent=customer||employee?'进入工作台':'登录 / 注册';const link=document.getElementById('welcome-continue');if(link)link.href=employee?'#staff-account':'#workspace';const help=document.querySelector('.welcome-preview-note');if(help)help.textContent=customer||employee?'你已登录':'个人和企业用同一个账号，登录后按权限显示功能。';
  }
+ function sameWorkspaceFrame(previous,next){
+  const a=previous.querySelector('.workspace-compare-frame'),b=next.querySelector('.workspace-compare-frame');
+  return Boolean(a&&b&&a.getAttribute('src')===b.getAttribute('src'));
+ }
  function mount(content){
   const wasIdentityActive=document.body.classList.contains('identity-active');
   host.classList.toggle('org-dashboard',current.startsWith('organization/'));host.classList.toggle('supply-dashboard',current.startsWith('ops/supply')||current==='ops/products'||current==='ops/payments'||current==='ops/promotions');host.classList.toggle('invite-dashboard',current.startsWith('join/'));host.classList.toggle('enterprise-dashboard',['enterprise','enterprise-login','enterprise-register'].includes(current)&&!!me);host.classList.toggle('auth-dashboard',content.includes('class="live-auth-layout"'));
@@ -58,7 +62,7 @@
    const oldNav=oldPanel.querySelector('.pc-sidebar nav'),newNav=newPanel.querySelector('.pc-sidebar nav');
    if(oldNav.innerHTML!==newNav.innerHTML)oldNav.innerHTML=newNav.innerHTML;
    const oldStage=oldPanel.querySelector('.pc-stage'),newStage=newPanel.querySelector('.pc-stage');
-   const sameCompare=oldStage.querySelector('.workspace-compare-frame')&&newStage.querySelector('.workspace-compare-frame');
+   const sameCompare=sameWorkspaceFrame(oldStage,newStage);
    if(!sameCompare){oldStage.className=newStage.className;replacePanelContent(oldStage,newStage.innerHTML);}
   }else if(wasIdentityActive&&current.startsWith('ops/')&&existing&&next){
    existing.querySelector('.supply-side').innerHTML=next.querySelector('.supply-side').innerHTML;
@@ -497,19 +501,17 @@ function personalHomeContent(){
   const base=credit?.base_url,keys=(credit?.keys||[]).filter(k=>!k.revoked_at);
   const remaining=personalBilling?BigInt(personalBilling.list_credit_fen??personalBilling.cash_balance_fen??0)-BigInt(Math.ceil(Number(paidCredit?.held_fen??0))):null;
   const available=remaining===null?null:remaining>0n?remaining:0n;
-  const calls=(paidCredit?.enabled?paidCredit.calls:personalPilot?.recent_calls)||[];
   const tab=(name,label)=>`<button type="button" class="ph-link" data-live="personal-tab" data-tab="${name}">${label}${ico('arrow-right')}</button>`;
-  const recent=calls.length?`<section class="ph-recent" aria-labelledby="ph-recent-title"><div class="ph-section-head"><h2 id="ph-recent-title">最近调用</h2>${tab('usage','查看用量')}</div><ul>${calls.slice(0,3).map(c=>`<li><span class="ph-call-model">${esc(c.model_id)}</span><time datetime="${esc(c.created_at)}">${new Date(c.created_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'})}</time><span>${esc({settled:'已结算',pending:'调用中',awaiting_bill:'待结算',failed:'失败',success:'成功',succeeded:'成功',completed:'成功'}[c.status]||'已记录')}</span></li>`).join('')}</ul></section>`:'';
   return `<section class="personal-home" aria-labelledby="ph-title">
     <h1 id="ph-title">概览</h1>
     <section class="ph-balance" aria-label="个人额度">
       <div class="ph-balance-main"><span>可用官价额度</span><strong>${available===null?'—':personalMoney(available)}</strong><p>${available===null?'额度暂未加载，请刷新重试。':'按模型官网价计费'}</p></div>
-      <div class="ph-balance-actions"><a class="ph-primary" href="#billing/personal">${personalBilling?.payments_enabled?'充值':'查看账单'}</a>${personalBilling?.payments_enabled?'<a class="ph-link" href="#billing/personal/history">账单明细</a>':''}</div>
+      <div class="ph-balance-actions"><a class="ph-primary" href="#billing/personal">${personalBilling?.payments_enabled?'充值':'查看账单'}</a>${personalBilling?.payments_enabled?'<a class="ph-link" href="#billing/personal/usage">消费账单</a>':''}</div>
       <div class="ph-spent"><span>累计消费</span><b>${personalBilling?personalMoney(personalBilling.total_spent_fen):'—'}</b></div>
     </section>
     <section class="ph-connect" aria-labelledby="ph-connect-title"><div class="ph-section-head"><h2 id="ph-connect-title">API 接入</h2><a class="ph-link" href="#docs">接入文档${ico('arrow-up-right')}</a></div>
       ${base?`<div class="ph-endpoint"><span>API 地址</span><code>${esc(base)}</code><button type="button" class="ph-copy" data-live="copy-text" data-text="${esc(base)}" aria-label="复制 API 地址">${ico('copy')}<span>复制</span></button></div><div class="ph-key-row"><span>${keys.length?`${keys.length} 枚有效密钥`:'创建密钥，开始第一次调用'}</span>${tab('keys',keys.length?'管理密钥':'创建密钥')}</div>`:'<p class="ph-unavailable">个人 API 调用暂未开放。</p>'}
-    </section>${recent}
+    </section>
   </section>`;
 }
 function overviewContent(){
@@ -571,6 +573,8 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   for(const pos of saved){const el=target.matches(pos.selector)?target:target.querySelectorAll(pos.selector)[pos.index];if(el){el.scrollTop=pos.top;el.scrollLeft=pos.left;}}
  }
  function updatePersonalDashboard(){
+  if(location.hash.slice(1)!==current)return;
+  if(!panelOrg){const routeTab=current==='personal'?'overview':current.startsWith('personal/')?current.split('/')[1]:null;if(routeTab!==personalTab)return;}
   const content=host?.querySelector('[data-personal-content]');if(!content)return;
   if(personalTab!=='compare'||!content.querySelector('.workspace-compare-frame'))replacePanelContent(content,personalDashboardContent());
   if(!panelOrg){const row=host.querySelector('.personal-console-stats');if(row)row.hidden=['overview','compare'].includes(personalTab);}
@@ -581,7 +585,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   panelOrg=null;teamUsage=null;
   personalTab=current.startsWith('personal/')?current.split('/')[1]:'overview';
   if(!['overview','models','keys','usage','compare','connect','vip'].includes(personalTab))personalTab='overview';
-  if(personalTab==='vip'){panelRedraw=null;mount(panelPage(null,'vip',`<iframe class="workspace-compare-frame personal-api" title="我的 VIP 申请与推广" src="/promotion/vip.html?embedded=1&personal=1"></iframe>`));return;}
+  if(personalTab==='vip'){panelRedraw=null;mount(panelPage(null,'vip',`<iframe class="workspace-compare-frame personal-api" title="VIP 合作计划" src="/promotion/vip.html?embedded=1&personal=1&view=program"></iframe>`));return;}
   const intent=readModelIntent();if(current.startsWith('personal/connect/'))personalSelected=current.slice('personal/connect/'.length);else if(intent?.scope==='personal')personalSelected=intent.id;
   const pilotPromise=api('/api/pilot/status').catch(()=>({enabled:false}));
   const employeePromise=api('/api/employee-credit/status').catch(()=>({enabled:false}));
@@ -771,13 +775,13 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const tab=(key,icon,label)=>org?`<button type="button" data-live="org-tab" data-tab="${key}" data-nav="${key}" ${state(key)}>${inner(icon,label)}</button>`:`<button type="button" data-personal-tab data-live="personal-tab" data-tab="${key}" data-nav="${key}" ${state(key)}>${inner(icon,label)}</button>`;
   const link=(key,href,icon,label)=>`<a href="${href}" data-nav="${key}" ${state(key)}>${inner(icon,label)}</a>`;
   return tab('overview','layout-dashboard','概览')+tab('models','layers',org?'模型':'我的模型')+tab('keys','command',org?'密钥':'API 密钥')+tab('usage','chart-no-axes-combined','用量')+
-   (org?tab('settings','settings','设置'):link('settings','#security','settings','设置'))+
+   (org?tab('settings','settings','设置'):'')+
    (manager?tab('people','users-round','员工'):'')+
    (!org?link('billing','#billing/personal','receipt-text','充值与账单'):manager?link('billing','#billing/organization/'+id,'receipt-text','账单'):'')+
    (org?tab('support','circle-alert','支持'):link('support','#support','circle-alert','支持'))+
    tab('compare','layers','API 对比');
  }
- const panelPage=(org,active,stage)=>`<div class="personal-console" data-workspace-scope="${org?esc(org.id):'personal'}">${customerHeader(org)}<aside class="pc-sidebar"><nav aria-label="工作台导航">${panelNav(org,active)}${me?.backoffice?.business?`<a href="#console/business/acquisition">${ico('briefcase-business')} 商务管理</a>`:!org?`<a href="#personal/vip" class="${active==='vip'?'active':''}" aria-current="${active==='vip'?'page':'false'}">${ico('users-round')} 我的 VIP 申请与推广</a>`:''}</nav></aside><div class="pc-stage ${active==='billing'?'billing-stage':''}">${stage}</div>${window.SiteHeader.footer()}</div>`;
+ const panelPage=(org,active,stage)=>`<div class="personal-console" data-workspace-scope="${org?esc(org.id):'personal'}">${customerHeader(org)}<aside class="pc-sidebar"><nav aria-label="工作台导航">${panelNav(org,active)}${me?.backoffice?.business?`<a href="#console/business/acquisition">${ico('briefcase-business')} 商务管理</a>`:''}${!org?`<a href="#security" data-nav="settings" class="pc-settings-link ${active==='settings'?'active':''}" aria-current="${active==='settings'?'page':'false'}">${ico('settings')}<span>个人设置</span></a><a href="#personal/vip" class="pc-vip-link ${active==='vip'?'active':''}" aria-current="${active==='vip'?'page':'false'}"><span class="pc-vip-label">去申请 VIP<svg class="pc-vip-circle" viewBox="0 0 150 48" fill="none" aria-hidden="true"><path d="M135 9C113 0 39 0 14 12C-7 24 6 43 62 44C112 48 150 34 145 20C142 10 127 7 114 6M19 8C-3 20 7 36 29 40"/></svg></span>${ico('arrow-up-right')}</a>`:''}</nav></aside><div class="pc-stage ${active==='billing'?'billing-stage':''}">${stage}</div>${window.SiteHeader.footer()}</div>`;
  const comparePanel=()=>`<iframe class="workspace-compare-frame${panelOrg?'':' personal-api'}" title="API 对比台" src="/compare.html?embedded=1${panelOrg?'':'&personal=1'}"></iframe>`;
  const panelBody=content=>`<div data-personal-content>${content}</div>`;
  const panelLoading='<p class="personal-model-empty">正在读取…</p>';
@@ -852,13 +856,13 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const binding=panelData.smsBinding,sessions=Array.isArray(panelData.sessions)?panelData.sessions:null,byPhone=me.user.phoneOnly;
   const action=(label,view,disabled=false)=>`<button type="button" data-live="settings-view" data-settings-view="${view}" ${disabled?'disabled':''}>${label}</button>`;
   const row=(label,value,control='')=>`<div class="ps-row"><span>${label}</span><div class="ps-value">${value}</div>${control}</div>`;
-  const back=`<button type="button" class="ps-back" data-live="settings-view" data-settings-view="overview">${ico('arrow-left')}设置</button>`;
+  const back=`<button type="button" class="ps-back" data-live="settings-view" data-settings-view="overview">${ico('arrow-left')}个人设置</button>`;
   const errorRetry=kind=>`<button type="button" data-live="settings-retry" data-kind="${kind}">重新加载</button>`;
   if(personalSettingsView==='password')return `<section class="personal-api personal-settings ps-detail">${back}${passwordSettings(binding).replace(/<h2 class="panel-title">([^<]+)<\/h2>/,'<h1 class="panel-title">$1</h1>')}</section>`;
   if(personalSettingsView==='phone')return `<section class="personal-api personal-settings ps-detail">${back}<h1>${binding?.lastFour?'更换手机号':'绑定手机号'}</h1><form id="live-sms-bind" class="live-form panel-form">${smsFields(true)}<div id="live-form-message" role="status"></div><button class="live-button primary" type="submit">验证并绑定</button></form></section>`;
   if(personalSettingsView==='devices'){
    const pages=Math.max(1,Math.ceil((sessions?.length||0)/3)),page=Math.min(personalSettingsPage,pages-1);
-   const list=panelData['error:sessions']?`<p role="status">登录记录暂时无法读取。</p>${errorRetry('sessions')}`:!sessions?panelLoading:!sessions.length?'<p class="ps-muted">暂无登录记录。</p>':`<ul class="ps-devices">${sessions.slice(page*3,page*3+3).map(s=>`<li><strong>${esc(personalDeviceName(s.userAgent))}</strong><time>登录于 ${esc(new Date(s.createdAt).toLocaleString('zh-CN'))}</time></li>`).join('')}</ul>`;
+   const list=panelData['error:sessions']?`<p role="status">${esc(panelData['error:sessions'])}</p>${/重新登录/.test(panelData['error:sessions'])?'':errorRetry('sessions')}`:!sessions?panelLoading:!sessions.length?'<p class="ps-muted">暂无登录记录。</p>':`<ul class="ps-devices">${sessions.slice(page*3,page*3+3).map(s=>`<li><strong>${esc(personalDeviceName(s.userAgent))}</strong><time>登录于 ${esc(new Date(s.createdAt).toLocaleString('zh-CN'))}</time></li>`).join('')}</ul>`;
    return `<section class="personal-api personal-settings ps-detail">${back}<div class="ps-device-head"><h1>登录设备</h1><button type="button" data-live="revoke-others" ${!sessions||sessions.length<2?'disabled':''}>退出其他设备</button></div><p class="ps-muted">${sessions?`${sessions.length} 个有效会话。`:''}退出其他设备不会影响当前登录。</p>${list}${pages>1?`<nav class="pu-pages" aria-label="设备分页"><button type="button" data-live="settings-page" data-page="${page-1}" aria-label="上一页" ${page===0?'disabled':''}>${ico('chevron-left')}</button><span>${page+1} / ${pages}</span><button type="button" data-live="settings-page" data-page="${page+1}" aria-label="下一页" ${page===pages-1?'disabled':''}>${ico('chevron-right')}</button></nav>`:''}</section>`;
   }
   const phone=phoneLoginAvailable||byPhone;
@@ -866,9 +870,10 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const phoneAction=panelData['error:smsBinding']?errorRetry('smsBinding'):phoneLoginAvailable&&!byPhone?action(binding?.lastFour?'更换':'绑定','phone',!binding):'';
   const passwordLabel=byPhone&&binding?.hasPassword===false?'设置密码':'修改密码';
   const passwordAvailable=!byPhone||phonePasswordAvailable&&typeof binding?.hasPassword==='boolean';
-  const deviceValue=panelData['error:sessions']?'暂时无法读取':sessions?`${sessions.length} 个有效会话`:'正在读取…';
+  const needsFreshSession=/重新登录/.test(panelData['error:sessions']||'');
+  const deviceValue=needsFreshSession?'需重新登录验证':panelData['error:sessions']?'暂时无法读取':sessions?`${sessions.length} 个有效会话`:'正在读取…';
   const upgrade=!(me.organizations||[]).length?`<a class="ps-upgrade" href="#upgrade">${me.upgrade?.status==='pending'?'企业升级审核中':'升级为企业账号'}${ico('arrow-up-right')}</a>`:'';
-  return `<section class="personal-api personal-settings"><h1>设置</h1><div class="ps-columns"><section><h2>账户资料</h2>${row('姓名',esc(me.user.name||'—'))}${!byPhone&&me.user.email?row('登录邮箱',esc(me.user.email)):''}${phone?row('手机号',phoneValue,phoneAction):''}</section><section><h2>账户安全</h2>${row('登录密码',byPhone?(binding?.hasPassword?'已设置':'短信验证码登录'):'密码登录',passwordAvailable?action(passwordLabel,'password'):'')}${row('登录设备',deviceValue,panelData['error:sessions']?errorRetry('sessions'):action('查看','devices',!sessions))}</section></div>${upgrade}</section>`;
+  return `<section class="personal-api personal-settings"><h1>个人设置</h1><div class="ps-columns"><section><h2>账户资料</h2>${row('姓名',esc(me.user.name||'—'))}${!byPhone&&me.user.email?row('登录邮箱',esc(me.user.email)):''}${phone?row('手机号',phoneValue,phoneAction):''}</section><section><h2>账户安全</h2>${row('登录密码',byPhone?(binding?.hasPassword?'已设置':'短信验证码登录'):'密码登录',passwordAvailable?action(passwordLabel,'password'):'')}${row('登录设备',deviceValue,needsFreshSession?action('查看说明','devices'):panelData['error:sessions']?errorRetry('sessions'):action('查看','devices',!sessions))}</section></div>${upgrade}</section>`;
  }
  function settingsContent(org=null){
   if(!org)return personalSettingsContent();
