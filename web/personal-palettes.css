@@ -1,0 +1,264 @@
+/* Color variants for the personal workspace. Silver and mist white is the base palette. */
+
+html[data-personal-theme="cool-red"] .personal-console[data-workspace-scope="personal"] {
+  --personal-canvas: #ebecee;
+  --personal-silver: #bcbbbf;
+  --personal-surface: #fafafa;
+  --personal-ink: #252426;
+  --personal-muted: #626166;
+  --personal-line: #d5d4d8;
+  --personal-accent: #d71019;
+  --personal-accent-hover: #b90c14;
+  --personal-selection: #f8e4e5;
+  --personal-credit-paid: #d71019;
+  --personal-credit-gift: #55545a;
+  --personal-chart-deepseek: #d71019;
+  --personal-chart-glm: #55545a;
+  --personal-chart-flash: #bcbbbf;
+  --personal-rail: #f3f3f4;
+  --personal-hover: #e3e3e6;
+  --personal-selected-ink: #a70c13;
+  --personal-disabled: #dedde1;
+  --personal-disabled-line: #ceccd2;
+  --personal-disabled-ink: #6b6970;
+  --personal-mark: #f3c9cd;
+  --personal-mark-ink: #501015;
+  --personal-scroll: #a7a5ad;
+  --personal-track: #dddde1;
+  --personal-table-head: #dedee2;
+  --personal-row-hover: #f6f6f7;
+  --personal-secondary: #dad9de;
+  --personal-grid: #e3e2e6;
+  --personal-heat-0: #ebecee;
+  --personal-heat-1: #f0c7ca;
+  --personal-heat-2: #e9858c;
+  --personal-heat-3: #d71019;
+  --personal-heat-4: #8f0b14;
+  --personal-tag-1: #f5f5f6;
+  --personal-tag-1-border: #c9c8cf;
+  --personal-tag-1-ink: #626166;
+  --personal-tag-2: #f5f5f6;
+  --personal-tag-2-border: #c9c8cf;
+  --personal-tag-2-ink: #626166;
+}
+
+html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] {
+  --personal-canvas: #062320;
+  --personal-silver: #41635d;
+  --personal-surface: #10332f;
+  --personal-ink: #edf4f0;
+  --personal-muted: #b4b9b4;
+  --personal-line: #32534e;
+  --personal-accent: #58eb04;
+  --personal-accent-hover: #80f243;
+  --personal-selection: #224632;
+  --personal-action-text: #062320;
+  --personal-nav-selection: #224632;
+  --personal-nav-selection-text: #93f343;
+  --personal-rail: #0b2a27;
+  --personal-hover: #183f38;
+  --personal-selected-ink: #a6f66d;
+  --personal-disabled: #25443f;
+  --personal-disabled-line: #3e5e58;
+  --personal-disabled-ink: #a1b2ad;
+  --personal-mark: #b6f582;
+  --personal-mark-ink: #062320;
+  --personal-scroll: #547771;
+  --personal-track: #244641;
+  --personal-table-head: #153b36;
+  --personal-row-hover: #11342e;
+  --personal-secondary: #1d443c;
+  --personal-grid: #284a44;
+  --personal-heat-0: #1b3e38;
+  --personal-heat-1: #346344;
+  --personal-heat-2: #4e903b;
+  --personal-heat-3: #62be2c;
+  --personal-heat-4: #58eb04;
+  --personal-tag-1: #1b413b;
+  --personal-tag-1-border: #3c6660;
+  --personal-tag-1-ink: #b4dfd3;
+  --personal-tag-2: #283f37;
+  --personal-tag-2-border: #455e4f;
+  --personal-tag-2-ink: #d1e1c8;
+  --personal-credit-paid: #58eb04;
+  --personal-credit-gift: #b4b9b4;
+  --personal-chart-deepseek: #58eb04;
+  --personal-chart-glm: #55ad95;
+  --personal-chart-flash: #b4b9b4;
+  --personal-chart-stroke: #06232040;
+  --personal-chart-key-stroke: #06232040;
+  color-scheme: dark;
+}
+
+html[data-personal-theme="burnt-orange"] .personal-console[data-workspace-scope="personal"] {
+  --personal-canvas: #fff8f2;
+  --personal-silver: #e2cdbf;
+  --personal-surface: #fffcf9;
+  --personal-ink: #190300;
+  --personal-muted: #6b5146;
+  --personal-line: #e8d6ca;
+  --personal-accent: #fb5e0d;
+  --personal-accent-hover: #ff7832;
+  --personal-selection: #ffeadb;
+  --personal-action-text: #190300;
+  --personal-nav-selection: #190300;
+  --personal-nav-selection-text: #fff8f2;
+  --personal-rail: #fcf0e7;
+  --personal-hover: #f8e8dc;
+  --personal-selected-ink: #99350c;
+  --personal-focus: #a43a0e;
+  --personal-disabled: #f0e4db;
+  --personal-disabled-line: #e4d1c4;
+  --personal-disabled-ink: #775f53;
+  --personal-mark: #ffd2b8;
+  --personal-mark-ink: #511707;
+  --personal-scroll: #b99b89;
+  --personal-track: #f1dfd3;
+  --personal-table-head: #f5e8de;
+  --personal-row-hover: #fff0e5;
+  --personal-secondary: #f5e6da;
+  --personal-grid: #efdfd4;
+  --personal-heat-0: #f5e8df;
+  --personal-heat-1: #f8d8c3;
+  --personal-heat-2: #ffab7d;
+  --personal-heat-3: #fb5e0d;
+  --personal-heat-4: #ae3b0e;
+  --personal-tag-1: #ffebdf;
+  --personal-tag-1-border: #efd2bf;
+  --personal-tag-1-ink: #87401f;
+  --personal-tag-2: #f2e8e3;
+  --personal-tag-2-border: #e3d1c8;
+  --personal-tag-2-ink: #684737;
+  --personal-credit-paid: #fb5e0d;
+  --personal-credit-gift: #967264;
+  --personal-chart-deepseek: #fb5e0d;
+  --personal-chart-glm: #8e6859;
+  --personal-chart-flash: #f7b99b;
+  --personal-chart-stroke: #19030018;
+  --personal-chart-key-stroke: #19030022;
+}
+
+
+html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .site-brand img {
+  filter: brightness(0) invert(.94);
+}
+html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] :is(.account-popover,.vip-inbox > section,.site-tools,.pd-state button,.pb-payment-method,.recharge-amount,.mm-foot select,.personal-settings input,.live-filter select) {
+  background: var(--personal-surface);
+  color: var(--personal-ink);
+  border-color: var(--personal-line);
+}
+html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .account-popover :is(a,button) {
+  color: var(--personal-ink) !important;
+}
+html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .account-popover :is(a,button):hover {
+  background: var(--personal-hover);
+}
+html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] :is(.vip-inbox,.vip-inbox-state,.vip-inbox-items time,.ph-link,.ph-spent,.mm-status,.mm-price,.mm-foot,.site-footer a,.pc-route-state p,.ak-usage-label small) {
+  color: var(--personal-muted);
+}
+html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] :is(.mm-status i,.live-dot i) {
+  background: var(--personal-accent);
+}
+html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] :is(.pu-table th,.mc-config-field,.mc-secret input,.api-balance-line,.api-next) {
+  background: var(--personal-surface);
+  color: var(--personal-ink);
+}
+html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .vip-inbox-items > a {
+  color: var(--personal-ink);
+  border-color: var(--personal-line);
+}
+html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .vip-inbox-items > a.is-unread {
+  background: var(--personal-selection);
+}
+html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .account-avatar {
+  background: var(--personal-selection);
+  color: var(--personal-nav-selection-text);
+}
+html[data-personal-theme="burnt-orange"] .personal-console[data-workspace-scope="personal"] :is(.pb-tabs a[aria-current],.pu-tabs button[aria-pressed="true"],.pd-expand:hover,.mc-tabs button[aria-pressed="true"]) {
+  color: var(--personal-selected-ink);
+  border-color: var(--personal-accent);
+}
+.personal-console[data-workspace-scope="personal"] .pc-vip-circle { stroke: var(--personal-focus); }
+
+/* The control stays in the account row and its popover does not resize the header. */
+.personal-console[data-workspace-scope="personal"] .site-header .site-account:has(.personal-theme-picker) {
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+}
+.personal-theme-picker { position: relative; flex: none; }
+.personal-theme-picker > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 10px;
+  list-style: none;
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius);
+  color: var(--personal-ink);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.personal-theme-picker > summary::-webkit-details-marker { display: none; }
+.personal-theme-picker > summary:hover,
+.personal-theme-picker[open] > summary { background: var(--personal-hover); }
+.personal-theme-current {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--personal-line);
+  border-radius: 50%;
+  background: conic-gradient(var(--personal-credit-paid) 0 33%, var(--personal-ink) 33% 66%, var(--personal-canvas) 66%);
+}
+.personal-theme-options {
+  position: absolute;
+  z-index: 65;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 222px;
+  padding: 5px;
+  border: 1px solid var(--personal-line);
+  border-radius: 9px;
+  background: var(--personal-surface);
+  box-shadow: 0 8px 26px #111b3224;
+}
+.personal-theme-options button {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 42px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--personal-ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.personal-theme-options button:hover { background: var(--personal-hover); }
+.personal-theme-options button[aria-pressed="true"] { background: var(--personal-selection); }
+.personal-theme-option-state { visibility: hidden; font-size: 11px; color: var(--personal-selected-ink); }
+.personal-theme-options [aria-pressed="true"] .personal-theme-option-state { visibility: visible; }
+.personal-theme-swatch {
+  width: 34px;
+  height: 14px;
+  border: 1px solid var(--personal-line);
+  border-radius: 3px;
+  background: linear-gradient(to right, var(--swatch-base) 0 33%, var(--swatch-mid) 33% 66%, var(--swatch-accent) 66%);
+}
+@media(max-width: 600px) {
+  .personal-console[data-workspace-scope="personal"] .site-header .site-account:has(.personal-theme-picker) { gap: 2px; }
+  .personal-theme-picker > summary { padding-inline: 5px; }
+  .personal-theme-picker { position: static; }
+  .personal-theme-options { top: 56px; right: var(--site-gutter); max-width: calc(100% - 2 * var(--site-gutter)); }
+}
+@media(max-width: 360px) {
+  .personal-console[data-workspace-scope="personal"] .site-header .site-brand,
+  .personal-console[data-workspace-scope="personal"] .site-header .site-brand img { width: 112px; }
+  .personal-theme-current { display: none; }
+}

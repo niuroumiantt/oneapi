@@ -56,7 +56,7 @@ def main():
     html = git('show', 'HEAD:web/index.html').decode()
     assets = {}
     asset_names = {}
-    for name in ('styles.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'navigation-data.js', 'identity.js', 'identity.css', 'personal-usage-charts.js', 'personal-usage-charts.css', 'home.css', 'landings.css', 'landings.js', 'brand.css', 'icons.js', 'model-catalog.js', 'model-explorer.js', 'model-explorer.css', 'app.js', 'welcome.js', 'table-sort.js', 'docs.js', 'docs.css', 'console.js', 'console.css', 'realtesting.js', 'realtesting.css', 'select-menu.js', 'vip-notifications.js', 'site-header.js', 'site-header.css', 'personal-theme.css', 'cw.css', 'cw.js'):
+    for name in ('styles.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'navigation-data.js', 'identity.js', 'identity.css', 'personal-usage-charts.js', 'personal-usage-charts.css', 'home.css', 'landings.css', 'landings.js', 'brand.css', 'icons.js', 'model-catalog.js', 'model-explorer.js', 'model-explorer.css', 'app.js', 'welcome.js', 'table-sort.js', 'docs.js', 'docs.css', 'console.js', 'console.css', 'realtesting.js', 'realtesting.css', 'select-menu.js', 'vip-notifications.js', 'site-header.js', 'site-header.css', 'personal-theme.css', 'personal-palettes.css', 'personal-theme.js', 'cw.css', 'cw.js'):
         content = git('show', f'HEAD:web/{name}')
         if name == 'site-header.js':
             content = content.replace(b"'vip-notifications.js'", repr(asset_names['vip-notifications.js']).encode())

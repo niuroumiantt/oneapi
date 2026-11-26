@@ -93,6 +93,7 @@
   document.body.classList.remove('identity-route-pending');
   if(resetScrollOnMount){window.scrollTo(0,0);const stage=host.querySelector('.pc-stage');if(stage){stage.scrollTop=0;stage.scrollLeft=0;}resetScrollOnMount=false;}
   host.classList.remove('route-loading');
+  window.PersonalTheme?.sync(host);
   syncPersonalUsageCharts();
  }
  function syncPersonalUsageCharts(){window.PersonalUsageCharts?.mount(host?.querySelector('.personal-home'),me?.user?.id);}
@@ -973,7 +974,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const orgs=me.organizations||[],role=org?(customerRoles[lastOrg?.membership?.role]||'企业成员'):'个人账号',settings=org?`#organization/${esc(org.id)}/settings`:'#security';
   const spaces=[...(!org||personalVisible()?[{value:'personal',name:'个人工作区',current:!org}]:[]),...orgs.map(o=>({value:'organization/'+o.id,name:o.name,current:org?.id===o.id}))];
   const workspace=spaces.length>1?`<label class="pc-workspace">${ico('building-2')}<select data-workspace-select aria-label="当前工作空间">${spaces.map(s=>`<option value="${esc(s.value)}" ${s.current?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>`:org?`<span class="pc-workspace">${ico('building-2')}<span class="pc-workspace-name" title="${esc(org.name)}">${esc(org.name)}</span></span>`:'';
-  return window.SiteHeader.render('workspace',{className:'pc-topbar',account:accountMenu(me.user,'customer',settings),tools:`${surfaceSwitch()||'<strong class="pc-product-title">工作台</strong>'}<div class="pc-topbar-actions"><span class="pc-identity">${role}</span>${workspace}${purchaseEntry('header',true)}<label class="pc-global-search">${ico('search')}<input data-personal-search aria-label="搜索模型" placeholder="搜索模型，回车查看" value="${esc(personalSearch)}"></label></div>`});
+  return window.SiteHeader.render('workspace',{className:'pc-topbar',account:(org?'':window.PersonalTheme?.control()||'')+accountMenu(me.user,'customer',settings),tools:`${surfaceSwitch()||'<strong class="pc-product-title">工作台</strong>'}<div class="pc-topbar-actions"><span class="pc-identity">${role}</span>${workspace}${purchaseEntry('header',true)}<label class="pc-global-search">${ico('search')}<input data-personal-search aria-label="搜索模型" placeholder="搜索模型，回车查看" value="${esc(personalSearch)}"></label></div>`});
  }
  const analytics={range:'24h',data:null,at:0,loading:false,cost:'bar',calls:'trend'};
  function loadAnalytics(force=false){
