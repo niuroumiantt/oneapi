@@ -186,7 +186,12 @@
   addEventListener('message',e=>{if(e.origin===location.origin&&e.source===document.querySelector('.cv-code-activity')?.contentWindow&&e.data?.type==='semifly-code-activity-close'){tab='codes';draw();}});
   let personalPage=0, personalStarted=false;
   const personalGuideTabs=['intro','process','terms'];
-  let vipStatementItems=[],vipStatementHistory=null,activityCode=null;
+  let vipStatementItems=[],vipStatementHistory=null,activityCode=null,createdCode=null;
+  function promotionMoneyStrip(k,global=false){
+    const paid=Math.max(0,Number(k.paid_fen||0)),used=Math.max(0,Number(k.used_fen||0)),refund=Math.max(0,Number(k.refunded_fen||0)),remaining=Math.max(0,paid-used-refund),scale=Math.max(paid,used+refund,1);
+    const label=`客户实付 ${money(paid)}，已消费 ${money(used)}，未消费 ${money(remaining)}，已退款 ${money(refund)}`;
+    return `<div class="cv-code-money${global?' cv-code-total':''}"><div class="cv-code-values"><span>${global?'全部促销码 · 累计实付':'客户实付'} <b>${money(paid)}</b></span><span class="cv-code-income">消费提成 <b>${money(k.unlocked_fen)}</b></span></div><div class="cv-cash-track" role="img" aria-label="${esc(label)}"><i class="used" style="width:${used/scale*100}%"></i><i class="remaining" style="width:${remaining/scale*100}%"></i><i class="refunded" style="width:${refund/scale*100}%"></i></div><div class="cv-cash-legend"><span class="used">已消费 ${money(used)}</span><span class="remaining">未消费 ${money(remaining)}</span><span class="refunded">已退款 ${money(refund)}</span></div></div>`;
+  }
   function monthlyOverview(monthly={}){
     const latest=monthly.latest_statement;
     return `<section class="cv-monthly-overview"><h2>本月推广 <small>${esc(monthly.month||'')}</small></h2><div class="cv-monthly-totals"><div><span>客户实付</span><strong>${money(monthly.paid_fen)}</strong></div><div><span>实际消费</span><strong>${money(monthly.used_fen)}</strong></div></div><p class="cv-detail-note">实际消费按实付额度消耗统计，不含赠送额度。</p><div class="cv-latest-statement"><div><strong>${latest?esc(latest.month)+' 月账单':'月账单'}</strong><p>${latest?'本期提成（税前） '+money(latest.totals?.commission_fen):'首份账单将在下月 1 日生成。'}</p></div><button data-tab="inbox">查看收件箱${monthly.unread?' · '+Number(monthly.unread)+' 未读':''}</button></div><p class="cv-detail-note">每月 1 日，上月账单 PDF 自动送达收件箱，包含各推广码的脱敏金额明细。</p></section>`;
@@ -210,7 +215,7 @@
     const p=data.partner,t=data.totals||{},active=p?.status==='active',codes=data.codes||[],contracts=data.contracts||[];
     const guide=personalGuideTabs.includes(tab),destination=p?'overview':'apply';
     const sections=active?[['overview','概览'],['codes','推广码'],['inbox','收件箱'],['payouts','佣金与提现'],['profile','个人信息与合同']]:p?[['overview','申请进度'],['inbox','收件箱'],['profile','申请资料']]:[['apply','填写申请']];
-    const section=tab==='statement-history'?'inbox':['new-code','code-activity'].includes(tab)?'codes':['withdraw'].includes(tab)?'payouts':['bank','invites','feedback','contracts','sign-request'].includes(tab)?'profile':tab;
+    const section=tab==='statement-history'?'inbox':['new-code','code-created','code-activity'].includes(tab)?'codes':['withdraw'].includes(tab)?'payouts':['bank','invites','feedback','contracts','sign-request'].includes(tab)?'profile':tab;
     $('#cw-title').textContent=guide?'VIP 合作计划':active?'VIP 工作台':'VIP 申请';
     $('#cw-description').textContent='';
     const guideLink=$('#cw-guide-link');guideLink.textContent=guide?(active?'返回工作台':p?'查看申请进度':'申请指南'):'了解合作计划';
@@ -258,8 +263,16 @@
     if(!active&&!['inbox','statement-history'].includes(tab)){tab='overview';return drawPersonalVIP(c,version);}
     const verified=hasCurrentContract(contracts),trial=hasPromotionTrial(p),eligible=verified||trial;
     if(tab==='code-activity'&&activityCode){c.innerHTML=`<iframe class="cv-code-activity" title="推广码收支明细" src="/code-activity.html?kind=${activityCode.kind}&amp;code=${encodeURIComponent(activityCode.id)}"></iframe>`;return;}
+    if(tab==='code-created'&&createdCode){
+      const k=createdCode;
+      c.innerHTML=`<section class="cv-code-created" aria-labelledby="created-heading"><h2 id="created-heading" tabindex="-1">促销码已生成</h2><p>您已生成「<strong>${esc(k.name)}</strong>」促销码，客户享 <strong>${discount(k.customer_price_percent)}</strong>。</p><div class="cv-created-code"><span>客户付款时输入</span><strong>${esc(k.code)}</strong><button data-copy="${esc(k.code)}" data-copy-label="促销码">复制促销码</button></div><p>请告知客户：在付款前，将上方促销码填入充值页的「促销码」输入框。客户实际使用后，您将获得相应提成。</p><p class="cv-detail-note">名称便于您管理；客户付款时应输入上方促销码。提成以每月 1 日送达的上月账单为准。</p><button class="cw-primary" data-created-confirm>确认，查看促销码</button></section>`;
+      document.querySelector('#created-heading')?.focus();return;
+    }
     if(tab==='codes'){
-      c.innerHTML=`<div class="cv-line"><h2>推广码 <small>${codes.length} / 50</small></h2>${eligible&&codes.length<50?go('new-code','生成推广码'):''}</div><p class="cv-detail-note">本月实付与消费按码统计，提成详见每月 1 日送达的账单。</p>${!eligible?'<p>完成合同与实名核验后，可生成推广码。<button data-tab="profile">查看个人信息与合同</button></p>':trial&&!verified?`<p>试用至 ${when(p.promotion_trial_until)}</p>`:''}`+personalList(['推广码','本月实付','实际消费','操作'],codes.map(k=>{const status=promotionStatus(k,true,verified,trial);return `<tr><td>${esc(k.name||k.code)}<small>${esc(k.code)} · ${discount(k.customer_price_percent)} · ${esc(status)}</small></td><td>${k.is_self_code?'自用码':money(k.month_paid_fen)}</td><td>${k.is_self_code?'—':money(k.month_used_fen)}</td><td><button data-code-activity="${esc(k.id)}">收支明细</button>${status==='已生效'?`<button data-copy="${esc(location.origin+payLink(k.code))}">复制链接</button><a target="_blank" rel="noopener" href="/api/cw/codes/${encodeURIComponent(k.id)}/qr">二维码 ↗</a>`:'—'}</td></tr>`;}).concat((data.task_code_history||data.task_codes||[]).map(k=>`<tr><td>本人付款码<small>${esc(k.code)} · ${discount(k.customer_price_percent)}</small></td><td>自用</td><td>不计提成</td><td><button data-code-activity="${esc(k.id)}" data-code-kind="task">收支明细</button></td></tr>`)),false,innerWidth<700?2:innerHeight<600?3:5);return;
+      const ordered=[...codes].reverse().sort((a,b)=>Number(b.id===createdCode?.id)-Number(a.id===createdCode?.id)||Number(Boolean(a.is_self_code))-Number(Boolean(b.is_self_code)));
+      const totals=Object.fromEntries(['paid_fen','used_fen','refunded_fen','unlocked_fen'].map(key=>[key,codes.filter(k=>!k.is_self_code).reduce((sum,k)=>sum+Number(k[key]||0),0)]));
+      const rows=ordered.map(k=>{const status=promotionStatus(k,true,verified,trial);return `<tr class="${k.id===createdCode?.id?'cv-created-row':''}"><td><b class="cv-code-name" title="${esc(k.name||k.code)}">${esc(k.name||k.code)}</b><small>${esc(k.code)} · ${discount(k.customer_price_percent)}</small><small>${esc(status)}${k.id===createdCode?.id?' · 刚刚生成':''}</small></td><td>${k.is_self_code?'<span class="cv-detail-note">自用码，不计推广收益。付款与消费见收支明细。</span>':promotionMoneyStrip(k)}</td><td><button data-code-activity="${esc(k.id)}">收支明细</button>${status==='已生效'?`<button data-copy="${esc(k.code)}" data-copy-label="促销码">复制码</button><button data-copy="${esc(location.origin+payLink(k.code))}">复制链接</button><a target="_blank" rel="noopener" href="/api/cw/codes/${encodeURIComponent(k.id)}/qr">二维码 ↗</a>`:''}</td></tr>`;}).concat((data.task_code_history||data.task_codes||[]).map(k=>`<tr><td>本人付款码<small>${esc(k.code)} · ${discount(k.customer_price_percent)}</small></td><td><span class="cv-detail-note">自用，不计推广收益。</span></td><td><button data-code-activity="${esc(k.id)}" data-code-kind="task">收支明细</button></td></tr>`));
+      c.innerHTML=`<div class="cv-code-list"><div class="cv-line"><h2>促销码 <small>${codes.length} / 50</small></h2>${eligible&&codes.length<50?go('new-code','生成促销码'):''}</div>${promotionMoneyStrip(totals,true)}<p class="cv-detail-note">收益为累计消费提成（税前），以月账单为准；自用码不计入推广汇总。</p>${!eligible?'<p>完成合同与实名核验后，可生成促销码。</p>':''}${personalList(['促销码 / 状态','付款与收益进展','操作'],rows,false,innerWidth<700||innerHeight<550?1:innerHeight<740?2:3)}</div>`;return;
     }
     if(tab==='new-code'){c.innerHTML='<h2>生成推广码</h2><p>符合推广条件后，生成即生效，无需逐个审批。提成 = 客户价格比例 − 40%。客户实际使用后解锁，月结确认后可提现。</p>'+(eligible&&codes.length<50?form('code',field('name','推广码名称','text','maxlength="60"')+field('customer_price_percent','客户价格比例（50 表示五折）','number','min="50" max="100" value="50"'),'生成并启用'):'<p>当前未具备生成条件。</p>')+go('codes','返回推广码');return;}
     if(tab==='inbox'){
@@ -631,6 +644,7 @@
     const b = e.target.closest('button');
     if (!b) return;
     try {
+      if(compactVIP&&b.hasAttribute('data-created-confirm')){tab='codes';personalPage=0;await load();return;}
       if(compactVIP&&b.dataset.codeActivity){activityCode={id:b.dataset.codeActivity,kind:b.dataset.codeKind||'cw'};tab='code-activity';await draw();return;}
       if(compactVIP&&b.dataset.statementHistory){vipStatementHistory=vipStatementItems.find(item=>item.id===b.dataset.statementHistory);tab='statement-history';personalPage=0;await draw();return;}
       if(compactVIP&&b.hasAttribute('data-vip-page')){personalPage=Number(b.dataset.vipPage);await draw();return;}
@@ -766,7 +780,9 @@
     const b = Object.fromEntries(new FormData(f)),
       action = f.dataset.action,
       submit = e.submitter || f.querySelector('button');
+    const originalLabel=submit.textContent;
     submit.disabled = true;
+    if(action==='code')submit.textContent='正在生成…';
     try {
       let path,
         body = b;
@@ -886,11 +902,11 @@
         path = base + '/payouts/' + b.payout_id + '/complete';
         body = { ...b, bank_result_verified: true };
       }
-      await api(path, body);
+      const saved = await api(path, body);
+      if(compactVIP&&action==='code'){createdCode=saved;tab='code-created';personalPage=0;$('#cw-message').dataset.error='false';$('#cw-message').textContent='';await draw();return;}
       if(compactVIP&&action==='vip-sign-request')tab='contracts';
       if(compactVIP&&action==='apply')tab='overview';
-      if(compactVIP&&action==='code'){tab='codes';personalPage=0;}
-      if(compactVIP&&action==='bank')tab='profile';
+            if(compactVIP&&action==='bank')tab='profile';
       await load();
       $('#cw-message').textContent = action === 'activation-exception' ? '原单特批已提交，等待管理员审批。'
         : action === 'activation-exception-decision' ? (submit.value === 'approved' ? '已按原单特批开通 VIP。' : '原单特批已退回。')
@@ -904,6 +920,7 @@
       $('#cw-message').textContent = err.message;
     } finally {
       submit.disabled = false;
+      submit.textContent=originalLabel;
     }
   });
   let checking=false;

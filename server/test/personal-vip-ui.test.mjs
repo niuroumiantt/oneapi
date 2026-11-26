@@ -17,7 +17,7 @@ test('active partner has one five-section navigation, applicants have their prog
 });
 test('promotion generation still requires eligibility; creation does not bypass verification',async()=>{
  const blocked=harness();assert.match(await blocked.draw('codes'),/完成合同与实名核验/);assert.doesNotMatch(await blocked.draw('new-code'),/生成并启用/);
- const verified=harness('active',{data:{contracts:[{expires_at:'2099-01-01'}]}});assert.match(await verified.draw('codes'),/生成推广码/);assert.match(await verified.draw('new-code'),/生成并启用/);
+ const verified=harness('active',{data:{contracts:[{expires_at:'2099-01-01'}]}});assert.match(await verified.draw('codes'),/生成促销码/);assert.match(await verified.draw('new-code'),/生成并启用/);
 });
 test('withdrawal explains missing bank and does not show unknown tax as zero',async()=>{
  const h=harness('active',{data:{partner:{status:'active',bank_verified:false},payouts:[{status:'requested',gross_fen:3200,withholding_fen:0}]}});
@@ -53,4 +53,14 @@ test('contracts distinguish unavailable signing, real pending tasks and archived
  const off=harness();assert.match(await off.draw('contracts'),/暂未开放/);assert.doesNotMatch(await off.draw('contracts'),/去法大大实名并签署|下载已签 PDF/);
  const waiting=harness('active',{data:{signing:{id:'task',status:'pending_person',mode:'sandbox'}}});assert.match(await waiting.draw('contracts'),/内部试签.*待本人实名签署/);assert.match(await waiting.draw('contracts'),/去法大大实名并签署/);
  const archived=harness('suspended',{data:{contracts:[{template_version:'v1',fadada_signing_id:'12345678-1234-1234-1234-123456789abc',verified_at:'2026-11-01',expires_at:'2099-01-01'}]}});assert.match(await archived.draw('contracts'),/下载已签 PDF/);
+});
+
+test('cash progress partitions payment without counting commission twice or self codes',async()=>{
+ const h=harness('active',{data:{codes:[{id:'promo',code:'PROMO',name:'活动',paid_fen:10000,used_fen:3000,refunded_fen:1000,unlocked_fen:750},{id:'self',code:'SELF',is_self_code:true,paid_fen:90000,used_fen:20000,unlocked_fen:99999}]}});
+ const html=await h.draw('codes');assert.match(html,/累计实付 <b>¥100.00/);assert.match(html,/未消费 ¥60.00/);assert.match(html,/消费提成 <b>¥7.50/);assert.doesNotMatch(html,/¥999.99/);assert.match(html,/width:30%/);assert.match(html,/width:60%/);assert.match(html,/width:10%/);
+ const empty=vm.runInContext('promotionMoneyStrip({})',h.ctx);assert.doesNotMatch(empty,/NaN|Infinity/);
+});
+test('creation receipt separates the management name from the customer payment code',async()=>{
+ const h=harness();vm.runInContext("createdCode={id:'new',name:'我家大哥',code:'ABCDEFGH',customer_price_percent:65}",h.ctx);
+ const html=await h.draw('code-created');assert.match(html,/我家大哥/);assert.match(html,/ABCDEFGH/);assert.match(html,/data-created-confirm/);assert.match(html,/付款前/);assert.match(html,/每月 1 日/);
 });
