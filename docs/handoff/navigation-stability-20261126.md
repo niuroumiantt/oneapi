@@ -24,4 +24,9 @@
 
 ## 发布
 
-待补充公网提交、回滚目录与核验结果。
+- PR #151 已合并：https://github.com/niuroumiantt/oneapi/pull/151
+- 公网前端提交：`dac57e5dfc5e0794e471928455ea8ee04e7c7c66`；API 保持 `95a365b20755889b65e774702817e56f84c853b4`。
+- 回滚：`/srv/oneapi-data/oneapi-cutover-q72dymap/releases/dac57e5dfc5e-static.lpgWim/previous-web`。
+- 发布脚本已核对完整静态清单及回执、API 健康。
+- Chrome 公网真实账户完成概览→我的模型→充值与账单→概览；侧栏顶部65px、内容起点188px一致，新导航脚本已加载，控制台无错误。没有创建 Key、修改选择或发生支付。
+- 运行中的本地预览使用临时端口4210，验收后关闭。主目录原有独立提交与文件保持不变。
