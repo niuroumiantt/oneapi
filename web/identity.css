@@ -2023,3 +2023,17 @@ td>.live-dot:first-child{margin-right:5px}
  .my-models .mm-foot{margin-bottom:0}
  .my-models .mm-empty{padding:4px 0}
 }
+
+/* Model collection: direct single-model setup beside adding to a shared selection. */
+.my-models .mm-section-actions .mm-generate{padding:4px 10px;border-radius:4px;background:#eef2f7;color:var(--ph-ink);font-weight:500}
+.my-models .mm-section-actions .mm-generate:hover:not(:disabled){background:#e5ebf3}
+.my-models .mm-actions{gap:6px}
+@media(max-width:1000px){
+ .my-models .mm-available .mm-actions{flex-wrap:wrap;row-gap:2px}
+}
+@media(max-width:600px){
+ .my-models .mm-section-head{flex-wrap:wrap;gap:6px 12px}
+ .my-models .mm-section-actions{gap:12px;flex-wrap:wrap}
+ .my-models .mm-available .mm-actions{flex-direction:column;align-items:flex-end;gap:2px}
+ .my-models .mm-available .mm-table td{height:64px}
+}
