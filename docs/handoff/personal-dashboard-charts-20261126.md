@@ -1,24 +1,34 @@
-# 个人 Dashboard 图表本地设计交接（2026-11-26，m5）
+# 个人 Dashboard 图表交接（2026-11-26，m5）
 
-## 目标与已定规则
+## 目标与授权
 
-个人 Dashboard 增加按模型分色的每日 Token 柱状图：默认过去 7 天，展开过去 30 天；右侧过去 3 个月的使用状态热力图，参照用户的 GitHub contribution 截图。用户明确要求先本地设计给他看，再更新上网。
+个人概览左侧按模型分色显示每日 Token：默认过去 7 天，展开过去 30 天；右侧过去 3 个月绿色使用热力图。用户已看过本地设计，并明确回复「好的，请上线」，允许本轮接入真实统计及发布。
 
-## 当前状态
+## 实现
 
-- 从最新远程 `origin/main` 基线 `6d3d06a` 建立独立分支 `codex/personal-dashboard-charts-20261126`。
-- 工作树：`/Users/m5/.worktrees/oneapi/personal-dashboard-charts-20261126`。主工作区已有其他任务的未提交修改，未触碰。
-- 可交互原型完成，放在 `prototypes/personal-dashboard/`，通过本地预览服务向现有网页注入组件。未修改生产 web/server 文件。
-- 本地地址：http://127.0.0.1:4196/#personal 。运行 `python3 prototypes/personal-dashboard/preview.py` 可重启。
-- 全部数据为明确标注的固定示例，未连接真实账号、未进行生产调用、未上线或推送远程。
-- 截图在 `prototypes/personal-dashboard/screenshots/`；细节与验证见该目录上一级 README.md。
+- 独立工作树 `/Users/m5/.worktrees/oneapi/personal-dashboard-charts-20261126`，分支 `codex/personal-dashboard-charts-20261126`，基于远程 `6d3d06a`。未修改有其他活跃任务的主工作区。
+- `web/personal-usage-charts.js/css` 实现已确认版式、精确数值提示、月图展开、数值表、加载/空态/错误重试、手机横向滚动；identity 挂载/更新时连接组件，离开页面取消请求，不保留其他账号图表。
+- `GET /api/customer-credit/usage/chart` 仅允许已认证个人账号。按账户 owner 聚合全量 customer_calls，保留停用 Key，排除 purpose=compare；不使用最近 100 条列表。
+- 输入 + 输出 Token，缓存已包含在输入中；整数以字符串传输、BigInt 展示。未完整返回 Token 的请求单独提示，只统计已知值；不把费用表联入聚合，避免多额度包重复计数。
+- 日期按 Asia/Shanghai；7/30 天含今天，热力图从「今天减 3 个自然月后加一天」到今天。月底由 PostgreSQL 自然月运算处理。空日期补零，热力图强度相对所选窗口峰值分四档。
+- 正式静态构建清单已加入两份新资源；本地原型及 demo-data 不在发布清单里。
 
-## 下一步
+## 验证
 
-1. 用户查看本地原型并反馈；确认前不发布。
-2. 确认后按 README 的统计口径接入完整真实日聚合，去掉预览状态控件和 fixture；补齐加载态与数据测试。
-3. 验证实际账号数据和响应式展示，再依用户授权走现有发布流程。
+- 独立临时 PostgreSQL 完整回归：256 项，237 通过、19 跳过、0 失败。修复两处导航测试缺失的模拟上下文；其中 comparePanel 缺失已在原远程基线独立复现。
+- 新聚合 SQL 通过真实 PostgreSQL 测试：账号隔离、超过 100 次调用、停用 Key、比较 Key 排除、上海午夜/月底/跨年、大整数精度、空数据。
+- 浏览器正式模块测试：7/30 根柱、92 日期格、模型 tooltip、展开与每日数值表、离开页面清理、加载/空态/错误重试；390×844 无整页横向溢出，月图内部横向滚动。桌面1440×1000复核；所有临时视口已重置。
+- Impeccable detector 返回空发现。完整测试日志在 `/private/tmp/oneapi-dashboard-preview/full-database-tests-final.log`。
 
-## 待用户决定
+## 发布前基线
 
-当前布局、配色及「展开 30 天后在下方显示长图」是否满意。
+API source_sha=`728bd246feb0d0867c2c7b1948829aa1b1a80572`，静态 source_sha=`364ef0b128f8eac959e21e6ca36ac3e5acf0d6be`；原先只发布前端所以不同。当前基线完整包含两者，server/src 相比生产无其他未发布变化。
+
+## 入口与后续
+
+- 发布：`scripts/publish_shanghai.sh`，自带构建、数据库备份、健康检查及回滚。
+- 正式页面： https://semifly.cn/#personal 。发布后核验 API/static SHA、新资源及未登录401。
+- 本地正式模块验收（测试响应）： http://127.0.0.1:4197/#personal ，服务脚本 `/private/tmp/oneapi-dashboard-preview/production-preview.py`。
+- 原始设计： `prototypes/personal-dashboard/`，只读样例预览4196；不要部署该服务。
+
+发布回执将在完成后补充。

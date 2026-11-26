@@ -78,7 +78,9 @@
   document.body.classList.remove('identity-route-pending');
   if(resetScrollOnMount){window.scrollTo(0,0);resetScrollOnMount=false;}
   host.classList.remove('route-loading');
+  syncPersonalUsageCharts();
  }
+ function syncPersonalUsageCharts(){window.PersonalUsageCharts?.mount(host?.querySelector('.personal-home'),me?.user?.id);}
  async function staffContext(ticket){if(!staff){const info=await api('/api/staff/me');if(ticket!==generation)return false;staff=info.staff;}me=null;return true;}
  const note=(message,error=false)=>`<div class="live-notice ${error?'error':''}" role="${error?'alert':'status'}">${esc(message)}</div>`;
  let phoneLoginAvailable=false,phoneRegistrationAvailable=false,phonePasswordAvailable=false,authMethodsRequest;
@@ -578,6 +580,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const content=host?.querySelector('[data-personal-content]');if(!content)return;
   if(personalTab!=='compare'||!content.querySelector('.workspace-compare-frame'))replacePanelContent(content,personalDashboardContent());
   if(!panelOrg){const row=host.querySelector('.personal-console-stats');if(row)row.hidden=['overview','compare'].includes(personalTab);}
+  syncPersonalUsageCharts();
   host.querySelectorAll('[data-personal-tab]').forEach(b=>{const active=b.dataset.tab===personalTab||(personalTab==='connect'&&b.dataset.tab===(current==='personal/connect/all'?'keys':'models'));b.classList.toggle('active',active);if(b.getAttribute('role')==='tab')b.setAttribute('aria-selected',String(active));else b.setAttribute('aria-current',active?'page':'false');});
  }
  async function account(ticket,earlyBilling){
