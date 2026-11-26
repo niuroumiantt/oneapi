@@ -47,7 +47,7 @@ html.compare-embedded .compare-page>main{padding:10px 14px}
 html.compare-embedded .compare-page :is(.connection,.composer,.result){animation:none}
 
 /* Keep the first paint truthful until the server resolves account eligibility. */
-html.compare-booting .compare-page main > :not(.cp-heading):not(#compare-loading):not(noscript),
+body.compare-booting main > :not(.cp-heading):not(#compare-loading):not(noscript),
 html.compare-unavailable .compare-page main > :not(.cp-heading):not(#auth-error):not(noscript){display:none!important}
 #compare-loading[hidden]{display:none}
 #compare-loading{background:none;margin:24px 0;padding:24px 0;color:var(--muted,#64748b)}

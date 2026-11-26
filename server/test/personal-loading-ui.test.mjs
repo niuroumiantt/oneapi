@@ -19,11 +19,11 @@ const source=read('compare.js'),boot=source.slice(source.lastIndexOf("api('confi
 function harness(){
  const pending=deferred(),classes=new Set(['compare-booting']),elements=new Map();const node=()=>({hidden:false,textContent:'',append(){},replaceChildren(){}});
  const $=id=>{if(!elements.has(id))elements.set(id,node());return elements.get(id);};let result;
- const ctx={api:()=>pending.promise,$,models:[],config:null,Option:function(){},document:{documentElement:{classList:{add:c=>classes.add(c),remove:c=>classes.delete(c)}},createElement:node,querySelectorAll:()=>[]},window:{PersonalCompare:{unavailable:(status)=>{result=status}}},location:{reload(){}},updateProvider(){},chooseProduct(){}};
+ const ctx={api:()=>pending.promise,$,models:[],config:null,Option:function(){},document:{body:{classList:{remove:c=>classes.delete(c)}},documentElement:{classList:{add:c=>classes.add(c),remove:c=>classes.delete(c)}},createElement:node,querySelectorAll:()=>[]},window:{PersonalCompare:{unavailable:(status)=>{result=status}}},location:{reload(){}},updateProvider(){},chooseProduct(){}};
  const done=vm.runInNewContext(boot,ctx);return {pending,classes,$,done,get result(){return result}};
 }
 test('eligibility remains loading until resolution, then chooses funded or recharge without exposing a premature form',async()=>{
- assert.match(read('compare.html'),/class="compare-booting"/);assert.match(read('compare.css'),/html\.compare-booting[\s\S]+display:none!important/);
+ assert.match(read('compare.html'),/class="compare-page compare-booting"/);assert.match(read('compare.css'),/body\.compare-booting[\s\S]+display:none!important/);
  for(const status of [200,401,402,503,408]){
   const h=harness();assert.ok(h.classes.has('compare-booting'));
   if(status===200)h.pending.resolve({models:[{id:'a',name:'A'}],products:[{account_id:'p',name:'P'}]});else h.pending.reject(status===408?Object.assign(Error(),{name:'TimeoutError'}):Object.assign(Error('fixture'),{status}));
