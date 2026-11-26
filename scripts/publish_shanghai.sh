@@ -19,7 +19,15 @@ trap 'rm -rf "$work"' EXIT
 git archive "$source_sha" Dockerfile Dockerfile.pilot-runtime Dockerfile.dependency-runtime package.json package-lock.json server | tar -xf - -C "$work"
 python3 scripts/build_static.py --domain semifly.cn --out "$work/web.tgz" > "$work/static-manifest.json"
 cp scripts/shanghai/activate_release.sh "$work/activate_release.sh"
-tar -czf "$work/bundle.tgz" -C "$work" Dockerfile Dockerfile.pilot-runtime Dockerfile.dependency-runtime package.json package-lock.json server web.tgz activate_release.sh
+mkdir -p "$work/release-npm"
+if [[ $reuse_node == 1 ]]; then
+  # Bootstrap from the installed npm tool, not application dependencies from this computer.
+  npm_cli=$(node -p 'require("fs").realpathSync(process.argv[1])' "$(command -v npm)")
+  npm_root=$(dirname "$(dirname "$npm_cli")")
+  node -e 'if(require(process.argv[1]+"/package.json").name!=="npm")process.exit(1)' "$npm_root"
+  cp -R "$npm_root/." "$work/release-npm/"
+fi
+tar -czf "$work/bundle.tgz" -C "$work" Dockerfile Dockerfile.pilot-runtime Dockerfile.dependency-runtime package.json package-lock.json server web.tgz activate_release.sh release-npm
 bundle_sha=$(shasum -a 256 "$work/bundle.tgz" | awk '{print $1}')
 
 # An SSH wrapper can relay through m4, with the normal known-hosts checks.
