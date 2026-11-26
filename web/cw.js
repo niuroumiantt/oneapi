@@ -18,7 +18,7 @@
   const staff = params.get('staff') === '1',
     base = staff ? '/api/staff/cw' : '/api/cw',
     labels = {
-      pending: '待销售确认',
+      pending: '待电话面试',
       confirmed: '已面试，待充值核验',
       active: '正式 VIP',
       suspended: '已暂停',
@@ -46,6 +46,7 @@
   });
   $('#cw-footer').innerHTML = window.SiteHeader.footer();
   if (staff) {
+    document.body.classList.add('cw-staff');
     $('#cw-title').textContent = 'VIP 客户跟进';
     document.title = 'VIP 客户跟进 · semifly.ai';
     $('#cw-description').textContent = '查看申请、邀请码和下一次联系时间。';
@@ -109,6 +110,7 @@
     $('#cw-nav').replaceChildren();
     document.body.classList.toggle('cw-applicant', !staff);
     $('#refresh').hidden = error.status === 401;
+    $('#cw-message').dataset.error='true';
     $('#cw-message').textContent = error.status === 401 ? '' : error.message;
     const authParams = new URLSearchParams({ cw_join: referrer || '1' });
     if (employeeInviteCode) authParams.set('invite_code', employeeInviteCode);
@@ -125,8 +127,8 @@
       ? [
           ['overview', data.administrator ? '全部 VIP 客户' : '我的 VIP 客户'],
           ['invite-codes', '招募邀请码'],
-          ['manage', '客户档案'],
-          ...(data.finance ? [['settlement', '月结与提现']] : []),
+          ...(selected ? [['manage', '客户档案']] : []),
+          ...(data.finance && selected ? [['settlement', '月结与提现']] : []),
         ]
       : [
           ['overview', '收益概览'],
@@ -148,6 +150,7 @@
     content.setAttribute('aria-busy', 'true');
     content.inert = true;
     try {
+      $('#cw-message').dataset.error='false';
       $('#cw-message').textContent = '';
       const result = await api(staff ? base : base + '/me');
       if (version !== loadVersion) return;
@@ -216,31 +219,20 @@
     }
     const p = data.partner,
       t = data.totals;
-    const ownPaid=(data.recharges||[]).filter(o=>o.status==='paid'&&o.credited_at);
-    const progress=data.activation_progress;
-    const paidProgress=progress?`<div class="cw-callout"><p><b>${progress.eligible?'累计实付已达标，等待销售核验':'累计有效实付尚未满 ¥100'}</b></p><p>已核实 ${money(progress.total_fen)} · 还差 ${money(progress.shortfall_fen)}。允许分多次充值；赠送和已退款金额不计入，处理中退款核实后再计算。</p><p>开通后首次 ¥100 实付作为激活款，不支持自助退款，但仍可用于消费。特殊诉求请提交工单。已有付款请先核验原单，不要重复支付。</p></div>`:'';
-    const ownerProgress=`<p>负责销售：${esc(data.owner_name||'待公司分配')} · <a href="/#support">联系支持</a></p>`;
-    if (p.status === 'pending')
-      c.innerHTML = `<h2>申请已提交，等待公司销售电话面试并确认</h2><p>你的 VIP 编号：<strong>${esc(p.public_code)}</strong></p><div class="cw-callout"><p><b>你提交的申请信息</b></p><p>真实姓名：<strong>${esc(p.legal_name || '—')}</strong></p><p>申请时间：${when(p.created_at)}</p><p>当前状态：${labels[p.status]}</p>${ownerProgress}${paidProgress}<p class="cw-muted">联系方式已加密保存在系统中，用于电话面试和申请处理。</p></div><p>公司销售会主动联系你面试；面试通过后会发放 <strong>VIP 付款码</strong>。你充值后联系销售核验到账，销售确认后才成为正式 VIP（顶栏显示金色 VIP 角标）。请留意邮件或电话。</p><p><button data-refresh-status>刷新状态</button></p>`;
-    if (p.status === 'rejected')
-      c.innerHTML = `<h2>申请未通过</h2><p>很抱歉，你的 VIP 申请未通过。如有疑问请联系邀请你的员工或 sales。</p>`;
-    if (p.status === 'confirmed') {
-      const current = data.task_codes?.[0];
-      c.innerHTML = `<h2>${ownPaid.length ? '已收到充值，等待销售核验开通' : current ? '付款码已发放' : '面试已通过，等待销售发放付款码'}</h2>
-        <p>你的 VIP 编号：<strong>${esc(p.public_code)}</strong></p>${ownerProgress}${paidProgress}
-        ${current ? `<p>累计有效实付满 <strong>¥100</strong> 后联系销售核验开通；已达标无需再次付款。</p>${paymentCard(current)}`
-          : '<p>销售发放付款码后会显示在这里，你可以用它直接充值。</p>'}
-        <p><button data-refresh-status>刷新状态</button></p>`;
+    if (p.status !== 'active') {
+      const current=data.task_codes?.[0],progress=data.activation_progress;
+      c.innerHTML=applicationProgress(data)+
+        (p.status==='confirmed' ? `<section class="cw-payment-step"><h3>充值与开通</h3>
+          <p>累计有效实付 <strong>${money(progress?.total_fen)}</strong> / ¥100.00${progress?.eligible?' · 已达标':` · 还差 ${money(progress?.shortfall_fen)}`}。</p>
+          ${progress?.eligible?'<p>等待负责员工核验开通，无需再次付款。</p>':current?paymentCard(current):'<p>付款码尚未发放，请等待负责员工处理。已有充值会计入核验，无需重复支付。</p>'}
+          <details><summary>充值及退款规则</summary><p>可分多次充值；赠送、已退款金额不计入，处理中退款核实后再计算。开通后首次 ¥100 实付作为激活款，不支持自助退款，仍可消费。特殊诉求请提交工单。</p></details></section>`:'')+
+        `<details><summary>申请资料</summary><p>姓名：${esc(p.legal_name)}<br>VIP 编号：${esc(p.public_code)}<br>提交时间：${when(p.created_at)}</p></details>
+         <div class="cw-inline"><button data-refresh-status>刷新进度</button><a href="/#support">联系支持</a><span class="cw-muted" id="cw-sync-status" role="status">页面每 15 秒自动检查进度</span></div>`;
       return;
     }
-    if (p.status === 'suspended') {
-      c.innerHTML = '<h2>VIP 合作已暂停</h2><p>如需了解后续安排，请联系公司销售。</p>';
-      return;
-    }
-    if (p.status !== 'active') return;
     const taskCodes = data.task_codes || [];
     if (tab === 'overview')
-      c.innerHTML = `<h2>${esc(p.legal_name)} <span class="cw-status">${labels[p.status]}</span></h2><p>VIP 编号：<strong>${esc(p.public_code)}</strong></p><div class="cw-metrics">${stat('客户实付', t.paid_fen)}${stat('客户实用', t.used_fen)}${stat('预计总佣金（税前）', t.expected_fen)}${stat('已解锁佣金（税前）', t.unlocked_fen)}${stat('可提现（税前）', t.available_fen)}</div><p>预计佣金包含已解锁部分，不代表全部可提现。客户退款会取消未使用部分的预计佣金。已解锁佣金需待客户月结与收款对账确认后方可申请提现。</p><p>提成 = 卖出折扣 − 4 折。以 5 折卖出提成 10%、8 折卖出提成 40%，多卖多得。</p><h3>我的 VIP 付款码</h3>${taskCodes.length ? paymentCard(taskCodes[0]) : '<p>暂无付款码，请联系负责销售。</p>'}`;
+      c.innerHTML = applicationProgress(data)+`<h2>${esc(p.legal_name)} <span class="cw-status">${labels[p.status]}</span></h2><p>VIP 编号：<strong>${esc(p.public_code)}</strong></p><div class="cw-metrics">${stat('客户实付', t.paid_fen)}${stat('客户实用', t.used_fen)}${stat('预计总佣金（税前）', t.expected_fen)}${stat('已解锁佣金（税前）', t.unlocked_fen)}${stat('可提现（税前）', t.available_fen)}</div><p>预计佣金包含已解锁部分，不代表全部可提现。客户退款会取消未使用部分的预计佣金。已解锁佣金需待客户月结与收款对账确认后方可申请提现。</p><p>提成 = 卖出折扣 − 4 折。以 5 折卖出提成 10%、8 折卖出提成 40%，多卖多得。</p><h3>我的 VIP 付款码</h3>${taskCodes.length ? paymentCard(taskCodes[0]) : '<p>暂无付款码，请联系负责销售。</p>'}`;
     if (tab === 'codes') {
       const contractVerified = hasCurrentContract(data.contracts);
       const trialActive = hasPromotionTrial(p);
@@ -454,8 +446,27 @@
       ${d.task_codes?.length > 1 ? `<details><summary>历史付款码</summary>${table(['付款码', '折扣', '状态', '发放时间'], d.task_codes.map((k) =>
         `<tr><td>${esc(k.code)}</td><td>${discount(k.customer_price_percent)}</td><td>${k.usable ? '可用' : '已失效'}</td><td>${when(k.created_at)}</td></tr>`).join(''))}</details>` : ''}
       ${d.activation_progress?`<p>累计有效实付 ${money(d.activation_progress.total_fen)} · 距 ¥100 还差 ${money(d.activation_progress.shortfall_fen)}。激活款不支持自助退款，可继续消费。</p>`:''}
-      ${p.status === 'confirmed' ? `<button data-activate="${p.id}"${d.can_activate ? '' : ' disabled'}>${d.can_activate ? '确认正式 VIP' : '待累计实付满 ¥' + ((d.activate_min_cash_fen || 10000) / 100).toFixed(0)}</button>` : ''}
+      ${p.status === 'confirmed' ? `<button class="cw-primary" data-activate="${p.id}"${d.can_activate ? '' : ' disabled'}>${d.can_activate ? '确认正式 VIP' : '待累计实付满 ¥' + ((d.activate_min_cash_fen || 10000) / 100).toFixed(0)}</button>` : ''}
     </section>`;
+  }
+  function applicationProgress(d, employee=false) {
+    const p=d.partner,paid=d.activation_progress?.eligible;
+    const usable=(d.task_codes||[]).some(k=>employee?k.usable:true);
+    const stopped=['rejected','suspended'].includes(p.status);
+    const index=p.status==='pending'?1:p.status==='confirmed'?(paid?3:2):p.status==='active'?4:-1;
+    const title=p.status==='pending'?'申请已提交，等待电话面试':p.status==='confirmed'?(paid?'充值已达标，等待核验开通':usable?'面试已通过，可以充值':'面试已通过，等待发放付款码'):p.status==='active'?'VIP 已开通':labels[p.status];
+    const next=p.status==='pending'?(employee?'请查看联系方式，联系申请人完成电话面试，再确认面试结果。':'负责员工会联系你进行电话面试，请保持电话畅通。当前无需付款。'):
+      p.status==='confirmed'?(paid?(employee?'请核对到账记录，确认后开通正式 VIP。':'由负责员工核对到账记录并开通 VIP，你无需再次付款。'):
+      usable?(employee?'等待客户累计有效实付满 ¥100；已有付款请先核对原单。':'使用下方专属付款码充值，累计有效实付满 ¥100 后由员工核验开通。'):
+      employee?'请发放默认 5 折付款码，客户可在申请页查看并充值。':'负责员工正在处理付款码，发放后会显示在此处。'):
+      p.status==='active'?'正式 VIP 身份已生效。':'如需了解原因或后续安排，请联系负责员工或提交工单。';
+    const steps=['提交申请','电话面试','账户充值','核验开通','正式 VIP'];
+    const dates=[p.created_at,p.confirmed_at,null,null,p.activated_at];
+    return `<section class="cw-progress" aria-label="VIP 申请流程"><h2>${esc(title)}</h2>
+      <ol class="cw-steps">${steps.map((label,i)=>`<li${!stopped&&i===index?' aria-current="step"':''} class="${!stopped&&(i<index||p.status==='active')?'is-done':''}"><strong>${i+1}. ${label}</strong><small>${stopped?'流程已停止':i<index||p.status==='active'?'已完成':i===index?'当前阶段':'待完成'}</small>${dates[i]?`<time>${when(dates[i])}</time>`:''}</li>`).join('')}</ol>
+      <p class="cw-next"><strong>${stopped?'后续处理':'下一步'}：</strong>${esc(next)}</p>
+      ${d.feedback?`<p><strong>处理反馈：</strong>${esc(d.feedback)}</p>`:''}
+      <p class="cw-muted">负责员工：${esc(d.owner_name||p.owner_name||'待管理员分配')}${!stopped&&index<4?' · 当前由'+(index===2&&usable&&!paid?'申请人':'公司')+'处理':''}</p></section>`;
   }
   function drawStaff(c) {
     if (tab === 'overview') { drawSalesList(c); return; }
@@ -466,16 +477,19 @@
       return;
     }
     const p = d.partner;
-    c.innerHTML = `<button data-tab="overview">返回客户列表</button><h2 class="cw-partner-title">${esc(p.legal_name)} · ${esc(p.public_code)}</h2><p>申请状态：${esc(labels[p.status])}${d.finance ? ' · 可提现（税前）' + money(d.available_fen) : ''}</p>`;
+    c.innerHTML = `<button data-tab="overview">返回客户列表</button><h2 class="cw-partner-title">${esc(p.legal_name)} · ${esc(p.public_code)}</h2><p>申请状态：${esc(labels[p.status])}${d.finance && p.status==='active' ? ' · 可提现（税前）' + money(d.available_fen) : ''}</p>`;
     if (tab === 'manage') {
       const verified=d.contract_current??hasCurrentContract(d.contracts);
       const trial=hasPromotionTrial(p);
-      c.innerHTML+=`<div class="cw-callout"><p>VIP 身份：${esc(labels[p.status])}</p><p>合同与实名核验：${verified?'已完成且有效':'尚未完成或已过期'}</p><p>推广资格：${p.status!=='active'?'待正式开通 VIP':verified?'已具备，可自行生成推广码':trial?'单独试用中，至 '+when(p.promotion_trial_until):'待合同与实名核验'}</p></div>`;
+      if(p.status==='active'||p.status==='suspended') c.innerHTML+=`<div class="cw-callout"><p>VIP 身份：${esc(labels[p.status])}</p><p>合同与实名核验：${verified?'已完成且有效':'尚未完成或已过期'}</p><p>推广资格：${p.status!=='active'?'待正式开通 VIP':verified?'已具备，可自行生成推广码':trial?'单独试用中，至 '+when(p.promotion_trial_until):'待合同与实名核验'}</p></div>`;
       if (d.can_follow) {
+        c.innerHTML += applicationProgress(d,true);
         const contact = `<div class="cw-contact-box"><p><b>申请人联系方式</b></p><div id="contact-details" aria-live="polite"><p class="cw-muted">查看操作会记入审计。</p></div>${form('contact', field('reason', '查看原因', 'text', p.status === 'pending' ? 'value="电话面试" maxlength="200"' : 'maxlength="200"'), '查看联系方式')}</div>`;
-        c.innerHTML += `${rechargeHistory(d)}${activationExceptions(d)}${staffPaymentCodes(d)}${contact}
-          ${p.status === 'pending' ? `<button data-confirm="${p.id}">确认面试通过</button>` : ''}
-          ${salesFollowups(d)}`;
+        c.innerHTML += `${p.status==='pending'?contact:`<details><summary>申请人联系方式</summary>${contact}</details>`}
+          ${p.status === 'pending' ? `<button class="cw-primary" data-confirm="${p.id}">确认面试通过</button>` : ''}
+          ${data.administrator&&p.status==='pending'?`<details><summary>申请未通过</summary>${form('reject',field('reason','未通过原因（申请人可见）','text','maxlength="300"'),'确认申请未通过')}</details>`:''}
+          ${staffPaymentCodes(d)}${p.status==='confirmed'?rechargeHistory(d):''}
+          <details><summary>特殊审批与原单处理</summary>${activationExceptions(d)}</details>${salesFollowups(d)}`;
       }
       const trialActive = hasPromotionTrial(p);
       const contractVerified = hasCurrentContract(d.contracts);
@@ -486,7 +500,7 @@
           field('reason', trialActive ? '撤回原因' : '试用原因', 'text', 'maxlength="300"'),
           trialActive ? '撤回试用' : '开通 7 天试用')}
         </details>`;
-      if (d.finance) c.innerHTML += `<h3>推广码</h3>${table(['推广码／名称', '客户价格', '提成', '有效期', '状态', '实付／实用', '预计／解锁佣金', '操作'], d.codes.map((k) => `<tr><td>${k.code}${k.is_self_code ? '<small>专属自购码</small>' : ''}<small>${esc(k.name)}</small></td><td>${k.customer_price_percent}%</td><td>${k.is_self_code ? '无' : (k.customer_price_percent - 40) + '%'}</td><td>${when(k.starts_at)} 至 ${when(k.ends_at)}</td><td>${promotionStatus(k, p.status === 'active', contractVerified, trialActive)}</td><td>${money(k.paid_fen)} / ${money(k.used_fen)}</td><td>${money(k.expected_fen)} / ${money(k.unlocked_fen)}</td><td>${k.is_self_code ? '' : `<button data-code-review="${k.id}">设置／停用</button>`}</td></tr>`).join(''))}<div id="code-editor"></div><h3>签约记录</h3>${table(['合同版本', '文件摘要', '核验人／时间', '有效期'], d.contracts.map((k) => `<tr><td>${esc(k.template_version)}</td><td>${esc(k.document_sha256)}</td><td>${esc(k.verified_by)}<small>${when(k.verified_at)}</small></td><td>${when(k.expires_at)}</td></tr>`).join(''))}<details><summary>合同与身份核验（管理员）</summary><p>请核验真实签约服务凭证，不能把提交申请视为已签约。</p>${form('contract', field('template_version', '正式合同版本') + field('document_sha256', '已签署文件 SHA-256', 'text', 'pattern="[a-f0-9]{64}"') + field('signature_reference', '签约服务商及凭证编号') + field('identity_reference', '实名核验服务及凭证编号') + field('expires_at', '合同截止时间', 'datetime-local') + `<label class="cw-check"><input type="checkbox" required>已核验双方签署证据和合作人身份</label>`, '登记签署证据')}</details><details><summary>收款账户（财务）</summary>${form('bank-details', field('reason', '查看原因', 'text', 'maxlength="200"'), '查看收款资料')}<div id="private-details" aria-live="polite"></div>${form('bank-verify', field('bank_version', '已核验银行卡版本', 'number', 'min="1"') + field('evidence', '本人账户核验凭证编号'), '确认核验（财务）')}</details><details><summary>暂停合作</summary>${form('suspend', field('reason', '暂停原因'), '暂停新推广与提现')}</details>`;
+      if (d.finance) c.innerHTML += `<details${p.status==='active'?' open':''}><summary>推广、合同与财务资料</summary><h3>推广码</h3>${table(['推广码／名称', '客户价格', '提成', '有效期', '状态', '实付／实用', '预计／解锁佣金', '操作'], d.codes.map((k) => `<tr><td>${k.code}${k.is_self_code ? '<small>专属自购码</small>' : ''}<small>${esc(k.name)}</small></td><td>${k.customer_price_percent}%</td><td>${k.is_self_code ? '无' : (k.customer_price_percent - 40) + '%'}</td><td>${when(k.starts_at)} 至 ${when(k.ends_at)}</td><td>${promotionStatus(k, p.status === 'active', contractVerified, trialActive)}</td><td>${money(k.paid_fen)} / ${money(k.used_fen)}</td><td>${money(k.expected_fen)} / ${money(k.unlocked_fen)}</td><td>${k.is_self_code ? '' : `<button data-code-review="${k.id}">设置／停用</button>`}</td></tr>`).join(''))}<div id="code-editor"></div><h3>签约记录</h3>${table(['合同版本', '文件摘要', '核验人／时间', '有效期'], d.contracts.map((k) => `<tr><td>${esc(k.template_version)}</td><td>${esc(k.document_sha256)}</td><td>${esc(k.verified_by)}<small>${when(k.verified_at)}</small></td><td>${when(k.expires_at)}</td></tr>`).join(''))}<details><summary>合同与身份核验（管理员）</summary><p>请核验真实签约服务凭证，不能把提交申请视为已签约。</p>${form('contract', field('template_version', '正式合同版本') + field('document_sha256', '已签署文件 SHA-256', 'text', 'pattern="[a-f0-9]{64}"') + field('signature_reference', '签约服务商及凭证编号') + field('identity_reference', '实名核验服务及凭证编号') + field('expires_at', '合同截止时间', 'datetime-local') + `<label class="cw-check"><input type="checkbox" required>已核验双方签署证据和合作人身份</label>`, '登记签署证据')}</details><details><summary>收款账户（财务）</summary>${form('bank-details', field('reason', '查看原因', 'text', 'maxlength="200"'), '查看收款资料')}<div id="private-details" aria-live="polite"></div>${form('bank-verify', field('bank_version', '已核验银行卡版本', 'number', 'min="1"') + field('evidence', '本人账户核验凭证编号'), '确认核验（财务）')}</details><details><summary>暂停合作</summary>${form('suspend', field('reason', '暂停原因（申请人可见）'), '暂停新推广与提现')}</details></details>`;
     }
     if (tab === 'settlement' && d.finance)
       c.innerHTML += `<h3>客户付款订单</h3><p class="cw-muted">最近 200 笔成交</p>${table(['客户／付款订单', '推广码', '付款时间', '客户实付／实用', '预计／解锁佣金', '客户计费账户'], d.orders.map((o) => `<tr><td>${esc(o.customer_email)}<small>${esc(o.out_trade_no)}</small></td><td>${o.code}</td><td>${when(o.paid_at)}</td><td>${money(o.cash_fen)} / ${money(o.used_cash_fen)}</td><td>${money(o.expected_fen)} / ${money(o.unlocked_fen)}</td><td>${o.account_id}${o.channel_fee_issue ? '<small>' + esc(o.channel_fee_issue) + '</small>' : ''}</td></tr>`).join(''))}<h3>付款与使用明细</h3>${table(['时间', '码／付款订单', '事件', '实付／实用', '预计／解锁变化'], d.events.map((e) => `<tr><td>${when(e.occurred_at)}</td><td>${e.code}<small>${esc(e.out_trade_no)}</small></td><td>${e.kind === 'paid' ? '充值实付' : labels[e.kind]}</td><td>${money(e.cash_fen)}</td><td>${money(e.commission_fen)}</td></tr>`).join(''))}<details><summary>确认客户月结（财务）</summary><p>自然月已结束、调用结算与支付账单核对完成，并已与客户完成结算，才可确认。</p>${form('close', `<label>客户计费账户<select name="account_id" required><option value="">请选择客户账户</option>${[...new Map(d.orders.map((o) => [o.account_id, o])).values()].map((o) => `<option value="${o.account_id}">${esc(o.customer_email)} · ${o.account_id}</option>`).join('')}</select></label>` + field('month', '结算月份', 'month') + field('evidence', '客户结算单／确认凭证编号'), '确认客户月结')}${table(['已结月份', '客户账户', '结算凭证', '确认时间'], d.closes.map((x) => `<tr><td>${x.month}</td><td>${x.account_id}</td><td>${esc(x.evidence)}</td><td>${when(x.closed_at)}</td></tr>`).join(''))}</details><h3>提现申请与付款结果</h3>${table(['申请时间', '税前／代扣税', '状态', '银行卡', '操作'], d.payouts.map((r) => `<tr><td>${when(r.created_at)}</td><td>${money(r.gross_fen)} / ${money(r.withholding_fen)}</td><td>${labels[r.status]}</td><td>尾号 ${r.bank_last4}</td><td>${r.status === 'requested' ? `<button data-payout-review="${r.id}">审核</button>` : r.status === 'approved' ? `<button data-payout-complete="${r.id}">付款与结果确认</button>` : ''}</td></tr>`).join(''))}<div id="payout-editor"></div>`;
@@ -591,6 +605,7 @@
             '记录银行结果',
           );
     } catch (err) {
+      $('#cw-message').dataset.error='true';
       $('#cw-message').textContent = err.message;
     } finally {
       b.disabled = false;
@@ -610,7 +625,8 @@
       try {
         await draw();
       } catch (err) {
-        $('#cw-message').textContent = err.message;
+        $('#cw-message').dataset.error='true';
+      $('#cw-message').textContent = err.message;
       }
     }
   });
@@ -703,9 +719,9 @@
         path = base + '/' + selected + '/bank-verify';
         body = { ...b, bank_version: Number(b.bank_version) };
       }
-      if (action === 'suspend') {
+      if (action === 'suspend' || action === 'reject') {
         path = base + '/' + selected + '/status';
-        body = { ...b, status: 'suspended' };
+        body = { ...b, status: action==='reject'?'rejected':'suspended', customer_feedback:b.reason };
       }
       if (action === 'code-review') {
         path = base + '/codes/' + b.code_id + '/review';
@@ -738,13 +754,33 @@
       $('#cw-message').textContent = action === 'activation-exception' ? '原单特批已提交，等待管理员审批。'
         : action === 'activation-exception-decision' ? (submit.value === 'approved' ? '已按原单特批开通 VIP。' : '原单特批已退回。')
         : action === 'promotion-trial' ? (body.enabled ? '已开通 7 天推广试用。' : '推广试用已撤回。')
+        : action === 'reject' ? '申请已标记为未通过，原因已反馈给申请人。'
         : action === 'code' ? '推广码已生成并生效，可以复制推广链接。'
         : '已保存。';
     } catch (err) {
+      $('#cw-message').dataset.error='true';
       $('#cw-message').textContent = err.message;
     } finally {
       submit.disabled = false;
     }
   });
+  let checking=false;
+  async function checkProgress(){
+    if(staff||!data?.partner||data.partner.status==='active'||document.hidden||checking||$('#cw-content').inert)return;
+    checking=true;
+    try{
+      const version=loadVersion,result=await api('/api/cw/me');
+      if(version!==loadVersion)return;
+      if(JSON.stringify(result)!==JSON.stringify(data)){data=result;await draw();}
+      const status=$('#cw-sync-status');if(status)status.textContent='进度已同步 · 每 15 秒自动检查';
+    }catch{const status=$('#cw-sync-status');if(status)status.textContent='暂时无法同步，请点击刷新进度重试';}
+    finally{checking=false;}
+  }
+  setInterval(checkProgress,15000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkProgress();});
+  if(document.documentElement.classList.contains('cw-embedded')){
+    let lastHeight=0;
+    new ResizeObserver(()=>{const height=Math.ceil(document.querySelector('.cw-app').getBoundingClientRect().height);if(height!==lastHeight){lastHeight=height;parent.postMessage({type:'vip-content-height',height},location.origin);}}).observe(document.querySelector('.cw-app'));
+  }
   load();
 })();

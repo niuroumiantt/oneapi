@@ -1,5 +1,6 @@
 import { vipActivationProgress, qualifyingVipRecharge, rechargeFields, rechargeLedger, verifiedExceptionOrder } from './vip-recharges.mjs';
 import qrcode from 'qrcode-generator';
+import { vipNotificationRoutes } from './vip-notifications.mjs';
 import { randomInt } from 'node:crypto';
 import { HttpError, id, text, transaction, audit, vault, hasBusiness } from './core.mjs';
 import { requireFinance, hasFinance } from './business-console.mjs';
@@ -114,6 +115,7 @@ async function issuePaymentCode(db, req, partnerId, percent, { requestedCode = '
   return row;
 }
 export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
+  vipNotificationRoutes(app,pool,requireStaff);
   const box = vault(cfg.secret + ':cw-private-v1');
   const enabled = (_req, _res, next) => {
     if (!cfg.cw?.enabled) throw new HttpError(503, 'VIP 合作伙伴功能尚未开放');
@@ -159,9 +161,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     if (b.consent_version !== 'cw-privacy-v1') throw new HttpError(400, '请阅读并同意推广合作资料处理说明');
     const inviteCode = normalizedInvite(b.invite_code);
     const p = await transaction(pool, async (db) => {
-      const customer = (await db.query(
-        'SELECT email,"phoneOnly" FROM "user" WHERE id=$1 FOR UPDATE', [req.customer.id],
-      )).rows[0];
+      await db.query('SELECT id FROM "user" WHERE id=$1 FOR UPDATE', [req.customer.id]);
       const existing = (await db.query('SELECT * FROM cw_partners WHERE user_id=$1', [req.customer.id]))
         .rows[0];
       if (existing) return existing;
@@ -206,35 +206,6 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         invited_by: invited?.id || null,
         invite_code: inviteCode,
       });
-      if (mail?.ready) {
-        const recipients = (await db.query(
-          `SELECT email,bool_or(role='platform_admin') AS administrator
-             FROM (SELECT lower(btrim(email)) AS email,role FROM staff_members
-                   WHERE status='active' AND role<>'pending' AND btrim(email)<>''
-                     AND (role='platform_admin' OR subject=$1)) recipients
-            GROUP BY email`,
-          [row.owner_subject],
-        )).rows;
-        const link = new URL('/promotion/vip.html', cfg.origin);
-        link.search = new URLSearchParams({ staff: '1', partner: row.id });
-        const submitted = row.created_at.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
-        for (const recipient of recipients) {
-          const details = [
-            '有一位客户提交了 VIP 申请，等待电话面试。',
-            '申请人：' + name,
-            'VIP 编号：' + row.public_code,
-            '来源邀请码：' + inviteCode,
-            '申请时间（北京时间）：' + submitted,
-            '负责销售：' + (invite.owner_name || '待分配'),
-          ];
-          if (recipient.administrator) {
-            details.push('联系方式：' + contact);
-            if (!customer.phoneOnly) details.push('账号邮箱：' + customer.email);
-          }
-          details.push('处理入口：' + link.href, '面试通过后发放付款码，核验客户充值后确认正式 VIP。');
-          await mail.queue({ to: recipient.email, subject: 'semifly VIP 新申请 · ' + row.public_code, text: details.join('\n') }, db);
-        }
-      }
       return row;
     });
     res.status(201).json({ partner: publicPartner(p) });
@@ -290,7 +261,9 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     const recharges=(await pool.query(`SELECT ${rechargeFields} FROM cw_partners p JOIN billing_accounts a ON a.owner_id=p.user_id
       JOIN payment_orders o ON o.account_id=a.id ${rechargeLedger} WHERE p.id=$1 ORDER BY o.created_at DESC LIMIT 100`,[p.id])).rows;
     const owner=(await pool.query('SELECT s.name FROM staff_members s WHERE s.subject=$1',[p.owner_subject])).rows[0];
-    res.json({
+    const feedback=(await pool.query("SELECT detail->>'customer_feedback' AS reason FROM audit_events WHERE action='cw.status_changed' AND subject_id=$1 AND detail->>'status'=$2 ORDER BY created_at DESC LIMIT 1",[p.id,p.status])).rows[0];
+    res.set('Cache-Control','no-store').json({
+      feedback:feedback?.reason||null,
       owner_name:owner?.name||null,recharges,activation_progress:await vipActivationProgress(pool,p.id),activate_min_cash_fen:VIP_ACTIVATE_MIN_CASH_FEN,
       partner: publicPartner(p),
       totals: { ...totals, available_fen: await available(pool, p.id) },
@@ -940,6 +913,7 @@ const ref=(await db.query('SELECT e.order_id,o.account_id FROM vip_activation_ex
       await audit(db, req.actor, 'cw.status_changed', null, req.params.partner, {
         status: state,
         reason: text(req.body.reason, '原因', 300),
+        customer_feedback: optionalNote(req.body.customer_feedback, 300),
       });
     });
     res.json({ ok: true });

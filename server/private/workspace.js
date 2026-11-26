@@ -361,7 +361,7 @@ async function draw() {
   if (turn !== drawing || started !== generation || currentPage() !== page) return;
   Object.assign(state, { overview, biz });
   if (dash) state.dash = dash;
-  content.innerHTML = (acquisitionPages.some(([key])=>key===page)?acquisitionTabs(page):'')+pages[page](source ? cache[source] : null);
+  content.innerHTML = (page!=='cw'&&acquisitionPages.some(([key])=>key===page)?acquisitionTabs(page):'')+pages[page](source ? cache[source] : null);
   if (page === 'customers' && ui.customers.q) filterRows(ui.customers.q);
  } catch (e) {
   if (turn === drawing && started === generation && currentPage() === page) content.innerHTML = `<div class="panel empty">${esc(e.message)}，请点击刷新重试。</div>`;
@@ -551,7 +551,14 @@ document.addEventListener('change', e => {
  if (t.id === 'answerPick') { const a = cache['business/support'].answers.find(x => x.id === t.value), form = $('#dialogForm'); form.elements.answer_id.value = a?.id || ''; if (a) form.elements.body.value = a.answer; }
 });
 for (const type of ['mouseover', 'mouseout', 'focusin', 'focusout']) document.addEventListener(type, tip);
-addEventListener('message', e => { if (e.origin === location.origin && e.source === parent && e.data?.type === 'workspace-navigate' && !$('#dialog').open) void reload(); });
+addEventListener('message', e => {
+ if(e.origin!==location.origin)return;
+ if(e.source===parent&&e.data?.type==='workspace-navigate'&&!$('#dialog').open)void reload();
+ if(e.data?.type==='vip-content-height'){
+  const frame=document.querySelector('iframe.acquisition-vip'),height=e.data.height;
+  if(e.source===frame?.contentWindow&&Number.isFinite(height)&&height>0&&height<100000)frame.style.height=Math.ceil(height)+'px';
+ }
+});
 addEventListener('hashchange', draw);
 void load();
 })();
