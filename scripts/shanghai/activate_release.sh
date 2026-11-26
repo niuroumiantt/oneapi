@@ -48,6 +48,14 @@ docker run --rm --pull never --network none -v "$stage/package-lock.json:/candid
 if [[ $reuse_dependencies == yes ]]; then
   docker build -f "$stage/Dockerfile.pilot-runtime" \
     --build-arg "NODE_RUNTIME_DONOR=$old_image" -t "$image" "$stage"
+elif [[ ${4:-0} == 1 ]]; then
+  # Reuse the exact Node version on the existing Linux production runtime.
+  desired_node=$(sed -nE 's/^FROM .*node:([0-9.]+)-alpine@.*/v\1/p' "$stage/Dockerfile")
+  [[ -n $desired_node ]]
+  actual_node=$(docker run --rm --pull never --network none --entrypoint /usr/local/bin/node "$old_image" -e 'if(process.platform!=="linux")process.exit(1);console.log(process.version)')
+  [[ $actual_node == "$desired_node" ]]
+  docker build -f "$stage/Dockerfile.dependency-runtime" \
+    --build-arg "NODE_RUNTIME_DONOR=$old_image" -t "$image" "$stage"
 else
   docker build -f "$stage/Dockerfile" -t "$image" "$stage"
 fi
