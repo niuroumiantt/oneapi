@@ -10,14 +10,16 @@ fi
 source_sha=$(git rev-parse HEAD)
 expected_web=${ONEAPI_EXPECT_WEB_SHA:-}
 expected_api=${ONEAPI_EXPECT_API_SHA:-}
+reuse_node=${ONEAPI_USE_EXISTING_NODE:-0}
+[[ $reuse_node == 0 || $reuse_node == 1 ]]
 [[ -z $expected_web || $expected_web =~ ^[0-9a-f]{40}$ ]]
 [[ -z $expected_api || $expected_api =~ ^[0-9a-f]{40}$ ]]
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-git archive "$source_sha" Dockerfile Dockerfile.pilot-runtime package.json package-lock.json server | tar -xf - -C "$work"
+git archive "$source_sha" Dockerfile Dockerfile.pilot-runtime Dockerfile.dependency-runtime package.json package-lock.json server | tar -xf - -C "$work"
 python3 scripts/build_static.py --domain semifly.cn --out "$work/web.tgz" > "$work/static-manifest.json"
 cp scripts/shanghai/activate_release.sh "$work/activate_release.sh"
-tar -czf "$work/bundle.tgz" -C "$work" Dockerfile Dockerfile.pilot-runtime package.json package-lock.json server web.tgz activate_release.sh
+tar -czf "$work/bundle.tgz" -C "$work" Dockerfile Dockerfile.pilot-runtime Dockerfile.dependency-runtime package.json package-lock.json server web.tgz activate_release.sh
 bundle_sha=$(shasum -a 256 "$work/bundle.tgz" | awk '{print $1}')
 
 # An SSH wrapper can relay through m4, with the normal known-hosts checks.
@@ -32,5 +34,5 @@ ssh_client=${ONEAPI_SHANGHAI_SSH:-ssh}
   cat > \"\$stage/bundle.tgz\"
   printf '%s  %s\\n' '$bundle_sha' \"\$stage/bundle.tgz\" | sha256sum -c
   tar -xzf \"\$stage/bundle.tgz\" -C \"\$stage\"
-  flock /run/oneapi-shanghai-release.lock bash \"\$stage/activate_release.sh\" '$source_sha' '$expected_web' '$expected_api'
+  flock /run/oneapi-shanghai-release.lock bash \"\$stage/activate_release.sh\" '$source_sha' '$expected_web' '$expected_api' '$reuse_node'
 " < "$work/bundle.tgz"

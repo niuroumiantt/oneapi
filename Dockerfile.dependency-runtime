@@ -1,0 +1,11 @@
+# Reuse an inspected production runtime, reinstall all dependencies from the lockfile.
+ARG NODE_RUNTIME_DONOR
+FROM ${NODE_RUNTIME_DONOR}
+USER root
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+COPY --chown=node:node server ./server
+USER node
+EXPOSE 4180
+CMD ["node", "server/src/index.mjs"]

@@ -20,3 +20,11 @@ Based on remote main 60ca3ac; integrates codex/vip-workspace-20261126 through 45
 
 ## Deployment / cleanup
 Authorized by user: commit, merge remote main, public deployment and remove unused local branches. Preserve all dirty, unmerged or in-use trees and unique ignored files. Production baseline before release: static dac57e5dfc5e0794e471928455ea8ee04e7c7c66; API 95a365b20755889b65e774702817e56f84c853b4. Deployment receipt will be appended after verification.
+
+
+## Release progress / operational fallback
+- PR #152 merged as dd02fde01731e007c8bace802fe408fc7743cae7.
+- Direct upload was slow and terminated while incomplete; relay through the existing trusted m4 SSH jump host uploaded and verified the same bundle. Static/API remained on the recorded baseline while Docker's pinned base-image download stalled.
+- Add optional ONEAPI_USE_EXISTING_NODE=1: verify the existing image runs the exact Node version requested by Dockerfile and is Alpine, then reinstall dependencies using npm ci --omit=dev --ignore-scripts from the committed lockfile. Application source remains committed. No host-key bypass or production configuration changes.
+- Removed clean, merged and unused worktrees/local branches: codex/personal-settings-release, codex/recharge-cash-first-20261125, codex/simplify-personal-toolbar-20261125. Confirmed no changed/untracked/ignored files, process cwd, runtime-script, launch-agent or application-project references. Other trees retained, including account-decimal-hotfix still referenced by a preview and local main with unrelated work.
+- Commission calculation remains untouched; the personal view wording describes reporting attribution only. Existing settlement ledger is retained pending the user's separate policy decision.
