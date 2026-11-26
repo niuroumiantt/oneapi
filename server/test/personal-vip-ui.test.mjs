@@ -12,7 +12,7 @@ function harness(status='active',options={}){
  return {ctx,nodes,data,async draw(tab){ctx.tab=tab;await vm.runInContext("drawPersonalVIP($('#cw-content'),viewVersion)",ctx);return node('#cw-content').innerHTML;}};
 }
 test('active partner has one five-section navigation, applicants have their progress and profile',async()=>{
- const active=harness();await active.draw('profile');assert.match(active.nodes.get('#cw-nav').innerHTML,/概览.*推广码.*推广明细.*佣金与提现.*个人信息与合同/);
+ const active=harness();await active.draw('profile');assert.match(active.nodes.get('#cw-nav').innerHTML,/概览.*推广码.*收件箱.*佣金与提现.*个人信息与合同/);
  for(const status of ['pending','confirmed','suspended','rejected']){const applicant=harness(status);await applicant.draw('profile');assert.match(applicant.nodes.get('#cw-nav').innerHTML,/申请进度.*申请资料/);assert.doesNotMatch(applicant.nodes.get('#cw-nav').innerHTML,/佣金与提现/);}
 });
 test('promotion generation still requires eligibility; creation does not bypass verification',async()=>{
@@ -38,19 +38,16 @@ test('VIP status messages must come from the current same-origin VIP frame',()=>
  listener({...event,origin:'https://example.test',data:{type:'personal-vip-status',status:'confirmed'}});assert.equal(label.textContent,'VIP 申请进度');ctx.me={user:{id:'u2'}};assert.equal(vm.runInContext('personalVipLabel()',ctx),'去申请 VIP');
 });
 
-test('one strip partitions expected commission without double-counting withdrawals',()=>{
- const h=harness();h.ctx.totals={expected_fen:12800,unlocked_fen:6400,available_fen:3200,payout_pending_fen:800,paid_out_fen:1600};
- const amounts=vm.runInContext('commissionStages(totals).map(r=>r[2])',h.ctx);
- assert.deepEqual(Array.from(amounts),[6400,800,3200,800,1600]);assert.equal(amounts.reduce((n,v)=>n+v,0),12800);
- const html=vm.runInContext('commissionBar(totals)',h.ctx);assert.match(html,/width:50%/);assert.match(html,/width:25%/);assert.match(html,/提现中.*¥8.00/);assert.match(html,/已提现.*¥16.00/);assert.equal((html.match(/class="cv-commission-track"/g)||[]).length,1);
- const empty=vm.runInContext('commissionBar({})',h.ctx);assert.doesNotMatch(empty,/NaN|Infinity|width:|提现中|已提现/);assert.equal((empty.match(/¥0.00/g)||[]).length,3);
+test('monthly overview only shows current cash use and a statement inbox entry',()=>{
+ const h=harness();h.ctx.monthly={month:'2026-11',paid_fen:380000,used_fen:160000,unread:1,latest_statement:{month:'2026-10',totals:{commission_fen:16000}}};
+ const html=vm.runInContext('monthlyOverview(monthly)',h.ctx);assert.match(html,/¥3800.00/);assert.match(html,/¥1600.00/);assert.match(html,/2026-10 月账单/);assert.match(html,/¥160.00/);assert.match(html,/每月 1 日/);assert.doesNotMatch(html,/待解锁|待结算|预计佣金|commission-track/);
+ assert.match(vm.runInContext('monthlyOverview({})',h.ctx),/首份账单将在下月 1 日生成/);
 });
-test('each promotion code retains its own payments, refund and commission with pagination',async()=>{
- const codes=[{id:'a',code:'A',name:'社群',paid_fen:10000,used_fen:4000,refunded_fen:6000,expected_fen:400,unlocked_fen:400,available_fen:400},{id:'b',code:'B',name:'朋友',paid_fen:20000,expected_fen:2000},{id:'c',code:'C',name:'未使用',paid_fen:0}];
- const h=harness('active',{data:{codes,contracts:[{expires_at:'2099-01-01'}]}});h.ctx.innerHeight=650;
- let html=await h.draw('codes');assert.match(html,/社群.*客户累计实付.*¥100.00.*已退款 ¥60.00.*可提现.*¥4.00/);assert.match(html,/朋友.*¥200.00/);assert.doesNotMatch(html,/未使用/);assert.equal((html.match(/class="cv-commission-track"/g)||[]).length,2);
- vm.runInContext('personalPage=1',h.ctx);html=await h.draw('codes');assert.match(html,/未使用/);assert.doesNotMatch(html,/社群|朋友/);
- h.data.codes=[{id:'self',is_self_code:true,name:'自用'}];assert.match(await h.draw('codes'),/自用充值码，不计推广佣金/);assert.doesNotMatch(await h.draw('codes'),/客户累计实付/);
+test('inbox shows private PDF versions and does not allow a stale response to overwrite another page',async()=>{
+ const item={id:'statement',month:'2026-10',revision:2,read_revision:1,totals:{paid_fen:10000,used_fen:4000,commission_fen:400},versions:[{revision:2},{revision:1}]};
+ const h=harness('active',{api:async()=>({items:[item],has_more:false})});const html=await h.draw('inbox');assert.match(html,/未读 · 第 2 版/);assert.match(html,/\/statements\/statement\/pdf\?revision=2/);assert.match(html,/历史版本/);
+ let resolve;const late=harness('active',{api:()=>new Promise(r=>resolve=r)});const pending=late.draw('inbox');late.ctx.viewVersion=2;await late.draw('profile');resolve({items:[item]});await pending;assert.match(late.nodes.get('#cw-content').innerHTML,/VIP 编号/);
+ const empty=harness('active',{api:async()=>({items:[],has_more:false})});assert.match(await empty.draw('inbox'),/还没有月账单/);
 });
 test('contracts distinguish unavailable signing, real pending tasks and archived files',async()=>{
  const off=harness();assert.match(await off.draw('contracts'),/暂未开放/);assert.doesNotMatch(await off.draw('contracts'),/去法大大实名并签署|下载已签 PDF/);

@@ -1,3 +1,4 @@
+import { vipStatementRoutes, vipMonthlySummary } from './vip-statements.mjs';
 import { vipActivationProgress, qualifyingVipRecharge, rechargeFields, rechargeLedger, verifiedExceptionOrder } from './vip-recharges.mjs';
 import qrcode from 'qrcode-generator';
 import { vipNotificationRoutes } from './vip-notifications.mjs';
@@ -210,6 +211,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     });
     res.status(201).json({ partner: publicPartner(p) });
   });
+  vipStatementRoutes(app,pool,requireCustomer,enabled);
   app.get('/api/cw/me', requireCustomer, enabled, async (req, res) => {
     const p = (await pool.query('SELECT * FROM cw_partners WHERE user_id=$1', [req.customer.id])).rows[0];
     if (!p) return res.json({ partner: null });
@@ -218,6 +220,13 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       SELECT code_id,sum(cash_fen) paid_fen,sum(used_cash_fen) used_fen,
         sum(expected_fen) expected_fen,sum(unlocked_fen) unlocked_fen
       FROM cw_commissions WHERE partner_id=$1 GROUP BY code_id
+    ), monthly AS (
+      SELECT c.code_id,coalesce(sum(e.cash_fen) FILTER(WHERE e.kind='paid'),0) paid_fen,
+        coalesce(sum(e.cash_fen) FILTER(WHERE e.kind='used'),0) used_fen
+      FROM cw_commissions c JOIN cw_commission_events e ON e.order_id=c.order_id
+      WHERE c.partner_id=$1 AND e.occurred_at >= date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai'
+      AND e.occurred_at < (date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai')+interval '1 month') AT TIME ZONE 'Asia/Shanghai'
+      GROUP BY c.code_id
     ), ready AS (
       SELECT code_id,sum(commission_fen) available_fen FROM (${eligible}) z GROUP BY code_id
     ), reserved AS (
@@ -236,9 +245,10 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       coalesce(e.paid_fen,0)::text paid_fen,coalesce(e.used_fen,0)::text used_fen,
       coalesce(e.expected_fen,0)::text expected_fen,coalesce(e.unlocked_fen,0)::text unlocked_fen,
       coalesce(a.available_fen,0)::text available_fen,coalesce(r.payout_pending_fen,0)::text payout_pending_fen,
-      coalesce(r.paid_out_fen,0)::text paid_out_fen,coalesce(f.refunded_fen,0)::text refunded_fen
+      coalesce(r.paid_out_fen,0)::text paid_out_fen,coalesce(f.refunded_fen,0)::text refunded_fen,
+      coalesce(m.paid_fen,0)::text month_paid_fen,coalesce(m.used_fen,0)::text month_used_fen
     FROM cw_codes k LEFT JOIN earnings e ON e.code_id=k.id LEFT JOIN ready a ON a.code_id=k.id
-      LEFT JOIN reserved r ON r.code_id=k.id LEFT JOIN refunds f ON f.code_id=k.id
+      LEFT JOIN reserved r ON r.code_id=k.id LEFT JOIN refunds f ON f.code_id=k.id LEFT JOIN monthly m ON m.code_id=k.id
     WHERE k.partner_id=$1 ORDER BY k.is_self_code DESC,k.created_at`, [p.id])).rows;
     const totals = Object.fromEntries(
       ['paid_fen','used_fen','expected_fen','unlocked_fen','available_fen','payout_pending_fen','paid_out_fen','refunded_fen']
@@ -277,6 +287,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       owner_name:owner?.name||null,recharges,activation_progress:await vipActivationProgress(pool,p.id),activate_min_cash_fen:VIP_ACTIVATE_MIN_CASH_FEN,
       partner: publicPartner(p),
       totals,
+      monthly: await vipMonthlySummary(pool,p.id),
       codes,
       contracts,
       payouts,
