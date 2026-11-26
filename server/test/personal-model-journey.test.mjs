@@ -20,7 +20,7 @@ test('key manager keeps creation in model setup and excludes revoked keys',()=>{
  assert.match(html,/创建通用 Key/);assert.match(html,/href="#personal\/connect\/all"/);assert.match(html,/href="#personal\/models"/);
  assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/hidden-key|data-live="paid-create"|api-connection/);
  assert.match(html,/1 \/ 5 把有效 Key/);
- assert.match(html,/>对应模型<\/th>/);assert.match(html,/data-label="消费上限"><b>¥10.00/);assert.match(html,/data-label="已用额度"><b>¥2.00/);
+ assert.match(html,/>对应模型<\/th>/);assert.match(html,/aria-valuetext="已用 ¥2.00 \/ 上限 ¥10.00"/);assert.match(html,/aria-valuenow="20.00"/);
 });
 test('dedicated creation posts exactly one model even when other models are available',async()=>{
  const calls=[],context=vm.createContext({personalCatalog:()=>catalog,api:async(path,body)=>{calls.push({path,body});return body?{secret:'fake'}:{enabled:true,models:catalog,keys:[key],list_credit_fen:'10000',unallocated_fen:'9000'};}});

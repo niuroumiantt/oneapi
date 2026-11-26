@@ -96,3 +96,12 @@
 - 修复 purchaseEntry 测试函数截取边界（overviewContent 的缩进变化导致旧截取越界）；26 项页面/目录相关测试通过。
 - 完整隔离 PostgreSQL 测试：214 项，193 通过、18 跳过、3 失败。用原线上提交的临时归档复核 identity suite：同样 3 项失败（支付宝 return_url 旧断言、普通客户退款测试取不到记录、对比分摊小数期望不符），并非本轮改动引入；未改动生产计费路径。
 - 发布将使用 scripts/publish_shanghai.sh，包含部署前备份和失败自动回滚。下一阶段用量页另行开发。
+
+## 2026-11-26 公网发布回执
+
+- 已提交并推送 `f0076f4a8bd0294bd69023a7767681e9f696d9f3`（Simplify personal workspace and add model-scoped key setup）。
+- 标准 scripts/publish_shanghai.sh 完成传输校验、镜像构建、数据库备份、迁移、API 健康检查和静态文件发布，退出 0。
+- 发布目录：`/srv/oneapi-data/oneapi-cutover-q72dymap/releases/f0076f4a8bd0.ahj2V2`，包含 previous-compose.yml 与 previous-web，可用于回滚。
+- 公网 https://semifly.cn/api/status 与 https://semifly.cn/release.json 均返回 status=ok、source_sha=f0076f4a8bd0294bd69023a7767681e9f696d9f3。
+- 浏览器验证公网模型广场显示 6 个模型，未出现 console error；个人页面正确要求登录。本次没有代用户登录、生成生产 Key 或执行付款。
+- 上传期间继续完成了下一轮用量和 Key 额度进度条，见 personal-usage-20261126.md；它们不在本次已发布提交里。
