@@ -29,4 +29,10 @@
 
 ## 发布
 
-待补发布回执。只打包已提交源码。工作区同时有独立商务后台任务的改动，不能捎带提交、重置或发布。
+已提交并推送 GitHub main：`364ef0b128f8eac959e21e6ca36ac3e5acf0d6be`，公网静态版本相同。
+
+- 公网对比 6 个文件（release.json、两份 HTML、三个改动 JS/CSS）哈希与打包产物一致；`/api/status` 返回 ok。API 未升级或重启。
+- 生产备份：`/srv/oneapi-data/oneapi-cutover-q72dymap/releases/364ef0b128f8-static.bJqc03/previous-web`。
+- 公网浏览器当前是未申请账号：计划介绍 → 开始申请 → 返回介绍通过，未填写或提交资料；iframe 高度 597px、scrollHeight 597px。未验证真实支付、合同签署、邮件送达或提现。
+- 发布工作树：`/Users/m5/.worktrees/oneapi/vip-workspace-20261126`，分支 `codex/vip-workspace-20261126`，从原公网 main `d517f7a` 建立。
+- 原主工作区已有仅授权本地的员工工作台提交 `debda89`，本次 VIP 改动在那里保存为 `ac734c1`，再拣选到独立发布分支。**不要直接发布原主工作区 HEAD**；它包含尚未授权上线的员工后台。未重置、切换或覆盖该工作区。
