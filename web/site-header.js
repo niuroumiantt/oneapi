@@ -30,6 +30,7 @@
   return `<footer class="site-footer"><span>semifly.ai</span><span>${organizer}</span><a href="${root}#docs">使用文档</a>${filing}</footer>`;
  }
  window.SiteHeader={render,accountMenu,footer};
+ if(window.parent===window){const script=document.createElement('script');script.src=new URL('vip-notifications.js',assetBase).href;script.defer=true;document.head.append(script);}
  document.querySelectorAll('[data-site-footer]').forEach(el=>el.outerHTML=footer());
  document.querySelectorAll('[data-site-header]').forEach(el=>el.outerHTML=render(el.dataset.siteHeader==='compare'?'workspace':el.dataset.siteHeader));
  if(standalone){

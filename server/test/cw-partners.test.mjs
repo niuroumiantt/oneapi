@@ -9,12 +9,14 @@ import { config, transaction, HttpError } from '../src/core.mjs';
 import { migrate } from '../src/migrate.mjs';
 import { businessConsoleRoutes } from '../src/business-console.mjs';
 import { cwRoutes } from '../src/cw-partners.mjs';
+import { mailService } from '../src/mail.mjs';
+import { queueNextVipNotice } from '../src/vip-notifications.mjs';
 import { quotePack, settlePaidCall } from '../src/pack-ledger.mjs';
 import { creditPaidOrder, paymentRoutes } from '../src/payments.mjs';
 import { refundCW, commissionFen } from '../src/cw-ledger.mjs';
 const url = process.env.TEST_CW_DATABASE_URL;
 let pool, server, origin, cfg;
-const ids = { a: randomUUID(), b: randomUUID(), buyer: randomUUID(), candidate: randomUUID(), lead: randomUUID(), legacy: randomUUID(), triage: randomUUID(), triageOther: randomUUID(), exception: randomUUID(), exceptionOther: randomUUID(), exceptionLegacy: randomUUID(), trialVip: randomUUID(), trialOther: randomUUID(), trialPending: randomUUID() };
+const ids = { notify: randomUUID(), a: randomUUID(), b: randomUUID(), buyer: randomUUID(), candidate: randomUUID(), lead: randomUUID(), legacy: randomUUID(), triage: randomUUID(), triageOther: randomUUID(), exception: randomUUID(), exceptionOther: randomUUID(), exceptionLegacy: randomUUID(), trialVip: randomUUID(), trialOther: randomUUID(), trialPending: randomUUID() };
 const notifications = [], paymentNotices = [];
 const mockWechatTrades = new Map();
 let failPaymentNotice = false;
@@ -108,6 +110,7 @@ async function call(path, body, user = 'a', role = null, subject = 'cw-test-admi
     },
     ...(body ? { method: 'POST', body: JSON.stringify(body) } : {}),
   });
+  while(await queueNextVipNotice(pool,cfg,{ready:true,queue:async message=>notifications.push(message)}));
   return { status: r.status, data: await r.json() };
 }
 const staff = (path, b, role = 'platform_admin', subject) => call('/api/staff/cw' + path, b, 'a', role, subject);
@@ -620,7 +623,9 @@ test('VIP invitation ownership, scoped leads, manager notifications and reassign
   assert.equal(applied.status, 201, JSON.stringify(applied.data));
   const partner = '/' + applied.data.partner.id;
   assert.equal((await call('/api/cw/apply', application, 'lead')).status, 201);
-  const mail = notifications.slice(beforeMail);
+  const allMail = notifications.slice(beforeMail);
+  assert.ok(allMail.some(m=>m.to==='lead@cw.example.test' && m.text.includes('申请已提交')));
+  const mail = allMail.filter(m=>m.to!=='lead@cw.example.test');
   assert.deepEqual(mail.map(m => m.to).sort(), ['admin@cw.example.test', 'sales-a@cw.example.test']);
   const administrator = mail.find(m => m.to.startsWith('admin@'));
   assert.match(administrator.text, /13800000012/);
@@ -782,6 +787,7 @@ test('VIP order lookup and recharge history reconcile ordinary and VIP payments 
   const queued = (await pool.query(`SELECT count(*)::int AS count FROM audit_events
     WHERE action='cw.recharge_notice_queued' AND subject_id IN ($1,$2)`, [ordinary.id, vip.id])).rows[0].count;
   assert.equal(queued, 2);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM vip_notifications WHERE partner_id=$1 AND kind='recharge'",[application.data.partner.id])).rows[0].n,2,'duplicate payment callbacks create one inbox event per recharge');
 
   const unmatched = await makeOrder('TRIAGE-NON-VIP', ids.triageOther, payer, 500);
   mockWechatTrades.set(unmatched.out_trade_no, 500);
@@ -1055,4 +1061,49 @@ test('employee direct codes: exact custom text, owner scope, admin-only exceptio
  assert.equal((await biz('discounts',body('DIRECTAB'))).status,409);
  const retained=await biz('acquisition');assert.ok(retained.data.orders.some(o=>o.promo_code==='DIRECTAB'));
  assert.equal((await biz('discounts')).data.grants.some(g=>g.business_line==='direct'),false,'direct codes have a separate register');
+});
+
+test('VIP notifications persist, isolate owners, survive mail failures and mark read per employee', {skip}, async()=>{
+ await staff('/invite-codes',{code:'NOTIFY'},'operations','cw-sales-a');
+ const applied=await call('/api/cw/apply',{legal_name:'通知测试',contact:'test contact',invite_code:'NOTIFY',consent_version:'cw-privacy-v1'},'notify');
+ assert.equal(applied.status,201);
+ const pid=applied.data.partner.id;
+ await call('/api/cw/apply',{legal_name:'通知测试',contact:'test contact',invite_code:'NOTIFY',consent_version:'cw-privacy-v1'},'notify');
+ assert.equal((await pool.query("SELECT count(*)::int AS n FROM vip_notifications WHERE partner_id=$1 AND kind='applied'",[pid])).rows[0].n,1);
+ const inbox=(role,subject)=>call('/api/staff/vip-notifications',null,'a',role,subject);
+ const owner=await inbox('operations','cw-sales-a');
+ const notice=owner.data.items.find(n=>n.partner_id===pid);
+ assert.ok(notice);assert.equal(notice.read_at,null);
+ assert.equal((await inbox('operations','cw-sales-b')).data.items.some(n=>n.partner_id===pid),false);
+ assert.equal((await inbox('finance','cw-finance')).data.items.some(n=>n.partner_id===pid),false);
+ assert.equal((await call('/api/staff/vip-notifications/'+notice.id+'/read',{},'a','operations','cw-sales-b')).status,404);
+ assert.equal((await call('/api/staff/vip-notifications/'+notice.id+'/read',{},'a','operations','cw-sales-a')).status,200);
+ assert.ok((await inbox('operations','cw-sales-a')).data.items.find(n=>n.id===notice.id).read_at);
+ assert.equal((await inbox('platform_admin','cw-test-admin')).data.items.find(n=>n.id===notice.id).read_at,null);
+ const countBefore=(await pool.query('SELECT count(*)::int AS n FROM vip_notifications')).rows[0].n;
+ await assert.rejects(transaction(pool,async db=>{await db.query("UPDATE cw_partners SET status='confirmed' WHERE id=$1",[pid]);throw Error('rollback');}));
+ assert.equal((await pool.query('SELECT count(*)::int AS n FROM vip_notifications')).rows[0].n,countBefore);
+ // No configured SMTP: retain the event for a later worker run.
+ await pool.query("UPDATE cw_partners SET status='confirmed' WHERE id=$1",[pid]);
+ const queued=(await pool.query("SELECT id FROM vip_notifications WHERE partner_id=$1 AND kind='confirmed'",[pid])).rows[0];
+ assert.equal(await queueNextVipNotice(pool,cfg,{ready:false}),false);
+ assert.equal((await pool.query('SELECT mail_queued_at FROM vip_notifications WHERE id=$1',[queued.id])).rows[0].mail_queued_at,null);
+ await pool.query('TRUNCATE mail_outbox');
+ const sent=[];const delivery=mailService(pool,cfg,{sendMail:async m=>sent.push(m)});
+ let calls=0;
+ await assert.rejects(queueNextVipNotice(pool,cfg,{ready:true,queue:async(m,db)=>{await delivery.queue(m,db);if(++calls===2)throw Error('queue unavailable');}}));
+ assert.equal((await pool.query('SELECT count(*)::int AS n FROM mail_outbox')).rows[0].n,0,'partial recipient enqueue rolls back');
+ assert.equal((await pool.query('SELECT mail_attempts FROM vip_notifications WHERE id=$1',[queued.id])).rows[0].mail_attempts,1);
+ await pool.query('UPDATE vip_notifications SET mail_available_at=now() WHERE id=$1',[queued.id]);
+ const results=await Promise.all([queueNextVipNotice(pool,cfg,delivery),queueNextVipNotice(pool,cfg,delivery)]);
+ assert.deepEqual(results.sort(),[false,true],'multiple workers enqueue one event exactly once');
+ while(await delivery.drain());
+ assert.deepEqual(sent.map(m=>m.to).sort(),['admin@cw.example.test','notify@cw.example.test','sales-a@cw.example.test']);
+ await pool.query("UPDATE cw_partners SET owner_subject='cw-sales-b' WHERE id=$1",[pid]);
+ assert.equal((await inbox('operations','cw-sales-a')).data.items.some(n=>n.partner_id===pid),false);
+ assert.ok((await inbox('operations','cw-sales-b')).data.items.some(n=>n.partner_id===pid));
+ assert.equal((await staff('/'+pid+'/status',{status:'rejected',reason:'internal review note',customer_feedback:'请补充申请资料'})).status,200);
+ const feedback=await call('/api/cw/me',null,'notify');
+ assert.equal(feedback.data.feedback,'请补充申请资料');
+ assert.ok(!JSON.stringify(feedback.data).includes('internal review note'));
 });
