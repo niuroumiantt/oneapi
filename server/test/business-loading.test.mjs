@@ -7,7 +7,7 @@ const settle=()=>new Promise(r=>setImmediate(r));
 function app(fetch){
  const nodes=new Map(),events={},location={hash:'#transfers',origin:'https://test.invalid'},parent={};
  const node=s=>{if(!nodes.has(s))nodes.set(s,{innerHTML:'',textContent:'',classList:{toggle(){}}});return nodes.get(s)};
- const context=vm.createContext({fetch,AbortSignal,location,parent,document:{querySelector:node,addEventListener(){}},addEventListener:(k,f)=>events[k]=f});
+ const context=vm.createContext({fetch,AbortSignal,location,parent,document:{body:node('body'),querySelector:node,addEventListener(){}},addEventListener:(k,f)=>events[k]=f});
  vm.runInContext(source,context);return {nodes,events,location,parent,html:()=>node('#content').innerHTML};
 }
 const summary={staff:{finance:true,technical:true},counts:{}};

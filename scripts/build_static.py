@@ -106,6 +106,8 @@ def main():
             page = page.replace(f'"{source}"', f'"{target}"')
             page = page.replace(f'https://{CN_DOMAIN}/promotion/{source}"', f'https://{CN_DOMAIN}/promotion/{target}"')
         assets[name] = page.encode()
+    for name in ('code-activity.html', 'code-activity.js', 'code-activity.css'):
+        assets[name] = git('show', f'HEAD:web/{name}')
     # Official payment marks only; source notes and downloaded brand packs stay private.
     for name in ('assets/payments/alipay.ico', 'assets/payments/wechat-pay.svg'):
         assets[name] = git('show', f'HEAD:web/{name}')
