@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readPersonalUsage} from '../src/personal-usage.mjs';
+import {readPersonalUsage,readPersonalCalls} from '../src/personal-usage.mjs';
 
 test('usage merges model and key totals without losing integer precision or revoked keys',async()=>{
  const rows=[
@@ -47,5 +47,16 @@ test('SQL usage covers full history, cash across packs, time ranges and account 
   assert.equal(all.totals.calls,'104');assert.equal(all.totals.input_tokens,'10400');assert.equal(all.totals.cash_fen,'5');assert.equal(all.totals.unsettled_calls,'1');assert.equal(all.keys.length,1);assert.ok(all.keys[0].revoked_at);
   for(const period of ['month','week'])assert.equal((await readPersonalUsage(db,own.owner,period)).totals.calls,'103');
   assert.equal((await readPersonalUsage(db,other.owner,'all')).totals.calls,'1');
+  const ids=new Set();let money=0n,page=0;
+  while(true){const calls=await readPersonalCalls(db,own.owner,{period:'all',page:String(page++),size:'3'});for(const row of calls.items){assert.ok(!ids.has(row.id));ids.add(row.id);money+=BigInt(row.cash_fen||0);if(row.status==='pending')assert.equal(row.cash_fen,null);}if(!calls.has_more)break;}
+  assert.equal(ids.size,104,'all personal calls remain reachable, including revoked keys');assert.equal(money,5n,'multi-pack charge is one call');
+  assert.equal((await readPersonalCalls(db,other.owner,{period:'all'})).items.length,1);
+  assert.equal((await readPersonalCalls(db,own.owner,{period:'all',page:'999'})).items.length,0);
+
  }finally{await db.query('ROLLBACK');await db.end();}
+});
+
+test('call detail rejects invalid pagination before executing SQL',async()=>{
+ const db={query:()=>{throw Error('must not query');}};
+ for(const options of [{period:'bad'},{size:'100'},{page:'-1'},{page:'1;DROP'}])await assert.rejects(readPersonalCalls(db,'owner',options),/分页无效/);
 });

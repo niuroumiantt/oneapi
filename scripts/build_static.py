@@ -106,6 +106,9 @@ def main():
             page = page.replace(f'"{source}"', f'"{target}"')
             page = page.replace(f'https://{CN_DOMAIN}/promotion/{source}"', f'https://{CN_DOMAIN}/promotion/{target}"')
         assets[name] = page.encode()
+    # Official payment marks only; source notes and downloaded brand packs stay private.
+    for name in ('assets/payments/alipay.ico', 'assets/payments/wechat-pay.svg'):
+        assets[name] = git('show', f'HEAD:web/{name}')
     # Explicit publication manifest: no arbitrary repository/runtime files.
     skill_files = json.loads(git('show', 'HEAD:prototypes/skills/public-files.json'))
     for name in skill_files:

@@ -389,6 +389,30 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
   });
   res.status(201).json({key,secret,show_once:true});
  });
+ // Account lock matches the gateway reservation lock; caps cannot race with new holds.
+ const manageKey=manager=>async(req,res)=>{
+  const org=manager?await requireManager(req):(await requireMember(req)).organization_id,keyId=id(req.params.key);
+  const label=text(req.body?.label,'Key 名称',50),raw=req.body?.limit_yuan;
+  const cap=raw===null||raw===''?null:String(raw??'');
+  if(cap!==null&&(!moneyPattern.test(cap)||units(cap)<=0n))throw new HttpError(400,'消费上限需大于 0，最多两位小数；留空则共用员工额度');
+  const result=await transaction(pool,async db=>{
+   const target=(await db.query(`SELECT k.owner_id FROM employee_api_keys k JOIN employee_credit_accounts a ON a.user_id=k.owner_id
+    JOIN memberships m ON m.user_id=k.owner_id AND m.organization_id=a.organization_id AND m.status='active'
+    WHERE k.id=$1 AND a.organization_id=$2 AND ($3::text IS NULL OR k.owner_id=$3) AND k.purpose='api' AND k.revoked_at IS NULL`,[keyId,org,manager?null:req.customer.id])).rows[0];
+   if(!target)throw new HttpError(404,'有效 Key 不存在');
+   await db.query('SELECT user_id FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[target.owner_id]);
+   const before=(await db.query("SELECT label,limit_yuan FROM employee_api_keys WHERE id=$1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now()) FOR UPDATE",[keyId])).rows[0];
+   if(!before)throw new HttpError(404,'有效 Key 不存在');
+   const used=(await db.query(`SELECT ${USED_ON_KEY} AS used FROM employee_calls WHERE key_id=$1`,[keyId])).rows[0].used,money=await balance(db,target.owner_id);
+   if(cap!==null&&units(cap)<units(used))throw new HttpError(409,'上限不能低于已消费和调用中预留的额度');
+   if(cap!==null&&units(cap)>units(used)+units(money.available_yuan))throw new HttpError(409,'上限超过员工当前可用额度，请先由管理员调整员工总额度');
+   const key=(await db.query('UPDATE employee_api_keys SET label=$2,limit_yuan=$3 WHERE id=$1 RETURNING id,label,limit_yuan',[keyId,label,cap])).rows[0];
+   await audit(db,req.actor,'employee_credit.key_updated',org,keyId,{before,after:{label,limit_yuan:cap}});return key;
+  });
+  res.json({key:result});
+ };
+ app.post('/api/employee-credit/keys/:key/manage',requireCustomer,manageKey(false));
+ app.post('/api/employee-credit/team/keys/:key/manage',requireCustomer,manageKey(true));
  app.post('/api/employee-credit/keys/:key/revoke',requireCustomer,async(req,res)=>{
   const keyId=id(req.params.key);
   const result=await transaction(pool,async db=>{
@@ -473,6 +497,9 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
   const callId=await (backend?backend.reserve({key,model:{...model,multiplier},route,hold,origin}):transaction(pool,async db=>{
    // The row lock serialises reservations so concurrent calls cannot overspend.
    await db.query('SELECT user_id FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[key.owner_id]);
+   const currentKey=(await db.query('SELECT limit_yuan,revoked_at,expires_at FROM employee_api_keys WHERE id=$1',[key.key_id])).rows[0];
+   if(!currentKey||currentKey.revoked_at||(currentKey.expires_at&&new Date(currentKey.expires_at)<=new Date()))throw new HttpError(401,'Key 已失效');
+   key.limit_yuan=currentKey.limit_yuan;
    const money=await balance(db,key.owner_id);
    const active=(await db.query(`SELECT count(*)::int AS count FROM ${calls} WHERE owner_id=$1 AND status='pending' AND created_at>now()-interval '${STALE_PENDING}'`,[key.owner_id])).rows[0].count;
    // Concurrent slots are counted per person across all keys (item 6); this key's setting is the cap while it is in use.

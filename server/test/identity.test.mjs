@@ -423,6 +423,23 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='employee_credit.granted' AND subject_id=$1",[staffer.user.id])).rows[0].n,1);
  const created=await staffer.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'Agent'}});assert.equal(created.status,201);assert.match(created.data.secret,/^sf_emp_/);
  assert.notEqual((await pool.query('SELECT secret_hash FROM employee_api_keys WHERE id=$1',[created.data.key.id])).rows[0].secret_hash,created.data.secret);
+ {const path='/api/employee-credit/keys/'+created.data.key.id+'/manage',teamPath='/api/employee-credit/team/keys/'+created.data.key.id+'/manage';
+  const edit=(who,url,label='Renamed',limit_yuan='5.00')=>who.j.call(url,{method:'POST',body:{label,limit_yuan}});
+  assert.equal((await edit(outsider,path)).status,403);
+  assert.equal((await edit(boss,path)).status,404,'a manager must use the team endpoint for someone else');
+  assert.equal((await edit(staffer,teamPath)).status,403);
+  for(const cap of ['-1','0','1.001','bad'])assert.equal((await edit(staffer,path,'Agent',cap)).status,400);
+  assert.equal((await edit(staffer,path,'Agent','11')).status,409,'cannot exceed assigned balance');
+  assert.equal((await edit(staffer,path)).status,200);
+  assert.equal((await edit(boss,teamPath,'Managed name','6')).status,200);
+  await pool.query("INSERT INTO employee_calls(key_id,owner_id,model_id,price_snapshot,status,hold_yuan) VALUES($1,$2,'glm-5.3','{}','pending',2)",[created.data.key.id,staffer.user.id]);
+  assert.equal((await edit(staffer,path,'Agent','1')).status,409,'pending holds form the floor');
+  await pool.query('DELETE FROM employee_calls WHERE key_id=$1',[created.data.key.id]);
+  assert.equal((await edit(staffer,path,'Agent',null)).status,200,'shared quota is restored without increasing grant');
+  assert.equal(Number((await pool.query('SELECT granted_yuan FROM employee_credit_accounts WHERE user_id=$1',[staffer.user.id])).rows[0].granted_yuan),10);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='employee_credit.key_updated' AND subject_id=$1",[created.data.key.id])).rows[0].n,3);
+ }
+
  assert.equal(JSON.stringify((await staffer.j.call('/api/employee-credit/status')).data).includes(created.data.secret),false);
  let upstreamCalls=[],serial2=0,usage={prompt_tokens:100,completion_tokens:10,total_tokens:110};
  const reply=()=>{const n=++serial2;return new Response(JSON.stringify({id:'c'+n,choices:[{message:{role:'assistant',content:'ok'}}],usage}),{status:200,headers:{'content-type':'application/json','x-request-id':'req-'+n}});};
@@ -592,7 +609,7 @@ test('employee credit is one-time, company-only, reserved before calling and cha
  const memberView=(await staffer.j.call(`/api/platform/organizations/${company.id}`)).data;assert.equal(memberView.permissions.manager,false);assert.equal(memberView.members.length,1);
  assert.deepEqual((await outsider.j.call('/api/platform/me')).data.backoffice,{business:false,technical:false});
  await pool.query("INSERT INTO staff_members(subject,email,name,role,status) VALUES('panel-admin',$1,'Panel','platform_admin','active')",[boss.user.email]);assert.deepEqual((await boss.j.call('/api/platform/me')).data.backoffice,{business:true,technical:true});await pool.query("DELETE FROM staff_members WHERE subject='panel-admin'");
- const managedKey=await staffer.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'Managed'}});assert.equal((await staffer.j.call('/api/employee-credit/team/keys/'+managedKey.data.key.id+'/revoke',{method:'POST',body:{}})).status,403);assert.equal((await boss.j.call('/api/employee-credit/team/keys/'+managedKey.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call({},managedKey.data.secret)).status,401);
+ const managedKey=await staffer.j.call('/api/employee-credit/keys',{method:'POST',body:{label:'Managed'}});assert.equal((await staffer.j.call('/api/employee-credit/team/keys/'+managedKey.data.key.id+'/revoke',{method:'POST',body:{}})).status,403);assert.equal((await boss.j.call('/api/employee-credit/team/keys/'+managedKey.data.key.id+'/revoke',{method:'POST',body:{}})).status,200);assert.equal((await call({},managedKey.data.secret)).status,401);assert.equal((await boss.j.call('/api/employee-credit/team/keys/'+managedKey.data.key.id+'/manage',{method:'POST',body:{label:'Revoked',limit_yuan:'1'}})).status,404);
  await pool.query("INSERT INTO channel_states(model_id,paused,updated_by) VALUES('glm-5.3',true,'t')");assert.equal((await call()).status,503,'paused channel');await pool.query("DELETE FROM channel_states WHERE model_id='glm-5.3'");
  // Leaving the company ends access at once, and re-joining never grants a second allowance.
  const membership=(await boss.j.call(`/api/platform/organizations/${company.id}`)).data.members.find(m=>m.user_id===staffer.user.id);
