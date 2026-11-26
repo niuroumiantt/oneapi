@@ -2037,3 +2037,47 @@ td>.live-dot:first-child{margin-right:5px}
  .my-models .mm-available .mm-actions{flex-direction:column;align-items:flex-end;gap:2px}
  .my-models .mm-available .mm-table td{height:64px}
 }
+
+/* One primary creation action, alongside its explicit model selection. */
+.my-models .mm-heading{align-items:flex-start;margin-bottom:22px}
+.my-models .mm-head-actions{gap:22px;padding-top:5px}
+.my-models .mm-selection-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 14px}
+.my-models .mm-selection-note{font-size:12px;font-weight:400;color:var(--ph-muted);line-height:1.5}
+.my-models .mm-selected>.mm-section-head{margin-bottom:12px}
+.my-models .mm-section-actions{gap:16px}
+.my-models .mm-section-actions .mm-generate{min-height:36px;padding:7px 14px;border:1px solid var(--ph-ink);border-radius:6px;background:var(--ph-ink);color:#fff;font-size:12px;font-weight:500}
+.my-models .mm-section-actions .mm-generate:hover:not(:disabled){background:#35415d;border-color:#35415d;color:#fff}
+.my-models .mm-section-actions .mm-generate:disabled{background:#edf0f5;border-color:#e4e8ef;color:#8a94a4;opacity:1}
+.my-models .mm-table td{height:44px}
+.my-models .mm-table th{height:30px}
+.my-models .mm-available{margin-top:18px;padding-top:14px}
+.my-models .mm-foot{margin-top:18px;padding-top:12px;border-top:1px solid var(--ph-line)}
+.my-models .mm-empty{padding:10px 0 12px;margin:0;font-size:13px}
+@media(min-width:1001px) and (max-height:680px){
+ .my-models .mm-heading{margin-bottom:14px}
+ .my-models .mm-table td{height:36px}
+ .my-models .mm-table th{height:26px}
+ .my-models .mm-selected>.mm-section-head{margin-bottom:8px}
+ .my-models .mm-available{margin-top:10px;padding-top:10px}
+ .my-models .mm-foot{margin-top:10px;padding-top:8px}
+}
+@media(max-width:700px){
+ .my-models .mm-heading{flex-wrap:wrap;gap:8px;margin-bottom:16px}
+ .my-models .mm-head-actions{padding:0;gap:20px}
+ .my-models .mm-selection-heading{gap:4px 10px}
+ .my-models .mm-selected>.mm-section-head{align-items:flex-start;gap:8px}
+ .my-models .mm-section-actions{width:100%;justify-content:flex-end;gap:16px}
+ .my-models .mm-section-actions .mm-generate{margin-left:auto}
+ .my-models .mm-available .mm-selection-note{display:none}
+ .my-models .mm-table td{height:42px}
+ .my-models .mm-available .mm-table td{height:64px}
+}
+@media(min-width:1001px) and (max-height:680px){
+ .my-models .mm-heading{margin-bottom:4px}
+ .my-models .mm-table td{height:32px}
+ .my-models .mm-section-actions .mm-generate{min-height:32px;padding:5px 12px}
+ .my-models .mm-available{padding-top:4px}
+ .my-models .mm-foot{margin-top:6px;padding-top:6px}
+ .my-models .mm-foot select{min-height:30px;height:30px;padding-block:2px}
+ .my-models .mm-empty{padding:0;font-size:12px}
+}
