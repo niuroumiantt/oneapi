@@ -14,7 +14,7 @@
  let host,current='account',authMode='login',generation=0,lastOrg=null,lastOrgBilling=null,joinPreview=null,me=null,staff=null,staffList=[],customers=[],sessions=[],resetToken=new URL(location.href).searchParams.get('reset_token'),supplyData={suppliers:[],offers:[]},offerDetail=null,promotionData={campaigns:[],products:[]},pricingData={products:[],proposals:[],decisions:[]},reviewData={products:[],reviews:[]},resetScrollOnMount=false;
  const opsPageCache=new Map();
  if(resetToken)history.replaceState(null,'',location.pathname+'#reset-password');
- const handles=v=>['workspace','enterprise-register','enterprise-login','register','personal','personal/models','personal/keys','personal/usage','enterprise','account','reset-password','staff','staff-account','admin','security','demo/personal','upgrade','support'].includes(v)||v.startsWith('personal/connect/')||personalBillingRoute(v)||v.startsWith('billing/organization/')||v.startsWith('demo/organization/')||v.startsWith('organization/')||v.startsWith('join/')||v.startsWith('ops/');
+ const handles=v=>['workspace','enterprise-register','enterprise-login','register','personal','personal/models','personal/keys','personal/usage','personal/compare','enterprise','account','reset-password','staff','staff-account','admin','security','demo/personal','upgrade','support'].includes(v)||v.startsWith('personal/connect/')||personalBillingRoute(v)||v.startsWith('billing/organization/')||v.startsWith('demo/organization/')||v.startsWith('organization/')||v.startsWith('join/')||v.startsWith('ops/');
  let orgLoadedAt=0,panelDataAt=0,modelHealth=null,modelHealthAt=0,modelHealthTried=0,modelHealthLoading=false;
  async function api(path,body,method){if(body||method){orgLoadedAt=0;panelDataAt=0;lastOrgBilling=null;}const r=await fetch(path,{method:method||(body?'POST':'GET'),headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,credentials:'same-origin',cache:'no-store'});let data;try{data=await r.json();}catch{data={};}if(!r.ok){const err=Error(data.error||translate(data.code,data.message)||'暂时无法完成，请稍后重试。');err.status=r.status;err.code=data.code;throw err;}return data;}
  async function customerSignedIn(){try{return !!(await api('/api/platform/me')).user;}catch(e){return e.status!==401;}}
@@ -578,8 +578,9 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  }
  async function account(ticket,earlyBilling){
   if(me?.upgrade?.status==='approved'&&me.upgrade.organization_id){location.hash='organization/'+me.upgrade.organization_id;return;}
-  panelOrg=null;teamUsage=null;if(!['overview','models','keys','usage','compare','connect'].includes(personalTab))personalTab='overview';
-  if(current.startsWith('personal/'))personalTab=current.split('/')[1];
+  panelOrg=null;teamUsage=null;
+  personalTab=current.startsWith('personal/')?current.split('/')[1]:'overview';
+  if(!['overview','models','keys','usage','compare','connect'].includes(personalTab))personalTab='overview';
   const intent=readModelIntent();if(current.startsWith('personal/connect/'))personalSelected=current.slice('personal/connect/'.length);else if(intent?.scope==='personal')personalSelected=intent.id;
   const pilotPromise=api('/api/pilot/status').catch(()=>({enabled:false}));
   const employeePromise=api('/api/employee-credit/status').catch(()=>({enabled:false}));
@@ -1279,7 +1280,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const home=workspaceTarget('workspace'),manager=me.organizations.find(o=>home==='organization/'+o.id)?.is_manager;
   if(personalBillingRoute(view))return manager?'billing/'+home:home;
   if(view.startsWith('personal/connect/'))return home+'/models';
-  return {personal:home,'personal/models':home+'/models','personal/keys':home+'/keys','personal/usage':home+'/usage',support:home+'/support',security:home+'/settings'}[view]||'';
+  return {personal:home,'personal/models':home+'/models','personal/keys':home+'/keys','personal/usage':home+'/usage','personal/compare':home+'/compare',support:home+'/support',security:home+'/settings'}[view]||'';
  }
  function workspaceTarget(view){
   const orgs=me.organizations||[];if(view!=='enterprise'&&personalVisible()&&readModelIntent()?.scope==='personal')return 'personal/connect/'+readModelIntent().id;if(view==='enterprise'&&!orgs.length)return 'upgrade';
@@ -1364,7 +1365,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-live]');if(!b)return;const action=b.dataset.live;let message=host?.querySelector('#live-form-message');b.disabled=true;
   try{
-   if(action==='personal-tab'){if(!panelOrg&&['overview','models','keys','usage','compare'].includes(b.dataset.tab)){const target=b.dataset.tab==='overview'?'personal':b.dataset.tab==='compare'?null:'personal/'+b.dataset.tab;if(target&&current!==target){location.hash=target;return;}}personalTab=b.dataset.tab;if(host?.querySelector('.personal-console')&&!panelRedraw&&current!=='upgrade')updatePersonalDashboard();else location.hash='personal';}
+   if(action==='personal-tab'){if(!panelOrg&&['overview','models','keys','usage','compare'].includes(b.dataset.tab)){const target=b.dataset.tab==='overview'?'personal':'personal/'+b.dataset.tab;if(target&&current!==target){location.hash=target;return;}}personalTab=b.dataset.tab;if(host?.querySelector('.personal-console')&&!panelRedraw&&current!=='upgrade')updatePersonalDashboard();else location.hash='personal';}
    else if(action==='page-turn'){pageViews[b.dataset.group+':page']=Number(b.dataset.page);if(panelRedraw)panelRedraw();else if(panelOrg&&lastOrg)organizationV2(lastOrg);else updatePersonalDashboard();}
    else if(action==='page-view'){
     pageViews[b.dataset.group]=b.dataset.pageView;
