@@ -60,3 +60,9 @@ API source_sha=`728bd246feb0d0867c2c7b1948829aa1b1a80572`，静态 source_sha=`3
 - 回滚前端目录：`/srv/oneapi-data/oneapi-cutover-q72dymap/releases/762071ce6652-static.cUCCOY/previous-web`。
 - 正式已有登录账号1319×649：概览与月图主区域均 clientHeight=scrollHeight=524，7/30天切换正常，备案页脚完整；加载新CSS `personal-usage-charts.d9a8897e2f0c.css`。原位切换后恢复概览供用户查看。
 - 日志 `/private/tmp/oneapi-dashboard-preview/compact-publish.log`。此回执为文档后续提交，不再次部署。
+
+## 首页鲜亮额度条（同日后续）
+
+- 用户要求首页增加与账单类似的额度进度条，颜色鲜亮。复用 personalBalanceBar 的实付/赠送/历史累计比例，新增 overview 选项，仅首页以累计消费替代退款入口。
+- 首页采用亮红实付、亮蓝赠送；账单原样保留。灰色轨道显示已不再剩余的比例，金额依旧来自真实账单数据，不增加模拟生产数据。
+- 含实付、赠送及消耗的本地预览复核：1163×582概览及月图仍 clientHeight=scrollHeight=457；390×844无横向溢出。9项相关回归、JS语法和差异检查通过，界面复核 disposition=ship。

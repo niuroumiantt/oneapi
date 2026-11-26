@@ -509,7 +509,7 @@ function personalHomeContent(){
     <section class="ph-balance" aria-label="个人额度">
       <div class="ph-balance-main"><span>可用官价额度</span><strong>${available===null?'—':personalMoney(available)}</strong><p>${available===null?'额度暂未加载，请刷新重试。':'按模型官网价计费'}</p></div>
       <div class="ph-balance-actions"><a class="ph-primary" href="#billing/personal">${personalBilling?.payments_enabled?'充值':'查看账单'}</a>${personalBilling?.payments_enabled?'<a class="ph-link" href="#billing/personal/usage">消费账单</a>':''}</div>
-      <div class="ph-spent"><span>累计消费</span><b>${personalBilling?personalMoney(personalBilling.total_spent_fen):'—'}</b></div>
+      ${personalBilling?personalBalanceBar(personalBilling,{overview:true}):'<div class="ph-spent"><span>累计消费</span><b>—</b></div>'}
     </section>
     <section class="ph-connect" aria-labelledby="ph-connect-title"><div class="ph-section-head"><h2 id="ph-connect-title">API 接入</h2><a class="ph-link" href="#docs">接入文档${ico('arrow-up-right')}</a></div>
       ${base?`<div class="ph-endpoint"><span>API 地址</span><code>${esc(base)}</code><button type="button" class="ph-copy" data-live="copy-text" data-text="${esc(base)}" aria-label="复制 API 地址">${ico('copy')}<span>复制</span></button></div><div class="ph-key-row"><span>${keys.length?`${keys.length} 枚有效密钥`:'创建密钥，开始第一次调用'}</span>${tab('keys',keys.length?'管理密钥':'创建密钥')}</div>`:'<p class="ph-unavailable">个人 API 调用暂未开放。</p>'}
@@ -1311,14 +1311,14 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   return `${negative?'-':''}¥${abs/100n}.${tail}`;
  };
  const billingPager=(page,more,action='billing-record-page')=>page||more?`<nav class="pu-pages" aria-label="账单分页"><button type="button" data-live="${action}" data-page="${page-1}" aria-label="上一页" ${page===0?'disabled':''}>${ico('chevron-left')}</button><span>第 ${page+1} 页</span><button type="button" data-live="${action}" data-page="${page+1}" aria-label="下一页" ${more?'':'disabled'}>${ico('chevron-right')}</button></nav>`:'';
- function personalBalanceBar(data){
+ function personalBalanceBar(data,{overview=false}={}){
   const split=data.credit_split;
   const paid=BigInt(split?.red_fen??data.cash_balance_fen??'0'),balance=wholeFen(data.list_credit_exact_fen??data.list_credit_fen??'0');
   const gift=split?BigInt(split.green_fen||'0'):(balance>paid?balance-paid:0n),total=paid+gift;
   const max=split?BigInt(split.max_face_fen||split.face_fen||'0'):total,scale=max>total?max:total;
   const width=v=>scale>0n?Number(v*10000n/scale)/100:0;
   const refund=split?.refundable_fen;
-  return `<div class="pb-credit"><div class="pb-credit-track" role="img" aria-label="实付剩余 ${personalMoney(String(paid))}，赠送剩余 ${personalMoney(String(gift))}"><span class="pb-credit-gift" style="width:${width(gift)}%"></span><span class="pb-credit-paid" style="width:${width(paid)}%"></span></div><div class="pb-credit-legend"><span><i class="pb-credit-paid"></i>实付 ${personalMoney(String(paid))}</span><span><i class="pb-credit-gift"></i>赠送 ${personalMoney(String(gift))}</span><a href="#${refundRoute}">${refund==null?'查看可退金额':'当前可退 '+personalMoney(refund)} ${ico('arrow-right')}</a></div></div>`;
+  return `<div class="pb-credit${overview?' ph-credit':''}"><div class="pb-credit-track" role="img" aria-label="实付剩余 ${personalMoney(String(paid))}，赠送剩余 ${personalMoney(String(gift))}"><span class="pb-credit-gift" style="width:${width(gift)}%"></span><span class="pb-credit-paid" style="width:${width(paid)}%"></span></div><div class="pb-credit-legend"><span><i class="pb-credit-paid"></i>实付 ${personalMoney(String(paid))}</span><span><i class="pb-credit-gift"></i>赠送 ${personalMoney(String(gift))}</span>${overview?`<span class="ph-credit-spent">累计消费 ${personalMoney(data.total_spent_fen)}</span>`:`<a href="#${refundRoute}">${refund==null?'查看可退金额':'当前可退 '+personalMoney(refund)} ${ico('arrow-right')}</a>`}</div></div>`;
  }
  function personalRechargeCompact(data){
   const channels=(data.recharge?.channels||[]).filter(c=>PAY_CHANNELS[c]);
