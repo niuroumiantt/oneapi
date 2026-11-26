@@ -5,10 +5,11 @@ import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../private/workspace.js',import.meta.url),'utf8');
 const settle=()=>new Promise(r=>setImmediate(r));
 function app(fetch,search='?surface=owner'){
- const nodes=new Map(),events={},location={search,hash:'#transfers',origin:'https://test.invalid'},parent={};
+ const nodes=new Map(),events={},domEvents={},location={search,hash:'#transfers',origin:'https://test.invalid'},parent={};
  const node=s=>{if(!nodes.has(s))nodes.set(s,{innerHTML:'',textContent:'',classList:{toggle(){}}});return nodes.get(s)};
- const context=vm.createContext({fetch,AbortSignal,URLSearchParams,location,parent,document:{body:node('body'),querySelector:node,addEventListener(){}},addEventListener:(k,f)=>events[k]=f});
- vm.runInContext(source,context);return {nodes,events,location,parent,html:()=>node('#content').innerHTML};
+ const context=vm.createContext({fetch,AbortSignal,URLSearchParams,location,parent,document:{body:node('body'),querySelector:node,addEventListener:(k,f)=>domEvents[k]=f},addEventListener:(k,f)=>events[k]=f});
+ vm.runInContext(readFileSync(new URL('../../web/staff-api.js',import.meta.url),'utf8'),context);
+ vm.runInContext(source,context);return {nodes,events,domEvents,location,parent,html:()=>node('#content').innerHTML};
 }
 const summary={staff:{finance:true,technical:true,admin:true,role:'platform_admin'},counts:{}};
 const record={entries:[{id:'test-entry',customer_name:'Test company',customer_kind:'enterprise',customer_code:'E-test',cash_fen:1,face_fen:1,status:'approved',created_by:'admin',decided_by:'admin',decision_role:'platform_admin',created_by_name:'Test admin',decided_by_name:'Test admin',decided_at:'2026-11-16T08:41:01Z',decision_note:'Verified bank receipt'}]};
@@ -66,4 +67,21 @@ test('employee promotion channels keep overview, codes and applications separate
  a.location.hash='#vipcodes';a.events.hashchange();await settle();assert.match(a.html(),/VIP_INVITE/);assert.doesNotMatch(a.html(),/CUSTOMER_CODE|VIP_CODE/);
  const nav=a.nodes.get('#nav').innerHTML;assert.match(nav,/<summary>客户推广<\/summary>/);assert.match(nav,/<summary>VIP推广<\/summary>/);assert.doesNotMatch(nav,/招揽/);
  a.location.hash='#approvals';a.events.hashchange();await settle();assert.match(a.html(),/CUSTOMER_CODE/);assert.doesNotMatch(a.html(),/VIP_ONLY/);
+});
+
+test('navigation retains manual group collapse when pages change',async()=>{
+ const a=app(async p=>response(p.includes('dashboard')?{staff:{role:'operations'},counts:{}}:{grants:[],orders:[],partners:[],codes:[],vip_orders:[]}),'');await settle();
+ const group={matches:()=>true,isConnected:true,dataset:{navGroup:'客户推广'},open:false};
+ a.domEvents.toggle({target:group});a.location.hash='#direct';a.events.hashchange();await settle();
+ assert.match(a.nodes.get('#nav').innerHTML,/data-nav-group="客户推广" ><summary>/);
+ assert.match(a.nodes.get('#nav').innerHTML,/data-nav-group="VIP推广" ><summary>/);
+ group.open=true;a.domEvents.toggle({target:group});a.location.hash='#vipoverview';a.events.hashchange();await settle();
+ assert.match(a.nodes.get('#nav').innerHTML,/data-nav-group="客户推广" open/);
+ a.location.hash='#direct';a.events.hashchange();await settle();assert.match(a.nodes.get('#nav').innerHTML,/data-nav-group="客户推广" open/);
+});
+test('employee API pages show company allowance and never purchase or payment controls',async()=>{
+ const data={enabled:true,organization_name:'Test company',granted_yuan:50,spent_yuan:10,held_yuan:2,available_yuan:38,models:[{id:'test-model',name:'Test model',tags:['对话'],input_yuan:1,output_yuan:2}],base_url:'https://test.invalid/v1',keys:[],recent_calls:[],daily:[],key_limit:5};
+ const paths=[],a=app(async p=>{paths.push(p);return response(p.includes('dashboard')?{staff:{role:'operations'},counts:{}}:data)},'');await settle();
+ for(const page of ['apioverview','apimodels','apikeys','apiusage']){a.location.hash='#'+page;a.events.hashchange();await settle();assert.match(a.html(),/公司分配额度/);assert.doesNotMatch(a.html(),/充值|购买|支付|退款|billing\/personal/);}
+ assert.ok(paths.includes('/api/staff/self-api/status'));assert.ok(paths.every(p=>!p.includes('customer-credit')));
 });

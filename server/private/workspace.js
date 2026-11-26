@@ -15,6 +15,7 @@ const OWNER_NAV = [
 ];
 const EMPLOYEE_NAV = [
  ['员工工作台', [['home','今日工作']]],
+ ['我的 API', [['apioverview','API 概览'],['apimodels','我的模型'],['apikeys','API 密钥'],['apiusage','用量与记录'],['apicompare','API 对比']]],
  ['客户推广', [['customeroverview','客户概览'],['direct','客户推广码'],['customerapplications','我的申请']]],
  ['VIP推广', [['vipoverview','VIP概览'],['vipcodes','VIP推广码'],['vipapplications','我的申请']]],
  ['客户服务', [['customers','我的客户'],['tickets','客户服务']]]
@@ -26,6 +27,7 @@ const PAGES = Object.fromEntries(OWNER_NAV.flatMap(([, items, gate]) => items.ma
 if(!ownerSurface){for(const [,items] of EMPLOYEE_NAV)for(const [key,label] of items)PAGES[key]={label};PAGES.cw={label:'VIP客户跟进'};}
 const promotionChannel = page => ['customeroverview','direct','customerapplications'].includes(page)?'customer':['vipoverview','cw','vipcodes','promotions','vipapplications'].includes(page)?'vip':null;
 const SUBTITLES = {
+ apioverview:'公司分配额度，查看自己的 API 使用情况。',apimodels:'选择模型，接入客户端或自己的程序。',apikeys:'创建、设置和停用自己的 API Key。',apiusage:'查看调用趋势、Token 消耗与公司额度使用。',apicompare:'使用公司额度，对比模型的回答、速度和用量。',
  home:'客户推广、VIP推广与客户服务。',
  vipcodes:'邀请客户申请 VIP，查看自己发出的推广码。',customeroverview:'查看客户推广带来的客户和订单。',vipoverview:'查看负责的 VIP、开通进度和推广情况。',customerapplications:'客户推广的特殊折扣申请与处理记录。',vipapplications:'VIP 的付款折扣与开通特批申请。',
  acquisition:'查看负责客户的进度、实付和待办。',cw:'招募邀请码、电话面试、付款核验与 VIP 客户档案。',direct:'员工直接招募最终用户，不产生 VIP 返佣。',promotions:'VIP 推荐客户的充值、使用与返佣。',approvals:'特殊折扣与原单开通特批，由管理员处理。',
@@ -40,6 +42,7 @@ const ALIASES = { ...(!ownerSurface?{acquisition:'customeroverview',approvals:'c
 const SOURCES = { home:()=> 'business/support', acquisition:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),direct:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),promotions:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),approvals:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''), pnl: () => 'business/finance?month=' + (ui.month || ''), payments: () => 'payments/orders', transfers: () => 'business/bank-transfers', invoices: () => 'business/invoices', payables: () => 'business/supplier-payments', suppliers: () => 'business/suppliers', customers: () => 'business/customers', discounts: () => 'business/discounts', tickets: () => 'business/support', answers: () => 'business/support' };
 for(const page of ['customeroverview','vipoverview','customerapplications','vipapplications'])SOURCES[page]=SOURCES.acquisition;
 SOURCES.vipcodes=()=> 'cw';
+for(const page of ['apioverview','apimodels','apikeys','apiusage'])SOURCES[page]=()=> 'self-api/status';
 const LABEL = {
  stage: { new: '新客户', following: '跟进中', key: '重点客户', risk: '流失风险', lost: '已流失' },
  kind: { enterprise: '企业', personal: '个人' },
@@ -402,13 +405,21 @@ function directDialog(){
 
 // ---- Rendering ------------------------------------------------------------------------------
 addEventListener('message',e=>{if(e.origin===location.origin&&e.source===document.querySelector('.staff-code-activity')?.contentWindow&&e.data?.type==='semifly-code-activity-close'){ui.codeActivity=null;draw();}});
+const navOpen=new Map();
+const navStorageKey='semifly.staff.navigation.'+(ownerSurface?'owner':'employee');
+try{for(const [key,value] of JSON.parse(sessionStorage.getItem(navStorageKey)||'[]'))if(typeof value==='boolean')navOpen.set(key,value);}catch{}
+function rememberNav(){try{sessionStorage.setItem(navStorageKey,JSON.stringify([...navOpen]));}catch{}}
+document.addEventListener('toggle',e=>{const group=e.target;if(!group.matches?.('#nav details[data-nav-group]')||!group.isConnected)return;navOpen.set(group.dataset.navGroup,group.open);rememberNav();},true);
 function drawNav(page) {
+ for(const group of document.querySelectorAll?.('#nav details[data-nav-group]')||[])navOpen.set(group.dataset.navGroup,group.open);
+
  const c = state.dash.counts, counts = { tickets: c.tickets, upgrades: c.upgrades, invoices: c.invoices_requested, transfers: c.bank_transfers_pending, discounts: c.discounts_pending };
  $('#nav').innerHTML = NAV.filter(([, , gate]) => !gate || state.dash.staff[gate]).map(([group, items]) => {
   const buttons=items.map(([key,label])=>`<button data-tab="${key}" class="${page===key?'active':''}" ${page===key?'aria-current="page"':''}>${label}${counts[key]?`<span class="count">${counts[key]}</span>`:''}</button>`).join('');
   if(group==='工作台'||group==='员工工作台')return `<div class="nav-home">${buttons}</div>`;
   const active=items.some(([key])=>key===page)||(page==='cw'&&group==='VIP推广'),preferred={support:'客户支持',operations:'推广与合作',supply:'产品与供应',finance:'订单与资金'}[state.dash.staff.role];
-  return `<details class="nav-group" ${active||(!ownerSurface&&['客户推广','VIP推广'].includes(group))||(page==='home'&&group===preferred)?'open':''}><summary>${group}</summary><div>${buttons}</div></details>`;
+  if(!navOpen.has(group))navOpen.set(group,active||(ownerSurface&&page==='home'&&group===preferred));
+  return `<details class="nav-group" data-nav-group="${att(group)}" ${navOpen.get(group)?'open':''}><summary>${group}</summary><div>${buttons}</div></details>`;
  }).join('');
 }
 async function draw() {
@@ -608,6 +619,8 @@ const ACTIONS = {
  }
 };
 
+if(typeof StaffApiUI==='function'){const ownApi=StaffApiUI({esc,att,table,section,api,get,openForm,reload,notify});Object.assign(pages,ownApi.pages);Object.assign(ACTIONS,ownApi.actions);}
+
 document.addEventListener('submit',e=>{
  if(e.target.id!=='employeeSearch')return;
  e.preventDefault();notify('');ui.customers.q=$('#employeeQuery').value.trim();location.hash='customers';
@@ -658,5 +671,6 @@ addEventListener('message', e => {
  }
 });
 addEventListener('hashchange',()=>{ui.codeActivity=null;ui.codePage=0;draw();});
+$('#dialog').addEventListener?.('close',()=>{$('#dialogForm').replaceChildren();});
 void load();
 })();

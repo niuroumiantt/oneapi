@@ -3,6 +3,7 @@ import {HttpError} from './core.mjs';
 export const isBusinessOwner = staff => staff?.status === 'active' && staff.role === 'platform_admin';
 // Employee access is an allowlist. Historic finance/technical switches do not widen it.
 const employeeReads = new Set([
+ '/api/staff/self-api/status','/api/staff/self-api/compare/config',
  '/api/staff/me','/api/staff/customers','/api/staff/console','/api/staff/console.js',
  '/api/staff/select-menu.js','/api/staff/table-sort.js',
  '/api/staff/workspace/console','/api/staff/workspace/console.js','/api/staff/workspace/view','/api/staff/workspace/bridge.js','/api/staff/workspace/access',
@@ -11,6 +12,8 @@ const employeeReads = new Set([
  '/api/staff/cw','/api/staff/cw/order-lookup','/api/staff/cw/:partner'
 ]);
 const employeeWrites = new Set([
+ '/api/staff/self-api/keys','/api/staff/self-api/keys/:key/manage','/api/staff/self-api/keys/:key/revoke',
+ '/api/staff/self-api/compare/models','/api/staff/self-api/compare/attachment','/api/staff/self-api/compare/run',
  '/api/staff/business/customers/:customer','/api/staff/business/customers/:customer/notes',
  '/api/staff/business/tickets/:ticket/reply','/api/staff/business/tickets/:ticket/triage',
  '/api/staff/cw/invite-codes','/api/staff/cw/invite-codes/:code/status',
@@ -19,7 +22,7 @@ const employeeWrites = new Set([
 ]);
 export function enforceStaffSurface(req) {
  if(isBusinessOwner(req.staff))return;
- const route=req.route?.path,method=req.method==='HEAD'?'GET':req.method;
+ const route=req.route?.path||(req.baseUrl+req.path),method=req.method==='HEAD'?'GET':req.method;
  if(route==='/api/staff/me')return;
  if(req.staff?.status!=='active'||req.staff.role==='pending')throw new HttpError(403,'员工工作台尚未授权');
  if(req.query?.surface==='owner')throw new HttpError(403,'老板工作台需要独立的老板身份');

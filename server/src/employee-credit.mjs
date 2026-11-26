@@ -199,12 +199,18 @@ async function balance(db,userId){
 
 const HEALTH_TTL_MS=10*60*1000,HEALTH_TIMEOUT_MS=20000,HEALTH_MIN_GAP_MS=60*1000;
 
-export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=fetch){
+export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=fetch,{assignedOnly=false}={}){
+ const account=async req=>{
+  if(!assignedOnly)return ensureAccount(pool,cfg,req);
+  const row=(await pool.query('SELECT * FROM employee_credit_accounts WHERE user_id=$1 AND organization_id=$2',[req.customer.id,cfg.employeeCredit.organizationId])).rows[0];
+  if(!row)throw new HttpError(403,'公司尚未为你分配 API 额度');
+  return row;
+ };
  const member=async req=>{
   if(!enabled(cfg))return null;
   return activeMember(pool,cfg,req.customer.id);
  };
- const requireMember=async req=>{if(!await member(req))throw new HttpError(403,'当前账号不是公司员工，未开放公司额度');return ensureAccount(pool,cfg,req);};
+ const requireMember=async req=>{if(!await member(req))throw new HttpError(403,'当前账号不是公司员工，未开放公司额度');return account(req);};
  const requireManager=async req=>{
   if(!enabled(cfg))throw new HttpError(404,'公司额度尚未开通');
   const org=cfg.employeeCredit.organizationId,m=(await pool.query("SELECT role FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",[org,req.customer.id])).rows[0];
@@ -356,7 +362,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
  app.get('/api/employee-credit/status',requireCustomer,async(req,res)=>{
   const organization=await member(req);
   if(!organization)return res.json({enabled:false});
-  await ensureAccount(pool,cfg,req);
+  await account(req);
   const [money,keys,calls,available,daily,period]=await Promise.all([
    balance(pool,req.customer.id),
    pool.query(`SELECT k.id,k.label,k.key_hint,k.created_at,k.revoked_at,k.model_ids,k.limit_yuan,k.max_concurrent,k.per_minute,(SELECT ${USED_ON_KEY} FROM employee_calls WHERE key_id=k.id) AS used_yuan,coalesce(u.calls,0)::int AS calls,coalesce(u.tokens,0)::bigint AS tokens,coalesce(u.yuan,0) AS yuan,u.last_call_at
