@@ -57,6 +57,7 @@ export function marketCatalog(){
   const r={hit:Number(m.rates.cached),miss:Number(m.rates.input),output:Number(m.rates.output)},twice={hit:r.hit*2,miss:r.miss*2,output:r.output*2};
   return {id:m.id,family:m.family,name:m.name,subtitle:m.subtitle,badge:m.verified?'功能对比已测':'暂未开放',description:m.description,tags:capabilityTags(m),uses:m.uses,thinking:m.caps.thinking,upstreamId:m.id,version:m.version,context:m.caps.context,maxOutput:m.caps.officialMaxOutput,
    verification:m.verified?'25 项功能与官方逐项对照，结果见「真实测试」页':'线路尚未接通，未经实测',verified:m.verified,
+   capabilities:publicCapabilities(m,32768),
    price:m.peakPricing?{kind:'timed',offpeak:r,peak:twice,source:m.priceSource}:{kind:'standard',standard:r,source:m.priceSource}};
  });
 }

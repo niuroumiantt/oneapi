@@ -30,6 +30,30 @@ window.SemiflyModels=[
   "maxOutput": "384K",
   "verification": "25 项功能与官方逐项对照，结果见「真实测试」页",
   "verified": true,
+  "capabilities": {
+   "thinking": "switchable",
+   "reasoning_efforts": [
+    "low",
+    "high",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "output": [
+    "text"
+   ],
+   "tool_calling": true,
+   "parallel_tool_calls": true,
+   "json_output": true,
+   "json_schema": true,
+   "prompt_cache": true,
+   "context_window": "1M",
+   "max_output_tokens": 32768,
+   "default_max_tokens": 4096,
+   "verified": true
+  },
   "price": {
    "kind": "timed",
    "offpeak": {
@@ -75,6 +99,30 @@ window.SemiflyModels=[
   "maxOutput": "384K",
   "verification": "25 项功能与官方逐项对照，结果见「真实测试」页",
   "verified": true,
+  "capabilities": {
+   "thinking": "switchable",
+   "reasoning_efforts": [
+    "low",
+    "high",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "output": [
+    "text"
+   ],
+   "tool_calling": true,
+   "parallel_tool_calls": true,
+   "json_output": true,
+   "json_schema": true,
+   "prompt_cache": true,
+   "context_window": "1M",
+   "max_output_tokens": 32768,
+   "default_max_tokens": 4096,
+   "verified": true
+  },
   "price": {
    "kind": "timed",
    "offpeak": {
@@ -116,6 +164,29 @@ window.SemiflyModels=[
   "maxOutput": "384K",
   "verification": "线路尚未接通，未经实测",
   "verified": false,
+  "capabilities": {
+   "thinking": "switchable",
+   "reasoning_efforts": [
+    "low",
+    "high",
+    "max"
+   ],
+   "input": [
+    "text"
+   ],
+   "output": [
+    "text"
+   ],
+   "tool_calling": true,
+   "parallel_tool_calls": false,
+   "json_output": true,
+   "json_schema": false,
+   "prompt_cache": true,
+   "context_window": "1M",
+   "max_output_tokens": 32768,
+   "default_max_tokens": 4096,
+   "verified": false
+  },
   "price": {
    "kind": "timed",
    "offpeak": {
@@ -159,6 +230,29 @@ window.SemiflyModels=[
   "maxOutput": "128K",
   "verification": "25 项功能与官方逐项对照，结果见「真实测试」页",
   "verified": true,
+  "capabilities": {
+   "thinking": "always",
+   "reasoning_efforts": [
+    "low",
+    "high",
+    "max"
+   ],
+   "input": [
+    "text"
+   ],
+   "output": [
+    "text"
+   ],
+   "tool_calling": true,
+   "parallel_tool_calls": true,
+   "json_output": true,
+   "json_schema": true,
+   "prompt_cache": true,
+   "context_window": "1M",
+   "max_output_tokens": 32768,
+   "default_max_tokens": 8192,
+   "verified": true
+  },
   "price": {
    "kind": "standard",
    "standard": {
@@ -197,6 +291,30 @@ window.SemiflyModels=[
   "maxOutput": "128K",
   "verification": "25 项功能与官方逐项对照，结果见「真实测试」页",
   "verified": true,
+  "capabilities": {
+   "thinking": "always",
+   "reasoning_efforts": [
+    "low",
+    "high",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "output": [
+    "text"
+   ],
+   "tool_calling": true,
+   "parallel_tool_calls": true,
+   "json_output": true,
+   "json_schema": true,
+   "prompt_cache": false,
+   "context_window": "1M",
+   "max_output_tokens": 32768,
+   "default_max_tokens": 8192,
+   "verified": true
+  },
   "price": {
    "kind": "standard",
    "standard": {
@@ -235,6 +353,30 @@ window.SemiflyModels=[
   "maxOutput": "128K",
   "verification": "25 项功能与官方逐项对照，结果见「真实测试」页",
   "verified": true,
+  "capabilities": {
+   "thinking": "always",
+   "reasoning_efforts": [
+    "low",
+    "high",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "output": [
+    "text"
+   ],
+   "tool_calling": true,
+   "parallel_tool_calls": true,
+   "json_output": true,
+   "json_schema": true,
+   "prompt_cache": false,
+   "context_window": "1M",
+   "max_output_tokens": 32768,
+   "default_max_tokens": 8192,
+   "verified": true
+  },
   "price": {
    "kind": "standard",
    "standard": {

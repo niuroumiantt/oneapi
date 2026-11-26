@@ -6,13 +6,15 @@
  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const ico=n=>`<span data-icon="${n}"></span>`;
  const modelIntentKey='semifly.model-intent.v1';
- const modelIntentNames={'deepseek-flash':'DeepSeek Flash','deepseek-v4-pro':'DeepSeek V4 Pro','glm-5.3':'GLM-5.3','glm-5.3-flash':'GLM-5.3-Flash'};
- function chooseModelIntent(id,scope){if(!Object.hasOwn(modelIntentNames,id)||!['personal','enterprise'].includes(scope))return false;try{localStorage.setItem(modelIntentKey,JSON.stringify({id,scope,at:Date.now()}));}catch{}return true;}
- function modelIntentNote(scope){try{const intent=JSON.parse(localStorage.getItem(modelIntentKey)||'null');if(intent?.scope!==scope||!Object.hasOwn(modelIntentNames,intent.id)||Date.now()-intent.at>7*86400000)return '';return `<p class="model-intent">你关注的型号：<b>${esc(modelIntentNames[intent.id])}</b> · 目前仅供浏览，客户价格与调用尚未开放。 <a href="#market">返回模型广场 ${ico('arrow-right')}</a></p>`;}catch{return '';}}
+ const modelIntentNames=Object.fromEntries((window.SemiflyModels||[]).map(m=>[m.id,m.name]));
+ function readModelIntent(){try{const intent=JSON.parse(localStorage.getItem(modelIntentKey)||'null'),age=Date.now()-intent?.at;return intent&&['personal','enterprise'].includes(intent.scope)&&Number.isFinite(age)&&age>=0&&age<7*86400000&&((intent.scope==='personal'&&intent.id==='all')||(window.SemiflyModels||[]).some(m=>m.id===intent.id))?intent:null;}catch{return null;}}
+ function chooseModelIntent(id,scope){if(!((scope==='personal'&&id==='all')||(window.SemiflyModels||[]).some(m=>m.id===id))||!['personal','enterprise'].includes(scope))return false;try{localStorage.setItem(modelIntentKey,JSON.stringify({id,scope,at:Date.now()}));}catch{}return true;}
+ function modelIntentNote(scope){const intent=readModelIntent(),model=(window.SemiflyModels||[]).find(m=>m.id===intent?.id);return intent?.scope===scope&&model?`<p class="model-intent">已选择 <b>${esc(model.name)}</b>，登录后继续配置。 <a href="#market">返回模型广场 ${ico('arrow-right')}</a></p>`:'';}
+
  let host,current='account',authMode='login',generation=0,lastOrg=null,lastOrgBilling=null,joinPreview=null,me=null,staff=null,staffList=[],customers=[],sessions=[],resetToken=new URL(location.href).searchParams.get('reset_token'),supplyData={suppliers:[],offers:[]},offerDetail=null,promotionData={campaigns:[],products:[]},pricingData={products:[],proposals:[],decisions:[]},reviewData={products:[],reviews:[]},resetScrollOnMount=false;
  const opsPageCache=new Map();
  if(resetToken)history.replaceState(null,'',location.pathname+'#reset-password');
- const handles=v=>['workspace','enterprise-register','enterprise-login','register','personal','personal/usage','enterprise','account','reset-password','staff','staff-account','admin','security','demo/personal','upgrade','support'].includes(v)||personalBillingRoute(v)||v.startsWith('billing/organization/')||v.startsWith('demo/organization/')||v.startsWith('organization/')||v.startsWith('join/')||v.startsWith('ops/');
+ const handles=v=>['workspace','enterprise-register','enterprise-login','register','personal','personal/models','personal/keys','personal/usage','enterprise','account','reset-password','staff','staff-account','admin','security','demo/personal','upgrade','support'].includes(v)||v.startsWith('personal/connect/')||personalBillingRoute(v)||v.startsWith('billing/organization/')||v.startsWith('demo/organization/')||v.startsWith('organization/')||v.startsWith('join/')||v.startsWith('ops/');
  let orgLoadedAt=0,panelDataAt=0,modelHealth=null,modelHealthAt=0,modelHealthTried=0,modelHealthLoading=false;
  async function api(path,body,method){if(body||method){orgLoadedAt=0;panelDataAt=0;lastOrgBilling=null;}const r=await fetch(path,{method:method||(body?'POST':'GET'),headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,credentials:'same-origin',cache:'no-store'});let data;try{data=await r.json();}catch{data={};}if(!r.ok){const err=Error(data.error||translate(data.code,data.message)||'暂时无法完成，请稍后重试。');err.status=r.status;err.code=data.code;throw err;}return data;}
  async function customerSignedIn(){try{return !!(await api('/api/platform/me')).user;}catch(e){return e.status!==401;}}
@@ -68,7 +70,7 @@
   }else host.innerHTML=header()+`<main class="live-main">${content}</main>${window.SiteHeader.footer()}`;
   if(newPanel){const mounted=host.querySelector('.personal-console');if(mounted)mounted.headerMarkup=newPanel.querySelector('.site-header').outerHTML;}
   if(!wasIdentityActive){document.querySelectorAll('#market-view,#login-view').forEach(el=>el.hidden=true);window.LandingUI?.hide();}
-  host.hidden=false;document.body.classList.remove('market-active','welcome-active','universe-active','ops-active','catalog-active','identity-context-personal','identity-context-enterprise','identity-context-staff');document.body.classList.add('identity-active','identity-context-'+contextKind());document.body.classList.toggle('personal-console-active',content.includes('class="personal-console"'));window.UniverseScene?.setActive(false);document.title='semifly.ai · '+({personal:'个人工作台',enterprise:'企业管理工作台',staff:'内部工作台'}[contextKind()]);
+  host.hidden=false;document.body.classList.remove('market-active','welcome-active','universe-active','ops-active','catalog-active','identity-context-personal','identity-context-enterprise','identity-context-staff');document.body.classList.add('identity-active','identity-context-'+contextKind());document.body.classList.toggle('personal-console-active',content.includes('class="personal-console"'));window.UniverseScene?.setActive(false);document.title='semifly.ai · '+(content.includes('personal-connect')?'模型接入':content.includes('my-models')?'我的模型':{personal:'个人工作台',enterprise:'企业管理工作台',staff:'内部工作台'}[contextKind()]);
   document.body.classList.remove('identity-route-pending');
   if(resetScrollOnMount){window.scrollTo(0,0);resetScrollOnMount=false;}
   host.classList.remove('route-loading');
@@ -182,6 +184,49 @@
  const personalBaseRate=m=>m.price?.kind==='timed'?m.price[personalPricePeriod]:m.price?.standard;
  const personalDiscount=value=>window.SemiflyPrice?.discountedRate(value)||'待发布';
  const personalPrice=value=>creditActive()?'¥'+Number(value):personalDiscount(value);
+ let personalModelGuideOpen=false;
+ function personalModelAccess(model){
+  if(paidCredit?.enabled&&paidCredit.models?.some(m=>m.id===model.id))return {label:'可调用',action:'paid-create',base:paidCredit.base_url};
+  if(personalPilot?.enabled&&personalPilot.model_ids?.includes(model.id))return {label:'限量测试',action:'pilot-create',base:personalPilot.base_url};
+  return {label:'待开放',action:null,base:null};
+ }
+ const personalModelChoices=new Map();
+ function personalModelChoiceKey(){return me?.user?.id?'semifly.personal-models.v1:'+me.user.id:null;}
+ function personalChosenModels(){
+  const key=personalModelChoiceKey(),valid=new Set(personalCatalog().map(m=>m.id));
+  let ids=personalModelChoices.get(key);
+  if(!ids&&key){try{const saved=JSON.parse(localStorage.getItem(key)||'null');if(Array.isArray(saved))ids=saved;}catch{}}
+  if(!ids)ids=[];
+  return [...new Set(ids.filter(id=>valid.has(id)))];
+ }
+ function setPersonalModelChoice(id,selected){
+  if(!personalCatalog().some(m=>m.id===id))return false;
+  const key=personalModelChoiceKey(),ids=new Set(personalChosenModels());
+  if(selected)ids.add(id);else{ids.delete(id);if(readModelIntent()?.id===id)try{localStorage.removeItem(modelIntentKey);}catch{}}
+  const saved=[...ids];personalModelChoices.set(key,saved);
+  if(key){try{localStorage.setItem(key,JSON.stringify(saved));}catch{}}
+  return true;
+ }
+ function setAllPersonalModels(selected){
+  const key=personalModelChoiceKey(),ids=selected?personalCatalog().map(m=>m.id):[];
+  personalModelChoices.set(key,ids);if(key)try{localStorage.setItem(key,JSON.stringify(ids));}catch{}
+  if(!selected)try{localStorage.removeItem(modelIntentKey);}catch{}
+ }
+ function personalModelCollection(models,selected){
+  if(!models.length)return `<p class="mm-empty">${selected?'从下方加入你要使用的模型。':'全部模型都已加入。'}</p>`;
+  return `<table class="mm-table" data-nosort aria-label="${selected?'已选模型':'备选模型'}"><thead><tr><th>模型</th><th>能力</th><th>状态</th><th>输入 / 输出</th><th><span class="mm-sr-only">操作</span></th></tr></thead><tbody>${models.map(m=>{
+   const rate=personalBaseRate(m),access=personalModelAccess(m),tags=[m.capabilities?.input?.includes('image')?'图文':'文本',m.uses.includes('coding')?'编程':'推理'];
+   return `<tr><td><a href="#market/${esc(m.id)}" title="了解 ${esc(m.name)}">${esc(m.name)}</a></td><td><div class="mm-tags">${tags.map(t=>`<span>${t}</span>`).join('')}</div></td><td class="mm-status">${access.action?'<i aria-hidden="true"></i>':''}${access.label}</td><td class="mm-price"><span>${personalPrice(rate.miss)}</span><em>/</em><span>${personalPrice(rate.output)}</span></td><td><div class="mm-actions">${selected?`${access.action?`<button type="button" class="mm-use" data-live="personal-model-use" data-id="${esc(m.id)}" aria-label="一键接入 ${esc(m.name)}" title="为此模型生成独立 Key 并查看设置方法">${ico('key-round')}一键接入</button>`:'<span class="mm-wait">待开放</span>'}<button type="button" class="mm-remove" data-live="personal-model-remove" data-id="${esc(m.id)}" aria-label="移除 ${esc(m.name)}" title="从清单移除，不会停用 Key">${ico('x')}</button>`:`<button type="button" class="mm-add" data-live="personal-model-add" data-id="${esc(m.id)}" aria-label="加入 ${esc(m.name)}">${ico('heart')}加入</button>`}</div></td></tr>`;
+  }).join('')}</tbody></table>`;
+ }
+ function personalModelsContent(){
+  const chosen=new Set(personalChosenModels()),catalog=personalCatalog(),selected=catalog.filter(m=>chosen.has(m.id)),available=catalog.filter(m=>!chosen.has(m.id));
+  return `<section class="personal-models my-models" aria-labelledby="pm-title"><header class="mm-heading"><div><h1 id="pm-title">我的模型</h1><p class="mm-intro">一把通用 Key，可调用全部已开放模型。</p></div><nav class="mm-head-actions" aria-label="模型接入"><a href="#market">模型广场${ico('arrow-up-right')}</a><a class="pm-primary" href="#personal/connect/all" data-live="connect-unified">${ico('key-round')}创建通用 Key</a></nav></header>
+   <section class="mm-section mm-selected" aria-labelledby="mm-selected-title"><div class="mm-section-head"><h2 id="mm-selected-title">已选模型 <span>${selected.length}</span></h2><div class="mm-section-actions"><button type="button" data-live="personal-model-clear" ${selected.length?'':'disabled'}>${ico('list-x')}一键清除</button><a href="#personal/keys" data-live="personal-model-manage">管理 Key${ico('arrow-right')}</a></div></div>${personalModelCollection(selected,true)}</section>
+   <section class="mm-section mm-available" aria-labelledby="mm-available-title"><div class="mm-section-head"><h2 id="mm-available-title">备选模型 <span>${available.length}</span></h2><button type="button" class="mm-bulk" data-live="personal-model-add-all" ${available.length?'':'disabled'}>${ico('list-plus')}一键加入</button></div>${personalModelCollection(available,false)}</section>
+   <footer class="mm-foot"><span>官网价 · 元 / 百万 Token</span><label>DeepSeek 时段<select data-personal-price-period aria-label="DeepSeek 价格时段"><option value="offpeak" ${personalPricePeriod==='offpeak'?'selected':''}>空闲</option><option value="peak" ${personalPricePeriod==='peak'?'selected':''}>高峰</option></select></label></footer>
+  </section>`;
+ }
  // Green: answering. Red: failing or not connected. Amber: not measured yet or paused.
  const modelLight=x=>x.tone==='live'?'green':x.tone==='failed'||x.status==='未接通'?'red':'amber';
  function personalModelMeasurement(modelId){
@@ -445,7 +490,28 @@ const refund=panelOrg?'':`<div class="credit-bar-refund">当前可自助退 ${pe
 const expired=s.expired_gift_fen&&BigInt(s.expired_gift_fen)>0n?`<p class="credit-bar-expired">已过期赠送 ${personalMoney(s.expired_gift_fen)}（赠送额度半年有效，过期自动作废，实付不受影响）</p>`:'';
 return `<div class="credit-bar-block"><div class="credit-bar-head"><span>官价额度构成</span><b>可用 ${personalMoney(s.remaining_fen)} / 历史累计 ${personalMoney(s.max_face_fen||s.face_fen)}</b></div><div class="credit-bar-outline"><div class="credit-bar" role="img" aria-label="赠送 ${personalMoney(String(green))}，实付剩余 ${personalMoney(String(red))}，已用实付 ${personalMoney(String(spent))}"><i class="seg-green" style="width:${gw}%">${gw>=18?personalMoney(String(green)):''}</i><i class="seg-red" style="width:${rw}%">${rw>=18?personalMoney(String(red)):''}</i><i class="seg-spent-red" style="width:${sw}%"></i></div></div><div class="credit-bar-legend"><span><i class="dot-green"></i>赠送 ${personalMoney(String(green))}</span><span><i class="dot-red"></i>实付剩余 ${personalMoney(String(red))}</span><span><i class="dot-spent"></i>已用实付 ${personalMoney(String(spent))}</span></div>${expired}${refund}</div>`;
 }
+function personalHomeContent(){
+  const credit=paidCredit?.enabled?paidCredit:personalPilot?.enabled?personalPilot:null;
+  const base=credit?.base_url,keys=(credit?.keys||[]).filter(k=>!k.revoked_at);
+  const remaining=personalBilling?BigInt(personalBilling.list_credit_fen??personalBilling.cash_balance_fen??0)-BigInt(Math.ceil(Number(paidCredit?.held_fen??0))):null;
+  const available=remaining===null?null:remaining>0n?remaining:0n;
+  const calls=(paidCredit?.enabled?paidCredit.calls:personalPilot?.recent_calls)||[];
+  const tab=(name,label)=>`<button type="button" class="ph-link" data-live="personal-tab" data-tab="${name}">${label}${ico('arrow-right')}</button>`;
+  const recent=calls.length?`<section class="ph-recent" aria-labelledby="ph-recent-title"><div class="ph-section-head"><h2 id="ph-recent-title">最近调用</h2>${tab('usage','查看用量')}</div><ul>${calls.slice(0,3).map(c=>`<li><span class="ph-call-model">${esc(c.model_id)}</span><time datetime="${esc(c.created_at)}">${new Date(c.created_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'})}</time><span>${esc({settled:'已结算',pending:'调用中',awaiting_bill:'待结算',failed:'失败',success:'成功',succeeded:'成功',completed:'成功'}[c.status]||'已记录')}</span></li>`).join('')}</ul></section>`:'';
+  return `<section class="personal-home" aria-labelledby="ph-title">
+    <h1 id="ph-title">概览</h1>
+    <section class="ph-balance" aria-label="个人额度">
+      <div class="ph-balance-main"><span>可用官价额度</span><strong>${available===null?'—':personalMoney(available)}</strong><p>${available===null?'额度暂未加载，请刷新重试。':'按模型官网价计费'}</p></div>
+      <div class="ph-balance-actions"><a class="ph-primary" href="#billing/personal">${personalBilling?.payments_enabled?'充值':'查看账单'}</a>${personalBilling?.payments_enabled?'<a class="ph-link" href="#billing/personal/history">账单明细</a>':''}</div>
+      <div class="ph-spent"><span>累计消费</span><b>${personalBilling?personalMoney(personalBilling.total_spent_fen):'—'}</b></div>
+    </section>
+    <section class="ph-connect" aria-labelledby="ph-connect-title"><div class="ph-section-head"><h2 id="ph-connect-title">API 接入</h2><a class="ph-link" href="#docs">接入文档${ico('arrow-up-right')}</a></div>
+      ${base?`<div class="ph-endpoint"><span>API 地址</span><code>${esc(base)}</code><button type="button" class="ph-copy" data-live="copy-text" data-text="${esc(base)}" aria-label="复制 API 地址">${ico('copy')}<span>复制</span></button></div><div class="ph-key-row"><span>${keys.length?`${keys.length} 枚有效密钥`:'创建密钥，开始第一次调用'}</span>${tab('keys',keys.length?'管理密钥':'创建密钥')}</div>`:'<p class="ph-unavailable">个人 API 调用暂未开放。</p>'}
+    </section>${recent}
+  </section>`;
+}
 function overviewContent(){
+  if(!panelOrg)return personalHomeContent();
 const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button" class="${cls}" data-live="org-tab" data-tab="${tab}">${text}</button>`:`<button type="button" class="${cls}" data-live="personal-tab" data-tab="${tab}">${text}</button>`;
   const days=Array.from({length:14},(_,i)=>new Date(Date.now()+8*3600000-(13-i)*86400000).toISOString().slice(0,10)),week=days.slice(-7);
   const total=day=>d.daily.filter(x=>x.day===day).reduce((n,x)=>n+Number(x.yuan),0),burn=week.reduce((n,day)=>n+total(day),0)/7,left=d.balance!==null&&burn>0?Math.floor(d.balance/burn):null;
@@ -469,6 +535,9 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  function personalDashboardContent(){
   if(personalTab==='overview')return overviewContent();
   if(personalTab==='compare')return comparePanel();
+  if(personalTab==='models'&&!panelOrg)return personalModelsContent();
+  if(personalTab==='connect'&&!panelOrg)return personalConnectContent();
+  if(personalTab==='keys'&&!panelOrg&&paidCredit?.enabled)return personalApiContent();
   const selected=personalCatalog().find(m=>m.id===personalSelected)||personalCatalog()[0];
   if(personalTab==='models'){
    const rows=personalCatalogRows(),rates=selected?personalBaseRate(selected):null,pilotSelected=Boolean(!panelOrg&&personalPilot?.enabled&&personalPilot.model_ids?.includes(selected?.id)),employeeSelected=Boolean(creditActive()&&employeeCredit.model_ids?.includes(selected?.id)),paidSelected=Boolean(!creditActive()&&paidCredit?.enabled&&paidCredit.models?.some(m=>m.id===selected?.id));
@@ -502,12 +571,13 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const content=host?.querySelector('[data-personal-content]');if(!content)return;
   if(personalTab!=='compare'||!content.querySelector('.workspace-compare-frame'))replacePanelContent(content,personalDashboardContent());
   if(!panelOrg){const row=host.querySelector('.personal-console-stats');if(row)row.hidden=['overview','compare'].includes(personalTab);}
-  host.querySelectorAll('[data-personal-tab]').forEach(b=>{const active=b.dataset.tab===personalTab;b.classList.toggle('active',active);if(b.getAttribute('role')==='tab')b.setAttribute('aria-selected',String(active));else b.setAttribute('aria-current',active?'page':'false');});
+  host.querySelectorAll('[data-personal-tab]').forEach(b=>{const active=b.dataset.tab===personalTab||(personalTab==='connect'&&b.dataset.tab===(current==='personal/connect/all'?'keys':'models'));b.classList.toggle('active',active);if(b.getAttribute('role')==='tab')b.setAttribute('aria-selected',String(active));else b.setAttribute('aria-current',active?'page':'false');});
  }
  async function account(ticket,earlyBilling){
   if(me?.upgrade?.status==='approved'&&me.upgrade.organization_id){location.hash='organization/'+me.upgrade.organization_id;return;}
-  panelOrg=null;teamUsage=null;if(!['overview','models','keys','usage','compare'].includes(personalTab))personalTab='overview';
-  if(current==='personal/usage')personalTab='usage';
+  panelOrg=null;teamUsage=null;if(!['overview','models','keys','usage','compare','connect'].includes(personalTab))personalTab='overview';
+  if(current.startsWith('personal/'))personalTab=current.split('/')[1];
+  const intent=readModelIntent();if(current.startsWith('personal/connect/'))personalSelected=current.slice('personal/connect/'.length);else if(intent?.scope==='personal')personalSelected=intent.id;
   const pilotPromise=api('/api/pilot/status').catch(()=>({enabled:false}));
   const employeePromise=api('/api/employee-credit/status').catch(()=>({enabled:false}));
   try{if(earlyBilling){const result=await earlyBilling;if(result.error)throw result.error;personalBilling=result.data;}else personalBilling=await api('/api/billing/personal');}catch(e){if(e.status===401)throw e;personalBilling=null;}
@@ -540,10 +610,12 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  }
  function paidKeyCreateForm(credit){
   if(!credit.models.length)throw Error('当前没有已开放的付费模型，请稍后再试。');
-  const preferred=credit.models.some(model=>model.id===personalSelected)?personalSelected:credit.models[0].id;
-  const models=credit.models.map(model=>`<label><input type="checkbox" name="models" value="${esc(model.id)}" ${model.id===preferred?'checked':''}> <span>${esc(model.name)}</span></label>`).join('');
+  const savedIntent=!panelOrg?readModelIntent():null,intent=savedIntent?.scope==='personal'?savedIntent:null;
+  const preferred=credit.models.some(model=>model.id===(intent?.id||personalSelected))?(intent?.id||personalSelected):credit.models[0].id;
+  const chosen=new Set(!panelOrg&&!intent?personalChosenModels():[preferred]);
+  const models=credit.models.map(model=>`<label><input type="checkbox" name="models" value="${esc(model.id)}" ${chosen.has(model.id)?'checked':''}> <span>${esc(model.name)}</span></label>`).join('');
   form('创建付费 Key',`<label>用途名称<input name="label" required maxlength="50"></label>
-   <fieldset class="paid-key-models"><legend>允许模型</legend>
+   <fieldset class="paid-key-models"><legend>允许模型（可多选）</legend><p class="live-small">同一把 Key 可调用所选模型；每次请求用 model 指定一个。</p>
     <label><input type="checkbox" data-paid-key-all> <span>全选已开放模型</span></label>
     <div>${models}</div>
    </fieldset>
@@ -562,6 +634,77 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  document.addEventListener('input',e=>{
   if(e.target.matches('#live-paid-key [name="limit_yuan"]'))updatePaidKeyPreview(e.target.form);
  });
+ let personalConnectIssued=null,personalConnectBusy=false,personalConnectStep='key';
+ const personalConnectDrafts=new Map();
+ let personalUnifiedConfigModel='';
+ const personalUnifiedSelections=new Map();
+ function personalUnifiedSelectedModels(){
+  const key=personalConnectDraftKey('all');
+  if(!personalUnifiedSelections.has(key))personalUnifiedSelections.set(key,(paidCredit?.models||[]).map(m=>m.id));
+  const selected=new Set(personalUnifiedSelections.get(key));
+  return (paidCredit?.models||[]).filter(m=>selected.has(m.id));
+ }
+
+ function personalConnectModelId(){return current.startsWith('personal/connect/')?current.slice('personal/connect/'.length):'';}
+ function personalConnectDraftKey(id){return (me?.user?.id||'')+':'+id;}
+ function savePersonalConnectDraft(){const form=host?.querySelector('#live-model-key');if(form)personalConnectDrafts.set(personalConnectDraftKey(personalConnectModelId()),{label:form.elements.label.value,limit:form.elements.limit_yuan.value});}
+ function personalConnectConfig(model,options=[]){
+  if(!model)return '<section class="mc-config"><h2>设置方法</h2><p class="mc-note">请先在模型清单中保留至少一个模型。</p></section>';
+  const unified=personalConnectModelId()==='all';
+  const tool=agentTool(),issued=personalConnectIssued?.owner===me?.user?.id&&personalConnectIssued?.modelId===personalConnectModelId()?personalConnectIssued:null;
+  const base=issued?.base_url||personalModelAccess(model).base||'https://semifly.cn/v1',secret=issued?.secret||'YOUR_API_KEY';
+  const config=tool.snippet?tool.snippet(base,secret,model.id):tool.id==='api'?curlExample(base,model.id,secret):`Base URL: ${base}\nAPI Key: ${secret}\nModel: ${model.id}`;
+  const steps=tool.steps.map(step=>step.replaceAll('下面三项','地址、Key 和模型 ID').replaceAll('下面的模型名称','本页模型 ID').replaceAll('下面的配置','复制的配置').replace('在“curl / Python / Node”页复制示例。','点击“复制配置”获取 curl 示例。'));
+  const field=(label,value)=>`<div class="mc-config-field"><span>${esc(label)}</span><code>${esc(value)}</code><button type="button" data-live="copy-text" data-text="${esc(value)}" aria-label="复制${esc(label)}">${ico('copy')}</button></div>`;
+  return `<section class="mc-config" aria-labelledby="mc-config-title"><div class="mc-section-title"><h2 id="mc-config-title">设置方法</h2><a href="#docs">完整文档${ico('arrow-up-right')}</a></div><label class="mc-tool">使用工具${agentToolSelect()}</label>${tool.unsupported?`<p class="mc-message">${esc(tool.unsupported)}</p>`:`<div class="mc-config-fields">${field('API 地址',base)}${unified?`<div class="mc-config-field"><label for="mc-call-model">调用模型</label><select id="mc-call-model" data-unified-config-model aria-label="选择通用 Key 的调用模型">${options.map(m=>`<option value="${esc(m.id)}" ${m.id===model.id?'selected':''}>${esc(m.name)}</option>`).join('')}</select><button type="button" data-live="copy-text" data-text="${esc(model.id)}" aria-label="复制模型 ID">${ico('copy')}</button></div>`:field('模型 ID',model.id)}</div><ol class="mc-steps">${steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol><button type="button" class="mc-copy-config" data-live="copy-text" data-text="${esc(config)}">${ico('copy')}复制${tool.id==='api'?'curl 示例':'配置'}</button><p class="mc-note">${issued?(unified?'切换模型只需更换模型 ID，地址和 Key 保持不变。':'配置中已包含刚生成的专属 Key。'):'生成 Key 后，再复制完整配置。'}</p>`}</section>`;
+ }
+ function personalConnectContent(){
+  const id=personalConnectModelId(),unified=id==='all',p=paidCredit;
+  const issued=personalConnectIssued?.owner===me?.user?.id&&personalConnectIssued?.modelId===id?personalConnectIssued:null;
+  const allowed=unified?(issued?issued.key.model_ids.map(mid=>(p?.models||[]).find(m=>m.id===mid)||personalCatalog().find(m=>m.id===mid)||{id:mid,name:mid}):personalUnifiedSelectedModels()):[];
+  const model=unified?(allowed.find(m=>m.id===personalUnifiedConfigModel)||allowed[0]):personalCatalog().find(m=>m.id===id);
+  if(!unified&&!model)return '<section class="personal-api personal-connect"><a href="#personal/models">返回我的模型</a><h1>没有找到这个模型</h1></section>';
+  const title=unified?'通用 Key':model.name+' 模型专属 Key';
+  const access=unified?{action:p?.enabled&&p.models?.length?'paid-create':null,label:'暂未开放'}:personalModelAccess(model),paid=access.action==='paid-create',keys=(p?.keys||[]).filter(k=>!k.revoked_at),available=BigInt(p?.unallocated_fen||0),balance=BigInt(p?.list_credit_fen||0);
+  const draft=personalConnectDrafts.get(personalConnectDraftKey(id))||{label:unified?'通用 Key':model.name,limit:(Number(available>1000n?1000n:available)/100).toFixed(2)};
+  const scope=unified?`<div class="mc-scope"><div class="mc-scope-heading"><span>${issued?'可调用模型':'包含模型'} · ${allowed.length}</span>${!issued&&allowed.length<(p?.models||[]).length?`<button type="button" data-live="connect-model-restore" ${personalConnectBusy?'disabled':''}>恢复全部</button>`:''}</div><ul class="mc-model-list">${allowed.map(m=>`<li><span>${esc(m.name)}</span>${issued?'':`<button type="button" data-live="connect-model-remove" data-id="${esc(m.id)}" aria-label="从通用 Key 移除 ${esc(m.name)}" title="移除此模型" ${personalConnectBusy?'disabled':''}>${ico('x')}</button>`}</li>`).join('')}</ul>${allowed.length?'':'<p class="mc-selection-empty">至少保留一个模型，请恢复全部后重新选择。</p>'}</div>`:'';
+  let keyContent='';
+  if(issued){keyContent=`<div class="mc-success">${ico('check')}Key 已生成</div><div class="mc-secret-label"><label for="mc-secret-value">API Key</label><div class="mc-secret"><input id="mc-secret-value" type="password" readonly value="${esc(issued.secret)}" aria-label="${esc(title)}" autocomplete="off" spellcheck="false"><button type="button" data-live="connect-secret-toggle" aria-controls="mc-secret-value" aria-label="显示密钥" title="显示密钥" aria-pressed="false">${ico('eye')}</button><button type="button" data-live="copy-text" data-text="${esc(issued.secret)}" aria-label="复制 Key">${ico('copy')}</button></div></div><dl class="mc-issued-meta">${unified?'':`<div><dt>允许模型</dt><dd>${esc(model.name)}</dd></div>`}<div><dt>${unified?'共用消费上限':'消费上限'}</dt><dd>¥${Number(issued.key.limit_yuan).toFixed(2)}</dd></div></dl><p class="mc-note">完整 Key 仅在本页显示，离开前请复制保存。</p><button type="button" class="pm-primary mc-mobile-next" data-live="connect-step" data-step="config">查看设置方法${ico('arrow-right')}</button>`;}
+  else if(!paid){keyContent=`<p class="mc-message">${unified?'当前尚无已开放模型，开放后可创建通用 Key。':access.action==='pilot-create'?'此模型目前仅开放限量测试，可生成只调用此型号的测试 Key。':'此模型尚未开放调用，开放后可在这里生成专属 Key。'}</p>${access.action==='pilot-create'?'<button type="button" class="pm-primary" data-live="pilot-create">生成测试 Key</button>':'<a class="mc-text-link" href="#personal/models">返回我的模型</a>'}`;}
+  else if(balance<=0n){keyContent='<p class="mc-message">先补充账户额度，再生成 Key。</p><a class="pm-primary" href="#billing/personal" data-live="connect-recharge">充值后继续</a>';}
+  else if(keys.length>=5){keyContent='<p class="mc-message">已达 5 把有效 Key 上限。停用不再使用的 Key 后，可继续创建。</p><a class="pm-primary" href="#personal/keys">管理已有 Key</a>';}
+  else if(available<=0n){keyContent='<p class="mc-message">当前额度已分配给其他 Key。调整已有 Key 的消费上限，或充值后继续。</p><a class="pm-primary" href="#personal/keys">调整已有 Key</a><a class="mc-text-link" href="#billing/personal" data-live="connect-recharge">充值</a>';}
+  else{keyContent=`<form id="live-model-key" class="mc-form"><div class="mc-form-fields"><label>用途名称<input name="label" value="${esc(draft.label)}" required maxlength="50" autocomplete="off"></label><label>消费上限（元）<input name="limit_yuan" value="${esc(draft.limit)}" required inputmode="decimal" pattern="[0-9]+(\\.[0-9]{1,2})?" maxlength="9"></label></div><p class="mc-note">可分配 ${personalMoney(p.unallocated_fen)}。${unified?'所有模型共用此上限，按实际调用计费。':`此 Key 仅允许 ${esc(model.name)}。`}</p><div role="status" aria-live="polite"></div><button type="submit" class="pm-primary" ${personalConnectBusy||(unified&&!allowed.length)?'disabled':''}>${ico('key-round')}${personalConnectBusy?'正在生成…':unified?'一键生成通用 Key':'生成专属 Key'}</button>${unified?'<span class="mc-generate-note">可调用以上模型</span>':''}</form>`;}
+  return `<section class="personal-api personal-connect ${unified?'mc-unified':''}" data-step="${personalConnectStep}" aria-labelledby="mc-title"><header class="mc-heading"><div><a class="mc-back" href="${unified?'#personal/keys':'#personal/models'}">${ico('arrow-left')}${unified?'API 密钥':'我的模型'}</a><h1 id="mc-title">${esc(title)}</h1><p>${unified?(issued?'一把 Key，调用以下模型。':'默认包含全部已开放模型，可移除不需要的型号。'):`只调用这个模型。<a class="mc-unified-link" href="#personal/connect/all" data-live="connect-unified">多模型共用？创建通用 Key ${ico('arrow-right')}</a>`}</p></div><a class="mc-manage" href="#personal/keys">管理 Key${ico('arrow-up-right')}</a></header><nav class="mc-tabs" aria-label="接入步骤"><button type="button" data-live="connect-step" data-step="key" aria-pressed="${personalConnectStep==='key'}">${unified?'通用 Key':'专属 Key'}</button><button type="button" data-live="connect-step" data-step="config" aria-pressed="${personalConnectStep==='config'}">设置方法</button></nav><div class="mc-layout"><section class="mc-key" aria-labelledby="mc-key-title"><div class="mc-section-title"><h2 id="mc-key-title">密钥与额度</h2><span>${paid?'可用额度 '+personalMoney(p.list_credit_fen):access.label}</span></div>${scope}${keyContent}</section>${personalConnectConfig(model,allowed)}</div></section>`;
+ }
+ async function createPersonalModelKey(id,label,limit,selectedModels){
+  if(id!=='all'&&!personalCatalog().some(m=>m.id===id))throw Error('请选择有效模型。');
+  const models=id==='all'?(Array.isArray(selectedModels)?[...new Set(selectedModels)]:[]):[id];
+  if(!models.length)throw Error('请至少保留一个模型。');
+  const credit=await api('/api/customer-credit/status');
+  if(models.some(mid=>!credit.models?.some(m=>m.id===mid)))throw Error('所选模型的开放状态已变化，请刷新后重新选择。');
+  if(!credit.enabled||!credit.models?.length||(id!=='all'&&!credit.models.some(m=>m.id===id)))throw Error('此模型当前未开放调用。');
+  if(BigInt(credit.list_credit_fen||0)<=0n)throw Error('请先充值账户额度。');
+  if((credit.keys||[]).filter(k=>!k.revoked_at).length>=5)throw Error('已达 5 把有效 Key 上限，请先管理已有 Key。');
+  const match=String(limit).match(/^(\d{1,6})(?:\.(\d{1,2}))?$/),fen=match?BigInt(match[1])*100n+BigInt((match[2]||'').padEnd(2,'0')):0n;
+  if(fen<=0n||fen>BigInt(credit.unallocated_fen||0))throw Error('消费上限须大于零，且不超过当前可分配额度。');
+  return api('/api/customer-credit/keys',{label,models,limit_yuan:String(limit)});
+ }
+ function personalRechargeNext(data){
+  const intent=readModelIntent(),model=intent?.scope==='personal'?(intent.id==='all'?{id:'all',name:'通用 Key'}:(window.SemiflyModels||[]).find(m=>m.id===intent.id)):null,ready=BigInt(data.list_credit_fen??data.cash_balance_fen??0)>0n;
+  return `<aside class="api-next"><div><strong>${ready?'额度已可用，继续接入':'充值后，继续配置 API Key'}</strong><p>${model?`已记住 ${esc(model.name)}。`:''}充值进入个人账户，可用于账户已开放的模型。</p></div><a href="${model?'#personal/connect/'+esc(model.id):'#personal/keys'}">${ready?'继续配置 API Key':'返回 API 配置'}${ico('arrow-right')}</a></aside>`;
+ }
+ function personalApiConnection(model){
+  const p=paidCredit,copy=(label,value)=>`<div class="pm-config-row"><span>${label}</span><code>${esc(value)}</code><button type="button" data-live="copy-text" data-text="${esc(value)}" aria-label="复制${label}">${ico('copy')}</button></div>`;
+  const tool=agentTool(),steps=(tool.steps||[]).map(step=>step.replaceAll('下面三项','API 地址、模型 ID 和密钥').replaceAll('下面的模型名称','此模型的 ID').replace('在“curl / Python / Node”页','在接入文档中'));
+  const snippet=tool.snippet?tool.snippet(p.base_url,'你的 API Key',model.id):'';
+  return `<section class="api-connection" id="api-connection"><div class="api-section-head"><h2>接入配置</h2><a href="#docs">完整文档${ico('arrow-up-right')}</a></div><label class="api-model-picker">调用模型<select data-api-model aria-label="选择调用模型">${p.models.map(m=>`<option value="${esc(m.id)}" ${m.id===model.id?'selected':''}>${esc(m.name)}</option>`).join('')}</select></label><div class="pm-config">${copy('API 地址',p.base_url)}${copy('模型 ID',model.id)}</div><p class="api-caption">使用允许此模型的 Key。完整密钥仅在创建时显示，请填入你保存的密钥。</p><details class="pm-guide" ${personalModelGuideOpen?'open':''}><summary>在 Agent 工具中配置</summary><label>选择工具${agentToolSelect()}</label>${tool.unsupported?`<p class="pm-note">${esc(tool.unsupported)}</p>`:`<ol>${steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol>${snippet?`<pre><code>${esc(snippet)}</code></pre><button type="button" class="pm-expand" data-live="copy-text" data-text="${esc(snippet)}">复制配置</button>`:''}`}</details></section>`;
+ }
+ function personalApiContent(){
+  const p=paidCredit,keys=(p.keys||[]).filter(k=>!k.revoked_at),models=p.models||[];
+  const rows=keys.map(k=>`<tr><td><strong>${esc(k.label)}</strong>${(k.model_ids||[]).length>1?'<span class="ak-kind">多模型</span>':''}<small>•••• ${esc(k.key_hint)}</small></td><td class="ak-model" data-label="对应模型">${(k.model_ids||[]).map(id=>`<span>${esc(models.find(m=>m.id===id)?.name||id)}</span>`).join('')}</td><td class="ak-amount" data-label="消费上限"><b>¥${Number(k.limit_yuan||0).toFixed(2)}</b></td><td class="ak-amount" data-label="已用额度"><b>¥${Number(k.used_yuan||0).toFixed(2)}</b></td><td><div class="api-row-actions"><button type="button" data-live="paid-limit" data-id="${esc(k.id)}" data-label="${esc(k.label)}" data-limit="${esc(k.limit_yuan)}">调整上限</button><button type="button" data-live="paid-revoke" data-id="${esc(k.id)}">停用</button></div></td></tr>`).join('');
+  return `<section class="personal-api api-key-manager" aria-labelledby="api-title"><div class="api-page-head"><div><h1 id="api-title">API 密钥</h1><p>通用 Key 调用多个模型，专属 Key 只调用一个模型。</p></div><nav class="api-create-actions" aria-label="创建密钥"><a href="#personal/models">模型专属 Key</a><a class="pm-primary" href="#personal/connect/all" data-live="connect-unified">${ico('key-round')}创建通用 Key</a></nav></div><div class="api-balance-line"><span>账户额度 <b>${personalMoney(p.list_credit_fen)}</b></span><span>可分配额度 <b>${personalMoney(p.unallocated_fen)}</b></span><a href="#billing/personal">充值</a></div>${keys.length?`<div class="api-table-wrap"><table data-nosort><thead><tr><th>密钥</th><th>对应模型</th><th class="ak-amount">消费上限</th><th class="ak-amount">已用额度</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="api-empty"><h2>还没有 API Key</h2><p>创建通用 Key 调用全部已开放模型，或从「我的模型」创建专属 Key。</p></div>'}<p class="api-caption">${keys.length} / 5 把有效 Key。充值后如需提高 Key 的消费上限，请在这里调整。</p></section>`;
+ }
  function paidKeyPanel(){
   const p=paidCredit;
   const bill=panelOrg?'#billing/organization/'+esc(panelOrg.organization.id):'#billing/personal';
@@ -575,13 +718,13 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  function loadPanelData(kind,path,redraw){const box=panelData;if(box[kind]||box['loading:'+kind])return;box['loading:'+kind]=true;api(path).catch(error=>{if(kind==='sessions'||kind==='smsBinding'){box['error:'+kind]=error.message;return null;}return [];}).then(value=>{box[kind]=value;if(box===panelData)redraw();});}
  function panelNav(org,active){
   const manager=Boolean(org&&lastOrg?.permissions?.manager),id=org?esc(org.id):'';
-  const state=key=>`class="${active===key?'active':''}" aria-current="${active===key?'page':'false'}"`,inner=(icon,label)=>`${ico(icon)}<span>${label}</span>`;
+  const state=key=>`class="${(active===key||(active==='connect'&&key===(current==='personal/connect/all'?'keys':'models')))?'active':''}" aria-current="${(active===key||(active==='connect'&&key===(current==='personal/connect/all'?'keys':'models')))?'page':'false'}"`,inner=(icon,label)=>`${ico(icon)}<span>${label}</span>`;
   const tab=(key,icon,label)=>org?`<button type="button" data-live="org-tab" data-tab="${key}" data-nav="${key}" ${state(key)}>${inner(icon,label)}</button>`:`<button type="button" data-personal-tab data-live="personal-tab" data-tab="${key}" data-nav="${key}" ${state(key)}>${inner(icon,label)}</button>`;
   const link=(key,href,icon,label)=>`<a href="${href}" data-nav="${key}" ${state(key)}>${inner(icon,label)}</a>`;
-  return tab('overview','layout-dashboard','概览')+tab('models','layers','模型')+tab('keys','command','密钥')+tab('usage','chart-no-axes-combined','用量')+
+  return tab('overview','layout-dashboard','概览')+tab('models','layers',org?'模型':'我的模型')+tab('keys','command',org?'密钥':'API 密钥')+tab('usage','chart-no-axes-combined','用量')+
    (org?tab('settings','settings','设置'):link('settings','#security','settings','设置'))+
    (manager?tab('people','users-round','员工'):'')+
-   (!org?link('billing','#billing/personal','receipt-text','账单'):manager?link('billing','#billing/organization/'+id,'receipt-text','账单'):'')+
+   (!org?link('billing','#billing/personal','receipt-text','充值与账单'):manager?link('billing','#billing/organization/'+id,'receipt-text','账单'):'')+
    (org?tab('support','circle-alert','支持'):link('support','#support','circle-alert','支持'))+
    tab('compare','layers','API 对比');
  }
@@ -1059,7 +1202,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     <p><strong>最近一笔充值</strong> <time datetime="${esc(recent.paid_at)}">${billingTime(recent.paid_at)}（北京时间）</time></p>
     ${rechargeBreakdown(recent)}
    </section>`:'';
-   const recharge=`<section class="recharge-checkout"><div class="billing-pay-head"><div><h2 class="panel-title">充值到${org?esc(name):'个人'}账户</h2><p class="recharge-help">${alipayOn?'付款前可核对实付金额、赠送额度和到账额度。':limited?'在线支付已接入，当前账户暂未开放充值。':'当前暂无可用的在线支付方式。'}</p></div></div>${alipayOn?alipayPanel(scopeKey,channels):`<p class="billing-pay-status" role="status">如需充值，请通过<a href="${org?'#organization/'+esc(org.id)+'/support':'#support'}">支持与工单</a>联系平台。</p>`}${unavailableMethods?`<p class="recharge-unavailable">${unavailableMethods}</p>`:''}${lastReceipt}</section>`;
+   const recharge=`<section class="recharge-checkout${org?'':' personal-recharge-flow'}"><div class="billing-pay-head"><div><h2 class="panel-title">充值到${org?esc(name):'个人'}账户</h2><p class="recharge-help">${alipayOn?'付款前可核对实付金额、赠送额度和到账额度。':limited?'在线支付已接入，当前账户暂未开放充值。':'当前暂无可用的在线支付方式。'}</p></div></div>${!org?personalRechargeNext(data):''}${alipayOn?alipayPanel(scopeKey,channels):`<p class="billing-pay-status" role="status">如需充值，请通过<a href="${org?'#organization/'+esc(org.id)+'/support':'#support'}">支持与工单</a>联系平台。</p>`}${unavailableMethods?`<p class="recharge-unavailable">${unavailableMethods}</p>`:''}${lastReceipt}</section>`;
    const packs=`<div class="personal-table-wrap"><table><thead><tr><th>充值时间</th><th>实付</th><th>赠送额度</th><th>到账额度</th><th>赠送余额</th><th>实付剩余</th></tr></thead><tbody>${(data.packs||[]).map(p=>`<tr><td>${refundDate(p)}</td>${rechargeAmounts(p).map(([,value])=>`<td>${value}</td>`).join('')}<td>${money(p.refund_id?'0':p.bonus_fen)}</td><td>${money(p.refund_id?'0':p.red_fen??p.net_fen)}</td></tr>`).join('')}</tbody></table></div>`;
    const history=data.entries.length?`<div class="personal-table-wrap"><table><thead><tr><th>时间</th><th>事项</th><th>金额</th><th>结余</th></tr></thead><tbody>${data.entries.map(entry=>`<tr><td>${new Date(entry.created_at).toLocaleString('zh-CN')}</td><td>${entry.reference_id?.startsWith('refund-fee:')?'退款手续费':({recharge:'购包实付',usage:'模型使用',refund:'退款',reversal:'冲正'}[entry.kind]||'资金变动')}</td><td>${BigInt(entry.amount_fen)>0n?'+':''}${money(entry.amount_fen)}</td><td>${money(entry.balance_after_fen)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="personal-model-empty">还没有真实资金记录。完成首次充值后，每笔付款和使用会列在这里。</p>';
    const records=`<div class="billing-records">${(data.packs||[]).length?`<section><div class="refund-list-heading"><h2>充值记录</h2>${org?'':'<a href="#'+refundRoute+'">办理退款 →</a>'}</div>${packs}</section>`:''}<section><h2>资金流水</h2>${history}</section></div>`;
@@ -1077,16 +1220,18 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   if(personalVisible())return '';
   const home=workspaceTarget('workspace'),manager=me.organizations.find(o=>home==='organization/'+o.id)?.is_manager;
   if(personalBillingRoute(view))return manager?'billing/'+home:home;
-  return {personal:home,support:home+'/support',security:home+'/settings'}[view]||'';
+  if(view.startsWith('personal/connect/'))return home+'/models';
+  return {personal:home,'personal/models':home+'/models','personal/keys':home+'/keys','personal/usage':home+'/usage',support:home+'/support',security:home+'/settings'}[view]||'';
  }
  function workspaceTarget(view){
-  const orgs=me.organizations||[];if(view==='enterprise'&&!orgs.length)return 'upgrade';
+  const orgs=me.organizations||[];if(view!=='enterprise'&&personalVisible()&&readModelIntent()?.scope==='personal')return 'personal/connect/'+readModelIntent().id;if(view==='enterprise'&&!orgs.length)return 'upgrade';
   let saved='';try{saved=localStorage.getItem(spaceKey)||'';}catch{}
   if(view!=='enterprise'&&saved==='personal'&&personalVisible())return 'personal';
   const org=orgs.find(o=>saved==='organization/'+o.id)||orgs[0];return org?'organization/'+org.id:'personal';
  }
  async function route(view){
   focusRefundHeading=view===refundRoute&&current!==refundRoute;
+  if(personalConnectIssued&&view!=='personal/connect/'+personalConnectIssued.modelId)personalConnectIssued=null;
   const previous=current,wasIdentityActive=document.body.classList.contains('identity-active');current=view;authMode=['register','enterprise-register'].includes(view)?'register':'login';publicTicket++;const ticket=++generation;if(Date.now()-panelDataAt>60000){panelData={tickets:null,sessions:null};panelDataAt=Date.now();}panelRedraw=null;
   if(!host){host=document.createElement('div');host.id='identity-view';host.hidden=true;document.body.append(host);}
   document.body.classList.add('identity-route-pending');
@@ -1161,7 +1306,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-live]');if(!b)return;const action=b.dataset.live;let message=host?.querySelector('#live-form-message');b.disabled=true;
   try{
-   if(action==='personal-tab'){personalTab=b.dataset.tab;if(host?.querySelector('.personal-console')&&!panelRedraw&&current!=='upgrade')updatePersonalDashboard();else location.hash='personal';}
+   if(action==='personal-tab'){if(!panelOrg&&['overview','models','keys','usage','compare'].includes(b.dataset.tab)){const target=b.dataset.tab==='overview'?'personal':b.dataset.tab==='compare'?null:'personal/'+b.dataset.tab;if(target&&current!==target){location.hash=target;return;}}personalTab=b.dataset.tab;if(host?.querySelector('.personal-console')&&!panelRedraw&&current!=='upgrade')updatePersonalDashboard();else location.hash='personal';}
    else if(action==='page-turn'){pageViews[b.dataset.group+':page']=Number(b.dataset.page);if(panelRedraw)panelRedraw();else if(panelOrg&&lastOrg)organizationV2(lastOrg);else updatePersonalDashboard();}
    else if(action==='page-view'){
     pageViews[b.dataset.group]=b.dataset.pageView;
@@ -1176,6 +1321,8 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     const scope=paidScope(),ticket=generation,credit=await api('/api/customer-credit/status'+scope);
     if(ticket!==generation)return;
     paidCredit=credit;
+    if(!panelOrg&&BigInt(credit.list_credit_fen||0)<=0n){location.hash='billing/personal';return;}
+    if(!panelOrg&&BigInt(credit.unallocated_fen||0)<=0n){showToast('额度已分配给现有 Key，请调整消费上限或充值。');personalTab='keys';updatePersonalDashboard();return;}
     paidKeyCreateForm(credit);
    }
    else if(action==='paid-revoke'){await api('/api/customer-credit/keys/'+b.dataset.id+'/revoke'+paidScope(),{});paidCredit=await api('/api/customer-credit/status'+paidScope());if(panelRedraw)panelRedraw();else updatePersonalDashboard();}
@@ -1222,6 +1369,18 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    else if(action==='alipay-reset'){clearInterval(alipayTimer);alipayTimer=null;alipayPay=null;if(panelRedraw)panelRedraw();}
    else if(action==='personal-family'){personalFamily=b.dataset.family;updatePersonalDashboard();}
    else if(action==='personal-model'){personalSelected=b.dataset.id;updatePersonalDashboard();}
+   else if(action==='personal-model-add-all'||action==='personal-model-clear'){setAllPersonalModels(action==='personal-model-add-all');updatePersonalDashboard();showToast(action==='personal-model-add-all'?'已加入全部模型。':'已清除模型清单，已有 Key 不受影响。');}
+   else if(action==='connect-model-remove'||action==='connect-model-restore'){if(personalConnectBusy||personalConnectIssued||personalConnectModelId()!=='all')return;savePersonalConnectDraft();const selected=personalUnifiedSelectedModels();personalUnifiedSelections.set(personalConnectDraftKey('all'),action==='connect-model-restore'?(paidCredit?.models||[]).map(m=>m.id):selected.filter(m=>m.id!==b.dataset.id).map(m=>m.id));updatePersonalDashboard();host?.querySelector('[data-live=connect-model-restore]')?.focus({preventScroll:true});}
+   else if(action==='connect-unified'){savePersonalConnectDraft();personalUnifiedSelections.delete(personalConnectDraftKey('all'));personalConnectStep='key';chooseModelIntent('all','personal');location.hash='personal/connect/all';}
+   else if(action==='connect-recharge'){if(chooseModelIntent(personalConnectModelId(),'personal'))location.hash='billing/personal';}
+   else if(action==='connect-secret-toggle'){const input=host?.querySelector('#mc-secret-value');if(input){const visible=input.type==='password';input.type=visible?'text':'password';b.setAttribute('aria-pressed',String(visible));b.setAttribute('aria-label',visible?'隐藏密钥':'显示密钥');b.title=visible?'隐藏密钥':'显示密钥';b.innerHTML=ico(visible?'eye-off':'eye');}}
+   else if(action==='connect-step'){savePersonalConnectDraft();personalConnectStep=b.dataset.step;updatePersonalDashboard();}
+   else if(action==='personal-model-manage'){try{localStorage.removeItem(modelIntentKey);}catch{}location.hash='personal/keys';}
+   else if(action==='personal-model-add'||action==='personal-model-remove'){if(setPersonalModelChoice(b.dataset.id,action==='personal-model-add')){updatePersonalDashboard();const selector=action==='personal-model-add'?'personal-model-use':'personal-model-add';host?.querySelector(`[data-live="${selector}"][data-id="${CSS.escape(b.dataset.id)}"]`)?.focus({preventScroll:true});}}
+   else if(action==='personal-model-use'){setPersonalModelChoice(b.dataset.id,true);if(chooseModelIntent(b.dataset.id,'personal')){personalSelected=b.dataset.id;personalConnectStep='key';location.hash='personal/connect/'+b.dataset.id;}}
+   else if(action==='api-config'){host?.querySelector('.api-connection')?.scrollIntoView({block:'start'});}
+   else if(action==='clear-model-intent'){try{localStorage.removeItem(modelIntentKey);}catch{}updatePersonalDashboard();}
+
    else if(action==='pilot-open-keys'){personalTab='keys';updatePersonalDashboard();}
    else if(action==='pilot-refresh'){personalPilot=await api('/api/pilot/status');const rows=host?.querySelector('[data-personal-rows]');if(personalTab==='models'&&rows)rows.innerHTML=personalCatalogRows().html;if(personalTab==='usage')updatePersonalDashboard();showToast('实测数据已刷新；没有向模型发送请求。');}
    else if(action==='pilot-create'){form('创建平台测试 Key',`<label>用途名称<input name="label" required maxlength="50" placeholder="例如：我的 Agent"></label><label>调用模型<select name="model_id" required>${personalPilot.model_ids.map(id=>`<option value="${esc(id)}" ${id===personalSelected?'selected':''}>${esc(modelIntentNames[id]||id)}</option>`).join('')}</select></label><label><input type="checkbox" name="confirm_model" value="yes" required> 我确认这枚 Key 只能调用我选择的型号；两款模型共用每天 10 次测试额度。</label><p class="live-small">Key 只显示一次，请立即保存。正式付费 Key 还须由付款方确认可用模型和预算上限。</p>`,'live-pilot-create','生成测试 Key');}
@@ -1355,6 +1514,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   // A field named "id" shadows form.id, so read the attribute.
   const form=e.target,formId=form.getAttribute('id')||'';if(!formId.startsWith('live-'))return;e.preventDefault();
   const values=Object.fromEntries(new FormData(form)),button=form.querySelector('[type=submit]'),message=form.querySelector('[role=status]');
+  if(formId==='live-model-key'&&(button.disabled||personalConnectBusy))return;
   if(formId==='live-paid-key'){
    if(button.disabled)return;
    form.dataset.submitting='true';
@@ -1362,7 +1522,17 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   if(formId==='live-recharge-confirm'&&button.disabled)return;
   button.disabled=true;message.innerHTML='';
   try{
-   if(formId==='live-recharge-confirm'){
+   if(formId==='live-model-key'){
+    const id=personalConnectModelId(),owner=me?.user?.id;personalConnectBusy=true;savePersonalConnectDraft();
+    const result=await createPersonalModelKey(id,values.label,values.limit_yuan,id==='all'?personalUnifiedSelectedModels().map(m=>m.id):undefined);
+    if(owner!==me?.user?.id)return;
+    personalConnectIssued={...result,owner,modelId:id};personalConnectBusy=false;if(id!=='all')setPersonalModelChoice(id,true);
+    try{localStorage.removeItem(modelIntentKey);}catch{}
+    if(current!=='personal/connect/'+id)location.hash='personal/connect/'+id;else updatePersonalDashboard();
+    const credit=await api('/api/customer-credit/status').catch(()=>null);
+    if(owner===me?.user?.id&&credit){paidCredit=credit;if(current==='personal/connect/'+id)updatePersonalDashboard();}
+   }
+   else if(formId==='live-recharge-confirm'){
     const review=rechargeReview;
     if(!review||review.ticket!==generation)throw Error('请返回充值页重新核对金额。');
     const {scope,orgId,channel,cashFen,promo,quote}=review;
@@ -1450,6 +1620,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
      }
      throw err;
     }
+    if(!panelOrg){for(const id of result.key.model_ids)setPersonalModelChoice(id,true);try{localStorage.removeItem(modelIntentKey);}catch{}}
     dialog('Key 只显示一次',keyIssuedGuide({secret:result.secret,baseUrl:result.base_url,modelIds:result.key.model_ids,note:`本 Key 消费上限 ¥${Number(result.key.limit_yuan).toFixed(2)}。调用按官网价扣额度。`}));
     // Show the one-time secret even if refreshing the list fails.
     const credit=await api('/api/customer-credit/status'+scope).catch(()=>null);
@@ -1497,12 +1668,16 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     message.innerHTML=note(err.message,true)+btn('去登录','auth-mode','type="button" data-mode="sms"','quiet');
    }else message.innerHTML=note(err.message,true);
   }finally{
+   if(formId==='live-model-key')personalConnectBusy=false;
    if(formId==='live-paid-key'&&form.isConnected){delete form.dataset.submitting;updatePaidKeyPreview(form);}
    else button.disabled=false;
   }
  });
- document.addEventListener('input',e=>{if(!e.target.matches('[data-personal-search]'))return;personalSearch=e.target.value;host?.querySelectorAll('[data-personal-search]').forEach(input=>{if(input!==e.target)input.value=personalSearch;});const rows=personalCatalogRows();const body=host?.querySelector('[data-personal-rows]');if(body)body.innerHTML=rows.html;});
- document.addEventListener('change',e=>{if(!e.target.matches('[data-agent-tool]'))return;agentToolId=e.target.value;const panel=host?.querySelector('[data-key-agent-panel]');if(panel&&employeeCredit)panel.outerHTML=employeeKeyPanel(employeeCredit);else updatePersonalDashboard();});
+ document.addEventListener('input',e=>{if(e.target.closest('#live-model-key'))savePersonalConnectDraft();});
+ document.addEventListener('input',e=>{if(!e.target.matches('[data-personal-search]'))return;personalSearch=e.target.value;host?.querySelectorAll('[data-personal-search]').forEach(input=>{if(input!==e.target)input.value=personalSearch;});const rows=personalCatalogRows();const body=host?.querySelector('[data-personal-rows]');if(body)body.innerHTML=rows.html;const count=host?.querySelector('[data-model-count]');if(count)count.textContent=rows.count+' 个模型';});
+ document.addEventListener('change',e=>{if(!e.target.matches('[data-agent-tool]'))return;savePersonalConnectDraft();agentToolId=e.target.value;personalModelGuideOpen=Boolean(e.target.closest('.pm-guide')?.open);const panel=host?.querySelector('[data-key-agent-panel]');if(panel&&employeeCredit)panel.outerHTML=employeeKeyPanel(employeeCredit);else updatePersonalDashboard();});
+ document.addEventListener('change',e=>{if(!e.target.matches('[data-unified-config-model]'))return;savePersonalConnectDraft();personalUnifiedConfigModel=e.target.value;updatePersonalDashboard();});
+ document.addEventListener('change',e=>{if(!e.target.matches('[data-api-model]'))return;personalSelected=e.target.value;chooseModelIntent(personalSelected,'personal');updatePersonalDashboard();});
  document.addEventListener('change',e=>{if(!e.target.matches('[data-employee-key-model]'))return;employeeKeyModel=e.target.value;const panel=host?.querySelector('[data-key-agent-panel]');if(panel&&employeeCredit)panel.outerHTML=employeeKeyPanel(employeeCredit);});
  document.addEventListener('change',e=>{if(!e.target.matches('[data-personal-use]'))return;personalUse=e.target.value;updatePersonalDashboard();});
  document.addEventListener('click',e=>{document.querySelectorAll('.account-menu[open]').forEach(menu=>{if(!menu.contains(e.target)||e.target.closest('a'))menu.open=false;});});
@@ -1523,7 +1698,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
 }
  document.addEventListener('change',event=>{if(event.target.id==='pack-promo')lookupCWOffer(event.target.value);});
  if(cwInputCode)lookupCWOffer(cwInputCode);
- window.IdentityUI={refreshPublic,chooseModelIntent,customerSignedIn,handles:v=>handles(v)||v.startsWith('staff?'),route,cancel:()=>{generation++;lastOrg=null;lastOrgBilling=null;opsPageCache.clear();document.body.classList.remove('identity-route-pending');}};
+ window.IdentityUI={refreshPublic,chooseModelIntent,customerSignedIn,handles:v=>handles(v)||v.startsWith('staff?'),route,cancel:()=>{personalConnectIssued=null;host?.querySelector('.personal-connect')?.replaceChildren();generation++;lastOrg=null;lastOrgBilling=null;opsPageCache.clear();document.body.classList.remove('identity-route-pending');}};
  function syncQuota(source){
   const form=source.form,range=form?.querySelector('[data-quota-range]'),number=form?.querySelector('[data-quota-number]'),share=form?.querySelector('[data-quota-share]');if(!range||!number)return;
   if(source===range)number.value=Math.max(Number(range.min),Math.round(Number(range.value)*2)/2).toFixed(2);else if(number.value.trim()!==''&&Number.isFinite(Number(number.value)))range.value=number.value;
