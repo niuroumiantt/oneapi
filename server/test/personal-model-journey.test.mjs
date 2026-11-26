@@ -7,6 +7,7 @@ import {marketCatalog} from '../src/official-models.mjs';
 const source=readFileSync(new URL('../../web/identity.js',import.meta.url),'utf8');
 const section=(start,end)=>source.slice(source.indexOf(start),source.indexOf(end,source.indexOf(start)));
 const catalog=marketCatalog();
+const wholeFen=value=>BigInt(String(value).split('.')[0]);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function apiPage({intent=null,balance='0',unallocated=balance,keys=[],models=catalog.slice(0,1)}={}){
  const context=vm.createContext({paidCredit:{models,keys,list_credit_fen:balance,unallocated_fen:unallocated},readModelIntent:()=>intent,personalCatalog:()=>catalog,personalSelected:intent?.id,personalPilot:null,ico:()=>'',esc,personalMoney:n=>`¥${(Number(n)/100).toFixed(2)}`,personalApiConnection:m=>`configuration:${m.id}`});
@@ -23,7 +24,7 @@ test('key manager keeps creation in model setup and excludes revoked keys',()=>{
  assert.match(html,/>对应模型<\/th>/);assert.match(html,/aria-valuetext="已用 ¥2.00 \/ 上限 ¥10.00"/);assert.match(html,/aria-valuenow="20.00"/);
 });
 test('dedicated creation posts exactly one model even when other models are available',async()=>{
- const calls=[],context=vm.createContext({personalCatalog:()=>catalog,api:async(path,body)=>{calls.push({path,body});return body?{secret:'fake'}:{enabled:true,models:catalog,keys:[key],list_credit_fen:'10000',unallocated_fen:'9000'};}});
+ const calls=[],context=vm.createContext({wholeFen,personalCatalog:()=>catalog,api:async(path,body)=>{calls.push({path,body});return body?{secret:'fake'}:{enabled:true,models:catalog,keys:[key],list_credit_fen:'10000',unallocated_fen:'9000'};}});
  vm.runInContext(section(' async function createPersonalModelKey(', ' function personalRechargeNext('),context);
  await vm.runInContext("createPersonalModelKey('glm-5.3','My tool','10.00')",context);
  assert.deepEqual(JSON.parse(JSON.stringify(calls[1].body)),{label:'My tool',models:['glm-5.3'],limit_yuan:'10.00'});
@@ -31,7 +32,7 @@ test('dedicated creation posts exactly one model even when other models are avai
 test('dedicated creation rechecks availability, credit, key count and cap before issuing',async()=>{
  const base={enabled:true,models:catalog,keys:[],list_credit_fen:'10000',unallocated_fen:'10000'};
  for(const [patch,limit] of [[{models:[]},'10'],[{list_credit_fen:'0'},'10'],[{keys:Array(5).fill(key)},'10'],[{unallocated_fen:'100'},'10'],[{},'0'],[{},'bad']]){
-  let posts=0;const context=vm.createContext({personalCatalog:()=>catalog,api:async(_,body)=>{if(body)posts++;return {...base,...patch};}});
+  let posts=0;const context=vm.createContext({wholeFen,personalCatalog:()=>catalog,api:async(_,body)=>{if(body)posts++;return {...base,...patch};}});
   vm.runInContext(section(' async function createPersonalModelKey(', ' function personalRechargeNext('),context);
   await assert.rejects(vm.runInContext(`createPersonalModelKey('deepseek-flash','label',${JSON.stringify(limit)})`,context));assert.equal(posts,0);
  }
@@ -78,14 +79,14 @@ test('my models remembers additions and removals per account without modifying k
 
 test('universal key uses all currently open models with one shared spending cap',async()=>{
  const open=[catalog[0],catalog[3],catalog[4]],calls=[];
- const context=vm.createContext({personalCatalog:()=>catalog,api:async(path,body)=>{calls.push({path,body});return body?{secret:'fake'}:{enabled:true,models:open,keys:[],list_credit_fen:'10000',unallocated_fen:'10000'};}});
+ const context=vm.createContext({wholeFen,personalCatalog:()=>catalog,api:async(path,body)=>{calls.push({path,body});return body?{secret:'fake'}:{enabled:true,models:open,keys:[],list_credit_fen:'10000',unallocated_fen:'10000'};}});
  vm.runInContext(section(' async function createPersonalModelKey(', ' function personalRechargeNext('),context);
  await vm.runInContext(`createPersonalModelKey('all','通用 Key','10.00',${JSON.stringify(open.map(m=>m.id))})`,context);
  assert.deepEqual(JSON.parse(JSON.stringify(calls[1].body)),{label:'通用 Key',models:open.map(m=>m.id),limit_yuan:'10.00'});
 });
 test('universal key refuses issuance when no models are open',async()=>{
  let posts=0;
- const context=vm.createContext({personalCatalog:()=>catalog,api:async(_,body)=>{if(body)posts++;return {enabled:true,models:[],keys:[],list_credit_fen:'10000',unallocated_fen:'10000'};}});
+ const context=vm.createContext({wholeFen,personalCatalog:()=>catalog,api:async(_,body)=>{if(body)posts++;return {enabled:true,models:[],keys:[],list_credit_fen:'10000',unallocated_fen:'10000'};}});
  vm.runInContext(section(' async function createPersonalModelKey(', ' function personalRechargeNext('),context);
  await assert.rejects(vm.runInContext("createPersonalModelKey('all','通用 Key','10',['deepseek-flash'])",context));assert.equal(posts,0);
 });
@@ -99,14 +100,14 @@ test('universal selection survives recharge without changing enterprise model in
 });
 
 test('universal key posts only the reviewed subset and never re-adds removed models',async()=>{
- const calls=[],context=vm.createContext({personalCatalog:()=>catalog,api:async(path,body)=>{calls.push({path,body});return body?{secret:'fake'}:{enabled:true,models:catalog,keys:[],list_credit_fen:'10000',unallocated_fen:'10000'};}});
+ const calls=[],context=vm.createContext({wholeFen,personalCatalog:()=>catalog,api:async(path,body)=>{calls.push({path,body});return body?{secret:'fake'}:{enabled:true,models:catalog,keys:[],list_credit_fen:'10000',unallocated_fen:'10000'};}});
  vm.runInContext(section(' async function createPersonalModelKey(', ' function personalRechargeNext('),context);
  await vm.runInContext("createPersonalModelKey('all','subset','10',['glm-5.3','glm-5.3'])",context);
  assert.deepEqual(JSON.parse(JSON.stringify(calls[1].body)),{label:'subset',models:['glm-5.3'],limit_yuan:'10'});
 });
 test('universal key rejects empty, unknown and newly unavailable selections before posting',async()=>{
  for(const ids of [[],['unknown'],['glm-5.3']]){
-  let posts=0;const context=vm.createContext({personalCatalog:()=>catalog,api:async(_,body)=>{if(body)posts++;return {enabled:true,models:[catalog[0]],keys:[],list_credit_fen:'10000',unallocated_fen:'10000'};}});
+  let posts=0;const context=vm.createContext({wholeFen,personalCatalog:()=>catalog,api:async(_,body)=>{if(body)posts++;return {enabled:true,models:[catalog[0]],keys:[],list_credit_fen:'10000',unallocated_fen:'10000'};}});
   vm.runInContext(section(' async function createPersonalModelKey(', ' function personalRechargeNext('),context);
   await assert.rejects(vm.runInContext(`createPersonalModelKey('all','test','10',${JSON.stringify(ids)})`,context));assert.equal(posts,0);
  }
@@ -119,4 +120,24 @@ test('universal selection starts with open models and remains scoped to each acc
  assert.equal(vm.runInContext('personalUnifiedSelectedModels().length',context),0);
  me.user.id='b';assert.equal(vm.runInContext('personalUnifiedSelectedModels().length',context),3);
  me.user.id='a';assert.equal(vm.runInContext('personalUnifiedSelectedModels().length',context),0);
+});
+
+// PostgreSQL numeric(30,10) balances must pass through the actual UI formatter.
+test('key manager renders decimal-fen production balances without a BigInt exception',()=>{
+ const context=vm.createContext({paidCredit:{models:catalog,keys:[key],list_credit_fen:'0.0000000000',unallocated_fen:'0'},ico:()=>'',esc});
+ vm.runInContext(section(' const wholeFen=', ' const employeeCatalog='),context);
+ vm.runInContext(section(' function personalApiContent(){',' function paidKeyPanel(){'),context);
+ assert.match(vm.runInContext('personalApiContent()',context),/账户额度 <b>¥0.00<\/b>/);
+ for(const [value,want] of [['10000.0000000000','¥100.00'],['9999.9999999999','¥99.99'],['900719925474099312.1234567890','¥9007199254740993.12'],['-123.456','-¥1.23']]){
+  assert.equal(vm.runInContext(`personalMoney(${JSON.stringify(value)})`,context),want);
+ }
+});
+test('model key creation accepts decimal-fen balances and still blocks zero credit',async()=>{
+ for(const balance of ['10000.1234567890','0.0000000000']){
+  let posts=0;
+  const context=vm.createContext({wholeFen,personalCatalog:()=>catalog,api:async(_,body)=>{if(body){posts++;return {secret:'fake'};}return {enabled:true,models:catalog,keys:[],list_credit_fen:balance,unallocated_fen:'10000'};}});
+  vm.runInContext(section(' async function createPersonalModelKey(', ' function personalRechargeNext('),context);
+  const call=()=>vm.runInContext("createPersonalModelKey('deepseek-flash','test','10')",context);
+  if(balance.startsWith('0.')){await assert.rejects(call);assert.equal(posts,0);}else{await call();assert.equal(posts,1);}
+ }
 });

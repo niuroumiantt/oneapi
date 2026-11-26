@@ -178,7 +178,9 @@
   const PAY_CHANNELS={alipay_f2f:{name:'支付宝',path:'alipay',chip:'支付宝电脑网站支付'},wechat_native:{name:'微信支付',path:'wechat',chip:'微信支付 Native'}};
  let directPicked=new Set(),directIssued=null,panelOrg=null,teamUsage=null,personalBilling=null,personalPilot=null,employeeCredit=null,employeeIssuedKey=null,employeeKeyModel=null,agentToolId='workbuddy',personalTab='overview',personalFamily='all',personalUse='all',personalSearch='',personalSelected='deepseek-flash',personalPricePeriod='offpeak';
  let personalPaneShare=62,personalPaneDrag=null;try{const saved=Number(localStorage.getItem('semifly.personal-pane-share'));if(saved>=39&&saved<=72)personalPaneShare=saved;}catch{}
- const personalMoney=value=>{if(value===null||value===undefined)return '—';const cents=BigInt(value),absolute=cents<0n?-cents:cents;return `${cents<0n?'-':''}¥${absolute/100n}.${String(absolute%100n).padStart(2,'0')}`;};
+ // API balances are decimal fen; trim sub-fen digits only for whole-fen display/checks.
+ const wholeFen=value=>BigInt(String(value).split('.')[0]);
+ const personalMoney=value=>{if(value===null||value===undefined)return '—';const cents=wholeFen(value),absolute=cents<0n?-cents:cents;return `${cents<0n?'-':''}¥${absolute/100n}.${String(absolute%100n).padStart(2,'0')}`;};
  const employeeCatalog=()=>(employeeCredit.models||[]).map(m=>{const base={hit:Number(m.cached_yuan),miss:Number(m.input_yuan),output:Number(m.output_yuan)},peak={hit:base.hit*m.peak_multiplier,miss:base.miss*m.peak_multiplier,output:base.output*m.peak_multiplier};return {id:m.id,family:m.family,name:m.name,subtitle:m.tags.join('、'),tags:m.capability_tags||m.tags,uses:m.uses,upstreamId:m.id,price:m.peak_multiplier>1?{kind:'timed',offpeak:base,peak}:{kind:'standard',standard:base}};});
  const personalCatalog=()=>creditActive()?employeeCatalog():((window.SemiflyModels||[]).filter(m=>['deepseek','glm'].includes(m.family)));
  const personalBaseRate=m=>m.price?.kind==='timed'?m.price[personalPricePeriod]:m.price?.standard;
@@ -667,7 +669,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const model=unified?(allowed.find(m=>m.id===personalUnifiedConfigModel)||allowed[0]):personalCatalog().find(m=>m.id===id);
   if(!unified&&!model)return '<section class="personal-api personal-connect"><a href="#personal/models">返回我的模型</a><h1>没有找到这个模型</h1></section>';
   const title=unified?'通用 Key':model.name+' 模型专属 Key';
-  const access=unified?{action:p?.enabled&&p.models?.length?'paid-create':null,label:'暂未开放'}:personalModelAccess(model),paid=access.action==='paid-create',keys=(p?.keys||[]).filter(k=>!k.revoked_at),available=BigInt(p?.unallocated_fen||0),balance=BigInt(p?.list_credit_fen||0);
+  const access=unified?{action:p?.enabled&&p.models?.length?'paid-create':null,label:'暂未开放'}:personalModelAccess(model),paid=access.action==='paid-create',keys=(p?.keys||[]).filter(k=>!k.revoked_at),available=BigInt(p?.unallocated_fen||0),balance=wholeFen(p?.list_credit_fen||0);
   const draft=personalConnectDrafts.get(personalConnectDraftKey(id))||{label:unified?'通用 Key':model.name,limit:(Number(available>1000n?1000n:available)/100).toFixed(2)};
   const scope=unified?`<div class="mc-scope"><div class="mc-scope-heading"><span>${issued?'可调用模型':'包含模型'} · ${allowed.length}</span>${!issued&&allowed.length<(p?.models||[]).length?`<button type="button" data-live="connect-model-restore" ${personalConnectBusy?'disabled':''}>恢复全部</button>`:''}</div><ul class="mc-model-list">${allowed.map(m=>`<li><span>${esc(m.name)}</span>${issued?'':`<button type="button" data-live="connect-model-remove" data-id="${esc(m.id)}" aria-label="从通用 Key 移除 ${esc(m.name)}" title="移除此模型" ${personalConnectBusy?'disabled':''}>${ico('x')}</button>`}</li>`).join('')}</ul>${allowed.length?'':'<p class="mc-selection-empty">至少保留一个模型，请恢复全部后重新选择。</p>'}</div>`:'';
   let keyContent='';
@@ -686,7 +688,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const credit=await api('/api/customer-credit/status');
   if(models.some(mid=>!credit.models?.some(m=>m.id===mid)))throw Error('所选模型的开放状态已变化，请刷新后重新选择。');
   if(!credit.enabled||!credit.models?.length||(id!=='all'&&!credit.models.some(m=>m.id===id)))throw Error('此模型当前未开放调用。');
-  if(BigInt(credit.list_credit_fen||0)<=0n)throw Error('请先充值账户额度。');
+  if(wholeFen(credit.list_credit_fen||0)<=0n)throw Error('请先充值账户额度。');
   if((credit.keys||[]).filter(k=>!k.revoked_at).length>=5)throw Error('已达 5 把有效 Key 上限，请先管理已有 Key。');
   const match=String(limit).match(/^(\d{1,6})(?:\.(\d{1,2}))?$/),fen=match?BigInt(match[1])*100n+BigInt((match[2]||'').padEnd(2,'0')):0n;
   if(fen<=0n||fen>BigInt(credit.unallocated_fen||0))throw Error('消费上限须大于零，且不超过当前可分配额度。');
@@ -1377,7 +1379,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     const scope=paidScope(),ticket=generation,credit=await api('/api/customer-credit/status'+scope);
     if(ticket!==generation)return;
     paidCredit=credit;
-    if(!panelOrg&&BigInt(credit.list_credit_fen||0)<=0n){location.hash='billing/personal';return;}
+    if(!panelOrg&&wholeFen(credit.list_credit_fen||0)<=0n){location.hash='billing/personal';return;}
     if(!panelOrg&&BigInt(credit.unallocated_fen||0)<=0n){showToast('额度已分配给现有 Key，请调整消费上限或充值。');personalTab='keys';updatePersonalDashboard();return;}
     paidKeyCreateForm(credit);
    }
