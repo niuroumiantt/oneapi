@@ -185,6 +185,20 @@
   }
   let personalPage=0, personalStarted=false;
   const personalGuideTabs=['intro','process','terms'];
+  function commissionBars(t){
+    const rows=[['expected','预计佣金',t.expected_fen,'客户实付形成预计佣金，尚不可直接提现。'],['unlocked','已解锁',t.unlocked_fen,'客户实际使用后解锁，月结确认后才能提现。'],['available','可提现',t.available_fen,'月结后可申请提现；到账以税后结算单为准。']];
+    const amount=value=>Number.isFinite(Number(value))?Number(value):0;
+    const max=Math.max(1,...rows.map(r=>amount(r[2])));
+    return `<section class="cv-commission-bars" aria-label="佣金结算阶段">${rows.map(([kind,label,value,note])=>`<div class="cv-commission-row cv-commission-${kind}"><div class="cv-commission-label"><span>${label}</span><strong>${money(amount(value))}<small> 税前</small></strong></div><div class="cv-commission-track" aria-hidden="true"><span style="width:${Math.max(0,amount(value))/max*100}%"></span></div><p>${note}</p></div>`).join('')}</section><p class="cv-commission-note">同一比例，金额不相加。已解锁为累计值，可提现为当前余额。</p>`;
+  }
+  const personalSigningLabels={available:'可申请线上签约',requested:'等待准备合同',creating:'合同准备中',draft:'合同待公司确认',starting:'签约发起中',pending_both:'待双方签署',pending_person:'待本人实名签署',pending_company:'待公司盖章',archiving:'已签署，归档核验中',verified:'签署与实名已核验',rejected:'已拒签',expired:'已过期',canceled:'已撤销',voided:'已作废',review:'签署记录待核对'};
+  function personalSigningStatus(job){return job?(job.mode==='sandbox'?'内部试签 · ':'')+(personalSigningLabels[job.status]||'状态待核对'):'暂未开放';}
+  function personalSigningAction(job,contracts){
+    if(!job)return '<p class="cv-detail-note">在线签约开放后，可在这里完成实名、签署并下载已归档合同。</p>';
+    if(['pending_both','pending_person'].includes(job.status)&&job.id)return form('vip-sign-open',`<input type="hidden" name="signing_id" value="${esc(job.id)}">`,'去法大大实名并签署');
+    if(!hasCurrentContract(contracts)&&['available','verified','rejected','expired','canceled','voided'].includes(job.status)&&job.request_version)return '<button data-tab="sign-request">申请线上签约</button>';
+    return '<p class="cv-detail-note">请留意当前处理进度；双方签署并归档核验后，可下载合同。</p>';
+  }
   const compactVIP=!staff&&params.get('personal')==='1';
   if(compactVIP){document.documentElement.classList.add('cw-personal');tab='intro';}
   function personalList(heads,rows,more=false,rowLimit=0){
@@ -195,8 +209,8 @@
   async function drawPersonalVIP(c,version){
     const p=data.partner,t=data.totals||{},active=p?.status==='active',codes=data.codes||[],contracts=data.contracts||[];
     const guide=personalGuideTabs.includes(tab),destination=p?'overview':'apply';
-    const sections=active?[['overview','概览'],['codes','推广码'],['events','推广明细'],['payouts','佣金与提现'],['profile','合作资料']]:p?[['overview','申请进度'],['profile','申请资料']]:[['apply','填写申请']];
-    const section=['new-code'].includes(tab)?'codes':['withdraw'].includes(tab)?'payouts':['bank','invites','feedback','contracts'].includes(tab)?'profile':tab;
+    const sections=active?[['overview','概览'],['codes','推广码'],['events','推广明细'],['payouts','佣金与提现'],['profile','个人信息与合同']]:p?[['overview','申请进度'],['profile','申请资料']]:[['apply','填写申请']];
+    const section=['new-code'].includes(tab)?'codes':['withdraw'].includes(tab)?'payouts':['bank','invites','feedback','contracts','sign-request'].includes(tab)?'profile':tab;
     $('#cw-title').textContent=guide?'VIP 合作计划':active?'VIP 工作台':'VIP 申请';
     $('#cw-description').textContent='';
     const guideLink=$('#cw-guide-link');guideLink.textContent=guide?(active?'返回工作台':p?'查看申请进度':'申请指南'):'了解合作计划';
@@ -225,17 +239,26 @@
       // Feedback stays available as a separate view; it does not crowd the current action.
       prog.querySelectorAll('.cw-progress>p:not(.cw-next):not(.cw-muted)').forEach(e=>e.remove());
       const current=data.task_codes?.[0],ap=data.activation_progress;
-      c.innerHTML=prog.innerHTML+(active?`<div class="cv-summary">${stat('预计佣金 · 税前',t.expected_fen)}${stat('已解锁 · 累计税前',t.unlocked_fen)}${stat('可提现 · 税前',t.available_fen)}</div><p class="cv-note">预计、已解锁与可提现属于不同结算阶段，不相加；佣金与个人充值余额分开。</p><div class="cv-business"><span>客户累计实付 <strong>${money(t.paid_fen)}</strong></span><span>客户累计实用 <strong>${money(t.used_fen)}</strong></span></div><p>${hasCurrentContract(contracts)?'合同与实名已核验，可使用推广码。':hasPromotionTrial(p)?'推广试用中，请在到期前完成合同与实名核验。':'下一步：联系负责员工完成合同与实名核验，再开始推广。'}</p><div class="cw-inline">${go('codes','查看推广码')}${go('payouts','佣金与提现')}${current?`<a class="cw-button" target="_parent" href="${payLink(current.code)}">专属折扣充值 · ${discount(current.customer_price_percent)}</a>`:''}</div>`:p.status==='confirmed'?`<section class="cv-next"><p>有效实付 ${money(ap?.total_fen)} / ¥100.00 · ${ap?.eligible?'已达标，等待核验':'还差 '+money(ap?.shortfall_fen)}</p>${!ap?.eligible&&current?paymentCard(current).replace('<a ','<a target="_parent" '):''}<div class="cw-inline">${go('rules','充值与退款规则')}<a target="_parent" href="/#support">联系支持</a></div></section>`:`<div class="cw-inline"><a target="_parent" href="/#support">联系支持</a>${data.feedback?go('feedback','查看处理反馈'):''}</div>`);return;
+      c.innerHTML=prog.innerHTML+(active?`${commissionBars(t)}<div class="cv-business"><span>客户累计实付 <strong>${money(t.paid_fen)}</strong></span><span>客户累计实用 <strong>${money(t.used_fen)}</strong></span></div><p>${hasCurrentContract(contracts)?'合同与实名已核验，可使用推广码。':hasPromotionTrial(p)?'推广试用中，请在到期前完成合同与实名核验。':'下一步：联系负责员工完成合同与实名核验，再开始推广。'}</p><div class="cw-inline">${go('codes','查看推广码')}${go('payouts','佣金与提现')}${current?`<a class="cw-button" target="_parent" href="${payLink(current.code)}">专属折扣充值 · ${discount(current.customer_price_percent)}</a>`:''}</div>`:p.status==='confirmed'?`<section class="cv-next"><p>有效实付 ${money(ap?.total_fen)} / ¥100.00 · ${ap?.eligible?'已达标，等待核验':'还差 '+money(ap?.shortfall_fen)}</p>${!ap?.eligible&&current?paymentCard(current).replace('<a ','<a target="_parent" '):''}<div class="cw-inline">${go('rules','充值与退款规则')}<a target="_parent" href="/#support">联系支持</a></div></section>`:`<div class="cw-inline"><a target="_parent" href="/#support">联系支持</a>${data.feedback?go('feedback','查看处理反馈'):''}</div>`);return;
     }
     if(tab==='profile'){
-      c.innerHTML=`<h2>${esc(p.legal_name)}</h2><div class="cv-profile"><p>VIP 编号 <strong>${esc(p.public_code)}</strong></p><p>申请时间 <strong>${when(p.created_at)}</strong></p><p>负责员工 <strong>${esc(data.owner_name||p.owner_name||'待分配')}</strong></p>${active?`<p>合同核验 <strong>${hasCurrentContract(contracts)?'已核验且有效':'待核验或已过期'}</strong></p><p>收款账户 <strong>${p.bank_last4?'尾号 '+esc(p.bank_last4):'未填写'} · ${p.bank_verified?'已核验':'待核验'}</strong></p>`:''}</div><div class="cw-inline">${data.feedback?go('feedback','处理反馈'):''}${active?go('bank','设置收款账户')+go('contracts','合同记录')+go('invites','邀请伙伴'):''}<a href="/cw-terms.html" target="_blank" rel="noopener">合作说明</a></div>`;return;
+      c.innerHTML=`<div class="cv-profile-sections"><section><h2>个人信息</h2><dl class="cv-info-list"><div><dt>真实姓名</dt><dd>${esc(p.legal_name)}</dd></div><div><dt>VIP 编号</dt><dd>${esc(p.public_code)}</dd></div><div><dt>负责员工</dt><dd>${esc(data.owner_name||p.owner_name||'待分配')}</dd></div></dl><a class="cw-button" target="_parent" href="/#security">管理账号与联系方式</a><p class="cv-detail-note">资料变更请联系负责员工。</p></section><section><h2>合同管理</h2><dl class="cv-info-list"><div><dt>合同核验</dt><dd>${hasCurrentContract(contracts)?'已核验且有效':contracts.length?'已过期或待核验':'暂无已核验合同'}</dd></div><div><dt>法大大签约</dt><dd>${esc(personalSigningStatus(data.signing))}</dd></div><div><dt>合同记录</dt><dd>${contracts.length} 份</dd></div></dl>${go('contracts','管理合同')}<p class="cv-detail-note">签约、有效期与归档文件。</p></section></div>${active?`<div class="cv-bank-status"><span>本人收款账户 <strong>${p.bank_last4?'尾号 '+esc(p.bank_last4):'未填写'}</strong> · ${p.bank_verified?'已核验':'待核验'}</span>${go('bank','管理收款账户')}</div>`:''}<div class="cw-inline">${data.feedback?go('feedback','处理反馈'):''}${active?go('invites','邀请伙伴'):''}<a href="/cw-terms.html" target="_blank" rel="noopener">合作说明</a></div>`;return;
+    }
+    if(tab==='contracts'){
+      const job=data.signing;
+      c.innerHTML=`<div class="cv-line"><h2>我的合同</h2>${go('profile','返回个人信息')}</div><div class="cv-signing-status"><div><strong>法大大签约</strong><p>${esc(personalSigningStatus(job))}</p></div>${personalSigningAction(job,contracts)}</div>`+personalList(['合同版本','核验 / 有效期','归档文件'],contracts.map(k=>`<tr><td>${esc(k.template_version)}</td><td>${when(k.verified_at)}<small>有效期至 ${when(k.expires_at)}</small></td><td>${/^[a-f0-9-]{36}$/i.test(k.fadada_signing_id||'')?`<a target="_blank" rel="noopener" href="/api/cw/signing/${encodeURIComponent(k.fadada_signing_id)}/pdf">下载已签 PDF</a>`:'暂无在线文件'}</td></tr>`),false,innerWidth<700?1:innerHeight<600?2:3);return;
+    }
+    if(tab==='sign-request'){
+      const job=data.signing;
+      if(!active||!job?.request_version||hasCurrentContract(contracts)){tab='contracts';return drawPersonalVIP(c,version);}
+      c.innerHTML='<h2>申请法大大线上签约</h2><p>提交后由公司准备合同，你可在合同页跟进实名和签署。</p>'+form('vip-sign-request',`<input type="hidden" name="template_version" value="${esc(job.request_version)}">`+(data.signing_phone_required?field('phone','当前账号已验证的手机号','tel','inputmode="tel" autocomplete="tel" maxlength="16"'):'')+'<label class="cw-check"><input type="checkbox" name="consent" required><span>我同意将实名姓名和已验证的联系方式提供给<a href="https://legal.fadada.com/policy/1597793752477609984" target="_blank" rel="noopener">法大大</a>，用于身份核验、签署和保存本协议的签署凭证。</span></label>','同意并申请签约')+go('contracts','返回合同');return;
     }
     if(tab==='feedback'){const chars=innerWidth<700?180:500;const text=String(data.feedback||'暂无处理反馈');const chunks=Array.from({length:Math.ceil(text.length/chars)},(_,i)=>text.slice(i*chars,(i+1)*chars));c.innerHTML='<h2>处理反馈</h2>'+personalList(['反馈'],chunks.map(s=>`<tr><td>${esc(s)}</td></tr>`),false,1)+go('overview','返回进度');return;}
     if(tab==='rules'){c.innerHTML=`<h2>充值与退款规则</h2><p>累计有效实付满 ¥100 后，由负责员工核验开通。</p><p>可多次充值；赠送、已退款金额不计入，处理中退款核实后再计算。</p><p>开通后首次 ¥100 实付作为激活款，可用于消费，不支持自助退款。特殊诉求请联系支持。</p>${go('overview','返回我的 VIP')}`;return;}
     if(!active){tab='overview';return drawPersonalVIP(c,version);}
     const verified=hasCurrentContract(contracts),trial=hasPromotionTrial(p),eligible=verified||trial;
     if(tab==='codes'){
-      c.innerHTML=`<div class="cv-line"><h2>推广码 <small>${codes.length} / 50</small></h2>${eligible&&codes.length<50?go('new-code','生成推广码'):''}</div>${!eligible?'<p>完成合同与实名核验后，可生成推广码。<button data-tab="profile">查看合作资料</button></p>':trial&&!verified?`<p>试用至 ${when(p.promotion_trial_until)}</p>`:''}`+personalList(['推广码','客户价格 / 提成','状态','操作'],codes.map(k=>{const status=promotionStatus(k,true,verified,trial);return `<tr><td>${esc(k.name)}<small>${esc(k.code)}</small></td><td>${discount(k.customer_price_percent)} / ${k.is_self_code?'自购无提成':(k.customer_price_percent-40)+'%'}</td><td>${status}</td><td>${status==='已生效'?`<button data-copy="${esc(location.origin+payLink(k.code))}">复制链接</button><a target="_blank" href="/api/cw/codes/${encodeURIComponent(k.id)}/qr">二维码</a>`:'—'}</td></tr>`;}));return;
+      c.innerHTML=`<div class="cv-line"><h2>推广码 <small>${codes.length} / 50</small></h2>${eligible&&codes.length<50?go('new-code','生成推广码'):''}</div>${!eligible?'<p>完成合同与实名核验后，可生成推广码。<button data-tab="profile">查看个人信息与合同</button></p>':trial&&!verified?`<p>试用至 ${when(p.promotion_trial_until)}</p>`:''}`+personalList(['推广码','客户价格 / 提成','状态','操作'],codes.map(k=>{const status=promotionStatus(k,true,verified,trial);return `<tr><td>${esc(k.name)}<small>${esc(k.code)}</small></td><td>${discount(k.customer_price_percent)} / ${k.is_self_code?'自购无提成':(k.customer_price_percent-40)+'%'}</td><td>${status}</td><td>${status==='已生效'?`<button data-copy="${esc(location.origin+payLink(k.code))}">复制链接</button><a target="_blank" href="/api/cw/codes/${encodeURIComponent(k.id)}/qr">二维码</a>`:'—'}</td></tr>`;}));return;
     }
     if(tab==='new-code'){c.innerHTML='<h2>生成推广码</h2><p>符合推广条件后，生成即生效，无需逐个审批。提成 = 客户价格比例 − 40%。客户实际使用后解锁，月结确认后可提现。</p>'+(eligible&&codes.length<50?form('code',field('name','推广码名称','text','maxlength="60"')+field('customer_price_percent','客户价格比例（50 表示五折）','number','min="50" max="100" value="50"'),'生成并启用'):'<p>当前未具备生成条件。</p>')+go('codes','返回推广码');return;}
     if(tab==='events'){
@@ -255,7 +278,6 @@
       c.innerHTML=`<h2>核对提现申请</h2><div class="cv-profile"><p>申请金额 · 税前 <strong>${money(t.available_fen)}</strong></p><p>本人收款账户 <strong>尾号 ${esc(p.bank_last4||'—')}</strong></p></div><p>提交全部可提现佣金；审核后确认代扣税和税后金额，可在提现记录查看进度。</p><div class="cw-inline"><button class="cw-primary" data-withdraw ${!p.bank_verified||Number(t.available_fen)<=0?'disabled':''}>确认提交提现申请</button>${go('payouts','返回提现记录')}</div>`;return;
     }
     if(tab==='bank'){c.innerHTML='<h2>本人收款账户</h2>'+form('bank',field('holder','本人姓名','text',`value="${esc(p.legal_name)}" maxlength="60"`)+field('bank','开户银行及支行','text','maxlength="120"')+field('number','银行卡号','text','inputmode="numeric" autocomplete="off" maxlength="32"')+'<label class="cw-check"><input type="checkbox" required><span>我已阅读<a href="/cw-terms.html#privacy" target="_blank" rel="noopener">资料处理说明</a>，单独同意为佣金结算处理本人银行卡信息。</span></label>','提交核验')+go('profile','返回资料');return;}
-    if(tab==='contracts'){c.innerHTML='<h2>合同记录</h2>'+personalList(['合同版本','核验时间','有效期'],contracts.map(k=>`<tr><td>${esc(k.template_version)}</td><td>${when(k.verified_at)}</td><td>${when(k.expires_at)}</td></tr>`))+go('profile','返回资料');return;}
     if(tab==='invites'){c.innerHTML='<h2>邀请伙伴</h2><p>伙伴独立申请与签约，邀请关系不产生佣金。</p>'+`<button data-copy="${esc(location.origin+'/promotion/vip.html?invite='+p.public_code)}">复制邀请链接</button>`+personalList(['伙伴编号','加入时间','状态'],(data.invited||[]).map(i=>`<tr><td>${esc(i.public_code)}</td><td>${when(i.created_at)}</td><td>${esc(labels[i.status])}</td></tr>`));}
   }
 
@@ -765,6 +787,14 @@
         path = '/api/cw/bank';
         body = { ...b, consent_version: 'cw-bank-v1' };
       }
+      if(action==='vip-sign-request'){
+        path='/api/cw/signing/request';body={consent:b.consent==='on',template_version:b.template_version,phone:b.phone};
+      }
+      if(action==='vip-sign-open'){
+        const result=await api('/api/cw/signing/'+encodeURIComponent(b.signing_id)+'/open',{});
+        const target=new URL(result.url);if(target.protocol!=='https:')throw Error('签署链接无效，请刷新后重试。');
+        window.top.location.assign(target.href);return;
+      }
       if (action === 'promotion-trial') {
         path = base + '/' + selected + '/promotion-trial';
         body = { enabled: b.enabled === 'true', reason: b.reason };
@@ -834,6 +864,7 @@
         body = { ...b, bank_result_verified: true };
       }
       await api(path, body);
+      if(compactVIP&&action==='vip-sign-request')tab='contracts';
       if(compactVIP&&action==='apply')tab='overview';
       if(compactVIP&&action==='code'){tab='codes';personalPage=0;}
       if(compactVIP&&action==='bank')tab='profile';
@@ -842,6 +873,7 @@
         : action === 'activation-exception-decision' ? (submit.value === 'approved' ? '已按原单特批开通 VIP。' : '原单特批已退回。')
         : action === 'promotion-trial' ? (body.enabled ? '已开通 7 天推广试用。' : '推广试用已撤回。')
         : action === 'reject' ? '申请已标记为未通过，原因已反馈给申请人。'
+        : action === 'vip-sign-request' ? '签约申请已提交，请在合同页查看进度。'
         : action === 'code' ? '推广码已生成并生效，可以复制推广链接。'
         : '已保存。';
     } catch (err) {

@@ -12,7 +12,7 @@ function harness(status='active',options={}){
  return {ctx,nodes,data,async draw(tab){ctx.tab=tab;await vm.runInContext("drawPersonalVIP($('#cw-content'),viewVersion)",ctx);return node('#cw-content').innerHTML;}};
 }
 test('active partner has one five-section navigation, applicants have their progress and profile',async()=>{
- const active=harness();await active.draw('profile');assert.match(active.nodes.get('#cw-nav').innerHTML,/概览.*推广码.*推广明细.*佣金与提现.*合作资料/);
+ const active=harness();await active.draw('profile');assert.match(active.nodes.get('#cw-nav').innerHTML,/概览.*推广码.*推广明细.*佣金与提现.*个人信息与合同/);
  for(const status of ['pending','confirmed','suspended','rejected']){const applicant=harness(status);await applicant.draw('profile');assert.match(applicant.nodes.get('#cw-nav').innerHTML,/申请进度.*申请资料/);assert.doesNotMatch(applicant.nodes.get('#cw-nav').innerHTML,/佣金与提现/);}
 });
 test('promotion generation still requires eligibility; creation does not bypass verification',async()=>{
@@ -36,4 +36,15 @@ test('VIP status messages must come from the current same-origin VIP frame',()=>
  let listener;const frame={contentWindow:{}};const label={textContent:''};const ctx=vm.createContext({me:{user:{id:'u1'}},host:{querySelector:s=>s.startsWith('iframe')?frame:label},location:{origin:'https://example.test'},window:{addEventListener:(_,fn)=>listener=fn}});vm.runInContext(labelSource,ctx);
  const event={origin:'https://other.test',source:frame.contentWindow,data:{type:'personal-vip-status',status:'active'}};listener(event);assert.equal(label.textContent,'');listener({...event,origin:'https://example.test',source:{}});assert.equal(label.textContent,'');listener({...event,origin:'https://example.test'});assert.equal(label.textContent,'VIP 工作台');
  listener({...event,origin:'https://example.test',data:{type:'personal-vip-status',status:'confirmed'}});assert.equal(label.textContent,'VIP 申请进度');ctx.me={user:{id:'u2'}};assert.equal(vm.runInContext('personalVipLabel()',ctx),'去申请 VIP');
+});
+
+test('commission bars use one scale, retain numbers, and handle an empty balance',()=>{
+ const h=harness();h.ctx.totals={expected_fen:12800,unlocked_fen:6400,available_fen:3200};
+ const html=vm.runInContext('commissionBars(totals)',h.ctx);assert.match(html,/width:100%/);assert.match(html,/width:50%/);assert.match(html,/width:25%/);assert.match(html,/不相加/);assert.match(html,/¥32.00/);
+ const empty=vm.runInContext('commissionBars({})',h.ctx);assert.doesNotMatch(empty,/NaN|Infinity/);assert.equal((empty.match(/width:0%/g)||[]).length,3);
+});
+test('contracts distinguish unavailable signing, real pending tasks and archived files',async()=>{
+ const off=harness();assert.match(await off.draw('contracts'),/暂未开放/);assert.doesNotMatch(await off.draw('contracts'),/去法大大实名并签署|下载已签 PDF/);
+ const waiting=harness('active',{data:{signing:{id:'task',status:'pending_person',mode:'sandbox'}}});assert.match(await waiting.draw('contracts'),/内部试签.*待本人实名签署/);assert.match(await waiting.draw('contracts'),/去法大大实名并签署/);
+ const archived=harness('suspended',{data:{contracts:[{template_version:'v1',fadada_signing_id:'12345678-1234-1234-1234-123456789abc',verified_at:'2026-11-01',expires_at:'2099-01-01'}]}});assert.match(await archived.draw('contracts'),/下载已签 PDF/);
 });
