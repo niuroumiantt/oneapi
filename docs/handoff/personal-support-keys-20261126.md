@@ -4,7 +4,8 @@
 
 - User approved billing publication, then requested support simplification, employee Key cap editing, per-call usage and official payment logos while continuing public testing.
 - Billing release `572982c7ff2c6c780433925526bf1ce05c0c2527` was deployed and verified on public `release.json` and authenticated browser: recharge, balance, consumption empty state. No payment submitted.
-- This follow-up adds the changes below. Verify the final release receipt before claiming this follow-up is live.
+- Follow-up `df185f894a82cce7dd82279071e20419db69e806` deployed successfully; server API and static release probes match, container healthy. Release directory `/srv/oneapi-data/oneapi-cutover-q72dymap/releases/df185f894a82.ahDR5V`; local deployment log `/private/tmp/oneapi-support-release.log`.
+- Authenticated public browser verified both payment assets loaded and displayed, support form/tabs, and usage call-details tab/empty state. Existing VIP test account has no real calls; populated data and employee cap changes were tested locally, not on real customer records.
 
 ## Changes
 
