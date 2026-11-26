@@ -57,6 +57,7 @@ http.createServer(async(req,res)=>{
  if(api==='business/bank-transfers')return json({entries:[transfer],notices:[],current_subject:'demo',can_self_review:staff.admin});
  if(api==='business/supplier-payments')return json({payments:[],suppliers:[]});
  if(api==='payments/orders')return json({orders:[],requests:[]});
+ if(api==='cw')return json({enabled:true,administrator:staff.admin,partners:[],invite_codes:[],owners:[]});
  if(api==='business/acquisition')return json({administrator:staff.admin,owners:[{subject:'demo',name:'示例员工'}],partners:[],grants:[],codes:[],orders:[],vip_orders:[],customers:[],commissions:[],stats:{}});
  if(api==='business/discounts')return json({grants:[],models:[],campaigns:[],customers,segments:[],admin:staff.admin});
  if(api==='business/suppliers')return json({suppliers:[]});

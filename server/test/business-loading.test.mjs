@@ -53,6 +53,17 @@ test('employee home distinguishes a failed support read from an empty queue',asy
 test('employee home never shows company tasks even with legacy finance flags and escapes content',async()=>{
  const a=app(async p=>response(p.includes('dashboard')?{staff:{role:'finance',finance:true,name:'财务'},counts:{tickets:2,bank_transfers_pending:1}}:p.endsWith('bank-transfers')?record:{tickets:[{id:'t1',subject:'<script>bad()</script>',name:'Example',status:'open',created_at:'2026-11-26',tier:'first_line'}]}),'');
  await settle();a.location.hash='#home';a.events.hashchange();await settle();
- assert.doesNotMatch(a.html(),/对公到账待复核|经营损益|上游供应商/);assert.match(a.html(),/招揽客户/);
+ assert.doesNotMatch(a.html(),/对公到账待复核|经营损益|上游供应商/);assert.match(a.html(),/客户推广/);
  assert.match(a.html(),/&lt;script&gt;/);assert.doesNotMatch(a.html(),/<script>/);
+});
+
+test('employee promotion channels keep overview, codes and applications separate',async()=>{
+ const data={invite_codes:[{code:'VIP_INVITE',max_uses:5,used_count:1,status:'active'}],owners:[],partners:[{id:'vip1',legal_name:'VIP_ONLY',status:'confirmed',discount_pending:1,owner_subject:'me'}],codes:[{id:'code1',partner_id:'vip1',legal_name:'VIP_ONLY',code:'VIP_CODE',state:'active',customer_price_percent:50,commission_bps:1000}],vip_orders:[],grants:[{id:'g1',promo_code:'CUSTOMER_CODE',name:'Customer grant',status:'pending',state:'pending',customer_price_percent:40,created_by:'me'}],orders:[{account_id:'a1',customer_name:'CUSTOMER_ONLY',promo_code:'CUSTOMER_CODE',status:'paid',amount_fen:10000,created_by:'me'}]};
+ const a=app(async p=>response(p.includes('dashboard')?{staff:{role:'operations',admin:false},counts:{}}:data),'');
+ await settle();
+ for(const page of ['customeroverview','direct','customerapplications']){a.location.hash='#'+page;a.events.hashchange();await settle();assert.match(a.html(),/CUSTOMER_CODE/);assert.doesNotMatch(a.html(),/VIP_ONLY|VIP_CODE|商务管理/);}
+ for(const page of ['vipoverview','promotions','vipapplications']){a.location.hash='#'+page;a.events.hashchange();await settle();assert.match(a.html(),/VIP_ONLY/);assert.doesNotMatch(a.html(),/CUSTOMER_ONLY|CUSTOMER_CODE|商务管理/);}
+ a.location.hash='#vipcodes';a.events.hashchange();await settle();assert.match(a.html(),/VIP_INVITE/);assert.doesNotMatch(a.html(),/CUSTOMER_CODE|VIP_CODE/);
+ const nav=a.nodes.get('#nav').innerHTML;assert.match(nav,/<summary>客户推广<\/summary>/);assert.match(nav,/<summary>VIP推广<\/summary>/);assert.doesNotMatch(nav,/招揽/);
+ a.location.hash='#approvals';a.events.hashchange();await settle();assert.match(a.html(),/CUSTOMER_CODE/);assert.doesNotMatch(a.html(),/VIP_ONLY/);
 });

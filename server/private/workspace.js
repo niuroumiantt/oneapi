@@ -1,5 +1,4 @@
-/* Business console. Five groups: overview, finance, supply chain, products, customer support.
-   Finance pages and cost figures only render for staff with the finance switch; the server enforces the same rule. */
+/* Employee customer/VIP promotion workflows and a separately authorized owner console. */
 (() => {
 'use strict';
 const $ = s => document.querySelector(s);
@@ -15,15 +14,20 @@ const OWNER_NAV = [
  ['经营分析', [['overview','经营概况'], ['pnl','经营损益']], 'finance']
 ];
 const EMPLOYEE_NAV = [
- ['员工工作台', [['home','今日工作'],['direct','招揽客户'],['cw','招揽 VIP'],['customers','我的客户'],['tickets','客户服务'],['approvals','我的申请']]]
+ ['员工工作台', [['home','今日工作']]],
+ ['客户推广', [['customeroverview','客户概览'],['direct','客户推广码'],['customerapplications','我的申请']]],
+ ['VIP推广', [['vipoverview','VIP概览'],['vipcodes','VIP推广码'],['vipapplications','我的申请']]],
+ ['客户服务', [['customers','我的客户'],['tickets','客户服务']]]
 ];
 const ownerSurface = new URLSearchParams(location.search||'').get('surface')==='owner';
 const NAV = ownerSurface ? OWNER_NAV : EMPLOYEE_NAV;
-const employeePages = new Set(['home','acquisition','direct','cw','customers','tickets','answers','approvals','promotions']);
+const employeePages = new Set([...EMPLOYEE_NAV.flatMap(([,items])=>items.map(([key])=>key)),'cw','answers','promotions']);
 const PAGES = Object.fromEntries(OWNER_NAV.flatMap(([, items, gate]) => items.map(([key, label]) => [key, { label, gate }])));
-if(!ownerSurface)for(const [key,label] of EMPLOYEE_NAV[0][1])PAGES[key].label=label;
+if(!ownerSurface){for(const [,items] of EMPLOYEE_NAV)for(const [key,label] of items)PAGES[key]={label};PAGES.cw={label:'VIP客户跟进'};}
+const promotionChannel = page => ['customeroverview','direct','customerapplications'].includes(page)?'customer':['vipoverview','cw','vipcodes','promotions','vipapplications'].includes(page)?'vip':null;
 const SUBTITLES = {
- home:'招揽客户，跟进 VIP，处理客户服务。',
+ home:'客户推广、VIP推广与客户服务。',
+ vipcodes:'邀请客户申请 VIP，查看自己发出的推广码。',customeroverview:'查看客户推广带来的客户和订单。',vipoverview:'查看负责的 VIP、开通进度和推广情况。',customerapplications:'客户推广的特殊折扣申请与处理记录。',vipapplications:'VIP 的付款折扣与开通特批申请。',
  acquisition:'查看负责客户的进度、实付和待办。',cw:'招募邀请码、电话面试、付款核验与 VIP 客户档案。',direct:'员工直接招募最终用户，不产生 VIP 返佣。',promotions:'VIP 推荐客户的充值、使用与返佣。',approvals:'特殊折扣与原单开通特批，由管理员处理。',
  overview: '收入、成本、利润和今天要处理的事。', pnl: '按月看收入、成本和毛利，按产品、客户、上游拆开。', payments: '客户付款订单与原路退款。',
  transfers: '对公转账：财务登记实付与官价面额，复核后入账。',
@@ -31,8 +35,11 @@ const SUBTITLES = {
  suppliers: '上游档案、编码、联系人和采购成本。', customers: '下游客户档案、编码、分群和跟进记录。', upgrades: '个人账号升级为企业账号的审核。',
  products: '在售产品的价格、用量和上架流程。', discounts: '促销活动，以及对客户、分群授予的折扣。', tickets: '一线支持：回复、分类、转技术。', answers: '标准问答，回复工单时一键引用。'
 };
-const ALIASES = { accounts: 'customers', reports: 'products', upstream: 'products', finance: 'pnl' };
+if(!ownerSurface)Object.assign(SUBTITLES,{direct:'生成与管理自己的客户推广码。',promotions:'查看负责 VIP 的推广码与使用情况。'});
+const ALIASES = { ...(!ownerSurface?{acquisition:'customeroverview',approvals:'customerapplications'}:{}), accounts: 'customers', reports: 'products', upstream: 'products', finance: 'pnl' };
 const SOURCES = { home:()=> 'business/support', acquisition:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),direct:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),promotions:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),approvals:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''), pnl: () => 'business/finance?month=' + (ui.month || ''), payments: () => 'payments/orders', transfers: () => 'business/bank-transfers', invoices: () => 'business/invoices', payables: () => 'business/supplier-payments', suppliers: () => 'business/suppliers', customers: () => 'business/customers', discounts: () => 'business/discounts', tickets: () => 'business/support', answers: () => 'business/support' };
+for(const page of ['customeroverview','vipoverview','customerapplications','vipapplications'])SOURCES[page]=SOURCES.acquisition;
+SOURCES.vipcodes=()=> 'cw';
 const LABEL = {
  stage: { new: '新客户', following: '跟进中', key: '重点客户', risk: '流失风险', lost: '已流失' },
  kind: { enterprise: '企业', personal: '个人' },
@@ -192,8 +199,8 @@ const workItems = [
  ['tickets','tickets_technical','等待技术反馈','查看已转交技术的工单','support'],
  ['cw','vip_pending','VIP 申请待跟进','查看申请资料，安排面试与跟进','operations'],
  ['cw','vip_confirmed','VIP 待核验开通','跟进付款进度，按已定条件完成开通','operations'],
- ['approvals','vip_discount_pending','VIP 折扣申请进度','查看老板的审批结果','operations'],
- ['approvals','vip_activation_exception_pending','原单特批申请进度','补充材料，跟进处理结果','operations'],
+ [ownerSurface?'approvals':'vipapplications','vip_discount_pending','VIP 折扣申请进度','查看老板的审批结果','operations'],
+ [ownerSurface?'approvals':'vipapplications','vip_activation_exception_pending','原单特批申请进度','补充材料，跟进处理结果','operations'],
  ['upgrades','upgrades','企业认证待审核','核对企业资料与联系人','operations'],
  ['transfers','bank_transfers_pending','对公到账待复核','核对到账记录，再完成入账','finance'],
  ['invoices','invoices_requested','发票申请待处理','核对抬头与可开票金额','finance'],
@@ -208,7 +215,7 @@ pages.home = d => {
  const pending=d.tickets.filter(t=>t.status!=='closed').sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,5);
  const queue=rows.map(([page,key,title,hint])=>`<button class="work-item" data-work-page="${page}" data-work-key="${key}"><span><strong>${title}</strong><small>${hint}</small></span><b>${esc(c[key])}<span class="work-arrow" aria-hidden="true"> →</span></b></button>`).join('');
  return `<div class="employee-intro"><p>${esc(staff.name||'同事')}，你好。<span>${esc(ownerSurface?'老板': '客户拓展与服务')}</span></p><form id="employeeSearch" class="employee-search"><label for="employeeQuery">查找客户</label><div><input id="employeeQuery" type="search" placeholder="客户名称、编码或邮箱" required><button type="submit">搜索</button></div></form></div>`
- + `<div class="work-columns"><section class="work-queue"><div class="heading"><h2>待处理事项</h2><small>${ownerSurface?'全公司':'我负责的客户'}</small></div>${queue||'<div class="empty">目前没有待处理事项。可从左侧进入业务记录。</div>'}</section><section class="work-shortcuts"><div class="heading"><h2>常用入口</h2></div>${(ownerSurface?['overview','customers','approvals']:['direct','cw','customers']).map(key=>`<button data-go="${key}">${PAGES[key].label}<span aria-hidden="true">→</span></button>`).join('')}<p>${ownerSurface?'公司经营与审批由老板身份处理。':'只处理自己负责的客户。特殊事项提交申请，由老板审批。'}</p></section></div>`
+ + `<div class="work-columns"><section class="work-queue"><div class="heading"><h2>待处理事项</h2><small>${ownerSurface?'全公司':'我负责的客户'}</small></div>${queue||'<div class="empty">目前没有待处理事项。可从左侧进入业务记录。</div>'}</section><section class="work-shortcuts"><div class="heading"><h2>常用入口</h2></div>${(ownerSurface?['overview','customers','approvals']:['customeroverview','vipoverview','customers']).map(key=>`<button data-go="${key}">${!ownerSurface&&key==='customeroverview'?'客户推广':!ownerSurface&&key==='vipoverview'?'VIP推广':PAGES[key].label}<span aria-hidden="true">→</span></button>`).join('')}<p>${ownerSurface?'公司经营与审批由老板身份处理。':'只处理自己负责的客户。特殊事项提交申请，由老板审批。'}</p></section></div>`
  + section('最近未结工单',table(['问题 / 客户','处理状态','提交时间','操作'],pending.map(t=>`<tr><td><strong>${esc(t.subject)}</strong><small>${esc(t.name)}${t.customer_code?' · '+esc(t.customer_code):''}</small></td><td>${pill('ticket',t.status)}${t.tier==='technical'?'<small>等待技术反馈</small>':''}</td><td>${when(t.created_at)}</td><td><button data-act="ticket" data-id="${att(t.id)}">处理</button></td></tr>`).join(''),'目前没有未结工单。'),'<button class="link" data-work-page="tickets" data-work-key="all">查看全部工单 →</button>');
 };
 
@@ -333,10 +340,10 @@ pages.tickets = d => {
 pages.answers = d => section('快捷问答库', table(['分类', '问题', '标准答复', '对客户公开', ['引用次数'], '操作'], d.answers.map(a => `<tr><td>${esc(LABEL.category[a.category])}</td><td><b>${esc(a.question)}</b></td><td style="white-space:pre-wrap">${esc(a.answer.length > 160 ? a.answer.slice(0, 160) + '…' : a.answer)}</td><td>${a.published ? '<span class="pill good">公开</span>' : '<span class="pill off">仅内部</span>'}</td>${num(a.use_count)}<td>${ownerSurface?`<button data-act="answer-edit" data-id="${att(a.id)}">编辑</button> <button data-act="answer-archive" data-id="${att(a.id)}">归档</button>`:'可在工单回复中引用'}</td></tr>`).join(''), '还没有标准问答。先把最常被问到的三五个问题写进来。'), ownerSurface?'<button class="primary" data-act="answer-edit">新建问答</button>':'', '回复工单时可以一键引用；勾选“对客户公开”的问答会显示在客户面板的“支持 → 常见问题”里。');
 
 // Business acquisition has one stable navigation surface across both sales channels.
-const acquisitionPages = [['acquisition','客户进度'],['cw','招揽 VIP'],['direct','招揽客户'],['promotions','VIP 客户推广情况'],['approvals',ownerSurface?'审批中心':'我的申请']];
+const acquisitionPages = [['acquisition','客户进度'],['cw','VIP推广'],['direct','客户推广'],['promotions','VIP 客户推广情况'],['approvals',ownerSurface?'审批中心':'我的申请']];
 const acquisitionTabs = page => `<div class="acquisition-tabs" role="navigation" aria-label="商务管理">${acquisitionPages.map(([key,label])=>`<button data-go="${key}" aria-current="${page===key?'page':'false'}">${label}</button>`).join('')}</div>`;
 const scopeRows=(rows,ownerKey='owner_subject')=>rows.filter(x=>(!ui.acquisitionOwner||x[ownerKey]===ui.acquisitionOwner)&&(!ui.acquisitionQuery||Object.values(x).some(v=>String(v??'').toLowerCase().includes(ui.acquisitionQuery.toLowerCase()))));
-const scopeControls=d=>`<div class="acquisition-filter">${d.administrator?`<label>负责员工<select id="acquisitionOwner"><option value="">全部员工</option>${d.owners.map(o=>`<option value="${att(o.subject)}" ${ui.acquisitionOwner===o.subject?'selected':''}>${esc(o.name)}</option>`).join('')}</select></label>`:'<p>仅显示你负责的客户和发出的直营码。</p>'}<label>查找客户、码或商户订单号<input id="acquisitionQuery" type="search" value="${att(ui.acquisitionQuery||'')}" placeholder="输入关键词，按回车查找"></label><button data-act="acquisition-search">查找</button></div>${d.truncated?'<p class="notice">每类最多显示最近 500 条，当前结果不是全量统计。</p>':''}`;
+const scopeControls=d=>`<div class="acquisition-filter">${d.administrator?`<label>负责员工<select id="acquisitionOwner"><option value="">全部员工</option>${d.owners.map(o=>`<option value="${att(o.subject)}" ${ui.acquisitionOwner===o.subject?'selected':''}>${esc(o.name)}</option>`).join('')}</select></label>`:`<p>${promotionChannel(currentPage())==='vip'?'仅显示你负责的 VIP 及其推广记录。':'仅显示你的客户推广记录与推广码。'}</p>`}<label>查找客户、码或商户订单号<input id="acquisitionQuery" type="search" value="${att(ui.acquisitionQuery||'')}" placeholder="输入关键词，按回车查找"></label><button data-act="acquisition-search">查找</button></div>${d.truncated?'<p class="notice">每类最多显示最近 500 条，当前结果不是全量统计。</p>':''}`;
 const vipButton=p=>`<button data-act="vip-open" data-id="${att(p.id||p.partner_id)}">${esc(p.legal_name)}<small>${esc(p.public_code||'查看档案')}</small></button>`;
 const total=(rows,key)=>rows.reduce((sum,x)=>sum+Number(x[key]||0),0);
 pages.acquisition = d => {
@@ -349,13 +356,13 @@ pages.acquisition = d => {
 pages.cw=()=>`<iframe class="acquisition-vip" title="VIP 招募与客户档案" src="/promotion/vip.html?staff=1&amp;embedded=1${ui.vipPartner?'&amp;partner='+encodeURIComponent(ui.vipPartner):''}"></iframe>`;
 pages.direct=d=>{
  const gs=scopeRows(d.grants,'created_by'),os=scopeRows(d.orders,'created_by');
- if(ui.acquisitionQuery&&os.some(o=>o.out_trade_no===ui.acquisitionQuery))ui.directView='orders';
+ if(ownerSurface&&ui.acquisitionQuery&&os.some(o=>o.out_trade_no===ui.acquisitionQuery))ui.directView='orders';
  const customers=Object.values(os.reduce((map,o)=>{const x=map[o.account_id]||={...o,paid:0,refunded:0,codes:new Set(),owners:new Set()};x.codes.add(o.promo_code);x.owners.add(o.owner_name);if(o.status==='paid'){x.paid+=Number(o.amount_fen);x.refunded+=Number(o.refunded_fen);}return map;},{}));
- const tabs=`<div class="acquisition-tabs"><button data-act="direct-view" data-view="codes" aria-current="${!ui.directView||ui.directView==='codes'?'page':'false'}">直营折扣码</button><button data-act="direct-view" data-view="customers" aria-current="${ui.directView==='customers'?'page':'false'}">直营客户</button><button data-act="direct-view" data-view="orders" aria-current="${ui.directView==='orders'?'page':'false'}">使用订单</button></div>`;
- if(ui.directView==='customers')return scopeControls(d)+tabs+table(['客户','负责员工','使用折扣码','累计实付','已退款'],customers.map(o=>`<tr><td>${esc(o.customer_name)}</td><td>${esc([...o.owners].join('、'))}</td><td>${esc([...o.codes].join('、'))}</td><td>${fen(o.paid)}</td><td>${fen(o.refunded)}</td></tr>`).join(''),'客户使用直营码下单后，会自动显示在这里。');
- if(ui.directView==='orders')return scopeControls(d)+tabs+table(['商户订单号／客户','直营折扣码','负责员工','实付／到账额度','已退款','状态'],os.map(o=>`<tr><td>${esc(o.out_trade_no)}<small>${esc(o.customer_name)}</small></td><td>${esc(o.promo_code)}<small>${discountText(o.customer_price_percent)} · 无 VIP 返佣</small></td><td>${esc(o.owner_name)}</td><td>${fen(o.amount_fen)} / ${fen(o.face_fen)}</td><td>${fen(o.refunded_fen)}</td><td>${pill('order',o.status)}<small>${when(o.paid_at||o.created_at)}</small></td></tr>`).join(''),'暂无使用订单。');
+ const tabs=ownerSurface?`<div class="acquisition-tabs"><button data-act="direct-view" data-view="codes" aria-current="${!ui.directView||ui.directView==='codes'?'page':'false'}">直营折扣码</button><button data-act="direct-view" data-view="customers" aria-current="${ui.directView==='customers'?'page':'false'}">直营客户</button><button data-act="direct-view" data-view="orders" aria-current="${ui.directView==='orders'?'page':'false'}">使用订单</button></div>`:'';
+ if(ownerSurface&&ui.directView==='customers')return scopeControls(d)+tabs+table(['客户','负责员工','使用折扣码','累计实付','已退款'],customers.map(o=>`<tr><td>${esc(o.customer_name)}</td><td>${esc([...o.owners].join('、'))}</td><td>${esc([...o.codes].join('、'))}</td><td>${fen(o.paid)}</td><td>${fen(o.refunded)}</td></tr>`).join(''),'客户使用直营码下单后，会自动显示在这里。');
+ if(ownerSurface&&ui.directView==='orders')return scopeControls(d)+tabs+table(['商户订单号／客户','直营折扣码','负责员工','实付／到账额度','已退款','状态'],os.map(o=>`<tr><td>${esc(o.out_trade_no)}<small>${esc(o.customer_name)}</small></td><td>${esc(o.promo_code)}<small>${discountText(o.customer_price_percent)} · 无 VIP 返佣</small></td><td>${esc(o.owner_name)}</td><td>${fen(o.amount_fen)} / ${fen(o.face_fen)}</td><td>${fen(o.refunded_fen)}</td><td>${pill('order',o.status)}<small>${when(o.paid_at||o.created_at)}</small></td></tr>`).join(''),'暂无使用订单。');
  const size=innerHeight<560?3:5,total=Math.max(1,Math.ceil(gs.length/size));ui.codePage=Math.max(0,Math.min(ui.codePage||0,total-1));
- return scopeControls(d)+section('客户推广码',table(['推广码 / 有效期','客户实付','实付消耗 / 退款','操作'],gs.slice(ui.codePage*size,(ui.codePage+1)*size).map(g=>`<tr><td><b>${esc(g.promo_code)}</b><small>${esc(g.name)} · ${discountText(g.customer_price_percent)} · ${pill('discount',g.state)}</small><small>${dayOf(g.starts_at)} – ${lastDay(g.ends_at)}</small></td><td>${fen(g.paid_fen)}</td><td>${fen(g.used_fen||0)}<small>退款 ${fen(g.refunded_fen)}</small></td><td><button data-act="code-activity" data-id="${att(g.id)}" data-kind="direct">收支明细</button>${g.state==='active'?` <button data-act="direct-link" data-id="${att(g.id)}">复制链接</button> <a href="/api/staff/business/direct-codes/${att(g.id)}/qr" download="推广码.svg">二维码</a> <button data-act="discount" data-id="${att(g.id)}" data-action="revoke">停用</button>`:''}</td></tr>`).join(''),'还没有推广码。'),'<button class="primary" data-act="direct-new">生成客户推广码</button>')+`<div class="code-pages"><span>共 ${gs.length} 个码 · ${ui.codePage+1} / ${total} 页</span><button data-act="code-page" data-step="-1" ${ui.codePage===0?'disabled':''}>上一页</button><button data-act="code-page" data-step="1" ${ui.codePage===total-1?'disabled':''}>下一页</button></div>`;
+ return scopeControls(d)+section('客户推广码',table(['推广码 / 有效期','客户实付','实付消耗 / 退款','操作'],gs.slice(ui.codePage*size,(ui.codePage+1)*size).map(g=>`<tr><td><b>${esc(g.promo_code)}</b><small>${esc(g.name)} · ${discountText(g.customer_price_percent)} · ${pill('discount',g.state)}</small><small>${dayOf(g.starts_at)} – ${lastDay(g.ends_at)}</small></td><td>${fen(g.paid_fen)}</td><td>${fen(g.used_fen||0)}<small>退款 ${fen(g.refunded_fen)}</small></td><td><button data-act="code-activity" data-id="${att(g.id)}" data-kind="direct">收支明细</button>${g.state==='pending'?` <button data-go="${ownerSurface?'approvals':'customerapplications'}">查看申请</button>`:''}${g.state==='active'?` <button data-act="direct-link" data-id="${att(g.id)}">复制链接</button> <a href="/api/staff/business/direct-codes/${att(g.id)}/qr" download="推广码.svg">二维码</a> <button data-act="discount" data-id="${att(g.id)}" data-action="revoke">停用</button>`:''}</td></tr>`).join(''),'还没有推广码。'),'<button class="primary" data-act="direct-new">生成客户推广码</button>')+`<div class="code-pages"><span>共 ${gs.length} 个码 · ${ui.codePage+1} / ${total} 页</span><button data-act="code-page" data-step="-1" ${ui.codePage===0?'disabled':''}>上一页</button><button data-act="code-page" data-step="1" ${ui.codePage===total-1?'disabled':''}>下一页</button></div>`;
 };
 pages.promotions=d=>{
  const codes=scopeRows(d.codes),size=innerHeight<560?3:5,total=Math.max(1,Math.ceil(codes.length/size));ui.codePage=Math.max(0,Math.min(ui.codePage||0,total-1));
@@ -363,12 +370,33 @@ pages.promotions=d=>{
 };
 pages.approvals=d=>scopeControls(d)+section(d.administrator?'待我审批':'我提交的审批',table(['业务','客户或折扣码','事项','操作'],scopeRows(d.partners).filter(p=>p.discount_pending||p.exception_pending).map(p=>`<tr><td>VIP 招募</td><td>${esc(p.legal_name)}<small>${esc(p.public_code)}</small></td><td>${p.discount_pending?'本人付款码特殊折扣':''}${p.discount_pending&&p.exception_pending?'、':''}${p.exception_pending?'按原单特批开通':''}</td><td>${vipButton(p)}</td></tr>`).join('')+scopeRows(d.grants,'created_by').filter(g=>g.state==='pending').map(g=>`<tr><td>员工直营</td><td>${esc(g.promo_code)}<small>${esc(g.created_by_name)}</small></td><td>${discountText(g.customer_price_percent)}<small>单笔门槛 ${fen(g.min_cash_fen||0)} · ${g.non_refundable?'不可自助退款':'正常退款规则'}</small><small>${esc(g.reason)}</small></td><td>${d.administrator?`<button data-act="discount" data-id="${att(g.id)}" data-action="approve">批准</button> <button data-act="discount" data-id="${att(g.id)}" data-action="reject">驳回</button>`:'等待管理员审批'}</td></tr>`).join(''),'没有待审批事项。'))
  +section('直营折扣审批记录',table(['折扣码','申请折扣','状态','处理时间／原因'],scopeRows(d.grants,'created_by').filter(g=>g.status!=='pending'&&(g.customer_price_percent!==50||g.non_refundable||Number(g.min_cash_fen)>0)).map(g=>`<tr><td>${esc(g.promo_code)}</td><td>${discountText(g.customer_price_percent)}</td><td>${pill('discount',g.state)}</td><td>${when(g.decided_at)}<small>${esc(g.decision_note||'—')}</small></td></tr>`).join(''),'暂无记录。'),'','VIP 折扣和原单特批的完整记录保留在客户档案内。');
+function promotionData(d,page){
+ const base={...d,administrator:false};
+ return promotionChannel(page)==='customer'?{...base,partners:[],codes:[],vip_orders:[]}:{...base,grants:[],orders:[]};
+}
+function promotedCustomers(orders){
+ return Object.values(orders.reduce((map,o)=>{const row=map[o.account_id]||={name:o.customer_name,codes:new Set(),orders:0,paid:0,refunded:0};row.codes.add(o.promo_code);row.orders++;if(o.status==='paid'){row.paid+=Number(o.amount_fen||0);row.refunded+=Number(o.refunded_fen||0);}return map;},{}));
+}
+pages.customeroverview=d=>{
+ const grants=scopeRows(d.grants,'created_by'),orders=scopeRows(d.orders,'created_by'),customers=promotedCustomers(orders);
+ return scopeControls(d)+section('客户推广概况',`<div class="todo"><button data-go="direct"><b>${grants.length}</b>客户推广码</button><button data-go="customerapplications"><b>${grants.filter(g=>g.state==='pending').length}</b>待处理申请</button></div>`)
+ +section('推广客户',table(['客户','使用推广码','订单数','累计实付','已退款'],customers.map(c=>`<tr><td>${esc(c.name)}</td><td>${esc([...c.codes].join('、'))}</td><td>${c.orders}</td><td>${fen(c.paid)}</td><td>${fen(c.refunded)}</td></tr>`).join(''),'客户使用你的推广码下单后，会显示在这里。'),'','按付款账户汇总；只统计客户推广订单。');
+};
+pages.vipoverview=d=>{
+ const partners=scopeRows(d.partners),status={pending:'待面试',confirmed:'待开通',active:'已开通',suspended:'已暂停',rejected:'未通过'};
+ return scopeControls(d)+section('VIP推广概况',`<div class="todo"><button data-go="cw"><b>${partners.length}</b>负责的 VIP</button><button data-go="vipcodes">管理 VIP推广码</button><button data-go="vipapplications"><b>${partners.reduce((n,p)=>n+Number(p.discount_pending||0)+Number(p.exception_pending||0),0)}</b>待处理申请</button></div>`)
+ +section('VIP客户',table(['VIP','当前进度','下次联系','本人已实付','操作'],partners.map(p=>`<tr><td>${esc(p.legal_name)}<small>${esc(p.public_code)}</small></td><td>${esc(status[p.status]||p.status)}</td><td>${dayOf(p.next_contact_on)}</td><td>${fen(p.paid_fen)}</td><td>${vipButton(p)}</td></tr>`).join(''),'暂无负责的 VIP。'),'<button data-go="cw">进入 VIP 客户跟进</button>');
+};
+pages.customerapplications=d=>scopeControls(d)+section('客户推广申请',table(['客户推广码','申请事项','状态','处理时间／原因'],scopeRows(d.grants,'created_by').filter(g=>g.status==='pending'||g.customer_price_percent!==50||g.non_refundable||Number(g.min_cash_fen)>0).map(g=>`<tr><td>${esc(g.promo_code)}<small>${esc(g.name)}</small></td><td>${discountText(g.customer_price_percent)}<small>${esc(g.reason)}</small></td><td>${pill('discount',g.state)}</td><td>${when(g.decided_at)}<small>${esc(g.decision_note||(g.status==='pending'?'等待老板审批':'—'))}</small></td></tr>`).join(''),'暂无客户推广申请。'));
+pages.vipcodes=d=>section('我发出的 VIP推广码',table(['推广码','已使用／次数上限','状态','备注','操作'],(d.invite_codes||[]).map(c=>`<tr><td><b>${esc(c.code)}</b></td><td>${c.used_count} / ${c.max_uses}</td><td>${c.status==='active'?'生效中':'已停用'}</td><td>${esc(c.note)}</td><td>${c.status==='active'&&c.used_count<c.max_uses?`<button data-act="vip-invite-copy" data-code="${att(c.code)}">复制申请链接</button> `:''}<button data-act="vip-invite-status" data-code="${att(c.code)}" data-status="${c.status==='active'?'disabled':'active'}">${c.status==='active'?'停用':'启用'}</button></td></tr>`).join(''),'暂无 VIP推广码。'),'<button class="primary" data-act="vip-invite-new">生成 VIP推广码</button>','客户通过推广链接提交 VIP 申请后，进入你的跟进列表。');
+pages.vipapplications=d=>scopeControls(d)+section('VIP待处理申请',table(['VIP','申请事项','操作'],scopeRows(d.partners).filter(p=>p.discount_pending||p.exception_pending).map(p=>`<tr><td>${esc(p.legal_name)}<small>${esc(p.public_code)}</small></td><td>${p.discount_pending?'本人付款码特殊折扣':''}${p.discount_pending&&p.exception_pending?'、':''}${p.exception_pending?'原单开通特批':''}</td><td>${vipButton(p)}</td></tr>`).join(''),'暂无待处理的 VIP 申请。'))
+ +section('VIP申请记录',table(['VIP','当前状态','查看记录'],scopeRows(d.partners).map(p=>`<tr><td>${esc(p.legal_name)}<small>${esc(p.public_code)}</small></td><td>${p.discount_pending||p.exception_pending?'有申请待处理':'无待处理申请'}</td><td>${vipButton(p)}</td></tr>`).join(''),'暂无 VIP 申请记录。'),'','进入对应 VIP 档案查看完整申请与审批记录。');
 function directDialog(){
  const end=new Date(Date.now()+90*86400000).toISOString().slice(0,10);
  openForm({title:'生成客户推广码',wide:true,submit:'生成／提交审批',body:`<div class="direct-code-form"><label>折扣码<input name="promo_code" required maxlength="16" autocomplete="off" placeholder="8 个英文字母或 8 个中文字符"></label><label>用途名称<input name="name" required maxlength="100"></label><label>客户实付比例（%）<input name="customer_price_percent" type="number" min="1" max="99" required value="50"></label><label>单笔最低实付（元，0 表示不限）<input name="min_cash_yuan" type="number" min="0" max="50000" step="0.01" value="0"></label><label class="check"><input name="non_refundable" type="checkbox"> 本优惠充值不可自助退款（付款前须由客户明确确认）</label><div class="row2"><label>开始日期<input name="starts_at" type="date" required value="${today()}"></label><label>结束日期（含当天）<input name="ends_at" type="date" required value="${end}"></label></div><label>用途或特批原因<textarea name="reason" required maxlength="500"></textarea></label><p class="code-form-note">默认 5 折直接生效；其他折扣、门槛或不可退款约定需审批。到期后原码不复用。</p></div>`,onSubmit:async v=>{
   if(!/^(?:[A-Za-z]{8}|\p{Script=Han}{8})$/u.test(v.promo_code.normalize('NFKC').trim()))throw Error('请输入 8 个英文字母或 8 个中文字符，不混用数字或符号。');
   const result=await api('business/discounts',{...v,non_refundable:v.non_refundable==='on',business_line:'direct',audience:'all',customer_price_percent:Number(v.customer_price_percent),starts_at:v.starts_at+'T00:00:00+08:00',ends_at:new Date(Date.parse(v.ends_at+'T00:00:00+08:00')+86400000).toISOString()});
-  return result.status==='active'?'直营折扣码已生效，可以复制链接发给客户。':'已提交管理员审批，通过后才能使用。';
+  return result.status==='active'?'客户推广码已生效，可以复制链接发给客户。':'已提交管理员审批，通过后才能使用。';
  }});
 }
 
@@ -379,16 +407,18 @@ function drawNav(page) {
  $('#nav').innerHTML = NAV.filter(([, , gate]) => !gate || state.dash.staff[gate]).map(([group, items]) => {
   const buttons=items.map(([key,label])=>`<button data-tab="${key}" class="${page===key?'active':''}" ${page===key?'aria-current="page"':''}>${label}${counts[key]?`<span class="count">${counts[key]}</span>`:''}</button>`).join('');
   if(group==='工作台'||group==='员工工作台')return `<div class="nav-home">${buttons}</div>`;
-  const active=items.some(([key])=>key===page),preferred={support:'客户支持',operations:'推广与合作',supply:'产品与供应',finance:'订单与资金'}[state.dash.staff.role];
-  return `<details class="nav-group" ${active||(page==='home'&&group===preferred)?'open':''}><summary>${group}</summary><div>${buttons}</div></details>`;
+  const active=items.some(([key])=>key===page)||(page==='cw'&&group==='VIP推广'),preferred={support:'客户支持',operations:'推广与合作',supply:'产品与供应',finance:'订单与资金'}[state.dash.staff.role];
+  return `<details class="nav-group" ${active||(!ownerSurface&&['客户推广','VIP推广'].includes(group))||(page==='home'&&group===preferred)?'open':''}><summary>${group}</summary><div>${buttons}</div></details>`;
  }).join('');
 }
 async function draw() {
  const page = currentPage(), content = $('#content');
  document.body.classList.toggle('code-screen',['direct','promotions'].includes(page)||Boolean(ui.codeActivity));
  if(ui.codeActivity&&['direct','promotions'].includes(page)){content.innerHTML=`<iframe class="staff-code-activity" title="推广码收支明细" src="/code-activity.html?audience=staff&amp;kind=${ui.codeActivity.kind}&amp;code=${encodeURIComponent(ui.codeActivity.id)}"></iframe>`;return;}
+ const channel=promotionChannel(page);
+ if(!ownerSurface&&channel&&channel!==ui.promotionChannel){ui.promotionSearch||={};if(ui.promotionChannel)ui.promotionSearch[ui.promotionChannel]=ui.acquisitionQuery||'';ui.acquisitionQuery=ui.promotionSearch[channel]||'';ui.promotionChannel=channel;}
  document.title=ownerSurface?'semifly.ai · 老板工作台':'semifly.ai · 员工工作台';
- $('#title').textContent = (!ownerSurface?{customers:'我的客户',tickets:'客户服务',direct:'招揽客户',cw:'招揽 VIP',approvals:'我的申请'}[page]:null)||PAGES[page].label;
+ $('#title').textContent = !ownerSurface&&['customerapplications','vipapplications'].includes(page)?(page==='customerapplications'?'客户推广 · 我的申请':'VIP推广 · 我的申请'):PAGES[page].label;
  $('#subtitle').textContent = !ownerSurface&&page==='customers'?'管理自己负责的客户，记录跟进并提供服务。':SUBTITLES[page];
  if (!state) { content.innerHTML = `<div class="panel empty">${esc(loadError || '正在读取…')}</div>`; return; }
  $('#technical').hidden = !ownerSurface||!state.dash.staff.technical;
@@ -410,7 +440,7 @@ async function draw() {
   if (turn !== drawing || started !== generation || currentPage() !== page) return;
   Object.assign(state, { overview, biz });
   if (dash) state.dash = dash;
-  content.innerHTML = (page!=='cw'&&acquisitionPages.some(([key])=>key===page)?acquisitionTabs(page):'')+pages[page](source ? (!ownerSurface&&['acquisition','direct','promotions','approvals'].includes(page)?{...cache[source],administrator:false}:cache[source]) : null);
+  content.innerHTML = (ownerSurface&&page!=='cw'&&acquisitionPages.some(([key])=>key===page)?acquisitionTabs(page):'')+pages[page](source ? (!ownerSurface&&promotionChannel(page)?promotionData(cache[source],page):cache[source]) : null);
   if (page === 'customers' && ui.customers.q) filterRows(ui.customers.q);
  } catch (e) {
   if (turn === drawing && started === generation && currentPage() === page) content.innerHTML = `<div class="panel empty">${esc(e.message)}，请点击刷新重试。</div>`;
@@ -555,6 +585,9 @@ const ACTIONS = {
  'vip-open':b=>{ui.vipPartner=b.dataset.id;location.hash='cw';if(currentPage()==='cw')return draw();},
  'code-activity':b=>{ui.codeActivity={id:b.dataset.id,kind:b.dataset.kind||'cw'};draw();},
  'code-page':b=>{ui.codePage=(ui.codePage||0)+Number(b.dataset.step);draw();},
+ 'vip-invite-new':()=>openForm({title:'生成 VIP推广码',submit:'生成推广码',body:'<label>推广码<input name="code" required minlength="2" maxlength="32" pattern="[A-Za-z0-9_-]{2,32}" autocomplete="off"></label><p>2–32 位英文字母、数字、下划线或短横线。</p><label>使用次数上限<input name="max_uses" type="number" min="1" max="100000" value="1" required></label><label>备注<input name="note" maxlength="200"></label>',onSubmit:async v=>{await api('cw/invite-codes',{...v,max_uses:Number(v.max_uses)});return 'VIP推广码已生成。';}}),
+ 'vip-invite-copy':async b=>{await navigator.clipboard.writeText(location.origin+'/promotion/vip.html?invite_code='+encodeURIComponent(b.dataset.code));notify('VIP申请链接已复制。',true);},
+ 'vip-invite-status':async b=>{await api('cw/invite-codes/'+encodeURIComponent(b.dataset.code)+'/status',{status:b.dataset.status});await reload();notify('VIP推广码状态已更新。',true);},
  'direct-new':()=>directDialog(),
  'direct-view':b=>{ui.directView=b.dataset.view;return draw();},
  'direct-copy':async b=>{const g=cache[SOURCES[currentPage()]()].grants.find(g=>g.id===b.dataset.id);await navigator.clipboard.writeText(g.promo_code);notify('折扣码已复制。',true);},
