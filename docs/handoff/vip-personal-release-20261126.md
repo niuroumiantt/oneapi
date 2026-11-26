@@ -30,3 +30,10 @@ Authorized by user: commit, merge remote main, public deployment and remove unus
 - Commission calculation remains untouched; the personal view wording describes reporting attribution only. Existing settlement ledger is retained pending the user's separate policy decision.
 
 - Runtime inspection found a shell-free production image, Node v24.22.2 x64. The dependency build runs the installed npm CLI directly using Node inside that Linux image, installs with lifecycle scripts disabled, and copies only lockfile-installed application dependencies to the final image. No macOS application node_modules are reused; npm bootstrap is excluded from the final image.
+
+## Final release receipt
+- PR #154 merged as 97045916efc3e14d96a3b28ae61951e833d0bea3. Public release.json and /api/status both report this SHA; production container oneapi-sh-api uses this image and is healthy. The earlier dd02fde full build completed naturally; no remote activation was interrupted.
+- Final combined server suite: 287 tests, 264 passed, 23 skipped, zero failures. A subsequent guarded publication stopped before mutation because the live baseline had changed; read-only verification confirmed the desired 9704591 was already deployed. No redundant deployment performed.
+- Public VIP entry was visually verified at https://semifly.cn/#personal/vip. The available browser identity shows the compact application/program view; active-VIP dashboard acceptance used local fixtures and integration tests. Real payment/refund/withdrawal/signing remains untested.
+- Remote main subsequently advanced with unrelated employee PR #155; it retains the deployed VIP commits. Do not chase concurrent changes by repeatedly deploying or clean another task's worktree.
+- User raised variable model costs and universal recharge-discount losses. Proposed direction only: cash-denominated balance, per-model/component selling prices, bounded promotional benefit and commission budget, versioned tariffs. No new prices, recharge eligibility or commission formula were implemented. Existing customer obligations need a separate migration decision.
