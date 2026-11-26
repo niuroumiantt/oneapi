@@ -1442,7 +1442,8 @@ test('alipay website pay credits the exact amount once, only after a signed conf
  // Enterprise recharge is for managers only and lands in the enterprise account.
  assert.equal((await outsider.j.call(`/api/billing/organizations/${org.id}/alipay-orders`,{method:'POST',body:{amount_fen:1000,idempotency_key:'org-order-key-00001'}})).status,403);
  const orgOrder=await payer.j.call(`/api/billing/organizations/${org.id}/alipay-orders`,{method:'POST',body:{amount_fen:1000,idempotency_key:'org-order-key-00001'}});assert.equal(orgOrder.status,201);
- assert.match(decodeURIComponent(orgOrder.data.order.pay_url),/#billing\/organization\//);
+ const returnURL=new URL(new URL(orgOrder.data.order.pay_url).searchParams.get('return_url'));
+ assert.equal(returnURL.searchParams.get('alipay_return'),'org');assert.equal(returnURL.searchParams.get('org'),org.id);
  const t4=await remember(orgOrder.data.order.id,'10.00');assert.equal((await notify({out_trade_no:t4.out,trade_no:t4.trade.trade_no,trade_status:'TRADE_SUCCESS',total_amount:'10.00'})).text,'success');
  assert.equal((await payer.j.call(`/api/billing/organizations/${org.id}`)).data.cash_balance_fen,'1000');assert.equal((await balance()).cash_balance_fen,'3550');
  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='billing.recharge.alipay_paid' AND subject_id=ANY($1)",[[orderId,second.id,orgOrder.data.order.id]])).rows[0].n,3);
@@ -1806,7 +1807,9 @@ test('ordinary customer: discounted purchase, signed payment, scoped key, shared
 
  assert.ok(!compared.data.includes(secret));assert.ok(!compared.data.includes('official-fixture-secret'));compareFetch=fetch;
  // Unexpected supplier usage cannot exceed even a small key's remaining lifetime cap.
- const capped=await post(buyer.j,'/api/customer-credit/keys',{label:'small cap',models:['deepseek-flash'],limit_yuan:'1'});
+ assert.equal((await post(buyer.j,'/api/customer-credit/keys',{label:'overallocated',models:['deepseek-flash'],limit_yuan:'1'})).status,409,'a fully allocated account must free capacity first');
+ assert.equal((await post(buyer.j,'/api/customer-credit/keys/'+made.data.key.id+'/limit',{limit_yuan:'90'})).status,200);
+ const capped=await post(buyer.j,'/api/customer-credit/keys',{label:'small cap',models:['deepseek-flash'],limit_yuan:'1'});assert.equal(capped.status,201,JSON.stringify(capped.data));
  const excess=(await pool.query("INSERT INTO customer_calls(account_id,key_id,owner_id,model_id,price_snapshot,status,hold_yuan) VALUES($1,$2,$3,'deepseek-flash','{}','pending',0.01) RETURNING id",[order.account_id,capped.data.key.id,buyer.user.id])).rows[0].id;
  await settlePaidCall(pool,excess,'9',{input:1,output:1},'test',null,null);
  const cappedCall=(await pool.query('SELECT actual_yuan,charged_yuan FROM customer_calls WHERE id=$1',[excess])).rows[0];assert.equal(Number(cappedCall.actual_yuan),9);assert.equal(Number(cappedCall.charged_yuan),1);
@@ -2164,7 +2167,7 @@ test('comparison cash display uses the exact mix of purchased packs and cumulati
  const b=await platformBilling(pool,c,k);
  assert.equal(b.status,'settled');assert.equal(Number(b.charged_yuan),1.501);
  assert.equal(Number(b.paid_equivalent_yuan),0.5005,'first yuan at 25%, remaining .501 at 50%');
- assert.equal(Number(b.cash_booked_yuan),0.5,'fraction of cent remains accumulated in pack ledger');
+ assert.equal(Number(b.cash_booked_yuan),0.75,'red-first ledger uses 25 cents from the first pack and 50 whole cents from the second; purchase-equivalent cost remains separate');
  assert.equal(Number(b.calculation.total_yuan),1.501);
  assert.equal(await platformBilling(pool,c,randomUUID()),null,'call billing remains scoped to the current credential');
  assert.equal(Number((await pool.query('SELECT remaining_fen FROM credit_packs WHERE id=$1',[first])).rows[0].remaining_fen),0);

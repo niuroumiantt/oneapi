@@ -586,13 +586,18 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   personalTab=current.startsWith('personal/')?current.split('/')[1]:'overview';
   if(!['overview','models','keys','usage','compare','connect','vip'].includes(personalTab))personalTab='overview';
   if(personalTab==='vip'){panelRedraw=null;mount(panelPage(null,'vip',`<iframe class="workspace-compare-frame personal-api" title="VIP 合作计划" src="/promotion/vip.html?embedded=1&personal=1&view=program"></iframe>`));return;}
+  // The comparison endpoint owns eligibility; do not wait for unrelated dashboard data.
+  if(personalTab==='compare'){panelRedraw=null;mount(panelPage(null,'compare',comparePanel()));return;}
   const intent=readModelIntent();if(current.startsWith('personal/connect/'))personalSelected=current.slice('personal/connect/'.length);else if(intent?.scope==='personal')personalSelected=intent.id;
-  const pilotPromise=api('/api/pilot/status').catch(()=>({enabled:false}));
-  const employeePromise=api('/api/employee-credit/status').catch(()=>({enabled:false}));
-  try{if(earlyBilling){const result=await earlyBilling;if(result.error)throw result.error;personalBilling=result.data;}else personalBilling=await api('/api/billing/personal');}catch(e){if(e.status===401)throw e;personalBilling=null;}
-  personalPilot=await pilotPromise;
-  employeeCredit=await employeePromise;
-  paidCredit=await api('/api/customer-credit/status').catch(()=>null);
+  const billingPromise=earlyBilling?earlyBilling.then(result=>{if(result.error)throw result.error;return result.data;}):api('/api/billing/personal');
+  const [billing,pilot,employee,credit]=await Promise.all([
+   billingPromise.catch(e=>{if(e.status===401)throw e;return null;}),
+   api('/api/pilot/status').catch(()=>({enabled:false})),
+   api('/api/employee-credit/status').catch(()=>({enabled:false})),
+   api('/api/customer-credit/status').catch(()=>null)
+  ]);
+  if(ticket!==generation)return;
+  personalBilling=billing;personalPilot=pilot;employeeCredit=employee;paidCredit=credit;
   if(personalTab==='usage'&&!creditActive())await loadPersonalUsage(false);
   if(ticket!==generation)return;
   const usage=personalBilling?.usage_by_model||[];
