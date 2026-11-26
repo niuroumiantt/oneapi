@@ -41,3 +41,10 @@
 - 生成器：`scripts/build_personal_onboarding_flyer.py`，需要 ReportLab、macOS Arial Unicode / STHeiti 字体，使用仓库既有品牌 Logo。
 - 临时预览 `/private/tmp/oneapi-journey-preview.py`，模式文件 `/private/tmp/oneapi-journey-mode`：funded / empty / error / timeout；不在生产。
 - 发布前静态基线 afbc4a1，API 基线 728bd24。采用静态增量发布、完整备份、全包哈希与逐文件哈希验证，API 不重启。
+
+## 发布回执
+
+- `dfe21ca` 提交流程修复、测试和新人指南；`ed66133` 将首屏加载 class 放到 body，兼容静态打包的标准 HTML 根标签及备案注入。
+- 两次提交均已推送 main。静态版本 `ed66133094b8da0fc93e16441a9d98107244e906` 已上线，发布目录 `/srv/oneapi-data/oneapi-cutover-q72dymap/releases/ed66133094b8-static.ebK0lR`；该目录 `previous-web` 保留旧静态完整备份。
+- 公网 release.json 已返回上述版本，API status 为 ok。API 未重启。
+- 用户转入 VIP 设计讨论；本轮尚未做发布后浏览器计时，1879 ms 仅为修复前测量，不宣称公网具体提速比例。
