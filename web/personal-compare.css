@@ -91,3 +91,21 @@
 }
 
 .compare-personal .platform-panel{align-self:stretch;width:100%}
+
+/* Reference connection stays together: source, endpoint, key, model. */
+.compare-personal .cp-connections>.connection:not(.platform-panel){display:flex;flex-direction:column;gap:8px}
+.compare-personal .cp-connections>.connection:not(.platform-panel) .side-title{margin-bottom:0}
+.compare-personal .cp-connections .ref-details{margin:0;display:block}
+.compare-personal .cp-connections .ref-details label{margin:0}
+.compare-personal .cp-connections .ref-details p{display:none}
+.compare-personal .cp-model-row{display:grid;grid-template-columns:1fr;gap:10px}
+.compare-personal .cp-model-row.cp-manual{grid-template-columns:1fr 1fr}
+.compare-personal .cp-model-row .manual-model{margin:0}
+.compare-personal .cp-connections .model-field{margin:0}
+.compare-personal .cp-connections #ref-status{margin:0}
+.compare-personal .cp-connections .cp-key-note{margin:0}
+.compare-personal .cp-connections .key-cleanup{margin:0}
+@media(max-height:650px){.compare-personal .cp-connections>.connection:not(.platform-panel){gap:5px}.compare-personal .cp-connections .key-cleanup button{min-height:22px}.compare-personal .cp-connections input,.compare-personal .cp-connections select{min-height:32px;padding-block:5px}}
+@media(max-width:760px){.compare-personal .cp-connections>.connection:not(.platform-panel){gap:5px}.compare-personal .cp-key-note{font-size:10px}.compare-personal .cp-connections .key-cleanup button{min-height:22px}.compare-personal .cp-connections .field{gap:2px!important;font-size:11px}}
+
+.compare-personal .cp-source-row{display:grid;grid-template-columns:1fr;gap:10px}.compare-personal .cp-source-row.cp-custom{grid-template-columns:minmax(120px,.8fr) minmax(150px,1.2fr)}

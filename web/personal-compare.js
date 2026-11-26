@@ -36,10 +36,16 @@
  // Secondary controls occupy their own bounded views instead of expanding the main page.
  const advanced=make('section','cp-advanced');advanced.hidden=true;advanced.setAttribute('aria-label','更多设置');workspace.append(advanced);
  const advNav=make('nav','cp-subnav');advanced.append(advNav);const advViews={};
- const headings={parameters:'共同参数',reference:'接口地址',price:'预估单价',attachments:'附件与预览',method:'比较说明'};
+ const headings={parameters:'共同参数',price:'预估单价',attachments:'附件与预览',method:'比较说明'};
  for(const [id,label] of Object.entries(headings)){advNav.append(button(label,()=>showAdvanced(id)));const box=make('div','cp-advanced-pane');box.dataset.view=id;advViews[id]=box;advanced.append(box);}
  const params=composer.querySelector('.params');params.open=true;params.querySelector('summary').hidden=true;params.querySelector('.param-grid p').textContent='两侧使用同一份最终参数。接口不支持时会报错，不会自动重试。';advViews.parameters.append(params);
- const refSettings=$('ref-settings');refSettings.open=true;refSettings.querySelector('summary').hidden=true;advViews.reference.append(refSettings,$('manual-model-wrap'));$('ref-model-select').addEventListener('change',()=>{if($('ref-model-select').value==='__manual__')showAdvanced('reference');});
+ const refSettings=$('ref-settings');refSettings.querySelector('summary').hidden=true;refSettings.querySelector('p').textContent='填写服务商提供的 HTTPS API 地址。';
+ const sourceLabel=$('ref-provider').closest('label'),modelLabel=$('ref-model-select').closest('label'),modelRow=make('div','cp-model-row');
+ reference.querySelector('.fields').remove();
+ const sourceRow=make('div','cp-source-row');sourceRow.append(sourceLabel,refSettings);reference.insertBefore(sourceRow,keyLabel);
+ modelRow.append(modelLabel,$('manual-model-wrap'));keyLabel.after(modelRow);
+ function connectionLayout(){sourceRow.classList.toggle('cp-custom',$('ref-provider').value==='custom');refSettings.hidden=$('ref-provider').value!=='custom';refSettings.open=!refSettings.hidden;modelRow.classList.toggle('cp-manual',$('ref-model-select').value==='__manual__');}
+ connectionLayout();
  const price=q('.price-settings');price.open=true;price.querySelector('summary').hidden=true;advViews.price.append(price);
  const previewDetails=composer.querySelector('.params');previewDetails.open=true;previewDetails.querySelector('summary').hidden=true;advViews.attachments.append($('file-input'),$('attach-btn'),$('attachments'),$('image-confirm-wrap'),previewDetails);
  const method=$('method');method.open=true;method.querySelector('summary').hidden=true;advViews.method.append(method);
@@ -61,8 +67,7 @@
  for(const side of ['a','b']){const box=make('article','cp-result'),title=make('h2'),meta=make('p','cp-result-meta'),body=make('div','cp-result-body'),pager=make('nav','cp-pager');pager.setAttribute('aria-label',side==='a'?'平台回答分页':'参照回答分页');box.append(title,meta,body,pager);resultPair.append(box);panels[side]={title,meta,body,pager};}
  const resultNote=make('p','cp-note');results.append(resultNote);
  function panel(name){view=name;advanced.hidden=true;advancedButton.setAttribute('aria-pressed','false');setup.hidden=name!=='setup';results.hidden=name!=='results';render();}
- function showAdvanced(name){if(name==='reference')refSettings.open=true;view='advanced';advancedView=name;advanced.hidden=false;setup.hidden=true;results.hidden=true;advancedButton.setAttribute('aria-pressed','true');for(const b of toolbar.querySelectorAll('#tab-setup,#tab-results'))b.setAttribute('aria-pressed','false');for(const [id,box] of Object.entries(advViews))box.hidden=id!==name;Array.from(advNav.children).forEach((b,i)=>b.setAttribute('aria-pressed',String(Object.keys(headings)[i]===name)));renderPreview();}
- $('ref-provider').addEventListener('change',()=>{if($('ref-provider').value==='custom')showAdvanced('reference');});
+ function showAdvanced(name){view='advanced';advancedView=name;advanced.hidden=false;setup.hidden=true;results.hidden=true;advancedButton.setAttribute('aria-pressed','true');for(const b of toolbar.querySelectorAll('#tab-setup,#tab-results'))b.setAttribute('aria-pressed','false');for(const [id,box] of Object.entries(advViews))box.hidden=id!==name;Array.from(advNav.children).forEach((b,i)=>b.setAttribute('aria-pressed',String(Object.keys(headings)[i]===name)));renderPreview();}
  function paging(node,nav,text,index,set){
   const rect=node.getBoundingClientRect(),style=getComputedStyle(node),font=parseFloat(style.fontSize)||14,line=parseFloat(style.lineHeight)||22;
   const chunks=pages(text,Math.max(10,Math.floor((rect.width-4)/font)),Math.max(2,Math.floor((rect.height-4)/line))),at=Math.min(index,chunks.length-1);node.textContent=chunks[at];nav.replaceChildren();
@@ -93,7 +98,7 @@
   if(resultView==='cost'){const c=SemiflyCostComparison.compare(last?.results.a,last?.results.b);resultNote.textContent=c.status==='compared'?`${c.label} · ${c.direction==='more'?'多花':'少花'} ${money(c.absolute_difference_yuan)}${c.percentage==null?'':' · '+c.percentage+'%'}。参照费用为预估，以供应商账单为准。`:c.reason||'等待两侧完成及费用结算。';}
   else resultNote.textContent=resultView==='metrics'?'缓存命中属于输入子项；未提供的指标不按 0 处理。':'单次对比不能鉴定模型身份。完整结果可导出 PDF 或在更多设置中导出 JSON。';
  }
- root.PersonalCompare={panel,update(last,busy){if(last!==snapshot)resultPages={a:0,b:0};snapshot=last;running=busy;render();renderPreview();},unavailable(status,message){setup.hidden=true;advanced.hidden=true;results.hidden=true;toolbar.hidden=true;$('auth-error').replaceChildren(make('h2','',status===401?'登录后开始对比':status===402?'充值后开始对比':'暂时无法加载对比'),make('p','',message));const link=make('a','primary',status===401?'前往登录':status===402?'充值额度':'返回工作台');link.href=status===401?'/#personal':status===402?'/#billing/personal':'/#personal';link.target='_parent';$('auth-error').append(link);}};
+ root.PersonalCompare={panel,update(last,busy){connectionLayout();if(last!==snapshot)resultPages={a:0,b:0};snapshot=last;running=busy;render();renderPreview();},unavailable(status,message){setup.hidden=true;advanced.hidden=true;results.hidden=true;toolbar.hidden=true;$('auth-error').replaceChildren(make('h2','',status===401?'登录后开始对比':status===402?'充值后开始对比':'暂时无法加载对比'),make('p','',message));const link=make('a','primary',status===401?'前往登录':status===402?'充值额度':'返回工作台');link.href=status===401?'/#personal':status===402?'/#billing/personal':'/#personal';link.target='_parent';$('auth-error').append(link);}};
  new MutationObserver(renderPreview).observe(preview,{childList:true,characterData:true,subtree:true});
  window.addEventListener('resize',()=>{render();renderPreview();});
  panel('setup');

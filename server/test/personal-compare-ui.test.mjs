@@ -21,3 +21,10 @@ test('balance bar uses server refund eligibility rather than treating all paid b
  const fn=source.slice(source.indexOf(' function personalBalanceBar('),source.indexOf(' function personalRechargeCompact('));
  assert.match(fn,/const refund=split\?\.refundable_fen/);assert.match(fn,/refund==null\?'查看可退金额'/);
 });
+
+test('third party endpoint and manual model stay in the reference connection',()=>{
+ const source=readFileSync(new URL('../../web/personal-compare.js',import.meta.url),'utf8');
+ assert.ok(source.includes('sourceRow.append(sourceLabel,refSettings)'));
+ assert.ok(source.includes("modelRow.append(modelLabel,$('manual-model-wrap'))"));
+ assert.ok(!source.includes("showAdvanced('reference')"));
+});
