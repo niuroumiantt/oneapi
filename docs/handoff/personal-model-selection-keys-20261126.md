@@ -37,3 +37,10 @@
 - 已选标题显示可用于 Key 与待开放数量。全选后直接收起空备选区，避免「备选模型0」占据整块空间。桌面表格适当增大行距，短窗口单独压缩；手机生成动作独立成行。
 - 19项模型旅程/导航回归通过；部分选择仍只传入选中的开放模型。新独立复核依据用户反馈截图及本地桌面/手机截图，disposition=ship。
 - 静态发布基线 `f94b66fb41c48bdafb4d34e1760e990efa77d434`，API仍为原版本。无生产 Key 创建。
+
+### 去重排版版发布回执
+
+- PR #150 已合并：https://github.com/niuroumiantt/oneapi/pull/150 。静态 `2a02ce618511259b722378c4c3b96f5c6699186a`，API保持不变；5个静态文件170161字节，通过基线与全部资源SHA256检查。
+- 前端回滚目录 `/srv/oneapi-data/oneapi-cutover-q72dymap/releases/2a02ce618511-static.eXpkEF/previous-web`。
+- 正式用户全选6个模型：只显示一个「为已选模型生成 Key」主按钮，提示4个可用于Key、2个待开放，空备选区已收起；主区域clientHeight=scrollHeight=598。短窗口本地最终验证部分选择亦457=457。未修改生产清单或Key。
+- 发布日志 `/private/tmp/oneapi-dashboard-preview/models-polish-publish.log`。本回执仅文档，不再次部署。
