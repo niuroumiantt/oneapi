@@ -34,3 +34,10 @@
 
 工作树 `/Users/m5/.worktrees/oneapi/employee-lifecycle-20261126`，分支 `codex/employee-lifecycle-20261126`。主工作区无关未跟踪文件未改。
 本地测试 PostgreSQL：127.0.0.1:55450，临时数据 `/private/tmp/oneapi-lifecycle-20261127-pg`。预览 3341 使用单独合成库，不代理线上。旧 3326 示例预览未动。
+
+## 发布回执
+
+- 功能 PR #158 已合并；上海前后端均为 `ad59de4d700fe6c6246a768965bbe08055ef4996`，`/api/status` 和 `/release.json` 均返回 ok。发布目录 `/srv/oneapi-data/oneapi-cutover-q72dymap/releases/ad59de4d700f.lifecycle-53a74d18`，完成备份、迁移和健康检查。
+- 合并提交最终完整回归 **319/319 通过**，无跳过。上线后只读查询确认额度池/账本/延后回收字段存在，老板绑定唯一；未登录公司管理接口返回 401。
+- 真实公司当前仍为 1 位 owner、5 位 member；内部运营身份仍只有 1 位 platform_admin，没有新增或提权任何真实员工。普通员工测试账号确认和真实 SSO 登录验收仍待继续。
+- 本地临时数据库/3341 预览用于合成数据验证，不是生产后门；不纳入发布。
