@@ -43,9 +43,11 @@ export function staffRoutes(app,pool,cfg){
    const claims=tokens.claims();if(!claims?.sub||!tokens.access_token)throw Error('Missing identity');
    const info=await oidc.fetchUserInfo(c,tokens.access_token,claims.sub);if(!approved(info))throw Error('Employee not approved');
    const value=token();await transaction(pool,async db=>{
+    if(cfg.employeeCredit?.organizationId)await db.query('SELECT id FROM organizations WHERE id=$1 FOR UPDATE',[cfg.employeeCredit.organizationId]);
     const previous=(await db.query('SELECT subject FROM staff_members WHERE subject=$1',[claims.sub])).rows[0];
     const bootstrap=!previous&&cfg.bootstrapSub&&claims.sub===cfg.bootstrapSub;
     await db.query('INSERT INTO staff_members(subject,email,name,role,status) VALUES($1,$2,$3,$4,$5) ON CONFLICT(subject) DO UPDATE SET email=EXCLUDED.email,name=EXCLUDED.name',[claims.sub,info.email||'',info.name||'公司员工',bootstrap?'platform_admin':'pending',bootstrap?'active':'pending']);
+    if(cfg.employeeCredit?.organizationId)await db.query(`UPDATE staff_members s SET role='operations',status='active' WHERE s.subject=$1 AND s.role='pending' AND s.status='pending' AND EXISTS(SELECT 1 FROM "user" u JOIN memberships m ON m.user_id=u.id AND m.organization_id=$2 AND m.status='active' AND m.role='member' JOIN organization_join_requests r ON r.organization_id=m.organization_id AND r.user_id=u.id AND r.status='approved' WHERE lower(u.email)=lower(s.email) AND u."emailVerified" AND NOT coalesce(u.disabled,false))`,[claims.sub,cfg.employeeCredit.organizationId]);
     await db.query('INSERT INTO staff_sessions(token_hash,subject,access_payload,expires_at) VALUES($1,$2,$3,$4)',[hash(value),claims.sub,box.seal({accessToken:tokens.access_token}),new Date(Date.now()+Math.min(tokens.expires_in||300,8*3600)*1000)]);
     await audit(db,{kind:'staff',id:claims.sub},bootstrap?'staff.bootstrap':'staff.signed_in',null,claims.sub);
    });

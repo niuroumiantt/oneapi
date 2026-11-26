@@ -1,3 +1,4 @@
+import {movePool,reclaimSettledCredit} from './company-credit.mjs';
 import { recordProfile } from './acceptance.mjs';
 import express from 'express';
 import { once } from 'node:events';
@@ -186,6 +187,8 @@ async function activeMember(db,cfg,userId){
 /** Grants the one-time allowance. The primary key on user_id makes repeat calls and re-joins no-ops. */
 async function ensureAccount(pool,cfg,req){
  return transaction(pool,async db=>{
+  await db.query('SELECT id FROM organizations WHERE id=$1 FOR UPDATE',[cfg.employeeCredit.organizationId]);
+  if(!await activeMember(db,cfg,req.customer.id))throw new HttpError(403,'当前账号不是公司员工');
   const created=(await db.query('INSERT INTO employee_credit_accounts(user_id,organization_id,granted_yuan) VALUES($1,$2,$3) ON CONFLICT(user_id) DO NOTHING RETURNING granted_yuan',[req.customer.id,cfg.employeeCredit.organizationId,GRANT_YUAN])).rows[0];
   if(created)await audit(db,req.actor,'employee_credit.granted',cfg.employeeCredit.organizationId,req.customer.id,{yuan:GRANT_YUAN});
   return (await db.query('SELECT * FROM employee_credit_accounts WHERE user_id=$1',[req.customer.id])).rows[0];
@@ -211,9 +214,9 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
   return activeMember(pool,cfg,req.customer.id);
  };
  const requireMember=async req=>{if(!await member(req))throw new HttpError(403,'当前账号不是公司员工，未开放公司额度');return account(req);};
- const requireManager=async req=>{
+ const requireManager=async(req,db=pool)=>{
   if(!enabled(cfg))throw new HttpError(404,'公司额度尚未开通');
-  const org=cfg.employeeCredit.organizationId,m=(await pool.query("SELECT role FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",[org,req.customer.id])).rows[0];
+  const org=cfg.employeeCredit.organizationId,m=(await db.query("SELECT role FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",[org,req.customer.id])).rows[0];
   if(!m||!isManager(m.role))throw new HttpError(403,'仅企业管理者可以操作');
   return org;
  };
@@ -233,7 +236,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
     LEFT JOIN LATERAL (SELECT sum(hold_yuan) AS held FROM employee_calls WHERE owner_id=m.user_id AND ${OPEN}) h ON true
     LEFT JOIN LATERAL (SELECT count(*) AS calls,sum(coalesce(input_tokens,0)+coalesce(output_tokens,0)) AS tokens,max(created_at) AS last_call_at FROM employee_calls WHERE owner_id=m.user_id AND created_at>=now()-interval '30 days') c ON true
     LEFT JOIN LATERAL (SELECT count(*) AS keys FROM employee_api_keys WHERE owner_id=m.user_id AND revoked_at IS NULL) k ON true
-    WHERE m.organization_id=$1 ORDER BY coalesce(a.spent_yuan,0) DESC,m.created_at`,[org,GRANT_YUAN]),
+    WHERE m.organization_id=$1 ORDER BY coalesce(a.spent_yuan,0) DESC,m.created_at`,[org,'0']),
    pool.query(`SELECT c.model_id,count(*)::int AS calls,count(*) FILTER(WHERE c.status='failed')::int AS failed,coalesce(sum(c.input_tokens),0)::bigint AS input_tokens,coalesce(sum(c.output_tokens),0)::bigint AS output_tokens,coalesce(sum(c.charged_yuan),0) AS yuan,count(*) FILTER(WHERE c.created_at>now()-interval '24 hours')::int AS calls_24h,coalesce(sum(coalesce(c.input_tokens,0)+coalesce(c.output_tokens,0)) FILTER(WHERE c.created_at>now()-interval '24 hours'),0)::bigint AS tokens_24h,coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM employee_calls x JOIN employee_credit_accounts xa ON xa.user_id=x.owner_id AND xa.organization_id=$1 WHERE x.model_id=c.model_id AND x.created_at>now()-interval '24 hours' GROUP BY date_trunc('minute',x.created_at)) q),0)::int AS peak_rpm FROM ${companyCalls} WHERE c.created_at>=now()-interval '30 days' GROUP BY 1 ORDER BY 6 DESC`,[org]),
    pool.query(`SELECT to_char(c.created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD') AS day,c.model_id,count(*)::int AS calls,coalesce(sum(c.charged_yuan),0) AS yuan FROM ${companyCalls} WHERE c.created_at>=now()-interval '14 days' GROUP BY 1,2 ORDER BY 1,2`,[org]),
    pool.query(`SELECT c.id,c.owner_id,c.created_at,c.model_id,c.status,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.charged_yuan,c.hold_yuan,c.latency_ms,c.client,c.summary,u.name,k.label AS key_label FROM ${companyCalls} JOIN "user" u ON u.id=c.owner_id JOIN employee_api_keys k ON k.id=c.key_id ORDER BY c.created_at DESC LIMIT 50`,[org]),
@@ -246,7 +249,8 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
   ]);
   const active=members.rows.filter(m=>m.status==='active'),sum=f=>active.reduce((t,m)=>t+units(m[f]),0n),granted=sum('granted_yuan'),spent=sum('spent_yuan'),held=sum('held_yuan');
   const summariesEnabled=Boolean((await pool.query('SELECT record_call_summaries FROM organizations WHERE id=$1',[org])).rows[0]?.record_call_summaries);
-  res.json({summaries_enabled:summariesEnabled,totals:{granted_yuan:format(granted),spent_yuan:format(spent),held_yuan:format(held),available_yuan:format(granted-spent-held>0n?granted-spent-held:0n),month_yuan:month.rows[0].yuan,calls_30d:active.reduce((t,m)=>t+m.calls_30d,0),active_members:active.filter(m=>m.calls_30d>0).length,members:active.length},members:members.rows,models:models.rows,daily:daily.rows,recent_calls:recent.rows,keys:keys.rows});
+  const companyPool=(await pool.query('SELECT available_yuan FROM company_credit_pools WHERE organization_id=$1',[org])).rows[0]||{available_yuan:'0'};
+  res.json({company_pool:companyPool,summaries_enabled:summariesEnabled,totals:{granted_yuan:format(granted),spent_yuan:format(spent),held_yuan:format(held),available_yuan:format(granted-spent-held>0n?granted-spent-held:0n),month_yuan:month.rows[0].yuan,calls_30d:active.reduce((t,m)=>t+m.calls_30d,0),active_members:active.filter(m=>m.calls_30d>0).length,members:active.length},members:members.rows,models:models.rows,daily:daily.rows,recent_calls:recent.rows,keys:keys.rows});
  });
  app.get('/api/employee-credit/team/members/:user',requireCustomer,async(req,res)=>{
   const org=await requireManager(req),userId=text(req.params.user,'员工',64);
@@ -309,8 +313,12 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
   const org=await requireManager(req),userId=text(req.params.user,'员工',64),raw=String(req.body?.yuan??'');
   if(!/^\d{1,4}(\.\d{1,2})?$/.test(raw)||units(raw)<=0n||units(raw)>1000n*SCALE)throw new HttpError(400,'追加金额需在 0.01 至 1000 元之间');
   const account=await transaction(pool,async db=>{
+   await db.query('SELECT id FROM organizations WHERE id=$1 FOR UPDATE',[org]);
+   await requireManager(req,db);
    if(!(await db.query("SELECT 1 FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",[org,userId])).rowCount)throw new HttpError(404,'有效员工不存在');
-   const row=(await db.query('INSERT INTO employee_credit_accounts(user_id,organization_id,granted_yuan) VALUES($1,$2,$3::numeric+$4::numeric) ON CONFLICT(user_id) DO UPDATE SET granted_yuan=employee_credit_accounts.granted_yuan+$4::numeric RETURNING granted_yuan,spent_yuan',[userId,org,GRANT_YUAN,raw])).rows[0];
+   if((await db.query('SELECT reclaim_pending FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[userId])).rows[0]?.reclaim_pending)throw new HttpError(409,'上次离职的调用仍在结算，请结算完成后分配');
+   await movePool(db,org,userId,'-'+raw,'quota_added');
+   const row=(await db.query('INSERT INTO employee_credit_accounts(user_id,organization_id,granted_yuan) VALUES($1,$2,$3::numeric+$4::numeric) ON CONFLICT(user_id) DO UPDATE SET granted_yuan=employee_credit_accounts.granted_yuan+$4::numeric RETURNING granted_yuan,spent_yuan',[userId,org,'0',raw])).rows[0];
    await audit(db,req.actor,'employee_credit.topped_up',org,userId,{yuan:raw});return row;
   });
   res.json(account);
@@ -320,15 +328,30 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
   const org=await requireManager(req),userId=text(req.params.user,'员工',64),raw=String(req.body?.yuan??'');
   if(!/^\d{1,5}(\.\d{1,2})?$/.test(raw)||units(raw)>10000n*SCALE)throw new HttpError(400,'额度需在 0 至 10000 元之间');
   const account=await transaction(pool,async db=>{
+   await db.query('SELECT id FROM organizations WHERE id=$1 FOR UPDATE',[org]);
+   await requireManager(req,db);
    if(!(await db.query("SELECT 1 FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",[org,userId])).rowCount)throw new HttpError(404,'有效员工不存在');
-   await db.query('INSERT INTO employee_credit_accounts(user_id,organization_id,granted_yuan) VALUES($1,$2,$3) ON CONFLICT(user_id) DO NOTHING',[userId,org,GRANT_YUAN]);
+   await db.query('INSERT INTO employee_credit_accounts(user_id,organization_id,granted_yuan) VALUES($1,$2,$3) ON CONFLICT(user_id) DO NOTHING',[userId,org,'0']);
    await db.query('SELECT user_id FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[userId]);
+   if((await db.query('SELECT reclaim_pending FROM employee_credit_accounts WHERE user_id=$1',[userId])).rows[0]?.reclaim_pending)throw new HttpError(409,'上次离职的调用仍在结算，请结算完成后分配');
    const money=await balance(db,userId);
    if(units(raw)<units(money.spent_yuan)+units(money.held_yuan))throw new HttpError(409,'额度不能低于已用和结算中的金额');
+   const delta=(await db.query('SELECT $1::numeric-$2::numeric AS delta',[money.granted_yuan,raw])).rows[0].delta;
+   await movePool(db,org,userId,delta,'quota_changed');
    const row=(await db.query('UPDATE employee_credit_accounts SET granted_yuan=$2 WHERE user_id=$1 RETURNING granted_yuan,spent_yuan',[userId,raw])).rows[0];
    await audit(db,req.actor,'employee_credit.quota_set',org,userId,{before:money.granted_yuan,after:raw});return row;
   });
   res.json(account);
+ });
+ app.post('/api/employee-credit/team/pool',requireCustomer,async(req,res)=>{
+  const org=await requireManager(req),raw=String(req.body?.yuan??'');
+  if(!/^\d{1,6}(\.\d{1,2})?$/.test(raw)||units(raw)<=0n||units(raw)>100000n*SCALE)throw new HttpError(400,'新增预算需在 0.01 至 100000 元之间');
+  const available=await transaction(pool,async db=>{
+   await db.query('SELECT id FROM organizations WHERE id=$1 FOR UPDATE',[org]);
+   await requireManager(req,db);
+   const value=await movePool(db,org,null,raw,'budget_added');
+   await audit(db,req.actor,'employee_credit.pool_budget_added',org,org,{yuan:raw});return value;
+  });res.json({available_yuan:available});
  });
  const health={at:0,models:[],running:null};
  async function probeModels(){
@@ -388,6 +411,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
   if(b.limit_yuan!==undefined&&b.limit_yuan!==null&&b.limit_yuan!==''){const raw=String(b.limit_yuan);if(!moneyPattern.test(raw)||Number(raw)<=0)throw new HttpError(400,'消费上限需为大于 0 的金额，最多两位小数');limit=raw;}
   const key=await transaction(pool,async db=>{
    await db.query('SELECT user_id FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[req.customer.id]);
+   if(!await activeMember(db,cfg,req.customer.id))throw new HttpError(403,'当前账号不是公司员工');
    const count=(await db.query("SELECT count(*)::int AS count FROM employee_api_keys WHERE owner_id=$1 AND revoked_at IS NULL AND purpose='api'",[req.customer.id])).rows[0].count;
    if(count>=MAX_KEYS)throw new HttpError(409,`最多保留 ${MAX_KEYS} 枚有效 Key，请先停用旧 Key`);
    const created=(await db.query('INSERT INTO employee_api_keys(owner_id,label,secret_hash,key_hint,model_ids,limit_yuan) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,label,key_hint,created_at,model_ids,limit_yuan',[req.customer.id,label,hash(secret),secret.slice(-6),models,limit])).rows[0];
@@ -503,6 +527,7 @@ export function employeeInferenceRoutes(app,pool,cfg,upstreamFetch=fetch,gate=cr
   const callId=await (backend?backend.reserve({key,model:{...model,multiplier},route,hold,origin}):transaction(pool,async db=>{
    // The row lock serialises reservations so concurrent calls cannot overspend.
    await db.query('SELECT user_id FROM employee_credit_accounts WHERE user_id=$1 FOR UPDATE',[key.owner_id]);
+   if(!await activeMember(db,cfg,key.owner_id))throw new HttpError(403,'当前账号不是公司员工');
    const currentKey=(await db.query('SELECT limit_yuan,revoked_at,expires_at FROM employee_api_keys WHERE id=$1',[key.key_id])).rows[0];
    if(!currentKey||currentKey.revoked_at||(currentKey.expires_at&&new Date(currentKey.expires_at)<=new Date()))throw new HttpError(401,'Key 已失效');
    key.limit_yuan=currentKey.limit_yuan;
@@ -666,5 +691,6 @@ export async function settleEmployeeCalls(pool){
  // Interrupted by the gateway and still not in KerAPI's log after the grace period: the employee is not charged.
  await pool.query(`UPDATE employee_calls c SET status='failed' WHERE c.status='awaiting_bill' AND c.error_code IN ('GATEWAY_INTERRUPTED','STALE_PENDING') AND c.created_at<now()-interval '${BILL_GRACE}'
   AND NOT EXISTS(SELECT 1 FROM supplier_usage_records r WHERE r.credential_id=c.credential_id AND r.request_id=c.upstream_request_id)`);
+ await reclaimSettledCredit(pool);
  return {settled};
 }
