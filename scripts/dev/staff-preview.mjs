@@ -13,6 +13,8 @@ const stamp='2026-11-26T02:20:00.000Z';
 const customers=[['c1','E26-示例01','示例 · 云帆科技','enterprise'],['c2','P26-示例02','示例 · 林同学','personal'],['c3','E26-示例03','示例 · 远山设计','enterprise']].map(([id,code,name,kind],i)=>({id,code,name,kind,email:`customer${i+1}@example.com`,tags:i===0?['重点客户']:[],stage:i===0?'following':'new',owner_subject:i===2?'other-demo':'demo',owner_name:i===2?'其他员工':'示例员工',list_credit_fen:180000,balance_fen:90000,recharged_fen:100000,credit_spent:0,credit_granted:0,calls_30d:24+i,last_call_at:stamp,created_at:stamp,open_tickets:1,members:3,organization_id:kind==='enterprise'?id:null}));
 let tickets=[['t1','充值到账进度咨询','billing','open','first_line','c1'],['t2','客户端连接需要协助','question','in_progress','first_line','c2'],['t3','模型请求超时待排查','bug','in_progress','technical','c3']].map(([id,subject,category,status,tier,cid])=>({id,subject,category,status,tier,customer_id:cid,name:customers.find(c=>c.id===cid).name,customer_code:customers.find(c=>c.id===cid).code,email:'customer@example.com',created_at:stamp,body:'这是本地示例工单，用于检查处理流程。请协助核对并告知下一步。',replies:[]}));
 const notes=new Map();
+const promotionGrants=[];
+const grantView=g=>({...g,state:g.status==='active'?(Date.parse(g.ends_at)<=Date.now()?'expired':Date.parse(g.starts_at)>Date.now()?'scheduled':'active'):g.status});
 let answers=[{id:'a1',category:'question',question:'如何配置 API 接入地址？',answer:'在客户端中填写 API 接入地址，再使用自己的 API 密钥进行连接测试。',published:false,use_count:0}];
 const financial={current:{month:'2026-11',accrual:{revenue:1200,upstream_cost:480,sales_cost:460,other_cost:20,gross_profit:720,operating_profit:720,channel_cost:0,credit_list:0,list_margin:0},cash:{received:2000,refunded:0,supplier_paid:600,channel_cost:0,net:1400,invoiced:0},balances:{customer_cash:800,credit_unused:0},by_product:[],by_customer:[],by_supplier:[]},series:[]};
 const models=[{id:'model-demo',name:'示例模型',upstream_model:'demo-model',upstream:'示例供应商',routed:true,paused:false,input_yuan:2,output_yuan:6,calls:78,failed:0,yuan:12,last_call_at:stamp}];
@@ -45,9 +47,35 @@ http.createServer(async(req,res)=>{
  const api=p.replace('/api/staff/','');
  const myCustomers=finance?customers:customers.filter(c=>c.owner_subject==='demo');
  const myTickets=tickets.filter(t=>myCustomers.some(c=>c.id===t.customer_id));
- if(!finance&&/^(business\/(finance|invoices|bank-transfers|supplier-payments|suppliers|discounts)|workspace\/(business|overview)|payments\/)/.test(api))return json({error:'当前示例岗位没有财务权限'},403);
+ if(!finance&&/^(business\/(finance|invoices|bank-transfers|supplier-payments|suppliers)|workspace\/(business|overview)|payments\/)/.test(api))return json({error:'当前示例岗位没有财务权限'},403);
+ if(!finance&&req.method==='GET'&&api==='business/discounts')return json({error:'公司折扣管理需要老板身份'},403);
  if(req.method!=='GET'){
   let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>20000)return json({error:'内容过长'},413);}const b=JSON.parse(raw||'{}');
+  if(req.method==='POST'&&api==='business/discounts'){
+   // Local simulation of the existing direct-code rules, not financial privileges.
+   if(b.business_line!=='direct')return json({error:'此预览只支持客户推广码申请'},403);
+   const promo=String(b.promo_code||'').normalize('NFKC').trim().toUpperCase(),percent=Number(b.customer_price_percent),minimum=String(b.min_cash_yuan??'0'),starts=Date.parse(b.starts_at),ends=Date.parse(b.ends_at);
+   if(!/^(?:[A-Z]{8}|\p{Script=Han}{8})$/u.test(promo))return json({error:'推广码须为 8 个英文字母或 8 个中文字符'},400);
+   if(!b.name?.trim()||b.name.length>100||!b.reason?.trim()||b.reason.length>500)return json({error:'请填写用途名称和申请原因'},400);
+   if(!Number.isInteger(percent)||percent<1||percent>99||!/^\d+(?:\.\d{1,2})?$/.test(minimum)||Number(minimum)>50000)return json({error:'请核对折扣比例与最低实付金额'},400);
+   if(b.audience!=='all'||b.model_id||b.cap_yuan!=null&&b.cap_yuan!==''||b.non_refundable!==undefined&&typeof b.non_refundable!=='boolean')return json({error:'推广码适用于全部产品，请核对申请内容'},400);
+   if(!Number.isFinite(starts)||!Number.isFinite(ends)||ends<=starts||ends-starts>366*86400000||ends<=Date.now())return json({error:'有效期须在一年以内且结束晚于现在和开始日期'},400);
+   if(promotionGrants.some(g=>g.promo_code===promo))return json({error:'此码已被使用或保留，请换一个码'},409);
+   const status=finance||percent===50&&!b.non_refundable&&Number(minimum)===0?'active':'pending',creator=finance?'demo-owner':'demo';
+   const grant={id:randomUUID(),name:b.name.trim(),reason:b.reason.trim(),promo_code:promo,business_line:'direct',audience:'all',customer_price_percent:percent,min_cash_fen:Math.round(Number(minimum)*100),non_refundable:b.non_refundable===true,starts_at:new Date(starts).toISOString(),ends_at:new Date(ends).toISOString(),status,created_by:creator,created_by_name:staff.name,created_at:new Date().toISOString(),customers:0,paid_fen:0,decided_at:status==='active'?new Date().toISOString():null};
+   promotionGrants.unshift(grant);return json({id:grant.id,status},201);
+  }
+  const decision=api.match(/^business\/discounts\/([^/]+)\/(approve|reject|revoke)$/);
+  if(req.method==='POST'&&decision){
+   const [,grantId,action]=decision,grant=promotionGrants.find(g=>g.id===grantId),subject=finance?'demo-owner':'demo';
+   if(!finance&&action!=='revoke')return json({error:'客户推广申请由老板审批'},403);
+   if(!grant||!finance&&grant.created_by!==subject)return json({error:'推广码不存在或不属于你'},404);
+   if(Date.parse(grant.ends_at)<=Date.now())return json({error:'推广码已过期，不能恢复或复用'},409);
+   if(action==='revoke'?grant.status!=='active':grant.status!=='pending')return json({error:'这条申请已处理或当前状态不支持此操作'},409);
+   if(action!=='revoke'&&grant.created_by===subject)return json({error:'不能审批自己的申请'},409);
+   if(action==='reject'&&!b.note?.trim())return json({error:'请填写驳回原因'},400);
+   Object.assign(grant,{status:{approve:'active',reject:'rejected',revoke:'revoked'}[action],decided_at:new Date().toISOString(),decided_by:subject,decided_by_name:staff.name,decision_note:b.note||''});return json({id:grant.id,status:grant.status});
+  }
   if(api==='self-api/keys'){
    if(!b.label?.trim()||b.label.length>50)return json({error:'请填写用途名称'},400);
    if(apiKeys.filter(k=>!k.revoked_at).length>=5)return json({error:'最多保留5枚有效Key'},409);
@@ -73,7 +101,7 @@ http.createServer(async(req,res)=>{
  if(api==='self-api/compare/config')return json({products:[{account_id:'local-demo-company',name:'公司分配额度 · 示例',kind:'allocated',available_yuan:'37.25',model_ids:apiModels.map(m=>m.id)}],models:apiModels,providers:REFERENCE_PROVIDERS,reference_prices:[],max_file_bytes:8000000,max_files:5,max_output_tokens:8192,timeout_seconds:180});
  if(api==='workspace/access')return json({business:true,owner:finance,technical:false,finance});
  if(api==='business/dashboard'&&!finance)return json({staff,counts:{tickets:myTickets.filter(t=>t.status!=='closed'&&t.tier==='first_line').length,tickets_technical:myTickets.filter(t=>t.status!=='closed'&&t.tier==='technical').length,my_customers:myCustomers.length,vip_pending:0,vip_confirmed:0,vip_discount_pending:0,vip_activation_exception_pending:0},top_customers:[],finance:null});
- if(api==='business/dashboard')return json({staff,counts:{tickets:myTickets.filter(t=>t.status!=='closed'&&t.tier==='first_line').length,tickets_technical:myTickets.filter(t=>t.status!=='closed'&&t.tier==='technical').length,upgrades:0,vip_pending:0,vip_discount_pending:0,vip_activation_exception_pending:0,discounts_pending:0,models_paused:0,enterprises:2,individuals:1,customers_new_30d:3,users_active_30d:3,suppliers:0,discounts_active:0,...(finance?{invoices_requested:1,bank_transfers_pending:1,refunds_pending:0}:{})},top_customers:finance?customers:[],finance:finance&&!url.searchParams.has('summary')?financial:null});
+ if(api==='business/dashboard')return json({staff,counts:{tickets:myTickets.filter(t=>t.status!=='closed'&&t.tier==='first_line').length,tickets_technical:myTickets.filter(t=>t.status!=='closed'&&t.tier==='technical').length,upgrades:0,vip_pending:0,vip_discount_pending:0,vip_activation_exception_pending:0,discounts_pending:promotionGrants.filter(g=>g.status==='pending').length,models_paused:0,enterprises:2,individuals:1,customers_new_30d:3,users_active_30d:3,suppliers:0,discounts_active:promotionGrants.filter(g=>grantView(g).state==='active').length,...(finance?{invoices_requested:1,bank_transfers_pending:1,refunds_pending:0}:{})},top_customers:finance?customers:[],finance:finance&&!url.searchParams.has('summary')?financial:null});
  if(api==='business/support')return json({tickets:myTickets,answers});
  if(api==='business/customers')return json({customers:myCustomers,tags:[{tag:'重点客户',customers:1}],staff:[{subject:'demo',name:'示例员工'}]});
  if(api.startsWith('business/customers/')){const c=myCustomers.find(c=>c.id===api.split('/')[2]);return c?json({customer:c,notes:notes.get(c.id)||[],members:[],tickets:myTickets.filter(t=>t.customer_id===c.id),discounts:[],finance:finance?{invoice_limit:{available_fen:100000},orders:[],invoices:[]}:null}):json({error:'客户不存在'},404);}
@@ -83,7 +111,7 @@ http.createServer(async(req,res)=>{
  if(api==='business/supplier-payments')return json({payments:[],suppliers:[]});
  if(api==='payments/orders')return json({orders:[],requests:[]});
  if(api==='cw')return json({enabled:true,administrator:staff.admin,partners:[],invite_codes:[],owners:[]});
- if(api==='business/acquisition')return json({administrator:staff.admin,owners:[{subject:'demo',name:'示例员工'}],partners:[],grants:[],codes:[],orders:[],vip_orders:[],customers:[],commissions:[],stats:{}});
+ if(api==='business/acquisition')return json({administrator:staff.admin,owners:[{subject:'demo',name:'示例员工'}],partners:[],grants:promotionGrants.filter(g=>finance||g.created_by==='demo').map(grantView),codes:[],orders:[],vip_orders:[],customers:[],commissions:[],stats:{}});
  if(api==='business/discounts')return json({grants:[],models:[],campaigns:[],customers,segments:[],admin:staff.admin});
  if(api==='business/suppliers')return json({suppliers:[]});
  if(api==='workspace/business')return json({models,upgrades:[]});
