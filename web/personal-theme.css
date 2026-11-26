@@ -1,0 +1,109 @@
+/* Shared palette roles. Silver and mist white is the default. */
+html[data-site-theme]{
+ --personal-canvas:#dbe1e4;
+ --personal-silver:#c3cdd2;
+ --personal-surface:#f2f7f8;
+ --personal-ink:#20282c;
+ --personal-muted:#536168;
+ --personal-line:#c4cfd4;
+ --personal-accent:#222b30;
+ --personal-accent-hover:#3a474e;
+ --personal-selection:#e3e4f8;
+ --personal-credit-paid:#6553d8;
+ --personal-credit-gift:#ffc166;
+ --personal-chart-deepseek:#9edee9;
+ --personal-chart-glm:#aebcf0;
+ --personal-chart-flash:#ffc166;
+ --personal-action-text:#fff;
+ --personal-nav-selection:var(--personal-accent);
+ --personal-nav-selection-text:var(--personal-action-text);
+ --personal-rail:#e8eef0;
+ --personal-hover:#d2dde2;
+ --personal-selected-ink:#4436a5;
+ --personal-focus:var(--personal-accent);
+ --personal-disabled:#cfd8dc;
+ --personal-disabled-line:#bdcbd1;
+ --personal-disabled-ink:#5c686e;
+ --personal-mark:#cdd2fa;
+ --personal-mark-ink:#302576;
+ --personal-scroll:#9cabb3;
+ --personal-track:#ccd6dc;
+ --personal-table-head:#ccd7dd;
+ --personal-row-hover:#e9f0f2;
+ --personal-secondary:#d8e2e7;
+ --personal-grid:#d9e3e7;
+ --personal-heat-0:#e0e7eb;
+ --personal-heat-1:#d8ebad;
+ --personal-heat-2:#b8e75d;
+ --personal-heat-3:#84ba35;
+ --personal-heat-4:#4f772b;
+ --personal-tag-1:#d5eef2;
+ --personal-tag-1-border:#b2d5dd;
+ --personal-tag-1-ink:#305864;
+ --personal-tag-2:#e0e3f7;
+ --personal-tag-2-border:#c3c8eb;
+ --personal-tag-2-ink:#474478;
+ --personal-chart-stroke:#20282c14;
+ --personal-chart-key-stroke:#20282c20;
+ --ph-ink:var(--personal-ink);--ph-muted:var(--personal-muted);--ph-line:var(--personal-line);
+ --site-ink:var(--personal-ink);--site-muted:var(--personal-muted);--site-line:var(--personal-line);--site-accent:var(--personal-accent);
+}
+html[data-site-theme] .personal-console,html[data-site-theme] .employee-api-stage{
+ --ph-ink:var(--personal-ink);--ph-muted:var(--personal-muted);--ph-line:var(--personal-line);
+ background:var(--personal-canvas);color:var(--personal-ink);
+}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pc-stage{background:var(--personal-canvas)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(.site-header,.site-footer){background:var(--personal-surface);color:var(--personal-muted)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pc-sidebar{background:var(--personal-rail);border-color:var(--personal-line)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pc-sidebar nav :is(button,a):hover{background:var(--personal-hover);color:var(--personal-ink)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pc-sidebar nav .active:not(.pc-vip-link){background:var(--personal-nav-selection);color:var(--personal-nav-selection-text)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pc-sidebar nav .pc-vip-link{color:var(--personal-ink)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pc-vip-circle{color:var(--personal-accent)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pc-sidebar nav .pc-vip-link.active{background:var(--personal-selection);color:var(--personal-selected-ink)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .account-menu{color:var(--personal-ink)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .account-menu summary{background:var(--personal-surface)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(.personal-home,.personal-models,.personal-api,.personal-settings,.personal-billing,.pc-route-state){color:var(--personal-ink)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(.ph-primary,.pm-primary,.live-button.primary,.mm-section-actions .mm-generate){background:var(--personal-accent);border-color:var(--personal-accent);color:var(--personal-action-text)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(.ph-primary,.pm-primary,.live-button.primary,.mm-section-actions .mm-generate):hover:not(:disabled){background:var(--personal-accent-hover);border-color:var(--personal-accent-hover);color:var(--personal-action-text)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(.pm-primary,.live-button.primary,.mm-section-actions .mm-generate):disabled{background:var(--personal-disabled);border-color:var(--personal-disabled-line);color:var(--personal-disabled-ink);opacity:1;cursor:not-allowed}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(a,button,input,select,summary,[tabindex]):focus-visible{outline-color:var(--personal-focus)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(input,textarea){caret-color:var(--personal-accent)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) ::selection{background:var(--personal-mark);color:var(--personal-mark-ink)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(.pc-stage,.pc-sidebar,.pd-chart-scroll,.personal-table-wrap){scrollbar-color:var(--personal-scroll) transparent;scrollbar-width:thin}
+/* Neutral controls; functional colors distinguish balances and model usage. */
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .ph-endpoint{background:var(--personal-surface);border-color:var(--personal-line)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(.ph-endpoint code,.ph-copy){color:var(--personal-ink)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pb-credit-track{background:var(--personal-track);border-color:var(--personal-silver);border-style:solid}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pb-credit-paid{background:var(--personal-credit-paid)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pb-credit-gift{background:var(--personal-credit-gift)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(.mm-table th,.personal-api th,.pb-table th){background:var(--personal-table-head);color:var(--personal-muted)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(.mm-table td,.personal-api td,.pb-table td){border-color:var(--personal-line)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(.mm-table tbody tr,.personal-api tbody tr):hover{background:var(--personal-row-hover)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .mm-tags span{border-color:var(--personal-line);background:var(--personal-surface)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .mm-actions .mm-use{background:var(--personal-secondary);color:var(--personal-ink)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(.personal-api select,.personal-billing input,.personal-billing select,.mc-form input,.mc-config-field){background:var(--personal-surface);border-color:var(--personal-line);color:var(--personal-ink)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(.pb-tabs a[aria-current],.pu-tabs button[aria-pressed="true"],.mc-tabs button[aria-pressed="true"]){color:var(--personal-accent);border-color:var(--personal-accent)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .alipay-preset.active{background:var(--personal-selection);border-color:var(--personal-accent);color:var(--personal-selected-ink)}
+/* Charts use the same three families; labels/tooltips continue to identify each model. */
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pd-usage{--pd-line:var(--personal-line);--pd-muted:var(--personal-muted)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pd-card{background:var(--personal-surface);border-color:var(--personal-line);box-shadow:0 3px 12px #20282c05}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pd-grid i{border-color:var(--personal-grid)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(.pd-expand,.pd-model-legend,.pd-data){color:var(--personal-muted)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pd-expand:hover{color:var(--personal-accent);background:var(--personal-selection)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pd-level-0{--pd-cell:var(--personal-heat-0)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pd-level-1{--pd-cell:var(--personal-heat-1)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pd-level-2{--pd-cell:var(--personal-heat-2)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pd-level-3{--pd-cell:var(--personal-heat-3)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pd-level-4{--pd-cell:var(--personal-heat-4)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pd-tooltip{background:var(--personal-surface);color:var(--personal-ink);border-color:var(--personal-line);box-shadow:0 8px 26px #20282c1c}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pd-tooltip :is(b,p,span){color:inherit}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pd-loading div{background:repeating-linear-gradient(to top,var(--personal-disabled) 0,var(--personal-disabled) 1px,transparent 1px,transparent 30px)}
+
+html[data-site-theme] :is(.personal-console,.employee-api-stage) :is(.mm-table td,.mm-price,.mm-price em,.mm-tags){color:var(--personal-muted)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .mm-actions .mm-use:hover{background:var(--personal-hover)}
+
+/* Colored capability labels remain readable without depending on hue alone. */
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .mm-tags span:first-child{background:var(--personal-tag-1);border-color:var(--personal-tag-1-border);color:var(--personal-tag-1-ink)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .mm-tags span:nth-child(2){background:var(--personal-tag-2);border-color:var(--personal-tag-2-border);color:var(--personal-tag-2-ink)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pd-bar i{box-shadow:inset 0 0 0 1px var(--personal-chart-stroke)}
+html[data-site-theme] :is(.personal-console,.employee-api-stage) .pd-model-legend i{box-shadow:inset 0 0 0 1px var(--personal-chart-key-stroke)}

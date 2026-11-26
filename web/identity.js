@@ -911,7 +911,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  function personalSettingsContent(){
   const binding=panelData.smsBinding,sessions=Array.isArray(panelData.sessions)?panelData.sessions:null,byPhone=me.user.phoneOnly;
   const action=(label,view,disabled=false)=>`<button type="button" data-live="settings-view" data-settings-view="${view}" ${disabled?'disabled':''}>${label}</button>`;
-  const row=(label,value,control='')=>`<div class="ps-row"><span>${label}</span><div class="ps-value">${value}</div>${control}</div>`;
+  const row=window.SiteHeader.profileRow;
   const back=`<button type="button" class="ps-back" data-live="settings-view" data-settings-view="overview">${ico('arrow-left')}个人设置</button>`;
   const errorRetry=kind=>`<button type="button" data-live="settings-retry" data-kind="${kind}">重新加载</button>`;
   if(personalSettingsView==='password')return `<section class="personal-api personal-settings ps-detail">${back}${passwordSettings(binding).replace(/<h2 class="panel-title">([^<]+)<\/h2>/,'<h1 class="panel-title">$1</h1>')}</section>`;
@@ -935,19 +935,18 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   if(!org)return personalSettingsContent();
   const manager=Boolean(org&&lastOrg?.permissions?.manager),role=lastOrg?.membership?.role,list=panelData.sessions,u=me.upgrade;
   const depts=org?lastOrg?.departments||[]:[];
-  const canUpgrade=!org&&!(me.organizations||[]).length;
   const smsBinding=panelData.smsBinding;
-  const phone=phoneLoginAvailable&&!org;
+  const phone=phoneLoginAvailable||me.user.phoneOnly;
   const passwordLabel=me.user.phoneOnly&&!smsBinding?.hasPassword?'设置密码':'修改密码';
   const name=me.user.name||'—',initial=(name||'?').trim().charAt(0).toUpperCase(),vip=!!me.user.vip;
   // 账户头部：头像 + 姓名 + 类型，右侧升级入口；正式 VIP 显示金色名与角标
   const nameBlock=vip?`<span class="account-name-vip"><b>${esc(name)}</b><i class="vip-badge" aria-hidden="true">VIP</i></span>`:`<b>${esc(name)}</b>`;
-  const accountHead=`<div class="settings-profile${vip?' is-vip':''}"><div class="settings-avatar">${esc(initial)}</div><div class="settings-profile-id">${nameBlock}<small>${org?esc(org.name):(vip?'个人账号 · 正式 VIP':'个人账号')}</small></div>${canUpgrade?`<a class="live-button primary" href="#upgrade">${ico('building-2')} 升级为企业账号</a>`:''}</div>`;
+  const accountHead=`<div class="settings-profile${vip?' is-vip':''}"><div class="settings-avatar">${esc(initial)}</div><div class="settings-profile-id">${nameBlock}<small>${org?esc(org.name):(vip?'个人账号 · 正式 VIP':'个人账号')}</small></div></div>`;
   // 账户资料：分组信息卡片
   const infoGroup=(title,rows)=>`<div class="settings-info-group"><h3>${esc(title)}</h3>${rows.join('')}</div>`;
-  const infoRow=(label,value,extra='')=>`<div class="settings-info-row"><span>${esc(label)}</span><div><b>${value}</b>${extra}</div></div>`;
+  const infoRow=window.SiteHeader.profileRow;
   const phoneRow=phone?infoRow('短信登录',smsBinding?.lastFour?'手机号尾号 '+esc(smsBinding.lastFour):smsBinding?'未绑定手机号':panelData['error:smsBinding']?'暂时无法读取':'正在读取…',!me.user.phoneOnly?`<div class="settings-info-action">${btn(smsBinding?.lastFour?'更换手机号':'绑定手机号','sms-bind','','quiet')}</div>`:'')+'':infoRow('短信登录','未开放');
-  const account=`<div class="panel-settings">${accountHead}${infoGroup('登录方式',[phoneRow])}${infoGroup('基本信息',org?[infoRow('企业',esc(org.name)),infoRow('我的身份',customerRoles[role]||'企业成员'),infoRow('权限范围',manager?'管理全公司的员工、额度和用量':'使用自己的额度和 Key'),infoRow('服务区域',org.region==='CN'?'中国区':esc(org.region||'中国区'))]:[infoRow('姓名',esc(name)),infoRow('登录邮箱',esc(me.user.email||'未绑定邮箱')),infoRow('账户类型','个人账号')])}${u?.status==='pending'?infoGroup('企业升级',[infoRow('状态','审核中')]):''}${manager&&teamUsage?infoGroup('企业设置',[infoRow('调用摘要记录',teamUsage.summaries_enabled?'已开启 · 保存最后一条提问的前 60 个字，30 天后删除':'未开启 · 只记录时间、模型、来源和费用',`<div class="settings-info-action">${btn(teamUsage.summaries_enabled?'关闭调用摘要':'开启调用摘要','toggle-summaries','','quiet')}${btn('查看操作记录','org-audit','','quiet')}</div>`)]):''}</div>`;
+  const account=`<div class="panel-settings">${accountHead}${infoGroup('账户资料',[infoRow('姓名',esc(name)),...(!me.user.phoneOnly&&me.user.email?[infoRow('登录邮箱',esc(me.user.email))]:[]),...(phone?[phoneRow]:[])])}${infoGroup('企业资料',org?[infoRow('企业',esc(org.name)),infoRow('我的身份',customerRoles[role]||'企业成员'),infoRow('权限范围',manager?'管理全公司的员工、额度和用量':'使用自己的额度和 Key'),infoRow('服务区域',org.region==='CN'?'中国区':esc(org.region||'中国区'))]:[infoRow('姓名',esc(name)),infoRow('登录邮箱',esc(me.user.email||'未绑定邮箱')),infoRow('账户类型','个人账号')])}${u?.status==='pending'?infoGroup('企业升级',[infoRow('状态','审核中')]):''}${manager&&teamUsage?infoGroup('企业设置',[infoRow('调用摘要记录',teamUsage.summaries_enabled?'已开启 · 保存最后一条提问的前 60 个字，30 天后删除':'未开启 · 只记录时间、模型、来源和费用',`<div class="settings-info-action">${btn(teamUsage.summaries_enabled?'关闭调用摘要':'开启调用摘要','toggle-summaries','','quiet')}${btn('查看操作记录','org-audit','','quiet')}</div>`)]):''}</div>`;
   const password=passwordSettings(smsBinding);
   const devices=panelData['error:sessions']?`<p class="live-small" role="status">${esc(panelData['error:sessions'])}</p>`:!list?panelLoading:`<p class="live-small">${list.length} 个有效会话。需要时可一次退出其他设备。</p>${btn('退出其他设备','revoke-others','','quiet')}<div class="live-session-list">${list.map(s=>`<article><b>${esc((s.userAgent||'未知设备').slice(0,100))}</b><small>创建于 ${new Date(s.createdAt).toLocaleString('zh-CN')}</small></article>`).join('')}</div>`;
   const departments=`<div class="dept-panel"><p class="live-small">员工申请加入、管理者编辑成员时，只能从这里选部门。改名会同步到所有成员；改成已有部门的名字会把两个部门合并；删除后，成员回到“未分组”。</p><form id="live-dept-create" class="dept-add"><input name="name" maxlength="40" required placeholder="新部门名称，例如：销售部" aria-label="新部门名称"><button class="live-button primary" type="submit">添加部门</button><div role="status"></div></form><div class="dept-list">${depts.map(d=>`<div class="dept-row"><span><b>${esc(d.name)}</b><small>${d.members} 位成员</small></span>${btn('改名','dept-rename',`data-id="${esc(d.id)}" data-name="${esc(d.name)}"`,'quiet')}${btn('删除','dept-delete',`data-id="${esc(d.id)}" data-name="${esc(d.name)}" data-members="${d.members}"`,'quiet')}</div>`).join('')||'<p class="personal-model-empty">还没有部门。添加后，员工和管理者就能从列表中选择。</p>'}</div></div>`;
@@ -1076,7 +1075,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   panelRedraw=null;if(orgTab==='support'){loadPanelData('tickets','/api/support/tickets',()=>organizationV2(lastOrg));loadPanelData('answers','/api/support/answers',()=>organizationV2(lastOrg));}if(orgTab==='settings'){
    const redraw=()=>{if(orgTab==='settings'&&lastOrg?.organization.id===o.id)organizationV2(lastOrg);};
    loadPanelData('sessions','/api/auth/list-sessions',redraw);
-   if(me.user.phoneOnly&&phonePasswordAvailable)loadPanelData('smsBinding','/api/auth/sms/binding',redraw);
+   if(phoneLoginAvailable||me.user.phoneOnly)loadPanelData('smsBinding','/api/auth/sms/binding',redraw);
   }
   if(![...'overview models keys compare usage support settings'.split(' '),...(manager?['people']:[])].includes(orgTab))orgTab='overview';
   const usageOf=person=>{const row=team?.members.find(x=>x.user_id===person.user_id);return row?`<span class="usage-cell"><span>${employeeYuan(row.spent_yuan)} / ${employeeYuan(row.granted_yuan)}</span>${usageBar(row.spent_yuan,row.granted_yuan)}</span>`:'—';};
