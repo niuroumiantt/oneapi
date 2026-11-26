@@ -1,68 +1,77 @@
-/* Personal workspace palette: cool white / silver gray / true red.
+/* Personal workspace palette: silver gray / mist white / functional colors.
    Geometry lives in site-header.css; this layer changes visual roles only. */
 .personal-console[data-workspace-scope="personal"]{
- --personal-canvas:#ebecee;
- --personal-silver:#bcbbbf;
- --personal-surface:#fafafa;
- --personal-ink:#252426;
- --personal-muted:#626166;
- --personal-line:#d5d4d8;
- --personal-accent:#d71019;
- --personal-accent-hover:#b90c14;
- --personal-selection:#f8e4e5;
- --personal-chart-deepseek:#d71019;
- --personal-chart-glm:#55545a;
- --personal-chart-flash:#bcbbbf;
+ --personal-canvas:#dbe1e4;
+ --personal-silver:#c3cdd2;
+ --personal-surface:#f2f7f8;
+ --personal-ink:#20282c;
+ --personal-muted:#536168;
+ --personal-line:#c4cfd4;
+ --personal-accent:#222b30;
+ --personal-accent-hover:#3a474e;
+ --personal-selection:#e3e4f8;
+ --personal-functional-purple:#6553d8;
+ --personal-functional-lime:#b8ec46;
+ --personal-functional-amber:#ffc166;
+ --personal-chart-deepseek:#9edee9;
+ --personal-chart-glm:#aebcf0;
+ --personal-chart-flash:#ffc166;
  --ph-ink:var(--personal-ink);--ph-muted:var(--personal-muted);--ph-line:var(--personal-line);
  --site-ink:var(--personal-ink);--site-muted:var(--personal-muted);--site-line:var(--personal-line);--site-accent:var(--personal-accent);
  background:var(--personal-canvas);color:var(--personal-ink);
 }
 .personal-console[data-workspace-scope="personal"] .pc-stage{background:var(--personal-canvas)}
 .personal-console[data-workspace-scope="personal"] :is(.site-header,.site-footer){background:var(--personal-surface);color:var(--personal-muted)}
-.personal-console[data-workspace-scope="personal"] .pc-sidebar{background:#f3f3f4;border-color:var(--personal-line)}
-.personal-console[data-workspace-scope="personal"] .pc-sidebar nav :is(button,a):hover{background:#e3e3e6;color:var(--personal-ink)}
+.personal-console[data-workspace-scope="personal"] .pc-sidebar{background:#e8eef0;border-color:var(--personal-line)}
+.personal-console[data-workspace-scope="personal"] .pc-sidebar nav :is(button,a):hover{background:#d2dde2;color:var(--personal-ink)}
 .personal-console[data-workspace-scope="personal"] .pc-sidebar nav .active:not(.pc-vip-link){background:var(--personal-accent);color:#fff}
 .personal-console[data-workspace-scope="personal"] .pc-sidebar nav .pc-vip-link{color:var(--personal-ink)}
 .personal-console[data-workspace-scope="personal"] .pc-vip-circle{color:var(--personal-accent)}
-.personal-console[data-workspace-scope="personal"] .pc-sidebar nav .pc-vip-link.active{background:var(--personal-selection);color:#a70c13}
+.personal-console[data-workspace-scope="personal"] .pc-sidebar nav .pc-vip-link.active{background:var(--personal-selection);color:#4436a5}
 .personal-console[data-workspace-scope="personal"] .account-menu{color:var(--personal-ink)}
 .personal-console[data-workspace-scope="personal"] .account-menu summary{background:var(--personal-surface)}
 .personal-console[data-workspace-scope="personal"] :is(.personal-home,.personal-models,.personal-api,.personal-settings,.personal-billing,.pc-route-state){color:var(--personal-ink)}
 .personal-console[data-workspace-scope="personal"] :is(.ph-primary,.pm-primary,.live-button.primary,.mm-section-actions .mm-generate){background:var(--personal-accent);border-color:var(--personal-accent);color:#fff}
 .personal-console[data-workspace-scope="personal"] :is(.ph-primary,.pm-primary,.live-button.primary,.mm-section-actions .mm-generate):hover:not(:disabled){background:var(--personal-accent-hover);border-color:var(--personal-accent-hover);color:#fff}
-.personal-console[data-workspace-scope="personal"] :is(.pm-primary,.live-button.primary,.mm-section-actions .mm-generate):disabled{background:#dedde1;border-color:#ceccd2;color:#6b6970;opacity:1;cursor:not-allowed}
+.personal-console[data-workspace-scope="personal"] :is(.pm-primary,.live-button.primary,.mm-section-actions .mm-generate):disabled{background:#cfd8dc;border-color:#bdcbd1;color:#5c686e;opacity:1;cursor:not-allowed}
 .personal-console[data-workspace-scope="personal"] :is(a,button,input,select,summary,[tabindex]):focus-visible{outline-color:var(--personal-accent)}
 .personal-console[data-workspace-scope="personal"] :is(input,textarea){caret-color:var(--personal-accent)}
-.personal-console[data-workspace-scope="personal"] ::selection{background:#f3c9cd;color:#501015}
-.personal-console[data-workspace-scope="personal"] :is(.pc-stage,.pc-sidebar,.pd-chart-scroll,.personal-table-wrap){scrollbar-color:#a7a5ad transparent;scrollbar-width:thin}
-/* Quiet surfaces, with the red reserved for action, selection and measured usage. */
+.personal-console[data-workspace-scope="personal"] ::selection{background:#cdd2fa;color:#302576}
+.personal-console[data-workspace-scope="personal"] :is(.pc-stage,.pc-sidebar,.pd-chart-scroll,.personal-table-wrap){scrollbar-color:#9cabb3 transparent;scrollbar-width:thin}
+/* Neutral controls; functional colors distinguish balances and model usage. */
 .personal-console[data-workspace-scope="personal"] .ph-endpoint{background:var(--personal-surface);border-color:var(--personal-line)}
 .personal-console[data-workspace-scope="personal"] :is(.ph-endpoint code,.ph-copy){color:var(--personal-ink)}
-.personal-console[data-workspace-scope="personal"] .pb-credit-track{background:#dddde1;border-color:#bcbbbf;border-style:solid}
-.personal-console[data-workspace-scope="personal"] .pb-credit-paid{background:var(--personal-accent)}
-.personal-console[data-workspace-scope="personal"] .pb-credit-gift{background:var(--personal-chart-glm)}
-.personal-console[data-workspace-scope="personal"] :is(.mm-table th,.personal-api th,.pb-table th){background:#dedee2;color:var(--personal-muted)}
+.personal-console[data-workspace-scope="personal"] .pb-credit-track{background:#ccd6dc;border-color:#c3cdd2;border-style:solid}
+.personal-console[data-workspace-scope="personal"] .pb-credit-paid{background:var(--personal-functional-purple)}
+.personal-console[data-workspace-scope="personal"] .pb-credit-gift{background:var(--personal-functional-amber)}
+.personal-console[data-workspace-scope="personal"] :is(.mm-table th,.personal-api th,.pb-table th){background:#ccd7dd;color:var(--personal-muted)}
 .personal-console[data-workspace-scope="personal"] :is(.mm-table td,.personal-api td,.pb-table td){border-color:var(--personal-line)}
-.personal-console[data-workspace-scope="personal"] :is(.mm-table tbody tr,.personal-api tbody tr):hover{background:#f6f6f7}
-.personal-console[data-workspace-scope="personal"] .mm-tags span{border-color:#c9c8cf;background:#f5f5f6}
-.personal-console[data-workspace-scope="personal"] .mm-actions .mm-use{background:#dad9de;color:var(--personal-ink)}
+.personal-console[data-workspace-scope="personal"] :is(.mm-table tbody tr,.personal-api tbody tr):hover{background:#e9f0f2}
+.personal-console[data-workspace-scope="personal"] .mm-tags span{border-color:#c1ced5;background:#edf3f5}
+.personal-console[data-workspace-scope="personal"] .mm-actions .mm-use{background:#d8e2e7;color:var(--personal-ink)}
 .personal-console[data-workspace-scope="personal"] :is(.personal-api select,.personal-billing input,.personal-billing select,.mc-form input,.mc-config-field){background:var(--personal-surface);border-color:var(--personal-line);color:var(--personal-ink)}
 .personal-console[data-workspace-scope="personal"] :is(.pb-tabs a.active,.pu-tabs button.active,.mc-tabs button[aria-pressed="true"]){color:var(--personal-accent);border-color:var(--personal-accent)}
-.personal-console[data-workspace-scope="personal"] .alipay-preset.active{background:var(--personal-selection);border-color:var(--personal-accent);color:#a70c13}
+.personal-console[data-workspace-scope="personal"] .alipay-preset.active{background:var(--personal-selection);border-color:var(--personal-accent);color:#4436a5}
 /* Charts use the same three families; labels/tooltips continue to identify each model. */
 .personal-console[data-workspace-scope="personal"] .pd-usage{--pd-line:var(--personal-line);--pd-muted:var(--personal-muted)}
-.personal-console[data-workspace-scope="personal"] .pd-card{background:var(--personal-surface);border-color:#d5d4d8;box-shadow:0 3px 12px #25242605}
-.personal-console[data-workspace-scope="personal"] .pd-grid i{border-color:#e3e2e6}
+.personal-console[data-workspace-scope="personal"] .pd-card{background:var(--personal-surface);border-color:#c4cfd4;box-shadow:0 3px 12px #20282c05}
+.personal-console[data-workspace-scope="personal"] .pd-grid i{border-color:#d9e3e7}
 .personal-console[data-workspace-scope="personal"] :is(.pd-expand,.pd-model-legend,.pd-data){color:var(--personal-muted)}
 .personal-console[data-workspace-scope="personal"] .pd-expand:hover{color:var(--personal-accent);background:var(--personal-selection)}
-.personal-console[data-workspace-scope="personal"] .pd-level-0{--pd-cell:#ebecee}
-.personal-console[data-workspace-scope="personal"] .pd-level-1{--pd-cell:#f0c7ca}
-.personal-console[data-workspace-scope="personal"] .pd-level-2{--pd-cell:#e9858c}
-.personal-console[data-workspace-scope="personal"] .pd-level-3{--pd-cell:#d71019}
-.personal-console[data-workspace-scope="personal"] .pd-level-4{--pd-cell:#8f0b14}
-.personal-console[data-workspace-scope="personal"] .pd-tooltip{background:var(--personal-surface);color:var(--personal-ink);border-color:var(--personal-line);box-shadow:0 8px 26px #2524261c}
+.personal-console[data-workspace-scope="personal"] .pd-level-0{--pd-cell:#e0e7eb}
+.personal-console[data-workspace-scope="personal"] .pd-level-1{--pd-cell:#d8ebad}
+.personal-console[data-workspace-scope="personal"] .pd-level-2{--pd-cell:#b8e75d}
+.personal-console[data-workspace-scope="personal"] .pd-level-3{--pd-cell:#84ba35}
+.personal-console[data-workspace-scope="personal"] .pd-level-4{--pd-cell:#4f772b}
+.personal-console[data-workspace-scope="personal"] .pd-tooltip{background:var(--personal-surface);color:var(--personal-ink);border-color:var(--personal-line);box-shadow:0 8px 26px #20282c1c}
 .personal-console[data-workspace-scope="personal"] .pd-tooltip :is(b,p,span){color:inherit}
-.personal-console[data-workspace-scope="personal"] .pd-loading div{background:repeating-linear-gradient(to top,#dedde1 0,#dedde1 1px,transparent 1px,transparent 30px)}
+.personal-console[data-workspace-scope="personal"] .pd-loading div{background:repeating-linear-gradient(to top,#cfd8dc 0,#cfd8dc 1px,transparent 1px,transparent 30px)}
 
 .personal-console[data-workspace-scope="personal"] :is(.mm-table td,.mm-price,.mm-price em,.mm-tags){color:var(--personal-muted)}
-.personal-console[data-workspace-scope="personal"] .mm-actions .mm-use:hover{background:#ceccd2}
+.personal-console[data-workspace-scope="personal"] .mm-actions .mm-use:hover{background:#bdcbd1}
+
+/* Colored capability labels remain readable without depending on hue alone. */
+.personal-console[data-workspace-scope="personal"] .mm-tags span:first-child{background:#d5eef2;border-color:#b2d5dd;color:#305864}
+.personal-console[data-workspace-scope="personal"] .mm-tags span:nth-child(2){background:#e0e3f7;border-color:#c3c8eb;color:#474478}
+.personal-console[data-workspace-scope="personal"] .pd-bar i{box-shadow:inset 0 0 0 1px #20282c14}
+.personal-console[data-workspace-scope="personal"] .pd-model-legend i{box-shadow:inset 0 0 0 1px #20282c20}
