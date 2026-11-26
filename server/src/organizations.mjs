@@ -1,3 +1,4 @@
+import {returnUnusedCredit} from './company-credit.mjs';
 import { randomUUID } from 'node:crypto';
 import { HttpError,id,text,token,hash,vault,transaction,audit } from './core.mjs';
 export const roles=['owner','admin','department_admin','billing','member'];
@@ -76,15 +77,20 @@ export function organizationRoutes(app,pool,cfg,requireCustomer){
   await db.query('SELECT id FROM organizations WHERE id=$1 FOR UPDATE',[found.organization_id]);
   const link=(await db.query('SELECT * FROM organization_join_links WHERE id=$1',[found.id])).rows[0];if(link.status!=='active'||new Date(link.expires_at)<=new Date())throw new HttpError(400,'企业邀请链接已失效');
   const existing=await db.query('SELECT 1 FROM memberships WHERE organization_id=$1 AND user_id=$2',[link.organization_id,req.customer.id]);if(existing.rowCount)throw new HttpError(409,'你已是这家企业的成员');
-  const prior=(await db.query('SELECT id,status FROM organization_join_requests WHERE organization_id=$1 AND user_id=$2',[link.organization_id,req.customer.id])).rows[0];if(prior){if(prior.status==='pending')return {organizationId:link.organization_id,status:'pending'};throw new HttpError(409,'已有处理结果，请联系企业管理者');}
+  const prior=(await db.query('SELECT id,status FROM organization_join_requests WHERE organization_id=$1 AND user_id=$2',[link.organization_id,req.customer.id])).rows[0];if(prior?.status==='pending')return {organizationId:link.organization_id,status:'pending'};
   const name=text(req.body.name||req.customer.name,'姓名',80),department=await listedDepartment(db,link.organization_id,req.body.department);
-  const row=(await db.query("INSERT INTO organization_join_requests(organization_id,link_id,user_id,display_name,department) VALUES($1,$2,$3,$4,$5) RETURNING id",[link.organization_id,link.id,req.customer.id,name,department])).rows[0];
-  await audit(db,req.actor,'join_request.created',link.organization_id,row.id);return {organizationId:link.organization_id,status:'pending'};
+  const row=(await db.query("INSERT INTO organization_join_requests(organization_id,link_id,user_id,display_name,department) VALUES($1,$2,$3,$4,$5) ON CONFLICT(organization_id,user_id) DO UPDATE SET link_id=excluded.link_id,display_name=excluded.display_name,department=excluded.department,status='pending',reviewed_by=NULL,reviewed_at=NULL,created_at=now() RETURNING id",[link.organization_id,link.id,req.customer.id,name,department])).rows[0];
+  await audit(db,req.actor,prior?'join_request.reapplied':'join_request.created',link.organization_id,row.id,{previousStatus:prior?.status||null});return {organizationId:link.organization_id,status:'pending'};
  });res.status(202).json(result);});
  app.post(prefix+'/organizations/:org/join-requests/:request/:decision',requireCustomer,async(req,res)=>{const decision=req.params.decision;if(!['approve','reject'].includes(decision))throw new HttpError(404,'操作不存在');await transaction(pool,async db=>{
   const actor=await member(db,req.params.org,req.customer.id,true);if(!isManager(actor.role))throw new HttpError(403,'仅企业管理者可审核加入申请');
   const request=(await db.query('SELECT * FROM organization_join_requests WHERE id=$1 AND organization_id=$2 FOR UPDATE',[id(req.params.request),req.params.org])).rows[0];if(!request)throw new HttpError(404,'加入申请不存在');if(request.status!=='pending')throw new HttpError(409,'申请已处理');
-  if(decision==='approve'){const exists=await db.query('SELECT 1 FROM memberships WHERE organization_id=$1 AND user_id=$2',[req.params.org,request.user_id]);if(exists.rowCount)throw new HttpError(409,'申请人已是企业成员');const kept=(await db.query('SELECT name FROM organization_departments WHERE organization_id=$1 AND lower(name)=lower($2)',[req.params.org,request.department||''])).rows[0]?.name||'';await db.query("INSERT INTO memberships(organization_id,user_id,role,department) VALUES($1,$2,'member',$3)",[req.params.org,request.user_id,kept]);}
+  if(decision==='approve'){const exists=await db.query('SELECT 1 FROM memberships WHERE organization_id=$1 AND user_id=$2',[req.params.org,request.user_id]);if(exists.rowCount)throw new HttpError(409,'申请人已是企业成员');const kept=(await db.query('SELECT name FROM organization_departments WHERE organization_id=$1 AND lower(name)=lower($2)',[req.params.org,request.department||''])).rows[0]?.name||'';await db.query("INSERT INTO memberships(organization_id,user_id,role,department) VALUES($1,$2,'member',$3)",[req.params.org,request.user_id,kept]);if(req.params.org===cfg.employeeCredit?.organizationId)await db.query('INSERT INTO employee_credit_accounts(user_id,organization_id,granted_yuan) VALUES($1,$2,0) ON CONFLICT DO NOTHING',[request.user_id,req.params.org]);
+   if(req.params.org===cfg.employeeCredit?.organizationId){
+    const staff=(await db.query(`UPDATE staff_members s SET role='operations',status='active' FROM "user" u WHERE u.id=$1 AND u."emailVerified" AND lower(u.email)=lower(s.email) AND s.role<>'platform_admin' RETURNING s.subject`,[request.user_id])).rows;
+    for(const s of staff){await db.query('DELETE FROM staff_sessions WHERE subject=$1',[s.subject]);await audit(db,req.actor,'staff.employee_approved',req.params.org,s.subject,{role:'operations'});}
+   }
+  }
   await db.query('UPDATE organization_join_requests SET status=$2,reviewed_by=$3,reviewed_at=now() WHERE id=$1',[request.id,decision==='approve'?'approved':'rejected',req.customer.id]);
   await audit(db,req.actor,'join_request.'+(decision==='approve'?'approved':'rejected'),req.params.org,request.id,{userId:request.user_id});
  });res.json({ok:true});});
@@ -105,6 +111,13 @@ export function organizationRoutes(app,pool,cfg,requireCustomer){
   if(target.user_id!==req.customer.id&&!canManage(actor,target))throw new HttpError(403,'不能移除这个成员');
   if(isManager(target.role)&&target.status==='active'){const count=Number((await db.query("SELECT count(*) FROM memberships WHERE organization_id=$1 AND role IN ('owner','admin','billing') AND status='active'",[req.params.org])).rows[0].count);if(count<=1)throw new HttpError(409,'请先把管理权限交给另一位成员');}
   await db.query("UPDATE organization_join_links SET status='revoked' WHERE organization_id=$1 AND created_by=$2 AND status='active'",[req.params.org,target.user_id]);
+  const returnedYuan=await returnUnusedCredit(db,req.params.org,target.user_id,{remove:true});
+  // Internal staff access is separate from personal login. Removing a company employee revokes both.
+  if(req.params.org===cfg.employeeCredit?.organizationId){
+   const subjects=(await db.query(`UPDATE staff_members s SET status='suspended' FROM "user" u WHERE u.id=$1 AND u."emailVerified" AND lower(u.email)=lower(s.email) AND s.role<>'platform_admin' RETURNING s.subject`,[target.user_id])).rows;
+   for(const s of subjects)await db.query('DELETE FROM staff_sessions WHERE subject=$1',[s.subject]);
+  }
+  await audit(db,req.actor,'employee_credit.returned',req.params.org,target.user_id,{yuan:returnedYuan});
   await db.query('DELETE FROM memberships WHERE id=$1',[target.id]);await audit(db,req.actor,'member.removed',req.params.org,target.user_id,{role:target.role});
  });res.json({ok:true});});
  app.get(prefix+'/organizations/:org/audit',requireCustomer,async(req,res)=>{const m=await member(pool,req.params.org,req.customer.id);if(!isManager(m.role))throw new HttpError(403,'仅企业管理员可以查看完整审计');res.json((await pool.query('SELECT action,actor_id,subject_id,detail,created_at FROM audit_events WHERE organization_id=$1 ORDER BY id DESC LIMIT 100',[req.params.org])).rows);});

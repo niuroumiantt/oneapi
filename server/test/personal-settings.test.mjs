@@ -5,8 +5,10 @@ import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../../web/identity.js',import.meta.url),'utf8');
 const code=source.slice(source.indexOf(" let personalSettingsView="),source.indexOf(' function settingsContent('));
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const headerSource=readFileSync(new URL('../../web/site-header.js',import.meta.url),'utf8');
+const profileRow=vm.runInNewContext('('+headerSource.slice(headerSource.indexOf(' function profileRow('),headerSource.indexOf(' window.SiteHeader='))+')',{esc});
 function render({user={},panel={},view='overview',page=0,phone=true,password=true}={}){
- const ctx=vm.createContext({me:{user:{name:'<Alice>',email:'alice@example.test',...user},organizations:[]},panelData:{sessions:[],smsBinding:{lastFour:'1234',hasPassword:true},...panel},phoneLoginAvailable:phone,phonePasswordAvailable:password,ico:()=>'',esc,panelLoading:'正在读取…'});
+ const ctx=vm.createContext({window:{SiteHeader:{profileRow}},me:{user:{name:'<Alice>',email:'alice@example.test',...user},organizations:[]},panelData:{sessions:[],smsBinding:{lastFour:'1234',hasPassword:true},...panel},phoneLoginAvailable:phone,phonePasswordAvailable:password,ico:()=>'',esc,panelLoading:'正在读取…'});
  vm.runInContext(code,ctx);ctx.view=view;ctx.page=page;
  return vm.runInContext('personalSettingsView=view;personalSettingsPage=page;personalSettingsContent()',ctx);
 }
