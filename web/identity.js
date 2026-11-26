@@ -1259,7 +1259,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const o=(await r.json()).order;
   if(payment!==alipayPay||payment.order.status!=='pending')return;
   payment.order=o;
-  if(o.status==='paid'){clearInterval(alipayTimer);alipayTimer=null;lastOrgBilling=null;orgLoadedAt=0;panelDataAt=0;showToast(`充值成功，到账额度 ${yuanText(o.face_fen)}。`);await route(current);return;}
+  if(o.status==='paid'){navigationData.clear();clearInterval(alipayTimer);alipayTimer=null;lastOrgBilling=null;orgLoadedAt=0;panelDataAt=0;showToast(`充值成功，到账额度 ${yuanText(o.face_fen)}。`);await route(current);return;}
   if(o.status!=='pending'||o.expired){clearInterval(alipayTimer);alipayTimer=null;if(panelRedraw)panelRedraw();return;}
   if(manual){const st=host?.querySelector('[data-alipay-status]');if(st)st.textContent='还未收到付款结果。支付完成后通常几秒内到账。';}
  }

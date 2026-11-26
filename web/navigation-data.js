@@ -7,6 +7,8 @@
   function clear(){revision++;entries.clear();}
   function fresh(path){const entry=entries.get(path);return Boolean(entry&&entry.owner===owner()&&entry.value!==undefined&&now()-entry.at<ttl);}
   function get(path,prefetched){
+   // An already-running prefetch may lose to a shared request; consume its rejection either way.
+   prefetched?.catch(()=>{});
    const identity=owner(),old=entries.get(path);
    if(old?.owner===identity){if(old.pending)return old.pending;if(fresh(path))return Promise.resolve(old.value);}
    const entry={owner:identity,revision,pending:null};entries.set(path,entry);

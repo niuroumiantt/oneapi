@@ -26,4 +26,5 @@ test('only navigation reads use the cache; fresh key eligibility and writes bypa
  assert.match(source,/if\(mutation\)\{navigationData.clear\(\)/);
  assert.match(source,/const credit=await api\('\/api\/customer-credit\/status'\)/);
  assert.match(source,/if\(mutation\|\|r.status===401\)navigationData.clear\(\)/);
+ assert.match(source,/if\(o.status==='paid'\)\{navigationData.clear\(\)/);
 });
