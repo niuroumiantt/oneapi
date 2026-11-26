@@ -1,4 +1,4 @@
-/* Appearance preference for the personal workspace, stored in this browser. */
+/* Appearance preference for the site, stored in this browser. */
 (() => {
   'use strict';
   const storageKey = 'semifly.personal-theme.v1';
@@ -21,17 +21,17 @@
     const previewTheme = new URL(location.href).searchParams.get('theme');
     if (palettes.has(previewTheme)) selected = previewTheme;
   }
-  root.dataset.personalTheme = selected;
+  root.dataset.siteTheme = selected;
 
   function control() {
     const options = [...palettes].map(([id, [label, base, middle, accent]]) => `
-      <button type="button" data-personal-theme-option="${id}" aria-pressed="false">
+      <button type="button" data-personal-theme-option="${id}" aria-pressed="${id === selected}">
         <span class="personal-theme-swatch" aria-hidden="true" style="--swatch-base:${base};--swatch-mid:${middle};--swatch-accent:${accent}"></span>
         <span>${label}</span><span class="personal-theme-option-state" aria-hidden="true">当前</span>
       </button>`).join('');
     return `<details class="personal-theme-picker">
-      <summary><span class="personal-theme-current" aria-hidden="true"></span>换肤</summary>
-      <div class="personal-theme-options" role="group" aria-label="个人工作台配色">${options}</div>
+      <summary aria-label="换肤，当前：${palettes.get(selected)[0]}"><span class="personal-theme-current" aria-hidden="true"></span>换肤</summary>
+      <div class="personal-theme-options" role="group" aria-label="网站配色">${options}</div>
     </details>`;
   }
 
@@ -46,7 +46,7 @@
 
   function apply(id) {
     selected = id;
-    root.dataset.personalTheme = id;
+    root.dataset.siteTheme = id;
     sync(document);
   }
 
@@ -80,5 +80,13 @@
     picker.querySelector('summary').focus();
   });
 
-  window.PersonalTheme = { control, sync };
+  document.addEventListener('DOMContentLoaded', () => {
+    for (const slot of document.querySelectorAll('[data-theme-control]')) slot.innerHTML = control();
+  });
+
+  window.addEventListener('storage', event => {
+    if (event.key === storageKey) apply(palettes.has(event.newValue) ? event.newValue : 'mist');
+  });
+
+  window.PersonalTheme = { control };
 })();

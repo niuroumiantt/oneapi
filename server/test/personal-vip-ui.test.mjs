@@ -3,16 +3,19 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 const source=readFileSync(new URL('../../web/cw.js',import.meta.url),'utf8');
+const header=readFileSync(new URL('../../web/site-header.js',import.meta.url),'utf8');
+const rowSource=header.slice(header.indexOf(' function profileRow('),header.indexOf(' window.SiteHeader='));
+const profileRow=vm.runInNewContext(rowSource+';profileRow',{esc:String});
 const drawSource=source.slice(source.indexOf('  let personalPage='),source.indexOf('\n  async function draw()'));
 function harness(status='active',options={}){
  const nodes=new Map();const node=key=>{if(!nodes.has(key))nodes.set(key,{innerHTML:'',textContent:'',dataset:{}});return nodes.get(key);};
  const data={partner:status?{status,legal_name:'测试伙伴',public_code:'VIP12345',bank_verified:true,bank_last4:'1234'}:null,totals:{available_fen:3200},codes:[],contracts:[],payouts:[],...options.data};
- const ctx=vm.createContext({data,base:"/api/cw",staff:false,params:new URLSearchParams('personal=1'),tab:'overview',innerWidth:1280,innerHeight:515,offset:0,viewVersion:1,location:{origin:'https://example.test'},window:{parent:null},parent:{postMessage(){}},document:{documentElement:{classList:{add(){}}},querySelector(){return null;}},$:node,esc:v=>String(v??''),money:v=>'¥'+(Number(v||0)/100).toFixed(2),when:v=>v||'—',labels:{requested:'待审核',paid:'已支付'},hasCurrentContract:cs=>cs.some(c=>Date.parse(c.expires_at)>Date.now()),hasPromotionTrial:()=>false,table:(h,r)=>`<table>${h.join('|')}${r}</table>`,form:(a,h,l)=>`<form>${h}${l}</form>`,field:()=>'',discount:()=>'',promotionStatus:()=> '已生效',payLink:code=>'/?cw='+code,employeeInviteCode:'',referrer:'',api:options.api||(async()=>({events:[],has_more:false}))});
+ const ctx=vm.createContext({data,base:"/api/cw",staff:false,params:new URLSearchParams('personal=1'),tab:'overview',innerWidth:1280,innerHeight:515,offset:0,viewVersion:1,location:{origin:'https://example.test'},window:{parent:null,SiteHeader:{profileRow}},parent:{postMessage(){}},document:{documentElement:{classList:{add(){}}},querySelector(){return null;}},$:node,esc:v=>String(v??''),money:v=>'¥'+(Number(v||0)/100).toFixed(2),when:v=>v||'—',labels:{requested:'待审核',paid:'已支付'},hasCurrentContract:cs=>cs.some(c=>Date.parse(c.expires_at)>Date.now()),hasPromotionTrial:()=>false,table:(h,r)=>`<table>${h.join('|')}${r}</table>`,form:(a,h,l)=>`<form>${h}${l}</form>`,field:()=>'',discount:()=>'',promotionStatus:()=> '已生效',payLink:code=>'/?cw='+code,employeeInviteCode:'',referrer:'',api:options.api||(async()=>({events:[],has_more:false}))});
  vm.runInContext(drawSource,ctx);
  return {ctx,nodes,data,async draw(tab){ctx.tab=tab;await vm.runInContext("drawPersonalVIP($('#cw-content'),viewVersion)",ctx);return node('#cw-content').innerHTML;}};
 }
 test('active partner has one five-section navigation, applicants have their progress and profile',async()=>{
- const active=harness();await active.draw('profile');assert.match(active.nodes.get('#cw-nav').innerHTML,/概览.*推广码.*收件箱.*佣金与提现.*个人信息与合同/);
+ const active=harness();assert.match(await active.draw('profile'),/class="profile-row"[\s\S]*测试伙伴/);assert.match(active.nodes.get('#cw-nav').innerHTML,/概览.*推广码.*收件箱.*佣金与提现.*个人信息与合同/);
  for(const status of ['pending','confirmed','suspended','rejected']){const applicant=harness(status);await applicant.draw('profile');assert.match(applicant.nodes.get('#cw-nav').innerHTML,/申请进度.*申请资料/);assert.doesNotMatch(applicant.nodes.get('#cw-nav').innerHTML,/佣金与提现/);}
 });
 test('promotion generation still requires eligibility; creation does not bypass verification',async()=>{

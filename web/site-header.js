@@ -21,7 +21,7 @@
 
  function render(active, {account='', tools='', className=''}={}) {
   const links=[['universe','首页',root+'#universe'],['market','模型广场',root+'#market'],['skills','Skills 广场',skills],['docs','文档',root+'#docs']];
-  return `<header class="site-header ${className}"><div class="site-header-main"><a class="site-brand" href="${root}#universe" aria-label="semifly.ai 首页"><img src="${new URL('pinapi-wordmark.svg',assetBase)}" alt="semifly.ai" width="168" height="44"></a><nav class="site-nav" aria-label="主要导航">${links.map(([id,label,url])=>`<a href="${url}"${id===active?' aria-current="page"':''}>${label}</a>`).join('')}</nav><div class="site-account" ${account?'':'data-account-slot'}>${account||accountMenu(null)}</div></div>${tools?`<div class="site-tools">${tools}</div>`:''}</header>`;
+  return `<header class="site-header ${className}"><div class="site-header-main"><a class="site-brand" href="${root}#universe" aria-label="semifly.ai 首页"><img src="${new URL('pinapi-wordmark.svg',assetBase)}" alt="semifly.ai" width="168" height="44"></a><nav class="site-nav" aria-label="主要导航">${links.map(([id,label,url])=>`<a href="${url}"${id===active?' aria-current="page"':''}>${label}</a>`).join('')}</nav><div class="site-header-actions">${window.PersonalTheme?.control()||''}<div class="site-account" ${account?'':'data-account-slot'}>${account||accountMenu(null)}</div></div></div>${tools?`<div class="site-tools">${tools}</div>`:''}</header>`;
  }
  function footer(){
   const number=document.documentElement?.dataset.icpFiling;
@@ -29,7 +29,11 @@
   const organizer=number?'上海艾泽可科技有限公司':'深圳市格洛可半导体有限公司';
   return `<footer class="site-footer"><span>semifly.ai</span><span>${organizer}</span><a href="${root}#docs">使用文档</a>${filing}</footer>`;
  }
- window.SiteHeader={render,accountMenu,footer};
+ // Values and controls are already escaped by each caller.
+ function profileRow(label,value,control=''){
+  return `<div class="profile-row"><span class="profile-label">${esc(label)}</span><div class="profile-value">${value}</div>${control}</div>`;
+ }
+ window.SiteHeader={render,accountMenu,footer,profileRow};
  if(window.parent===window){const script=document.createElement('script');script.src=new URL('vip-notifications.js',assetBase).href;script.defer=true;document.head.append(script);}
  document.querySelectorAll('[data-site-footer]').forEach(el=>el.outerHTML=footer());
  document.querySelectorAll('[data-site-header]').forEach(el=>el.outerHTML=render(el.dataset.siteHeader==='compare'?'workspace':el.dataset.siteHeader));

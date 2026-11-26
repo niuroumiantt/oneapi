@@ -1,6 +1,6 @@
-/* Color variants for the personal workspace. Silver and mist white is the base palette. */
+/* Color variants for the site. Silver and mist white is the base palette. */
 
-html[data-personal-theme="cool-red"] .personal-console[data-workspace-scope="personal"] {
+html[data-site-theme="cool-red"] {
   --personal-canvas: #ebecee;
   --personal-silver: #bcbbbf;
   --personal-surface: #fafafa;
@@ -42,7 +42,7 @@ html[data-personal-theme="cool-red"] .personal-console[data-workspace-scope="per
   --personal-tag-2-ink: #626166;
 }
 
-html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] {
+html[data-site-theme="ink-green"] {
   --personal-canvas: #062320;
   --personal-silver: #41635d;
   --personal-surface: #10332f;
@@ -90,7 +90,7 @@ html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="pe
   color-scheme: dark;
 }
 
-html[data-personal-theme="burnt-orange"] .personal-console[data-workspace-scope="personal"] {
+html[data-site-theme="burnt-orange"] {
   --personal-canvas: #fff8f2;
   --personal-silver: #e2cdbf;
   --personal-surface: #fffcf9;
@@ -139,53 +139,56 @@ html[data-personal-theme="burnt-orange"] .personal-console[data-workspace-scope=
 }
 
 
-html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .site-brand img {
+html[data-site-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .site-brand img {
   filter: brightness(0) invert(.94);
 }
-html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] :is(.account-popover,.vip-inbox > section,.site-tools,.pd-state button,.pb-payment-method,.recharge-amount,.mm-foot select,.personal-settings input,.live-filter select) {
+html[data-site-theme="ink-green"] .personal-console[data-workspace-scope="personal"] :is(.account-popover,.vip-inbox > section,.site-tools,.pd-state button,.pb-payment-method,.recharge-amount,.mm-foot select,.personal-settings input,.live-filter select) {
   background: var(--personal-surface);
   color: var(--personal-ink);
   border-color: var(--personal-line);
 }
-html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .account-popover :is(a,button) {
+html[data-site-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .account-popover :is(a,button) {
   color: var(--personal-ink) !important;
 }
-html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .account-popover :is(a,button):hover {
+html[data-site-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .account-popover :is(a,button):hover {
   background: var(--personal-hover);
 }
-html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] :is(.vip-inbox,.vip-inbox-state,.vip-inbox-items time,.ph-link,.ph-spent,.mm-status,.mm-price,.mm-foot,.site-footer a,.pc-route-state p,.ak-usage-label small) {
+html[data-site-theme="ink-green"] .personal-console[data-workspace-scope="personal"] :is(.vip-inbox,.vip-inbox-state,.vip-inbox-items time,.ph-link,.ph-spent,.mm-status,.mm-price,.mm-foot,.site-footer a,.pc-route-state p,.ak-usage-label small) {
   color: var(--personal-muted);
 }
-html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] :is(.mm-status i,.live-dot i) {
+html[data-site-theme="ink-green"] .personal-console[data-workspace-scope="personal"] :is(.mm-status i,.live-dot i) {
   background: var(--personal-accent);
 }
-html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] :is(.pu-table th,.mc-config-field,.mc-secret input,.api-balance-line,.api-next) {
+html[data-site-theme="ink-green"] .personal-console[data-workspace-scope="personal"] :is(.pu-table th,.mc-config-field,.mc-secret input,.api-balance-line,.api-next) {
   background: var(--personal-surface);
   color: var(--personal-ink);
 }
-html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .vip-inbox-items > a {
+html[data-site-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .vip-inbox-items > a {
   color: var(--personal-ink);
   border-color: var(--personal-line);
 }
-html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .vip-inbox-items > a.is-unread {
+html[data-site-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .vip-inbox-items > a.is-unread {
   background: var(--personal-selection);
 }
-html[data-personal-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .account-avatar {
+html[data-site-theme="ink-green"] .personal-console[data-workspace-scope="personal"] .account-avatar {
   background: var(--personal-selection);
   color: var(--personal-nav-selection-text);
 }
-html[data-personal-theme="burnt-orange"] .personal-console[data-workspace-scope="personal"] :is(.pb-tabs a[aria-current],.pu-tabs button[aria-pressed="true"],.pd-expand:hover,.mc-tabs button[aria-pressed="true"]) {
+html[data-site-theme="burnt-orange"] .personal-console[data-workspace-scope="personal"] :is(.pb-tabs a[aria-current],.pu-tabs button[aria-pressed="true"],.pd-expand:hover,.mc-tabs button[aria-pressed="true"]) {
   color: var(--personal-selected-ink);
   border-color: var(--personal-accent);
 }
 .personal-console[data-workspace-scope="personal"] .pc-vip-circle { stroke: var(--personal-focus); }
 
 /* The control stays in the account row and its popover does not resize the header. */
-.personal-console[data-workspace-scope="personal"] .site-header .site-account:has(.personal-theme-picker) {
+.site-header .site-header-actions {
+  display: flex;
   align-items: center;
+  justify-self: end;
   gap: 8px;
   width: max-content;
 }
+.site-header .site-header-actions > .site-account { width: auto; align-items: center; }
 .personal-theme-picker { position: relative; flex: none; }
 .personal-theme-picker > summary {
   display: flex;
@@ -252,13 +255,19 @@ html[data-personal-theme="burnt-orange"] .personal-console[data-workspace-scope=
   background: linear-gradient(to right, var(--swatch-base) 0 33%, var(--swatch-mid) 33% 66%, var(--swatch-accent) 66%);
 }
 @media(max-width: 600px) {
-  .personal-console[data-workspace-scope="personal"] .site-header .site-account:has(.personal-theme-picker) { gap: 2px; }
+  .site-header .site-header-actions { gap: 2px; }
   .personal-theme-picker > summary { padding-inline: 5px; }
   .personal-theme-picker { position: static; }
   .personal-theme-options { top: 56px; right: var(--site-gutter); max-width: calc(100% - 2 * var(--site-gutter)); }
 }
 @media(max-width: 360px) {
-  .personal-console[data-workspace-scope="personal"] .site-header .site-brand,
-  .personal-console[data-workspace-scope="personal"] .site-header .site-brand img { width: 112px; }
+  .site-header:has(.personal-theme-picker) .site-brand,
+  .site-header:has(.personal-theme-picker) .site-brand img { width: 105px; }
   .personal-theme-current { display: none; }
+}
+
+@media(max-width:700px) {
+  .site-header .site-header-actions { grid-column: 2; grid-row: 1; }
+  .site-header .site-header-actions > .site-account { grid-column: auto; grid-row: auto; }
+  .site-header-actions:has(.live-signin) .live-signin span { display: none; }
 }

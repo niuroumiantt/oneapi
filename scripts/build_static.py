@@ -56,7 +56,7 @@ def main():
     html = git('show', 'HEAD:web/index.html').decode()
     assets = {}
     asset_names = {}
-    for name in ('styles.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'navigation-data.js', 'identity.js', 'identity.css', 'personal-usage-charts.js', 'personal-usage-charts.css', 'home.css', 'landings.css', 'landings.js', 'brand.css', 'icons.js', 'model-catalog.js', 'model-explorer.js', 'model-explorer.css', 'app.js', 'welcome.js', 'table-sort.js', 'docs.js', 'docs.css', 'console.js', 'employee-api-context.js', 'employee-api-entry.js', 'console.css', 'realtesting.js', 'realtesting.css', 'select-menu.js', 'vip-notifications.js', 'site-header.js', 'site-header.css', 'personal-theme.css', 'personal-palettes.css', 'personal-theme.js', 'cw.css', 'cw.js'):
+    for name in ('styles.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'navigation-data.js', 'identity.js', 'identity.css', 'personal-usage-charts.js', 'personal-usage-charts.css', 'home.css', 'landings.css', 'landings.js', 'brand.css', 'icons.js', 'model-catalog.js', 'model-explorer.js', 'model-explorer.css', 'app.js', 'welcome.js', 'table-sort.js', 'docs.js', 'docs.css', 'console.js', 'employee-api-context.js', 'employee-api-entry.js', 'console.css', 'realtesting.js', 'realtesting.css', 'select-menu.js', 'vip-notifications.js', 'site-header.js', 'site-header.css', 'personal-theme.css', 'personal-palettes.css', 'personal-theme.js', 'site-theme.css', 'cw.css', 'cw.js'):
         content = git('show', f'HEAD:web/{name}')
         if name == 'site-header.js':
             content = content.replace(b"'vip-notifications.js'", repr(asset_names['vip-notifications.js']).encode())
@@ -106,12 +106,20 @@ def main():
         guide_assets[name] = target
     for name in GUIDE_PAGES:
         page = git('show', f'HEAD:web/{name}').decode()
+        for source, target in asset_names.items():
+            page = page.replace(f'"../{source}"', f'"../{target}"')
         for source, target in guide_assets.items():
             page = page.replace(f'"{source}"', f'"{target}"')
             page = page.replace(f'https://{CN_DOMAIN}/promotion/{source}"', f'https://{CN_DOMAIN}/promotion/{target}"')
         assets[name] = page.encode()
     for name in ('code-activity.html', 'code-activity.js', 'code-activity.css'):
-        assets[name] = git('show', f'HEAD:web/{name}')
+        content = git('show', f'HEAD:web/{name}')
+        if name.endswith('.html'):
+            html = content.decode()
+            for source, target in asset_names.items():
+                html = html.replace(f'"/{source}"', f'"/{target}"')
+            content = html.encode()
+        assets[name] = content
     # Official payment marks only; source notes and downloaded brand packs stay private.
     for name in ('assets/payments/alipay.ico', 'assets/payments/wechat-pay.svg'):
         assets[name] = git('show', f'HEAD:web/{name}')
@@ -124,7 +132,7 @@ def main():
         if name == 'index.html':
             text = content.decode().replace('../../web/', '../').replace('../index.html#market', '../#market')
             text = text.replace('semifly.ai 本地原型', 'semifly.ai')
-            text = text.replace('<body>', '<body data-market-url="market-live.json">')
+            text = text.replace('<body class="skills-page">', '<body class="skills-page" data-market-url="market-live.json">')
             text = text.replace('本地交互原型', 'Skills 广场').replace('本地验证 ·', '来源与许可已核对 ·')
             for source, target in asset_names.items():
                 text = text.replace(f'"../{source}"', f'"../{target}"')

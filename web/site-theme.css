@@ -1,0 +1,143 @@
+/* Apply the shared palette to the site's reading surfaces, controls and account rows. */
+html[data-site-theme] {
+  --bg: var(--personal-canvas);
+  --paper: var(--personal-canvas);
+  --white: var(--personal-surface);
+  --ink: var(--personal-ink);
+  --muted: var(--personal-muted);
+  --line: var(--personal-line);
+  --accent: var(--personal-accent);
+  --site-active-ink: var(--personal-selected-ink);
+  --red: var(--site-active-ink);
+  --navy: var(--personal-ink);
+  --hero: var(--personal-rail);
+  --inset: var(--personal-line);
+  --tint: var(--personal-selection);
+  background: var(--personal-canvas);
+  color: var(--personal-ink);
+}
+
+html[data-site-theme] body,
+html[data-site-theme] :is(#site-boot,#docs-view,#market-view,#console-view,.live-main,.pc-stage,.org-shell,.lp-shell,
+  .welcome-page,.welcome-main,.welcome-story,.welcome-entry,#cw-content,.guide-personal,.guide-vip) {
+  background-color: var(--personal-canvas);
+  color: var(--personal-ink);
+}
+html[data-site-theme] :is(.site-header,.site-footer,.site-top,.site-tools,.account-popover,.account-menu summary,.live-signin,
+  .vip-inbox > section,.org-sidebar,.pc-sidebar,.doc-nav,.doc-search,.cs-tabs,.settings-block,.settings-profile,
+  .live-panel,.org-card,.live-auth-form,.personal-state-panel,.cw-contact-box,.cw-callout,.cw-self,.cw-proof,.cw-payment-card,
+  .doc-table,.doc-faq,.m-pricing-guide,.m-tool-section,.mx-compare-bar,.discovery,.skill,.trial-evidence,.sample,.install,
+  .connection,.composer,.result,.params,.page-notice,.compare-context,.product,.step,.site-activity table) {
+  background: var(--personal-surface);
+  color: var(--personal-ink);
+  border-color: var(--personal-line);
+}
+html[data-site-theme] :is(#market-view .m-model,.welcome-choices,.m-search,.m-filters select,.model-explorer select,
+  #config-dialog,dialog,.settings-info-group,.personal-console-stats,.pc-workspace,.cw-app input,.cw-app select,.cw-app textarea,
+  .compare-page input,.compare-page select,.compare-page textarea,.guide .secondary,.skills-page input,.skills-page select) {
+  background-color: var(--personal-surface);
+  color: var(--personal-ink);
+  border-color: var(--personal-line);
+}
+html[data-site-theme] :is(.site-nav a,.site-footer,.vip-inbox,.vip-inbox-state,.vip-inbox time,.account-person small,
+  .doc-nav a,.doc-crumb,.doc-nav-group b,.doc-body p,.doc-table th,.doc-main code,.cs-tabs a,.pc-identity,
+  .m-model-meta,.m-hero p,.model-desc,.m-pricing-guide p,.mx-heading p,.welcome-copy p,.welcome-preview-note,
+  #cw-description,.cv-note,.cv-detail-note,.cw-muted,.muted,.site-activity .note,.profile-label,.ps-muted,
+  .settings-profile-id small,.live-small,.live-form label,.live-auth-intro p) {
+  color: var(--personal-muted);
+}
+html[data-site-theme] :is(.site-nav a:hover,.site-nav a[aria-current="page"],.doc-nav a:hover,.account-popover .account-person) {
+  color: var(--personal-ink);
+}
+html[data-site-theme] .account-popover :is(a,button) { color: var(--personal-ink) !important; }
+html[data-site-theme] :is(.account-popover a,.account-popover button,.vip-inbox-items > a,.doc-table th,.profile-row) {
+  border-color: var(--personal-line);
+}
+html[data-site-theme] :is(.doc-nav a.active,.cs-tabs a[aria-selected="true"],.org-sidebar a.active,
+  .cw-app #cw-nav button[aria-current="page"],.cv-management-nav button[aria-current="page"],.cv-view-tabs button[aria-pressed="true"],
+  .categories button.active,.board-tabs button[aria-pressed="true"],.account-popover a:hover,.account-popover button:hover) {
+  background: var(--personal-selection);
+  color: var(--site-active-ink);
+  border-color: var(--personal-line);
+}
+html[data-site-theme] :is(.pc-sidebar nav .active:not(.pc-vip-link),.pc-sidebar nav .active:not(.pc-vip-link):hover) {
+  background: var(--personal-nav-selection);
+  color: var(--personal-nav-selection-text);
+}
+html[data-site-theme] :is(.primary,.live-button.primary,.cw-primary,.m-hero-cta,.welcome-continue,#run,.btn.primary):not(:disabled) {
+  background: var(--personal-accent);
+  border-color: var(--personal-accent);
+  color: var(--personal-action-text);
+}
+html[data-site-theme] :is(.primary,.live-button.primary,.cw-primary,.m-hero-cta,.welcome-continue,#run,.btn.primary):hover:not(:disabled) {
+  background: var(--personal-accent-hover);
+  border-color: var(--personal-accent-hover);
+  color: var(--personal-action-text);
+}
+html[data-site-theme] :is(.doc-pager a,.doc-body a,.guide-nav a,.cv-personal-links a,.cw-inline > a,.vip-inbox-items a,.org-card a,.settings-info-action button) {
+  color: var(--site-active-ink);
+}
+html[data-site-theme] :is(.doc-table th,.m-rate-table th,.cw-personal th,.cw-app th,.site-activity th,.pu-table th) {
+  background: var(--personal-table-head);
+}
+html[data-site-theme] :is(.doc-main code,.m-pricing-example,.model-explorer button,.cw-button,.cv-management-nav button,
+  .cv-view-tabs button,.compare-context,.compare-page .workspace-tabs button,.compare-page .presets button,
+  .recharge-amount,.welcome-mini-line,.welcome-choices button[aria-pressed="true"],.settings-avatar,.site-header .account-avatar) {
+  background-color: var(--personal-secondary);
+  color: var(--personal-ink);
+  border-color: var(--personal-line);
+}
+html[data-site-theme] :is(.doc-code,.doc-code code) { color: #e6e9f2; }
+html[data-site-theme] .doc-code code { background: transparent; }
+html[data-site-theme] .doc-note { background: var(--personal-rail); color: var(--personal-ink); border-color: var(--personal-line); }
+html[data-site-theme] :is(.welcome-choices,.m-search,.doc-search,.live-form input,.live-form select,.live-form textarea,.dept-add input,
+ .cw-form input,.cw-form select,.cw-form textarea,.site-activity input,.site-activity select,.site-activity button) {
+  background: var(--personal-surface);
+  color: var(--personal-ink);
+  border-color: var(--personal-line);
+}
+html[data-site-theme] :is(input,textarea)::placeholder { color: var(--personal-muted); opacity: 1; }
+html[data-site-theme] :is(a,summary,button,input,select,textarea):focus-visible { outline-color: var(--personal-focus); }
+html[data-site-theme] ::selection { background: var(--personal-mark); color: var(--personal-mark-ink); }
+
+html[data-site-theme="ink-green"] :is(.site-header .site-brand img,.site-top .brand img) { filter: brightness(0) invert(.94); }
+html[data-site-theme="ink-green"] :is(.m-model-facts span,.m-rate-preview,.mx-compare-bar,.cw-button,.compare-page .badge,
+ .compare-page .connection-foot,.compare-page .composer-bottom,.compare-page .stat-grid,.cv-signing-status,.cv-bank-status,
+ .skill .tag,.rank-row:hover,.board-status,.live-button.quiet,.api-caption,.site-activity td) {
+  background-color: var(--personal-rail);
+  color: var(--personal-ink);
+  border-color: var(--personal-line);
+}
+html[data-site-theme="ink-green"] :is(.welcome-hero,.welcome-story,.m-hero,.lp-hero,.guide-personal .hero,.guide-vip .hero) {
+  background-color: var(--personal-canvas);
+  color: var(--personal-ink);
+}
+html[data-site-theme="ink-green"] :is(.welcome-story h1,.welcome-entry h2,.m-hero h1,.doc-main h1,
+  .doc-main h2,.doc-main h3,.cw-app h1,.cw-app h2,.cv-profile-sections h2,.settings-block h2,.settings-info-group h3,
+  .m-model-name,.m-model h3,.m-model h4,.guide-personal h1,.guide-vip h1,.skills-page h1,.skills-page h2) {
+  color: var(--personal-ink);
+}
+html[data-site-theme="ink-green"] :is(.mm-status i,.live-dot i) { background: var(--personal-accent); }
+
+/* Identity rows are shared by personal settings, enterprise settings and VIP details. */
+.profile-row {
+  display: grid;
+  grid-template-columns: minmax(84px, .38fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 14px;
+  min-height: 46px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--personal-line, #e3e7ee);
+  font-size: 13px;
+}
+.profile-label { color: var(--personal-muted, #596579); }
+.profile-value { min-width: 0; color: var(--personal-ink, #1c2541); overflow-wrap: anywhere; }
+.profile-rows + :is(a,button) { margin-top: 12px; }
+[data-theme-control] { align-self: center; margin-left: auto; }
+
+@media (max-width: 600px) {
+  .site-header .site-header-actions > .site-account { min-width: 0; }
+  .site-header .site-header-actions > .site-account > a:not(.live-signin) { font-size: 12px; }
+  [data-theme-control] .personal-theme-picker { position: relative; }
+  [data-theme-control] .personal-theme-options { top: calc(100% + 6px); max-width: min(222px, 80vw); }
+}
