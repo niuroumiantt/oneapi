@@ -7,7 +7,7 @@ const account=source.slice(source.indexOf(' async function account('),source.ind
 function fixture(){
  let rendered;
  const ctx=vm.createContext({me:{user:{id:'test'}},current:'personal',generation:1,personalTab:'keys',panelOrg:null,teamUsage:null,personalSelected:'',personalBilling:null,personalPilot:null,employeeCredit:null,paidCredit:null,panelRedraw:null,
-  readModelIntent:()=>null,api:async()=>({enabled:false,keys:[],usage_by_model:[]}),creditActive:()=>false,loadPersonalUsage:async()=>{},personalMoney:()=>'',ico:()=>'',employeeCreditBand:()=>'',panelPage:(_,tab)=>tab,mount:html=>rendered=html,
+  accountReadPaths:[],navigationData:{fresh:()=>true},navigationRead:async()=>({enabled:false,keys:[],usage_by_model:[]}),accountLoading:()=>{},readModelIntent:()=>null,api:async()=>({enabled:false,keys:[],usage_by_model:[]}),creditActive:()=>false,loadPersonalUsage:async()=>{},personalMoney:()=>'',ico:()=>'',employeeCreditBand:()=>'',panelPage:(_,tab)=>tab,mount:html=>rendered=html,
   personalDashboardContent:()=>'',comparePanel:()=>'<iframe>'});
  vm.runInContext(account,ctx);
  return {ctx,rendered:()=>rendered,go:async route=>{ctx.current=route;await vm.runInContext('account(1)',ctx);}};

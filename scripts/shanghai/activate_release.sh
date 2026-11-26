@@ -14,6 +14,14 @@ image=oneapi-sh-api:$source_sha
 [[ $(docker inspect -f '{{.State.Health.Status}}' oneapi-sh-db) == healthy ]]
 old_image=$(docker inspect -f '{{.Config.Image}}' oneapi-sh-api)
 [[ $old_image == oneapi-sh-api:* ]]
+# Check the observed baseline while holding the release lock, before any changes.
+if [[ -n ${2:-} ]]; then
+  current_web=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["source_sha"])' "$webroot/release.json")
+  [[ $current_web == "$2" ]] || { echo 'Static release changed; inspect the new baseline before deploying.' >&2; exit 1; }
+fi
+if [[ -n ${3:-} ]]; then
+  [[ $old_image == "oneapi-sh-api:$3" ]] || { echo 'API release changed; inspect the new baseline before deploying.' >&2; exit 1; }
+fi
 
 mkdir -p "$stage/web" "$stage/previous-web"
 tar -xzf "$stage/web.tgz" -C "$stage/web"
