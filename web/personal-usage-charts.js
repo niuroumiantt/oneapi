@@ -90,6 +90,6 @@ function render(view){
 document.addEventListener('click',e=>{if(!e.target.closest('[data-day],.pd-tooltip')){const tip=document.querySelector('.pd-tooltip');if(tip)tip.hidden=true;}});
 document.addEventListener('scroll',e=>{const tip=document.querySelector('.pd-tooltip');if(tip&&!tip.contains(e.target))tip.hidden=true;},true);
 window.addEventListener('resize',()=>{const tip=document.querySelector('.pd-tooltip');if(tip)tip.hidden=true;});
-window.addEventListener('hashchange',()=>{if(location.hash!=='#personal')clear();});
+window.addEventListener('hashchange',()=>{if(location.hash!=='#personal'&&active){active.controller?.abort();const tip=active.root.querySelector('.pd-tooltip');if(tip)tip.hidden=true;active=null;}});
 window.PersonalUsageCharts={mount,clear};
 })();

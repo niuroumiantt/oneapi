@@ -1190,13 +1190,12 @@ td>.live-dot:first-child{margin-right:5px}
 .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow){--ph-ink:#20263c;--ph-muted:#647084;--ph-line:#e8ebf0;background:#fff;grid-template-columns:188px minmax(0,1fr)}
 .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .site-tools:not(:has(.pc-workspace,.pc-surface)){display:none}
 .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .site-tools :is(.pc-identity,.pc-purchase-link,.pc-global-search,.pc-product-title){display:none}
-.personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-sidebar{background:#fafbfc;padding:28px 12px;border-color:var(--ph-line)}
-.personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-sidebar nav{gap:4px}
-.personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-sidebar nav :is(button,a){min-height:44px;padding:10px 14px;font-size:14px;font-weight:500;border-radius:6px;color:var(--ph-muted)}
+.personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-sidebar{background:#fafbfc;border-color:var(--ph-line)}
+.personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-sidebar nav :is(button,a){font-size:14px;font-weight:500;border-radius:6px;color:var(--ph-muted)}
 .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-sidebar nav .active{background:#eaeef4;color:var(--ph-ink);font-weight:600}
 .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-sidebar nav :is(button,a):hover{background:#eef1f5;color:var(--ph-ink)}
 .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-sidebar .ui-icon{color:inherit;--icon-size:18px}
-.personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-stage{padding:44px 48px;overflow:auto;scrollbar-gutter:auto;background:#fff}
+.personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-stage{overflow:auto;background:#fff}
 .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-stage>[data-personal-content]{overflow:visible;flex:none}
 .personal-home{width:100%;max-width:960px;margin:0 auto;color:var(--ph-ink);font-size:14px;line-height:1.5}
 .personal-home h1{font-size:24px;font-weight:600;line-height:1.4;margin:0 0 36px;letter-spacing:0}
@@ -1232,15 +1231,11 @@ td>.live-dot:first-child{margin-right:5px}
 .ph-recent li>span:last-child{text-align:right}
 .ph-call-model{overflow-wrap:anywhere}
 .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow)>.site-footer{border-color:var(--ph-line)}
-@media(max-width:1000px){.personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-stage{padding:32px}.personal-home h1{margin-bottom:28px}}
+@media(max-width:1000px){.personal-home h1{margin-bottom:28px}}
 @media(max-width:800px){
  .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow){grid-template-columns:minmax(0,1fr)}
- .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-sidebar{padding:6px 12px}
- .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-sidebar nav :is(button,a){padding:8px 12px}
- .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-stage{padding:28px 24px}
 }
 @media(max-width:560px){
- .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-stage{padding:24px 20px}
  .personal-home h1{font-size:22px;margin-bottom:28px}
  .ph-balance{gap:24px 16px}
  .ph-balance-main strong{font-size:38px}
@@ -1451,18 +1446,15 @@ td>.live-dot:first-child{margin-right:5px}
 .my-models .mm-foot select{font-size:12px;min-height:30px;padding:3px 26px 3px 9px;border-color:#e8ebf0}
 .mm-sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 @media(min-width:901px) and (max-height:800px){
- .personal-console:has(.my-models) .pc-stage{padding:20px 32px}
  .my-models .mm-heading{margin-bottom:16px}.mm-available{margin-top:16px;padding-top:12px}.mm-foot{margin-top:12px}
  .mm-table td{height:42px}
 }
 @media(max-width:900px){
- .personal-console:has(.my-models) .pc-stage{padding:20px}
  .mm-table th:first-child{width:37%}.mm-table th:nth-child(2),.mm-table td:nth-child(2){display:none}
  .mm-table th:nth-child(3){width:17%}.mm-table th:nth-child(4){width:24%}.mm-table th:last-child{width:22%}
  .mm-actions{gap:2px}.mm-price em{margin:0 5px}
 }
 @media(max-width:600px){
- .personal-console:has(.my-models) .pc-stage{padding:16px 14px}
  .my-models .mm-heading{margin-bottom:14px}.my-models .mm-heading h1{font-size:22px}
  .mm-table th,.mm-table td{padding-inline:4px}.mm-table td{height:46px}
  .mm-table th:first-child{width:47%}.mm-table th:nth-child(3),.mm-table td:nth-child(3){display:none}
@@ -1476,7 +1468,6 @@ td>.live-dot:first-child{margin-right:5px}
  .mm-section-head>a{font-size:12px}
 }
 @media(min-width:901px) and (max-height:800px){
- .personal-console:has(.my-models) .pc-stage{padding:16px 28px}
  .my-models .mm-heading{margin-bottom:12px}.my-models .mm-heading h1{line-height:32px}
  .my-models .mm-section-head h2{line-height:28px}.mm-section-head{margin-bottom:4px}
  .mm-table td{height:36px}.mm-table th{height:26px}
@@ -1492,7 +1483,6 @@ td>.live-dot:first-child{margin-right:5px}
 .my-models .mm-section-head button:disabled{opacity:.4;cursor:default}
 .mm-remove .ui-icon{fill:none}.mm-add .ui-icon{fill:none}
 .my-models .mm-table th:first-child{width:29%}.my-models .mm-table th:nth-child(2){width:16%}.my-models .mm-table th:nth-child(3){width:14%}.my-models .mm-table th:nth-child(4){width:19%}.my-models .mm-table th:last-child{width:22%}
-.personal-console:has(.personal-connect) .pc-stage{padding:28px 36px}
 .personal-connect{max-width:1100px}
 .mc-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px}
 .mc-heading .mc-back{display:inline-flex;align-items:center;gap:6px;min-height:28px;font-size:12px;color:var(--ph-muted)}
@@ -1530,16 +1520,14 @@ td>.live-dot:first-child{margin-right:5px}
 .mc-text-link{display:inline-flex;min-height:40px;align-items:center;margin-right:16px;font-size:13px}
 .mc-tabs,.personal-connect .mc-mobile-next{display:none}
 @media(min-width:901px) and (max-height:760px){
- .personal-console:has(.personal-connect) .pc-stage{padding:16px 28px}
  .mc-heading{margin-bottom:16px}.mc-layout{padding-top:16px}.mc-section-title{margin-bottom:12px}
  .mc-form label{margin-bottom:12px}.mc-steps{margin-block:12px;font-size:12px}.mc-steps li+li{margin-top:5px}
 }
 @media(max-width:900px){
  .my-models .mm-table th:first-child{width:35%}.my-models .mm-table th:nth-child(3){width:16%}.my-models .mm-table th:nth-child(4){width:22%}.my-models .mm-table th:last-child{width:27%}
- .mc-layout{gap:20px}.mc-config{padding-left:20px}.personal-console:has(.personal-connect) .pc-stage{padding:20px}
+ .mc-layout{gap:20px}.mc-config{padding-left:20px}
 }
 @media(max-width:700px){
- .personal-console:has(.personal-connect) .pc-stage{padding:16px 20px}
  .mc-heading{margin-bottom:16px}.personal-connect .mc-heading h1{font-size:22px;line-height:28px}
  .mc-manage{display:none}.mc-tabs{display:flex;gap:4px;padding-bottom:10px;border-bottom:1px solid var(--ph-line)}
  .mc-tabs button{min-height:36px;padding:6px 14px;border:0;border-radius:5px;background:none;color:var(--ph-muted);font-size:13px}
@@ -1573,11 +1561,9 @@ td>.live-dot:first-child{margin-right:5px}
 .mc-secret input{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
 .mc-secret button:focus-visible,.mm-remove:focus-visible{outline:2px solid #637a9c;outline-offset:2px}
 @media(min-width:701px) and (max-height:760px){
- .personal-console:has(.api-key-manager) .pc-stage{padding:18px 28px}
  .api-key-manager .api-page-head{margin-bottom:12px}.api-key-manager td{padding-block:8px}
 }
 @media(max-width:700px){
- .personal-console:has(.api-key-manager) .pc-stage{padding:14px 20px}
  .api-key-manager .api-page-head{margin-bottom:10px;gap:8px}
  .api-key-manager .api-page-head h1{margin-bottom:4px}
  .api-key-manager .api-page-head p{font-size:12px;line-height:1.5}
@@ -1614,11 +1600,9 @@ td>.live-dot:first-child{margin-right:5px}
  .personal-api.api-key-manager .api-caption{margin-top:10px;font-size:11px}
 }
 @media(min-width:901px) and (max-height:800px){
- .personal-console:has(.my-models) .pc-stage{padding-block:14px}
  .my-models .mm-table td{padding-block:0;height:36px}
 }
 @media(max-width:700px) and (max-height:750px){
- .personal-console:has(.api-key-manager) .pc-stage{padding:10px 16px}
  .personal-api.api-key-manager .api-page-head{flex-direction:row;align-items:center;gap:8px;margin-bottom:8px}
  .personal-api.api-key-manager .api-page-head h1{margin:0;font-size:20px}
  .personal-api.api-key-manager .api-page-head p{display:none}
@@ -1656,7 +1640,6 @@ td>.live-dot:first-child{margin-right:5px}
  .api-key-manager .api-create-actions{gap:10px}
  .api-key-manager .api-create-actions>a:not(.pm-primary){font-size:10px}
  .api-key-manager .api-create-actions .pm-primary{font-size:11px;padding-inline:8px}
- .personal-console:has(.personal-connect) .pc-stage{padding:10px 16px}
  .personal-connect .mc-heading{margin-bottom:8px}.personal-connect .mc-heading h1{font-size:20px;line-height:26px;margin-top:4px}
  .personal-connect .mc-layout{padding-top:12px}.personal-connect .mc-section-title{margin-bottom:10px}
  .personal-connect .mc-scope{margin-bottom:10px}.personal-connect .mc-note{font-size:11px;margin:8px 0}
@@ -1664,23 +1647,18 @@ td>.live-dot:first-child{margin-right:5px}
  .personal-connect .mc-secret-label{margin-bottom:8px}
 }
 @media(min-width:901px) and (max-height:800px){
- .personal-console:has(.my-models) .pc-stage{padding:10px 28px}
  .my-models .mm-heading{margin-bottom:8px}.my-models .mm-heading h1{line-height:28px}
  .my-models .mm-section-head h2{line-height:26px}.my-models .mm-section-head{margin-bottom:2px}
  .my-models .mm-section-head button,.my-models .mm-section-actions a{min-height:28px;padding-block:2px}
  .my-models .mm-table td{height:32px}.my-models .mm-actions button{min-height:28px;padding-block:2px}
  .my-models .mm-available{margin-top:8px;padding-top:6px}.my-models .mm-foot{margin-top:4px}
- .personal-console:has(.personal-connect) .pc-stage{padding:10px 28px}
  .personal-connect .mc-heading{margin-bottom:8px}.personal-connect .mc-layout{padding-top:12px}
  .personal-connect .mc-section-title{margin-bottom:8px}.personal-connect .mc-tool{margin-bottom:8px}
  .personal-connect .mc-config-field{min-height:36px}.personal-connect .mc-steps{font-size:12px;line-height:1.5;margin:8px 0}
  .personal-connect .mc-note{font-size:11px;line-height:1.5;margin:8px 0}
  .personal-connect .mc-success{margin-bottom:12px}.personal-connect .mc-issued-meta{margin:10px 0}
- .personal-console:is(:has(.my-models),:has(.personal-connect),:has(.api-key-manager)) .pc-sidebar nav button,
- .personal-console:is(:has(.my-models),:has(.personal-connect),:has(.api-key-manager)) .pc-sidebar nav a{min-height:38px;padding-block:6px}
 }
 @media(max-width:700px) and (max-height:800px){
- .personal-console:has(.my-models) .pc-stage{padding:12px 14px}
  .my-models .mm-heading{margin-bottom:8px}.my-models .mm-table td{height:38px;padding-block:1px}
  .my-models .mm-available{margin-top:10px;padding-top:8px}.my-models .mm-foot{margin-top:8px}
  .personal-connect .mc-mobile-next{display:none}
@@ -1695,7 +1673,6 @@ td>.live-dot:first-child{margin-right:5px}
  .personal-connect .mc-config .mc-note{font-size:10px;line-height:1.4}
 }
 @media(max-width:700px) and (max-height:700px){
- .personal-console:has(.my-models) .pc-stage{padding:8px 14px}
  .my-models .mm-heading h1{font-size:20px;line-height:28px}
  .my-models .mm-heading .mm-intro{font-size:11px;line-height:16px}
  .my-models .mm-section-head h2{line-height:26px}.my-models .mm-section-head{margin-bottom:2px}
@@ -1749,11 +1726,9 @@ td>.live-dot:first-child{margin-right:5px}
 .pu-empty{padding:48px 0;color:var(--ph-muted);font-size:13px}.pu-empty h2{font-size:16px;color:var(--ph-ink);margin:0 0 8px}.pu-empty p{margin:0 0 16px}
 .pu-empty a,.pu-empty button{display:inline-flex;align-items:center;gap:6px;color:var(--ph-ink);min-height:32px;background:none;border:0;padding:0;font-size:13px;cursor:pointer}
 @media(max-height:760px){
- .personal-console:has(.personal-usage) .pc-stage{padding:18px 28px}
  .pu-heading{margin-bottom:12px}.pu-summary{padding-bottom:14px}.personal-usage .pu-table td{height:46px;padding-block:6px}.pu-foot{margin-top:12px}
 }
 @media(max-width:700px){
- .personal-console:has(.personal-usage) .pc-stage{padding:16px 18px}
  .personal-usage .pu-heading h1{font-size:22px}.pu-heading{margin-bottom:12px}
  .pu-summary{gap:18px;font-size:11px;padding-bottom:12px;flex-wrap:wrap}.pu-summary b{font-size:15px;margin-inline:4px}
  .personal-usage .pu-table th{font-size:10px;padding:6px 4px;height:30px;white-space:nowrap}
@@ -1775,7 +1750,6 @@ td>.live-dot:first-child{margin-right:5px}
  .ak-usage-label{font-size:10px;line-height:14px}.ak-usage-track{margin-top:4px;height:3px}
 }
 @media(min-width:701px) and (max-height:650px){
- .personal-console:has(.api-key-manager) .pc-stage{padding-block:14px}
  .personal-api.api-key-manager .api-page-head p{display:none}
  .personal-api.api-key-manager .api-page-head h1{margin:0}
  .personal-api.api-key-manager .ak-model span{display:inline;font-size:12px;line-height:16px}
@@ -1817,14 +1791,12 @@ td>.live-dot:first-child{margin-right:5px}
 .ps-devices li{display:flex;justify-content:space-between;gap:16px;align-items:center;min-height:64px;border-bottom:1px solid var(--ph-line);font-size:13px}
 .ps-devices strong{font-weight:500}.ps-devices time{font-size:12px;color:var(--ph-muted)}
 @media(max-height:760px){
- .personal-console:has(.personal-settings) .pc-stage{padding:18px 28px}
  .personal-settings h1{margin-bottom:24px}.personal-settings .ps-back{margin-bottom:12px}
  .ps-detail .live-form{gap:10px}.ps-detail .panel-title{margin-bottom:4px}
  .ps-detail .live-form input{height:36px;min-height:36px}
 }
 @media(max-width:900px){.ps-columns{gap:32px}.ps-row{grid-template-columns:72px minmax(0,1fr) auto;gap:8px}}
 @media(max-width:700px){
- .personal-console:has(.personal-settings) .pc-stage{padding:16px 18px}
  .personal-settings h1{font-size:22px;margin-bottom:18px}
  .ps-columns{grid-template-columns:1fr;gap:22px}
  .personal-settings h2{font-size:13px;margin-bottom:4px}
@@ -1837,8 +1809,6 @@ td>.live-dot:first-child{margin-right:5px}
 }
 .personal-settings .live-form .live-sms-code-row .live-button{color:var(--ph-ink);border:1px solid var(--ph-line);background:#fff}
 @media(min-width:801px) and (max-height:650px){
- .personal-console:has(.personal-settings) .pc-sidebar{padding:16px 12px}
- .personal-console:has(.personal-settings) .pc-sidebar nav :is(button,a){min-height:40px;padding-block:8px}
 }
 /* Personal billing: one balance, one task, paged settlement records. */
 .personal-console:has(.personal-billing) .pc-stage{padding:28px 36px}
@@ -1881,15 +1851,12 @@ td>.live-dot:first-child{margin-right:5px}
 .pb-invoices{list-style:none;margin:16px 0;padding:0}.pb-invoices li{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:18px 0;border-bottom:1px solid var(--ph-line)}.pb-invoices li>div:last-of-type{text-align:right}.pb-invoices :is(strong,b){font-weight:500}.pb-invoices small{display:block;font-size:12px;color:var(--ph-muted);margin-top:6px}.pb-invoices p{width:100%;margin:0;font-size:12px;overflow-wrap:anywhere}
 .personal-billing .refund-heading{margin-bottom:16px;gap:16px}.personal-billing .refund-heading h2{font-size:18px}.personal-billing .refund-heading p{font-size:12px;line-height:1.65;max-width:70ch}.personal-billing .refund-total{display:none}.personal-billing .refund-orders{margin:0}.personal-billing .refund-order{padding:16px 0}.personal-billing .refund-order :is(strong,span,time){font-size:12px}.personal-billing .refund-progress{margin-top:16px}.personal-billing .refund-policy-note{font-size:12px}
 .personal-billing .alipay-pay{margin:0;padding:0;gap:24px;background:none;border:0;box-shadow:none}.personal-billing .alipay-pay>.payment-brand-icon{display:none}.personal-billing .alipay-pay-info p{font-size:12px;line-height:1.6;max-width:65ch;margin:12px 0}.personal-billing .alipay-qr{width:180px;min-width:180px}.personal-billing .alipay-qr svg{width:100%;height:auto}
-@media(max-height:760px){
- .personal-console:has(.personal-billing) .pc-stage{padding:18px 28px}.pb-heading{margin-bottom:16px}.pb-explainer{margin:8px 0 16px}.pb-tabs{margin-bottom:18px}.pb-table td{height:64px;padding-block:8px}.pb-promo{margin-top:14px!important}.pb-foot{margin-top:12px}.pb-invoice-form{gap:12px 24px}.pb-checkout{gap:40px}
+@media(max-height:760px){.pb-heading{margin-bottom:16px}.pb-explainer{margin:8px 0 16px}.pb-tabs{margin-bottom:18px}.pb-table td{height:64px;padding-block:8px}.pb-promo{margin-top:14px!important}.pb-foot{margin-top:12px}.pb-invoice-form{gap:12px 24px}.pb-checkout{gap:40px}
 }
 @media(min-width:701px) and (max-height:650px){
- .personal-console:has(.personal-billing) .pc-sidebar{padding:16px 12px}.personal-console:has(.personal-billing) .pc-sidebar nav :is(button,a){min-height:40px;padding-block:8px}
  .pb-heading{margin-bottom:8px}.pb-balance strong{font-size:24px}.pb-explainer{margin-block:6px 12px}.pb-tabs{margin-bottom:14px}.pb-tabs a{padding-bottom:8px}.pb-table td{height:62px}.personal-billing .recharge-amount,.pb-pay-action select{height:44px}.pb-promo{margin-top:10px!important}.pb-muted{margin:8px 0}.personal-billing .refund-order{padding-block:10px}
 }
-@media(max-width:700px){
- .personal-console:has(.personal-billing) .pc-stage{padding:16px 18px}.pb-heading{margin-bottom:14px}.pb-heading h1{font-size:22px;line-height:32px}.pb-heading nav{gap:16px}.pb-heading a{font-size:11px}
+@media(max-width:700px){.pb-heading{margin-bottom:14px}.pb-heading h1{font-size:22px;line-height:32px}.pb-heading nav{gap:16px}.pb-heading a{font-size:11px}
  .pb-balance{display:block}.pb-balance strong{font-size:25px}.pb-balance>div{gap:14px}.pb-balance p{font-size:11px;margin-top:6px}.pb-explainer{font-size:11px;margin:8px 0 14px}
  .pb-tabs{gap:24px;margin-bottom:16px}.pb-tabs a{font-size:12px;padding-bottom:9px}
  .pb-checkout{grid-template-columns:1fr;gap:14px}.personal-billing .recharge-amount{height:42px}.personal-billing .recharge-amount input{font-size:22px}.personal-billing .recharge-presets{margin:8px 0}.pb-checkout label{font-size:12px;margin-bottom:6px}.pb-muted{font-size:11px;margin:8px 0}
@@ -1910,8 +1877,7 @@ td>.live-dot:first-child{margin-right:5px}
  .pb-table tr{padding:8px 0;gap:6px}.pb-table td{line-height:16px}.pb-table td:first-child{line-height:16px}.pb-table small{line-height:14px}.pb-table time{line-height:14px}.pb-table td:not(:first-child):before{line-height:13px;margin-bottom:2px}
  .pb-foot{margin-top:10px}.personal-billing .pb-foot .pu-pages button{min-height:28px;width:28px}
 }
-@media(max-width:700px) and (max-height:700px){
- .personal-console:has(.personal-billing) .pc-stage{padding:12px 16px}.pb-heading{margin-bottom:6px}.pb-heading h1{font-size:20px;line-height:28px}.pb-balance strong{font-size:22px}.pb-tabs{margin-bottom:8px}.pb-tabs a{min-height:28px;padding-bottom:6px}.pb-explainer{margin-bottom:8px}
+@media(max-width:700px) and (max-height:700px){.pb-heading{margin-bottom:6px}.pb-heading h1{font-size:20px;line-height:28px}.pb-balance strong{font-size:22px}.pb-tabs{margin-bottom:8px}.pb-tabs a{min-height:28px;padding-bottom:6px}.pb-explainer{margin-bottom:8px}
  .pb-checkout{gap:10px}.pb-checkout label{margin-bottom:4px}.personal-billing .recharge-amount{height:36px}.personal-billing .recharge-amount input{font-size:20px}.personal-billing .recharge-presets{margin:6px 0}.personal-billing .alipay-preset{min-height:32px;padding:5px 8px}.pb-muted{margin:6px 0}.pb-promo{margin-top:6px!important}.pb-pay-action{gap:6px 10px}.pb-pay-action>.live-button{min-height:34px;padding-block:6px}
  .pb-table tr{padding-block:6px;gap:4px}.pb-foot{margin-top:8px;font-size:9px}.pb-invoice-form{gap:8px;margin-top:10px}
 }
@@ -1931,7 +1897,6 @@ td>.live-dot:first-child{margin-right:5px}
 .pb-balance-gap{height:24px}
 @media(max-width:700px){.pb-balance-gap{height:12px}}
 @media(max-width:700px) and (max-height:700px){
- .personal-console:has(.personal-billing) .pc-stage{padding-block:8px}
  .personal-billing .pb-invoice-form{gap:8px}
  .personal-billing .pb-checkout{gap:8px}.personal-billing .recharge-presets .alipay-preset{min-height:30px;padding:4px 8px}.personal-billing .pb-pay-action{gap:4px 10px}.personal-billing .pb-heading{margin-bottom:4px}.pb-balance-gap{height:8px}
 }
@@ -1970,7 +1935,7 @@ td>.live-dot:first-child{margin-right:5px}
 @media(max-width:700px){.pb-credit{margin:8px 0}.pb-credit-legend{gap:12px;font-size:10px}.pb-credit-legend a{gap:3px}.pb-credit-track{height:8px}.personal-billing:has(.pb-credit) .pb-explainer{font-size:10px;margin-bottom:10px}}
 @media(max-height:740px){.pb-credit{margin:6px 0}.pb-credit-legend{margin-top:5px}.personal-billing:has(.pb-credit) .pb-explainer{margin-bottom:10px}.personal-billing:has(.pb-credit) .pb-heading{margin-bottom:8px}}
 
-.personal-console:has(.workspace-compare-frame.personal-api) .pc-stage{padding:0;display:flex;flex-direction:column}
+.personal-console:has(.workspace-compare-frame.personal-api) .pc-stage{display:flex;flex-direction:column}
 .personal-console:has(.workspace-compare-frame.personal-api) [data-personal-content]{min-height:0;flex:1;display:flex;height:100%}
 .workspace-compare-frame.personal-api{max-width:none;margin:0;height:100%;min-height:0}
 
@@ -2006,7 +1971,6 @@ td>.live-dot:first-child{margin-right:5px}
  .personal-billing .pb-pay-action>.pb-muted{display:none}
 }
 @media(max-height:800px){
- .personal-console:has(.personal-home) .pc-stage{padding:16px 28px}
  .personal-home h1{margin-bottom:20px}
  .personal-home .ph-balance{gap:12px 16px;padding-bottom:16px}
  .personal-home .ph-connect{padding-top:16px}
@@ -2015,7 +1979,6 @@ td>.live-dot:first-child{margin-right:5px}
  .personal-home .ph-key-row{padding:8px 0}
 }
 @media(max-width:700px){
- .personal-console:has(.personal-home) .pc-stage{padding:8px 16px}
  .personal-home h1{margin-bottom:12px}
  .personal-home .ph-balance-actions{margin-top:10px}
  .personal-home .ph-balance{padding-bottom:8px}
