@@ -17,5 +17,5 @@
 - 独立修复工作树 `~/.worktrees/oneapi/account-decimal-hotfix`，分支 `codex/account-decimal-hotfix`。
 - 常驻主工作区已提交设置页 `229de24`，并在 `f46f9de` 合入公网修复，已推送 main。
 - **设置页尚未上线**，生产仅包含本次小数修复与此前已上线功能。
-- 验证时另发现已有导航问题：从 keys 点击概览，URL 变为 #personal，但仍保留 personalTab=keys；再次点击概览才会更新。根因是 personal-tab 处理在设置 personalTab 前跳转，而 account 对根路由保留旧 tab。后续设置页发布时应补上此导航回归；本次紧急发布未扩大范围。
+- 验证时另发现已有导航问题：从 keys 点击概览，URL 变为 #personal，但仍保留 personalTab=keys；再次点击概览才会更新。根因是 personal-tab 处理在设置 personalTab 前跳转，而 account 对根路由保留旧 tab。已在后续 70ecb94 修复并于 e3209d9 上线，包含浏览器前进/后退与从设置返回概览的回归验证。
 - 临时格式预览 `/private/tmp/oneapi-decimal-preview.py`，端口 4184，仅模拟数据。

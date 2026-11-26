@@ -2,7 +2,7 @@
 
 ## 用户要求与状态
 
-个人设置只保留必要信息和操作，保持一页高度，不滚动。本轮完成本地预览，尚未部署；公网仍为用量/进度条版本 4441bb8。
+个人设置只保留必要信息和操作，保持一页高度，不滚动。已上线，公网前后端版本均为 e3209d944dfcd464ccfe65331ff114ebedc0669b，包含精简设置页、概览导航修复和已合入的 VIP 通知功能。
 
 ## 实现
 
@@ -28,3 +28,15 @@ http://127.0.0.1:4183/?scenario=existing#security
 手机号注册场景：?scenario=phone#security。
 
 服务为 /private/tmp/oneapi-settings-preview/serve.py，监听 4183，读取 repo/web。HTML 给 identity.js/css 添加临时 query 避免浏览器缓存；该预览逻辑不进入生产源码。保留原 4181 / 4182 预览状态。
+
+
+## 上线与概览修复
+
+- 导航修复提交 `70ecb94`：根路由始终重置为概览，不沿用 keys/models/usage；API 对比使用明确路由，返回和前进保持一致。新增 3 项路由测试，相关测试合计 21/21 通过。
+- 本轮原计划单独发布 70ecb94；并行 VIP 任务先部署 7a0b32c 后，发布锁内的基线保护阻止了旧候选覆盖生产。main 已合并为 e3209d9，保留双方改动。
+- 统一版本使用 `/private/tmp/oneapi-settings-delta-release.py` 传输变化文件。4 个静态变化文件与完整后端源码包合计上传 745167 字节；服务器按 198 个文件清单逐一核对 SHA256，从当前线上复用未变化资源。重建 web.tgz 与 scripts/build_static.py 的完整包逐字节哈希一致。
+- 在同一生产发布锁内核对基线 7a0b32c 后，执行原有 activate_release.sh，完成备份、迁移、容器健康、静态发布及版本检查；退出 0。
+- 发布目录：`/srv/oneapi-data/oneapi-cutover-q72dymap/releases/e3209d944dfc.k7qhug`。
+- 公网 /api/status 和 /release.json 均验证 e3209d9；identity.d25796713466.js 与 identity.56c2950cd175.css 已验证含本轮改动。
+- Chrome 公网点击密钥→概览、设置→概览、浏览器后退→密钥及前进→概览均通过；最终停在设置页。1512×778 viewport 下 document=778/778、stage=653/653，无垂直溢出。
+- 浏览器共享登录状态已由并行 VIP 验收切换为验收账号，本轮没有更改用户登录或密码。之前该账号设备数可读取，后续等待发布超过 15 分钟后显示暂时无法读取；认证配置 freshAge=15 分钟，设备读取应以重新登录后复验。当前精简页仅显示通用重试提示，尚未针对新鲜会话要求细分文案。未提交密码、发送短信或退出真实设备。
