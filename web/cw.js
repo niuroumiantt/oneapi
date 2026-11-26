@@ -190,6 +190,7 @@
   function promotionMoneyStrip(k,global=false){
     const paid=Math.max(0,Number(k.paid_fen||0)),used=Math.max(0,Number(k.used_fen||0)),refund=Math.max(0,Number(k.refunded_fen||0)),remaining=Math.max(0,paid-used-refund),scale=Math.max(paid,used+refund,1);
     const label=`客户实付 ${money(paid)}，已消费 ${money(used)}，未消费 ${money(remaining)}，已退款 ${money(refund)}`;
+    if(!paid&&!used&&!refund)return `<div class="cv-code-money${global?' cv-code-total':''}"><div class="cv-code-values"><span>${global?'全部促销码 · 累计实付':'客户实付'} <b>${money(0)}</b></span><span class="cv-code-income">消费提成 <b>${money(k.unlocked_fen)}</b></span></div><div class="cv-cash-empty">暂无付款，客户使用此码付款后显示进展</div></div>`;
     return `<div class="cv-code-money${global?' cv-code-total':''}"><div class="cv-code-values"><span>${global?'全部促销码 · 累计实付':'客户实付'} <b>${money(paid)}</b></span><span class="cv-code-income">消费提成 <b>${money(k.unlocked_fen)}</b></span></div><div class="cv-cash-track" role="img" aria-label="${esc(label)}"><i class="used" style="width:${used/scale*100}%"></i><i class="remaining" style="width:${remaining/scale*100}%"></i><i class="refunded" style="width:${refund/scale*100}%"></i></div><div class="cv-cash-legend"><span class="used">已消费 ${money(used)}</span><span class="remaining">未消费 ${money(remaining)}</span><span class="refunded">已退款 ${money(refund)}</span></div></div>`;
   }
   function monthlyOverview(monthly={}){
