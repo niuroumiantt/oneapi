@@ -67,7 +67,7 @@ def main():
         asset_names[name] = target
     assets['index.html'] = html.encode()
     compare_html = git('show', 'HEAD:web/compare.html').decode()
-    for name in ('compare.css', 'compare-mode.js', 'compare-savings.js', 'compare-pdf.js', 'compare.js'):
+    for name in ('compare.css', 'compare-mode.js', 'compare-savings.js', 'compare-pdf.js', 'personal-compare.css', 'personal-compare.js', 'compare.js'):
         content = git('show', f'HEAD:web/{name}')
         stem, extension = name.rsplit('.', 1)
         target = f'{stem}.{hashlib.sha256(content).hexdigest()[:12]}.{extension}'

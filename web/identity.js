@@ -777,7 +777,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    tab('compare','layers','API 对比');
  }
  const panelPage=(org,active,stage)=>`<div class="personal-console" data-workspace-scope="${org?esc(org.id):'personal'}">${customerHeader(org)}<aside class="pc-sidebar"><nav aria-label="工作台导航">${panelNav(org,active)}${me?.backoffice?.business?`<a href="#console/business/acquisition">${ico('briefcase-business')} 商务管理</a>`:!org?`<a href="/promotion/vip.html">${ico('users-round')} 我的 VIP 申请与推广</a>`:''}</nav></aside><div class="pc-stage ${active==='billing'?'billing-stage':''}">${stage}</div>${window.SiteHeader.footer()}</div>`;
- const comparePanel=()=>'<iframe class="workspace-compare-frame" title="API 对比台" src="/compare.html?embedded=1"></iframe>';
+ const comparePanel=()=>`<iframe class="workspace-compare-frame${panelOrg?'':' personal-api'}" title="API 对比台" src="/compare.html?embedded=1${panelOrg?'':'&personal=1'}"></iframe>`;
  const panelBody=content=>`<div data-personal-content>${content}</div>`;
  const panelLoading='<p class="personal-model-empty">正在读取…</p>';
  const settingRow=(label,value)=>`<div class="org-setting-row"><span>${label}</span><b>${value}</b></div>`;
@@ -1285,6 +1285,15 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   return `${negative?'-':''}¥${abs/100n}.${tail}`;
  };
  const billingPager=(page,more,action='billing-record-page')=>page||more?`<nav class="pu-pages" aria-label="账单分页"><button type="button" data-live="${action}" data-page="${page-1}" aria-label="上一页" ${page===0?'disabled':''}>${ico('chevron-left')}</button><span>第 ${page+1} 页</span><button type="button" data-live="${action}" data-page="${page+1}" aria-label="下一页" ${more?'':'disabled'}>${ico('chevron-right')}</button></nav>`:'';
+ function personalBalanceBar(data){
+  const split=data.credit_split;
+  const paid=BigInt(split?.red_fen??data.cash_balance_fen??'0'),balance=wholeFen(data.list_credit_exact_fen??data.list_credit_fen??'0');
+  const gift=split?BigInt(split.green_fen||'0'):(balance>paid?balance-paid:0n),total=paid+gift;
+  const max=split?BigInt(split.max_face_fen||split.face_fen||'0'):total,scale=max>total?max:total;
+  const width=v=>scale>0n?Number(v*10000n/scale)/100:0;
+  const refund=split?.refundable_fen;
+  return `<div class="pb-credit"><div class="pb-credit-track" role="img" aria-label="实付剩余 ${personalMoney(String(paid))}，赠送剩余 ${personalMoney(String(gift))}"><span class="pb-credit-gift" style="width:${width(gift)}%"></span><span class="pb-credit-paid" style="width:${width(paid)}%"></span></div><div class="pb-credit-legend"><span><i class="pb-credit-paid"></i>实付 ${personalMoney(String(paid))}</span><span><i class="pb-credit-gift"></i>赠送 ${personalMoney(String(gift))}</span><a href="#${refundRoute}">${refund==null?'查看可退金额':'当前可退 '+personalMoney(refund)} ${ico('arrow-right')}</a></div></div>`;
+ }
  function personalRechargeCompact(data){
   const channels=(data.recharge?.channels||[]).filter(c=>PAY_CHANNELS[c]);
   if(!channels.length)return `<div class="pb-empty"><p>当前账户暂未开放在线充值。</p><a href="#support">联系支持 ${ico('arrow-up-right')}</a></div>`;
@@ -1331,10 +1340,10 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     body=rows.length?`<table class="pb-table${usage?' pb-usage-table':''}" data-nosort><thead><tr><th>${usage?'模型 / Key':'充值时间 / 方式'}</th><th>${usage?'扣减额度':'实付金额'}</th><th>${usage?'实付费用':'赠送额度'}</th>${usage?'':'<th>到账额度</th>'}</tr></thead><tbody>${rows.map(r=>`<tr>${cell(usage?'模型 / Key':'充值时间 / 方式',usage?`<strong>${esc(r.model_name)}</strong><small title="${esc(r.key_label)} · ${esc(r.key_hint)}">${esc(r.key_label)} · ${esc(r.key_hint)}</small><time>${billingTime(r.created_at)}</time>`:`<strong>${billingTime(r.paid_at||r.created_at)}</strong><small>${esc(refundChannelName(r))}${r.refund_status==='succeeded'?' · 已退款':r.refund_id?' · 退款处理中':''}</small>`)}${usage?[['扣减额度',r.quota_fen],['实付费用',r.cash_fen]].map(([label,value])=>cell(label,esc(billingQuotaMoney(value)))).join(''):[['实付金额',r.cash_fen],['赠送额度',String(BigInt(r.face_fen)-BigInt(r.cash_fen))],['到账额度',r.face_fen]].map(([label,value])=>cell(label,personalMoney(value))).join('')}</tr>`).join('')}</tbody></table>`:`<div class="pb-empty"><h2>${usage?'还没有消费记录':'还没有充值记录'}</h2><p>${usage?'模型调用结算后，扣减额度与实付费用会显示在这里。':'完成充值后，可在这里核对每笔到账金额。'}</p></div>`;
     foot=`<span>${usage?'实付费用按分累计结算，赠送不计费。仅列已结算消费。':'记录充值时到账额度；当前剩余额度见上方余额。'} 时间为北京时间。</span>${billingPager(billingRecordPage,records?.has_more)}`;
    }
-   const balance=data.list_credit_exact_fen??data.list_credit_fen??data.cash_balance_fen??'0',paid=data.cash_balance_fen||'0',gift=String(wholeFen(balance)>wholeFen(paid)?wholeFen(balance)-wholeFen(paid):0n);
+   const balance=data.list_credit_exact_fen??data.list_credit_fen??data.cash_balance_fen??'0';
    const header=`<header class="pb-heading"><h1>充值与账单</h1><nav aria-label="账单服务">${sub?'<a href="#billing/personal">'+ico('arrow-left')+' 返回充值</a>':'<a href="#'+refundRoute+'">退款</a><a href="#billing/personal/invoices">发票</a>'}</nav></header>`;
    const activeOrder=billingView==='recharge'&&alipayPay?.scope==='personal'&&['pending','paid'].includes(alipayPay.order?.status)&&!alipayPay.order?.expired;
-   const summary=sub||activeOrder?'':`<div class="pb-balance"><div><span>额度余额</span><strong>${personalMoney(balance)}</strong></div><p>实付剩余 ${personalMoney(paid)} <span>＋</span> 赠送剩余 ${personalMoney(gift)}</p></div>${billingView==='recharge'?'<p class="pb-explainer">充值增加额度，模型调用按官网价扣减额度。</p>':'<div class="pb-balance-gap"></div>'}<nav class="pu-tabs pb-tabs" aria-label="充值与账单">${[['recharge','充值'],['usage','消费账单'],['history','充值记录']].map(([key,label])=>`<a href="#${billingRoutesByView[key]}" ${billingView===key?'aria-current="page"':''}>${label}</a>`).join('')}</nav>`;
+   const summary=sub||activeOrder?'':`<div class="pb-balance"><div><span>额度余额</span><strong>${personalMoney(balance)}</strong></div></div>${personalBalanceBar(data)}${billingView==='recharge'?'<p class="pb-explainer">先用实付，再用赠送；退款退可退实付，收回对应赠送。</p>':'<div class="pb-balance-gap"></div>'}<nav class="pu-tabs pb-tabs" aria-label="充值与账单">${[['recharge','充值'],['usage','消费账单'],['history','充值记录']].map(([key,label])=>`<a href="#${billingRoutesByView[key]}" ${billingView===key?'aria-current="page"':''}>${label}</a>`).join('')}</nav>`;
    mount(panelPage(null,'billing',panelBody(`<section class="personal-api personal-billing${sub?' pb-detail':''}">${header}${summary}<div class="pb-content">${body}</div>${foot?`<footer class="pb-foot">${foot}</footer>`:''}</section>`)));
    if(billingView==='refund'&&focusRefundHeading){host.querySelector('#refund-heading')?.focus();focusRefundHeading=false;}
    if(billingView==='recharge'&&alipayPay?.scope==='personal'&&!alipayTimer)alipayWatch();

@@ -1,0 +1,93 @@
+/* Personal Operate surface: two main views, paginated answers, secondary settings. */
+.compare-personal{background:#fff;color:#20273d;font-size:13px}
+.compare-personal body{background:#fff}
+.compare-personal .compare-page>main{height:100dvh;max-width:1200px;padding:24px 32px;gap:18px;overflow:visible}
+.compare-personal .cp-heading{display:flex;align-items:baseline;gap:24px;flex:none}
+.compare-personal h1{font-size:25px;line-height:36px;letter-spacing:0;font-weight:600}
+.compare-personal .cp-heading p,.cp-note{color:#65738a;font-size:12px;line-height:1.6}
+.compare-personal .workspace-tabs{gap:24px;border-bottom:1px solid #e3e7ee}
+.compare-personal .workspace-tabs button{padding:8px 0;border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:#65738a}
+.compare-personal .workspace-tabs button[aria-pressed=true]{color:#20273d;border-bottom-color:#20273d;background:none}
+.compare-personal .workspace-tabs .cp-more{margin-left:auto}
+.compare-personal .compare-workspace{display:block;min-height:0;flex:1}
+.compare-personal .workspace-panel{height:100%;padding:0;overflow:visible;scrollbar-gutter:auto}
+.compare-personal #setup-panel{display:grid;grid-template-columns:minmax(300px,.95fr) minmax(320px,1.05fr);gap:40px}
+.cp-connections{min-width:0;display:flex;flex-direction:column;gap:20px}
+.compare-personal .connection,.compare-personal #setup-panel .connection:first-child{display:block;min-height:0;padding:0;border:0;border-radius:0;overflow:visible;max-height:none}
+.compare-personal .side-title{margin-bottom:12px;gap:8px}
+.compare-personal .side-title h2{font-size:15px}
+.compare-personal .side-title .letter,.compare-personal .side-title .badge,.compare-personal #our-mapping{display:none}
+.compare-personal .platform-panel{border-bottom:1px solid #e3e7ee;padding-bottom:18px}
+.compare-personal .platform-panel .field{display:inline-flex;width:calc(50% - 6px);margin:0}
+.compare-personal .platform-panel .field+.field{margin-left:8px}
+.compare-personal .connection-foot{font-size:12px;line-height:1.5;margin-top:8px}
+.compare-personal .platform-panel .connection-foot a{display:none}
+.compare-personal .fields{margin-top:10px}
+.compare-personal .field{font-size:12px}
+.compare-personal input,.compare-personal select{min-height:36px;padding:7px 9px;font-size:13px}
+.cp-key-note{font-size:11px;line-height:1.6;color:#65738a;margin-top:10px}
+.compare-personal .key-cleanup{justify-content:flex-end;margin:0}
+.compare-personal .key-cleanup button{font-size:11px}
+.compare-personal .composer{display:flex;flex-direction:column;min-width:0;border:0;border-radius:0;overflow:visible}
+.compare-personal .composer-top{padding:0;align-items:baseline;gap:10px;flex-wrap:wrap}
+.compare-personal .presets{gap:4px}.compare-personal .presets button{font-size:11px;padding:3px 6px}
+.compare-personal #prompt{border:1px solid #dce2eb;border-radius:5px;resize:none;min-height:100px;height:auto;flex:1;max-height:220px;margin:12px 0;padding:12px;font:13px/1.65 inherit}
+.compare-personal .composer-bottom{padding:0;gap:12px;flex-wrap:wrap}
+.compare-personal .composer-bottom .primary{margin-left:auto;background:#20273d;min-width:0}
+.compare-personal .composer-bottom button{font-size:12px;padding:8px 12px}
+.compare-personal .charge-note{font-size:11px;line-height:1.65;margin-top:10px;padding:0}
+.compare-personal .notice{font-size:11px;line-height:1.5;margin-top:8px}.compare-personal .notice .icon{display:none}
+.cp-advanced{height:100%;display:flex;flex-direction:column;gap:14px}
+.cp-subnav{display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex:none}
+.cp-subnav button{border:0;background:none;color:#65738a;font-size:12px;padding:6px 10px;min-height:32px}
+.cp-subnav button[aria-pressed=true]{background:#edf0f5;color:#20273d}
+.cp-advanced-pane{min-height:0;flex:1;max-width:100%;}
+.compare-personal .cp-advanced .params{display:block;margin:0;padding:0}
+.compare-personal .cp-advanced .param-grid{grid-template-columns:repeat(4,minmax(0,1fr));padding:0}
+.compare-personal .cp-advanced .param-grid p{font-size:12px;line-height:1.6;margin:12px 0}
+.compare-personal .cp-advanced .system-field textarea{height:80px;min-height:0}
+.compare-personal .cp-advanced .price-settings,.compare-personal .cp-advanced .ref-details{display:block;margin:0 0 12px}
+.compare-personal .cp-advanced .price-settings .field{margin-top:10px}
+.compare-personal .cp-advanced .price-inputs{grid-template-columns:repeat(3,minmax(0,1fr))}
+.cp-back{align-self:flex-start;font-size:12px;min-height:34px}
+.cp-extra-exports{display:flex;gap:10px;margin:16px 0}
+.compare-personal .method{border:0;margin:0;padding:0}.compare-personal .method-content{padding:0;gap:20px}.compare-personal .method-content p{font-size:12px}
+.cp-advanced-pane[data-view=attachments]{display:flex;flex-direction:column;gap:8px}
+.cp-advanced-pane[data-view=attachments]>.attach{align-self:flex-start}
+.cp-advanced-pane[data-view=attachments]>.params{flex:1;min-height:0;display:flex!important;flex-direction:column}
+.cp-preview-text{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/21px inherit;margin:0;flex:1;min-height:42px}
+.cp-advanced-pane #attachments{margin:0;gap:4px}.compare-personal .file{padding:4px 8px}.compare-personal .file button{min-height:26px}
+.compare-personal #results-panel{display:flex;flex-direction:column;gap:12px}
+.cp-result-actions{display:flex;margin-left:auto;gap:8px}
+.cp-result-pair{display:grid;grid-template-columns:1fr 1fr;gap:28px;min-height:0;flex:1}
+.cp-result{display:flex;flex-direction:column;min-width:0;min-height:0;border-top:1px solid #e3e7ee;padding-top:14px}
+.cp-result h2{font-size:16px;line-height:24px}.cp-result-meta{color:#65738a;font-size:12px;line-height:20px;margin:4px 0 12px;overflow-wrap:anywhere}
+.cp-result-body{font-size:14px;line-height:23px;white-space:pre-wrap;overflow-wrap:anywhere;min-height:46px;flex:1}
+.cp-pager{display:flex;align-items:center;justify-content:flex-end;gap:10px;min-height:34px;font-size:12px;flex:none;margin-top:6px}
+.cp-pager button{min-height:30px;padding:4px 8px;font-size:12px}
+.compare-personal .page-notice{background:none;border:0;padding:40px 0;color:#20273d}
+.compare-personal .page-notice h2{font-size:20px;margin-bottom:12px}
+.compare-personal .page-notice p{font-size:13px;color:#65738a;margin-bottom:24px}
+.compare-personal .page-notice a{display:inline-block;margin:0;border-radius:5px;padding:10px 18px;text-decoration:none}
+.cp-mobile-steps,.cp-next{display:none}
+@media(max-height:650px){.compare-personal .compare-page>main{padding:16px 24px;gap:12px}.cp-connections{gap:12px}.compare-personal .platform-panel{padding-bottom:10px}.compare-personal .side-title{margin-bottom:8px}.compare-personal #prompt{max-height:170px}.compare-personal .cp-heading p{font-size:11px}.compare-personal .cp-key-note{margin-top:4px}.compare-personal .connection-foot{font-size:11px}}
+@media(max-width:760px){
+ .compare-personal .compare-page>main{padding:14px 16px;gap:10px}.compare-personal .cp-heading p{display:none}.compare-personal h1{font-size:22px;line-height:30px}
+ .compare-personal #setup-panel{display:flex;flex-direction:column;gap:12px}.cp-mobile-steps{display:flex;gap:8px}.cp-mobile-steps button{border:0;min-height:30px;padding:4px 12px;font-size:12px}.cp-mobile-steps button[aria-pressed=true]{background:#edf0f5}
+ #setup-panel:not([data-step=task]) .composer,#setup-panel[data-step=task] .cp-connections,#setup-panel[data-step=platform] .cp-connections>.connection:not(.platform-panel),#setup-panel[data-step=reference] .platform-panel{display:none}.cp-next{display:block;align-self:flex-end;min-height:34px;font-size:12px}.cp-connections{gap:12px}
+ .compare-personal .composer{flex:1}.compare-personal .composer-top{flex-direction:row}.compare-personal #prompt{max-height:none}
+ .compare-personal .cp-advanced .param-grid{grid-template-columns:1fr 1fr}.compare-personal .cp-advanced .param-grid p{font-size:11px}.compare-personal .cp-advanced .system-field textarea{height:50px}
+ .compare-personal .cp-advanced .price-inputs{grid-template-columns:1fr 1fr 1fr}.compare-personal .ref-details p,.compare-personal #price-preview{font-size:11px;line-height:1.5}
+ .cp-subnav{gap:2px}.cp-subnav button{padding:5px 7px;font-size:11px}.cp-result-actions{margin-left:0}.cp-result-pair{gap:14px}.cp-result-body{font-size:12px;line-height:20px}.cp-result-meta{font-size:11px}.cp-pager{gap:4px;font-size:11px}.cp-pager button{font-size:11px;padding:3px 5px}
+ .compare-personal .method-content{display:block}.compare-personal .method-content>div{margin-bottom:12px}.compare-personal .method-content p{font-size:11px;line-height:1.5}.compare-personal .method-content h3{font-size:13px}
+}
+
+.compare-personal .platform-panel .field{width:calc(50% - 6px)!important;max-width:none}
+.compare-personal .platform-panel .field+.field{margin-left:8px!important}
+
+@media(max-width:760px){
+ .compare-personal #setup-panel[data-step=platform] .cp-connections>.connection:not(.platform-panel),.compare-personal #setup-panel[data-step=reference] .platform-panel{display:none!important}
+ .compare-personal .cp-advanced{gap:8px}.compare-personal .cp-advanced .system-field{margin-top:8px}.compare-personal .cp-advanced .param-grid p{margin:8px 0}.compare-personal .cp-extra-exports{margin:8px 0;gap:4px}.compare-personal .cp-extra-exports button{font-size:11px;min-height:30px;padding:5px 8px}
+}
+
+.compare-personal .platform-panel{align-self:stretch;width:100%}
