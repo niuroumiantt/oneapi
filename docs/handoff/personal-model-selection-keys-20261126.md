@@ -22,3 +22,11 @@
 ## 发布基线
 
 静态 `2d83a3b52677f0e345a4358f49f96149b128de68`，API `95a365b20755889b65e774702817e56f84c853b4`。本轮只需更新静态前端。
+
+## 发布完成
+
+- 独立界面复核 disposition=ship，无本轮需修复项。PR #149 已合并：https://github.com/niuroumiantt/oneapi/pull/149 。
+- 静态版本 `f94b66fb41c48bdafb4d34e1760e990efa77d434`，API仍 `95a365b20755889b65e774702817e56f84c853b4`。增量169479字节、5个文件；基线/逐文件校验和/服务健康均通过。
+- 回滚前端 `/srv/oneapi-data/oneapi-cutover-q72dymap/releases/f94b66fb41c4-static.fb04Ev/previous-web`。
+- 正式已有登录账号页面验证：4个已开放模型均显示一键接入与+加入，2个待开放只允许加入，6个加入图标均为plus；全选生成与已选区生成入口存在。静态JS为 `identity.7724c3397914.js`。未修改生产模型清单、未创建生产Key。
+- 日志 `/private/tmp/oneapi-dashboard-preview/models-publish.log`。本发布回执为文档后续提交，不再次部署。
