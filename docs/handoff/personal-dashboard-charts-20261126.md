@@ -31,4 +31,15 @@ API source_sha=`728bd246feb0d0867c2c7b1948829aa1b1a80572`，静态 source_sha=`3
 - 本地正式模块验收（测试响应）： http://127.0.0.1:4197/#personal ，服务脚本 `/private/tmp/oneapi-dashboard-preview/production-preview.py`。
 - 原始设计： `prototypes/personal-dashboard/`，只读样例预览4196；不要部署该服务。
 
-发布回执将在完成后补充。
+## 公网发布回执
+
+- PR #146 已合并：https://github.com/niuroumiantt/oneapi/pull/146 。生产代码版本 `95a365b20755889b65e774702817e56f84c853b4`。
+- 直传全包速度过慢，在传输且未激活阶段停止；随后采用项目已有增量发布方法，仅上传 6 个变化静态文件及后端源码，共 771242 字节。
+- 远端逐文件 SHA256 校验通过，重建完整 web.tgz 与本地正式包逐字节一致；同时核对旧前端及 API 版本仍符合预期，再执行标准 activate_release.sh。
+- 镜像构建、数据库备份、迁移、服务重建及健康检查全部完成；发布退出0。
+- 发布/回滚目录：`/srv/oneapi-data/oneapi-cutover-q72dymap/releases/95a365b20755.eZPV0X`，保留 previous-compose.yml、previous-web。
+- 公网 `/api/status` 与 `/release.json` 均为 status=ok 且 SHA 与上面版本一致。新资源 `personal-usage-charts.d1a05b18ba77.js` 和 `personal-usage-charts.db293657d480.css` 已下载核对内容及哈希。
+- 未登录请求新接口返回401。使用浏览器已有登录态查看个人概览，真实当前账号返回零用量空态；已验证7根柱占位、92日格、展开30根柱、收起，以及无预览控件。不伪造彩色使用记录，未生成生产 Key 或执行收费调用。
+- 非空数据展示由本地正式模块响应测试及真实 PostgreSQL 聚合测试覆盖；本轮公网账号没有非零数据可供验收。
+- 发布日志：`/private/tmp/oneapi-dashboard-preview/delta-publish.log`。这份发布回执属于文档后续提交，无需再次部署。
+
