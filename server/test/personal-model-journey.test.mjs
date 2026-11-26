@@ -141,3 +141,19 @@ test('model key creation accepts decimal-fen balances and still blocks zero cred
   if(balance.startsWith('0.')){await assert.rejects(call);assert.equal(posts,0);}else{await call();assert.equal(posts,1);}
  }
 });
+
+test('selected collection scopes a new shared key to only chosen open models',async()=>{
+ const open=[catalog[0],catalog[3],catalog[4]],calls=[],me={user:{id:'selected-owner'}};
+ let chosen=[open[0].id,open[2].id,catalog[2].id];
+ const credit={enabled:true,models:open,keys:[],list_credit_fen:'10000',unallocated_fen:'10000'};
+ const context=vm.createContext({me,paidCredit:credit,personalChosenModels:()=>chosen,personalConnectDraftKey:id=>me.user.id+':'+id,wholeFen,personalCatalog:()=>catalog,api:async(path,body)=>{if(body)calls.push(body);return body?{secret:'fake'}:credit;}});
+ vm.runInContext(section(' const personalUnifiedSelections=new Map();',' function personalConnectModelId()')+section(' async function createPersonalModelKey(', ' function personalRechargeNext('),context);
+ assert.equal(vm.runInContext('prepareSelectedModelKey()',context),true);
+ await vm.runInContext("createPersonalModelKey('all','selected','10',personalUnifiedSelectedModels().map(m=>m.id))",context);
+ assert.deepEqual(Array.from(calls[0].models),[open[0].id,open[2].id]);
+ chosen=[catalog[2].id];assert.equal(vm.runInContext('prepareSelectedModelKey()',context),false);
+ chosen=[];assert.equal(vm.runInContext('prepareSelectedModelKey()',context),false);
+ chosen=[open[1].id];me.user.id='other-owner';assert.equal(vm.runInContext('prepareSelectedModelKey()',context),true);
+ assert.deepEqual(Array.from(vm.runInContext('personalUnifiedSelectedModels().map(m=>m.id)',context)),[open[1].id]);
+ me.user.id='selected-owner';assert.deepEqual(Array.from(vm.runInContext('personalUnifiedSelectedModels().map(m=>m.id)',context)),[open[0].id,open[2].id]);
+});

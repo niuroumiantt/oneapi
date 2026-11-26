@@ -66,3 +66,9 @@ API source_sha=`728bd246feb0d0867c2c7b1948829aa1b1a80572`，静态 source_sha=`3
 - 用户要求首页增加与账单类似的额度进度条，颜色鲜亮。复用 personalBalanceBar 的实付/赠送/历史累计比例，新增 overview 选项，仅首页以累计消费替代退款入口。
 - 首页采用亮红实付、亮蓝赠送；账单原样保留。灰色轨道显示已不再剩余的比例，金额依旧来自真实账单数据，不增加模拟生产数据。
 - 含实付、赠送及消耗的本地预览复核：1163×582概览及月图仍 clientHeight=scrollHeight=457；390×844无横向溢出。9项相关回归、JS语法和差异检查通过，界面复核 disposition=ship。
+
+### 额度条发布回执
+
+- PR #148 已合并：https://github.com/niuroumiantt/oneapi/pull/148 。静态版本 `2d83a3b52677f0e345a4358f49f96149b128de68`，API仍为 `95a365b20755889b65e774702817e56f84c853b4`。
+- 5个变化静态文件129453字节，通过全部资源SHA256及生产基线检查后发布。回滚前端 `/srv/oneapi-data/oneapi-cutover-q72dymap/releases/2d83a3b52677-static.iU4Dft/previous-web`。
+- 正式账号核验实付¥5.00、赠送¥0.00，实付rgb(240,75,70)、赠送rgb(52,124,245)；主区域clientHeight=scrollHeight=524。
