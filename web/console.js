@@ -2,11 +2,11 @@
 (() => {
  'use strict';
  const known = {
-  business: ['acquisition','direct','promotions','approvals','overview', 'pnl', 'payments', 'transfers', 'invoices', 'payables', 'suppliers', 'customers', 'upgrades', 'products', 'discounts', 'cw', 'tickets', 'answers'],
+  business: ['home','acquisition','direct','promotions','approvals','overview', 'pnl', 'payments', 'transfers', 'invoices', 'payables', 'suppliers', 'customers', 'upgrades', 'products', 'discounts', 'cw', 'tickets', 'answers'],
   technical: ['overview', 'keys', 'evalkeys', 'features', 'agents', 'agentcmp', 'matrix', 'supplier', 'suppliers', 'credentials', 'models', 'tests', 'transactions', 'compare', 'identity', 'stress', 'monitor', 'routing', 'handoff', 'releases', 'billing', 'upstream', 'servers', 'capacity', 'prices', 'catalog', 'market']
  };
- const titles = { business: '商务后台', technical: '技术后台' };
- const positions = { business: 'acquisition', technical: 'overview' }, frames = {};
+ const titles = { business: '员工工作台', technical: '技术后台' };
+ const positions = { business: 'home', technical: 'overview' }, frames = {};
  let host = null, access = null, accessPromise = null, current = null, supplier = '';
  const handles = view => view === 'console' || view.startsWith('console/');
 
@@ -15,7 +15,7 @@
   host = document.createElement('div');
   host.id = 'console-view';
   host.hidden = true;
-  host.innerHTML = `${window.SiteHeader.render('workspace',{className:'cs-top',account:'<a class="live-signin" href="#staff-account">账户与权限</a>',tools:`<nav class="cs-tabs" role="tablist" aria-label="切换面板"><a href="#workspace" role="tab" aria-selected="false">企业管理工作台</a><a href="#console/business" data-console-tab="business" role="tab" aria-selected="false" hidden>商务后台</a><a href="#console/technical" data-console-tab="technical" role="tab" aria-selected="false" hidden>技术后台</a></nav><span class="cs-live" role="status">正在验证员工权限…</span>`})}<main class="cs-panes"><div class="cs-message" role="status">正在打开后台…</div></main>${window.SiteHeader.footer()}`;
+  host.innerHTML = `${window.SiteHeader.render('workspace',{className:'cs-top',account:'<a class="live-signin" href="#staff-account">账户与权限</a>',tools:`<nav class="cs-tabs" role="tablist" aria-label="切换面板"><a href="#workspace" role="tab" aria-selected="false">个人与企业空间</a><a href="#console/business" data-console-tab="business" role="tab" aria-selected="false" hidden>员工工作台</a><a href="#console/technical" data-console-tab="technical" role="tab" aria-selected="false" hidden>技术后台</a></nav><span class="cs-live" role="status">正在验证员工权限…</span>`})}<main class="cs-panes"><div class="cs-message" role="status">正在打开后台…</div></main>${window.SiteHeader.footer()}`;
   document.body.append(host);
  }
  const panes = () => host.querySelector('.cs-panes'), message = () => host.querySelector('.cs-message'), live = text => { host.querySelector('.cs-live').textContent = text; };
@@ -74,7 +74,7 @@
   const loading = !frames[workspace].dataset.loaded;
   message().textContent = '正在打开' + titles[workspace] + '…';
   message().hidden = !loading;
-  if (host.querySelector('.cs-live').textContent.startsWith('正在验证')) live('切换面板会保留各自位置');
+  if (host.querySelector('.cs-live').textContent.startsWith('正在验证')) live('公司内部工作空间');
   document.title = 'semifly.ai · ' + titles[workspace];
   const target = hashFor(workspace, section);
   if (location.hash !== target) history.replaceState(null, '', location.pathname + location.search + target);

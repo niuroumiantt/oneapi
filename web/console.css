@@ -29,3 +29,17 @@ body.console-active>*:not(#console-view):not(.toast):not(dialog):not(script){dis
  .cs-tabs a,.cs-link{padding:6px 4px;font-size:var(--ui-small,13px)}
  .cs-link:last-child{display:block}
 }
+
+/* Shared personal/employee visual language. */
+#console-view:not(.technical){background:#fff}
+#console-view:not(.technical) .cs-top{background:#fff}
+#console-view .site-nav{display:none}
+#console-view .site-header-main{display:flex;justify-content:space-between}
+#console-view .site-brand:after{content:'员工工作台';font-size:14px;color:#626875;margin-left:24px;white-space:nowrap}
+#console-view .site-brand{display:flex;align-items:center;width:auto}
+#console-view .cs-tabs{border:0;background:transparent;padding:0;margin:0;gap:18px}
+#console-view:not(.technical) .cs-tabs a[aria-selected=true]{color:#242735;background:#edf0f4;box-shadow:none}
+#console-view .cs-live{color:#626875}
+#console-view:not(.technical) .cs-message{background:#fff}
+#console-view .cs-panes iframe{background:#fff}
+@media(max-width:700px){#console-view .site-brand:after{display:none}#console-view .cs-tabs{gap:4px}#console-view .site-footer{display:none}}

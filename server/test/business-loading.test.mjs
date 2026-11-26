@@ -38,3 +38,21 @@ test('expired staff authentication does not expose cached transfer records',asyn
  let expired=false;const a=app(async p=>expired?{ok:false,status:401,json:async()=>({error:'请重新登录'})}:response(p.endsWith('?summary=1')?summary:record));
  await settle();expired=true;a.events.message({origin:a.location.origin,source:a.parent,data:{type:'workspace-navigate'}});await settle();assert.match(a.html(),/请重新登录/);assert.doesNotMatch(a.html(),/Verified bank receipt/);
 });
+test('employee home loads only summary and support, not company financial aggregates',async()=>{
+ const paths=[];
+ const a=app(async p=>{paths.push(p);return response(p.includes('dashboard')?{staff:{role:'support',name:'客服',finance:false},counts:{tickets:1,invoices_requested:8}}:p.endsWith('bank-transfers')?record:{tickets:[],answers:[]});});
+ await settle();paths.length=0;a.location.hash='#home';a.events.hashchange();await settle();
+ assert.match(a.html(),/待处理工单/);assert.doesNotMatch(a.html(),/发票申请待处理/);
+ assert.deepEqual(paths,['/api/staff/business/support']);
+});
+test('employee home distinguishes a failed support read from an empty queue',async()=>{
+ const a=app(async p=>p.includes('dashboard')?response(summary):p.endsWith('bank-transfers')?response(record):{ok:false,status:503,json:async()=>({})});
+ await settle();a.location.hash='#home';a.events.hashchange();await settle();
+ assert.match(a.html(),/503/);assert.doesNotMatch(a.html(),/目前没有未结工单/);
+});
+test('employee home puts role-relevant work first and escapes customer content',async()=>{
+ const a=app(async p=>response(p.includes('dashboard')?{staff:{role:'finance',finance:true,name:'财务'},counts:{tickets:2,bank_transfers_pending:1}}:p.endsWith('bank-transfers')?record:{tickets:[{id:'t1',subject:'<script>bad()</script>',name:'Example',status:'open',created_at:'2026-11-26',tier:'first_line'}]}));
+ await settle();a.location.hash='#home';a.events.hashchange();await settle();
+ assert.ok(a.html().indexOf('对公到账待复核')<a.html().indexOf('待处理工单'));
+ assert.match(a.html(),/&lt;script&gt;/);assert.doesNotMatch(a.html(),/<script>/);
+});

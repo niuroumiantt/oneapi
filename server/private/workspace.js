@@ -6,16 +6,17 @@ const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '—').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const att = v => esc(v ?? '');
 const NAV = [
- ['商务管理', [['acquisition','工作概览'], ['cw','VIP 招募与管理'], ['direct','直营客户与折扣码'], ['promotions','VIP 推广与返佣'], ['approvals','审批中心']]],
- ['经营总览', [['overview', '经营概况']]],
- ['财务', [['pnl', '经营损益'], ['payments', '收款与退款'], ['transfers', '对公入账'], ['invoices', '发票'], ['payables', '上游付款']], 'finance'],
- ['客户', [['customers', '客户档案'], ['upgrades', '企业认证审核']]],
- ['供应链', [['suppliers', '上游供应商']]],
- ['产品', [['products', '产品与运营'], ['discounts', '促销与折扣']]],
- ['客户支持', [['tickets', '工单与反馈'], ['answers', '快捷问答库']]]
+ ['工作台', [['home','今日工作']]],
+ ['客户', [['customers','客户档案'], ['upgrades','企业认证审核']]],
+ ['客户支持', [['tickets','工单与反馈'], ['answers','快捷问答库']]],
+ ['推广与合作', [['acquisition','商务概览'], ['cw','VIP 招募与管理'], ['direct','直营客户与折扣码'], ['promotions','VIP 推广与返佣'], ['approvals','审批中心']]],
+ ['产品与供应', [['products','模型与产品'], ['suppliers','上游供应商'], ['discounts','促销与折扣']]],
+ ['订单与资金', [['payments','收款与退款'], ['transfers','对公入账'], ['invoices','发票'], ['payables','上游付款']], 'finance'],
+ ['经营分析', [['overview','经营概况'], ['pnl','经营损益']], 'finance']
 ];
 const PAGES = Object.fromEntries(NAV.flatMap(([, items, gate]) => items.map(([key, label]) => [key, { label, gate }])));
 const SUBTITLES = {
+ home:'先处理待办，再进入具体业务。',
  acquisition:'查看负责客户的进度、实付和待办。',cw:'招募邀请码、电话面试、付款核验与 VIP 客户档案。',direct:'员工直接招募最终用户，不产生 VIP 返佣。',promotions:'VIP 推荐客户的充值、使用与返佣。',approvals:'特殊折扣与原单开通特批，由管理员处理。',
  overview: '收入、成本、利润和今天要处理的事。', pnl: '按月看收入、成本和毛利，按产品、客户、上游拆开。', payments: '客户付款订单与原路退款。',
  transfers: '对公转账：财务登记实付与官价面额，复核后入账。',
@@ -23,8 +24,8 @@ const SUBTITLES = {
  suppliers: '上游档案、编码、联系人和采购成本。', customers: '下游客户档案、编码、分群和跟进记录。', upgrades: '个人账号升级为企业账号的审核。',
  products: '在售产品的价格、用量和上架流程。', discounts: '促销活动，以及对客户、分群授予的折扣。', tickets: '一线支持：回复、分类、转技术。', answers: '标准问答，回复工单时一键引用。'
 };
-const ALIASES = { home:'acquisition', accounts: 'customers', reports: 'products', upstream: 'products', finance: 'pnl' };
-const SOURCES = { acquisition:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),direct:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),promotions:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),approvals:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''), pnl: () => 'business/finance?month=' + (ui.month || ''), payments: () => 'payments/orders', transfers: () => 'business/bank-transfers', invoices: () => 'business/invoices', payables: () => 'business/supplier-payments', suppliers: () => 'business/suppliers', customers: () => 'business/customers', discounts: () => 'business/discounts', tickets: () => 'business/support', answers: () => 'business/support' };
+const ALIASES = { accounts: 'customers', reports: 'products', upstream: 'products', finance: 'pnl' };
+const SOURCES = { home:()=> 'business/support', acquisition:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),direct:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),promotions:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),approvals:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''), pnl: () => 'business/finance?month=' + (ui.month || ''), payments: () => 'payments/orders', transfers: () => 'business/bank-transfers', invoices: () => 'business/invoices', payables: () => 'business/supplier-payments', suppliers: () => 'business/suppliers', customers: () => 'business/customers', discounts: () => 'business/discounts', tickets: () => 'business/support', answers: () => 'business/support' };
 const LABEL = {
  stage: { new: '新客户', following: '跟进中', key: '重点客户', risk: '流失风险', lost: '已流失' },
  kind: { enterprise: '企业', personal: '个人' },
@@ -71,7 +72,7 @@ async function api(path, body) {
 }
 const get = path => { const started = generation; return cache[path] ? Promise.resolve(cache[path]) : api(path).then(d => { if (started === generation) cache[path] = d; return d; }); };
 function notify(text, ok = false) { const n = $('#notice'); n.textContent = text || ''; n.classList.toggle('ok', ok); }
-const currentPage = () => { let page = ALIASES[location.hash.slice(1)] || location.hash.slice(1) || 'acquisition'; return PAGES[page] ? page : 'overview'; };
+const currentPage = () => { let page = ALIASES[location.hash.slice(1)] || location.hash.slice(1) || 'home'; return PAGES[page] ? page : 'overview'; };
 const options = (map, selected, blank) => (blank === undefined ? '' : `<option value="">${blank}</option>`) + Object.entries(map).map(([k, v]) => `<option value="${att(k)}" ${k === selected ? 'selected' : ''}>${esc(v)}</option>`).join('');
 const table = (head, rows, empty = '暂无记录。') => `<div class="panel"><table><thead><tr>${head.map(h => Array.isArray(h) ? `<th class="num">${h[0]}</th>` : `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${head.length}" class="empty">${empty}</td></tr>`}</tbody></table></div>`;
 const paymentOrderWidths = new Map();
@@ -176,6 +177,32 @@ function tip(e) {
 const pages = {};
 const fin = () => state.dash.finance;
 
+const roleNames = {platform_admin:'平台管理员',operations:'商务运营',support:'客户支持',supply:'供应运营',finance:'财务'};
+// Priorities shape the work queue; API authorization remains the source of access rights.
+const workItems = [
+ ['tickets','tickets','待处理工单','回复客户、核实问题并跟进处理结果','support'],
+ ['tickets','tickets_technical','等待技术反馈','查看已转交技术的工单','support'],
+ ['cw','vip_pending','VIP 申请待跟进','查看申请资料，安排面试与跟进','operations'],
+ ['approvals','vip_discount_pending','VIP 折扣待审批','核对申请与授权范围','operations'],
+ ['approvals','vip_activation_exception_pending','原单特批待审批','核对申请依据与处理记录','operations'],
+ ['upgrades','upgrades','企业认证待审核','核对企业资料与联系人','operations'],
+ ['transfers','bank_transfers_pending','对公到账待复核','核对到账记录，再完成入账','finance'],
+ ['invoices','invoices_requested','发票申请待处理','核对抬头与可开票金额','finance'],
+ ['payments','refunds_pending','退款待确认','核对原订单和退款进度','finance'],
+ ['discounts','discounts_pending','折扣待审批','核对适用客户、有效期与折扣','operations'],
+ ['products','models_paused','产品已暂停','查看产品状态，跟进恢复进度','supply']
+];
+pages.home = d => {
+ const {staff,counts:c}=state.dash,role=staff.role||(staff.admin?'platform_admin':'operations');
+ const rows=workItems.filter(([page,key])=>c[key]!==undefined&&(!PAGES[page].gate||staff[PAGES[page].gate]))
+  .filter(([,key])=>Number(c[key])>0).sort((a,b)=>Number(b[4]===role)-Number(a[4]===role));
+ const pending=d.tickets.filter(t=>t.status!=='closed').sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,5);
+ const queue=rows.map(([page,key,title,hint])=>`<button class="work-item" data-work-page="${page}" data-work-key="${key}"><span><strong>${title}</strong><small>${hint}</small></span><b>${esc(c[key])}<span class="work-arrow" aria-hidden="true"> →</span></b></button>`).join('');
+ return `<div class="employee-intro"><p>${esc(staff.name||'同事')}，你好。<span>${esc(roleNames[role]||'业务运营')}</span></p><form id="employeeSearch" class="employee-search"><label for="employeeQuery">查找客户</label><div><input id="employeeQuery" type="search" placeholder="客户名称、编码或邮箱" required><button type="submit">搜索</button></div></form></div>`
+ + `<div class="work-columns"><section class="work-queue"><div class="heading"><h2>待处理事项</h2><small>当前可见业务范围</small></div>${queue||'<div class="empty">目前没有待处理事项。可从左侧进入业务记录。</div>'}</section><section class="work-shortcuts"><div class="heading"><h2>常用入口</h2></div>${(role==='supply'?['products','suppliers','tickets']:role==='finance'&&staff.finance?['transfers','payments','invoices']:role==='operations'?['customers','acquisition','cw']:['customers','tickets','answers']).map(key=>`<button data-go="${key}">${PAGES[key].label}<span aria-hidden="true">→</span></button>`).join('')}<p>待办按岗位优先排列。业务数据的可见范围沿用当前授权。</p></section></div>`
+ + section('最近未结工单',table(['问题 / 客户','处理状态','提交时间','操作'],pending.map(t=>`<tr><td><strong>${esc(t.subject)}</strong><small>${esc(t.name)}${t.customer_code?' · '+esc(t.customer_code):''}</small></td><td>${pill('ticket',t.status)}${t.tier==='technical'?'<small>等待技术反馈</small>':''}</td><td>${when(t.created_at)}</td><td><button data-act="ticket" data-id="${att(t.id)}">处理</button></td></tr>`).join(''),'目前没有未结工单。'),'<button class="link" data-work-page="tickets" data-work-key="all">查看全部工单 →</button>');
+};
+
 pages.overview = () => {
  const c = state.dash.counts, f = fin(), models = state.biz.models, running = models.filter(m => m.routed && !m.paused).length;
  const todo = (page, n, label) => n === undefined ? '' : `<button data-go="${page}" class="${n ? 'has' : ''}"><b>${n}</b><span>${label}</span></button>`;
@@ -262,7 +289,7 @@ function customerRows(d) {
 pages.customers = d => {
  const f = ui.customers, rows = customerRows(d), tags = Object.fromEntries(d.tags.map(t => [t.tag, `${t.tag}（${t.customers}）`]));
  const body = rows.map(c => `<tr class="clickable" data-customer="${att(c.id)}" data-find="${att([c.code, c.name, c.email, c.orgs, c.tags.join(' ')].join(' ').toLowerCase())}"><td><code>${esc(c.code)}</code></td><td><b>${esc(c.name)}</b><small>${esc(c.email)}${c.kind === 'enterprise' ? ` · ${c.members} 位成员` : c.orgs ? ' · 所属 ' + esc(c.orgs) : ''}${c.disabled ? ' · 已停用' : ''}</small></td><td>${pill('kind', c.kind)}</td><td>${pill('stage', c.stage)}${c.tags.map(t => ` <span class="pill">${esc(t)}</span>`).join('')}</td><td>${esc(c.owner_name || '未分配')}</td>${num(fen(c.list_credit_fen) + `<small>实付 ${fen(c.balance_fen)}</small>`, c.list_credit_fen)}${num(yuan(c.credit_spent) + `<small>/ ${yuan(c.credit_granted)}</small>`, c.credit_spent)}${num(c.calls_30d + `<small>${dayOf(c.last_call_at)}</small>`, c.calls_30d)}${num(c.open_tickets || '—', c.open_tickets)}</tr>`).join('');
- return `<div class="filters"><input id="find" type="search" value="${att(f.q)}" placeholder="编码 / 名称 / 邮箱 / 标签" aria-label="搜索客户"><select data-filter="kind" aria-label="客户类型">${options(LABEL.kind, f.kind, '全部类型')}</select><select data-filter="stage" aria-label="客户阶段">${options(LABEL.stage, f.stage, '全部阶段')}</select><select data-filter="tag" aria-label="分群标签">${options(tags, f.tag, '全部标签')}</select><small>${rows.length} / ${d.customers.length} 个客户</small></div>`
+ return `<div class="filters"><input id="find" type="search" value="${att(f.q)}" placeholder="编码 / 名称 / 邮箱 / 标签" aria-label="搜索客户"><select data-filter="kind" aria-label="客户类型">${options(LABEL.kind, f.kind, '全部类型')}</select><select data-filter="stage" aria-label="客户阶段">${options(LABEL.stage, f.stage, '全部阶段')}</select><select data-filter="tag" aria-label="分群标签">${options(tags, f.tag, '全部标签')}</select><small id="customerResultCount" data-total="${d.customers.length}">${rows.length} / ${d.customers.length} 个客户</small></div>`
   + `<div style="margin-top:12px">${table(['编码', '客户', '类型', '阶段 / 标签', '负责人', ['官价额度'], ['内部额度已用'], ['30 天调用'], ['未结工单']], body, '没有符合条件的客户。')}</div>`
   + '<p style="margin-top:10px">点一行查看详情、修改阶段和标签、写跟进记录。企业客户编码以 E 开头，个人客户以 P 开头；标签同时是折扣授权里的“客户分群”。</p>';
 };
@@ -340,7 +367,12 @@ function directDialog(){
 addEventListener('message',e=>{if(e.origin===location.origin&&e.source===document.querySelector('.staff-code-activity')?.contentWindow&&e.data?.type==='semifly-code-activity-close'){ui.codeActivity=null;draw();}});
 function drawNav(page) {
  const c = state.dash.counts, counts = { tickets: c.tickets, upgrades: c.upgrades, invoices: c.invoices_requested, transfers: c.bank_transfers_pending, discounts: c.discounts_pending };
- $('#nav').innerHTML = NAV.filter(([, , gate]) => !gate || state.dash.staff[gate]).map(([group, items]) => `<h3>${group}</h3>` + items.map(([key, label]) => `<button data-tab="${key}" class="${page === key ? 'active' : ''}" ${page === key ? 'aria-current="page"' : ''}>${label}${counts[key] ? `<span class="count">${counts[key]}</span>` : ''}</button>`).join('')).join('');
+ $('#nav').innerHTML = NAV.filter(([, , gate]) => !gate || state.dash.staff[gate]).map(([group, items]) => {
+  const buttons=items.map(([key,label])=>`<button data-tab="${key}" class="${page===key?'active':''}" ${page===key?'aria-current="page"':''}>${label}${counts[key]?`<span class="count">${counts[key]}</span>`:''}</button>`).join('');
+  if(group==='工作台')return `<div class="nav-home">${buttons}</div>`;
+  const active=items.some(([key])=>key===page),preferred={support:'客户支持',operations:'推广与合作',supply:'产品与供应',finance:'订单与资金'}[state.dash.staff.role];
+  return `<details class="nav-group" ${active||(page==='home'&&group===preferred)?'open':''}><summary>${group}</summary><div>${buttons}</div></details>`;
+ }).join('');
 }
 async function draw() {
  const page = currentPage(), content = $('#content');
@@ -383,7 +415,11 @@ async function load() {
  await draw();
 }
 async function reload() { generation++; drawing++; state = null; for (const key of Object.keys(cache)) delete cache[key]; notify(''); await draw(); await load(); }
-function filterRows(q) { q = q.trim().toLowerCase(); document.querySelectorAll('tr[data-find]').forEach(r => { r.hidden = Boolean(q) && !r.dataset.find.includes(q); }); }
+function filterRows(q) {
+ q=q.trim().toLowerCase();let visible=0;
+ document.querySelectorAll('tr[data-find]').forEach(r=>{r.hidden=Boolean(q)&&!r.dataset.find.includes(q);if(!r.hidden)visible++;});
+ const count=$('#customerResultCount');if(count)count.textContent=`${visible} / ${count.dataset.total} 个客户`;
+}
 
 // ---- Actions --------------------------------------------------------------------------------
 const customerOptions = async selected => (await get('business/customers')).customers.map(c => `<option value="${att(c.id)}" ${c.id === selected ? 'selected' : ''}>${esc(c.code)} ${esc(c.name)}</option>`).join('');
@@ -528,7 +564,17 @@ const ACTIONS = {
  }
 };
 
+document.addEventListener('submit',e=>{
+ if(e.target.id!=='employeeSearch')return;
+ e.preventDefault();notify('');ui.customers.q=$('#employeeQuery').value.trim();location.hash='customers';
+});
 document.addEventListener('click', async e => {
+ const work=e.target.closest('[data-work-page]');
+ if(work){
+  notify('');
+  if(work.dataset.workPage==='tickets')ui.tickets={status:work.dataset.workKey==='all'?'all':'open',tier:work.dataset.workKey==='tickets_technical'?'technical':work.dataset.workKey==='tickets'?'first_line':'',category:''};
+  location.hash=work.dataset.workPage;return;
+ }
  if (e.target.closest('[data-close]')) return $('#dialog').close();
  const tab = e.target.closest('[data-tab],[data-go]');
  if (tab) { notify(''); location.hash = tab.dataset.tab || tab.dataset.go; return; }

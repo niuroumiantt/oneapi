@@ -260,7 +260,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
   const c = counts.rows[0];
   if (!finance) { delete c.invoices_requested; delete c.refunds_pending; delete c.bank_transfers_pending; }
   res.json({
-   staff: { name: req.staff.name, finance, technical: req.staff.role === 'platform_admin' || req.staff.technical_access === true, admin: isAdmin(req.staff) },
+   staff: { name: req.staff.name, role: req.staff.role, finance, technical: req.staff.role === 'platform_admin' || req.staff.technical_access === true, admin: isAdmin(req.staff) },
    counts: c, top_customers: top.rows,
    finance: finance && !summary ? await financeReport(pool, accountingMonth()) : null
   });
