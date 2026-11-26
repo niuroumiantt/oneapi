@@ -51,3 +51,12 @@ API source_sha=`728bd246feb0d0867c2c7b1948829aa1b1a80572`，静态 source_sha=`3
 - 带正式备案页脚的本地浏览器：1319×705概览；1163×582概览/月图/数值明细均 stage clientHeight=scrollHeight=457；1024×650空态=525；390×844无横向溢出。异常提示亦检查。未用隐藏主内容溢出来伪造一屏。
 - JavaScript语法检查、5项图表生命周期/导航回归通过；Impeccable detector无发现。本次仅前端布局，未改后端或数据统计。
 - 验收截图在 `/private/tmp/oneapi-dashboard-preview/compact-{overview,month,mobile}.jpg`（本地测试响应）。
+
+### 单屏版发布回执
+
+- 独立界面复核 disposition=ship，无本次范围内需修复事项。
+- PR #147 已合并：https://github.com/niuroumiantt/oneapi/pull/147 。静态版本 `762071ce6652d1de4c84e6874267a86f88d71a4b`；API 保持 `95a365b20755889b65e774702817e56f84c853b4`。
+- 仅上传5个变化静态文件，22235字节；发布锁下验证生产基线与全部静态资源SHA256，备份原前端后按资源、HTML、回执顺序原子替换。无后端重启、无数据库操作。
+- 回滚前端目录：`/srv/oneapi-data/oneapi-cutover-q72dymap/releases/762071ce6652-static.cUCCOY/previous-web`。
+- 正式已有登录账号1319×649：概览与月图主区域均 clientHeight=scrollHeight=524，7/30天切换正常，备案页脚完整；加载新CSS `personal-usage-charts.d9a8897e2f0c.css`。原位切换后恢复概览供用户查看。
+- 日志 `/private/tmp/oneapi-dashboard-preview/compact-publish.log`。此回执为文档后续提交，不再次部署。
