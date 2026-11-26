@@ -571,3 +571,16 @@ body.cw-staff{height:auto;min-height:100dvh}.cw-staff .cw-app{display:block}.cw-
 
 .cv-management-nav:empty{display:none}
 @media(max-width:700px){.cw-personal #cw-content:has(.cv-profile)>h2{margin-bottom:8px}.cw-personal .cv-profile+.cw-inline{margin-top:6px}}
+
+/* VIP tasks use one navigation row and the same page frame as personal tools. */
+.cw-personal #cw-nav{justify-content:flex-start}
+.cw-personal .cv-business,.cw-personal .cv-bank-status{display:flex;align-items:center;gap:24px;padding:12px 0;border-bottom:1px solid #e3e7ee;color:#65738a}
+.cw-personal .cv-business strong{font-weight:500;color:#20273d;margin-left:12px}
+.cw-personal .cv-bank-status{justify-content:space-between}
+.cw-personal .cv-summary{font-variant-numeric:tabular-nums}
+.cw-personal button:disabled{cursor:not-allowed}
+.cw-personal :is(button,a,input):focus-visible{outline:2px solid #52627d;outline-offset:3px}
+@media(max-height:600px){.cw-personal .cv-business,.cw-personal .cv-bank-status{padding:8px 0}.cw-personal .cv-summary dd{font-size:24px}}
+@media(max-width:700px){.cw-personal #cw-nav{gap:0;justify-content:space-between}.cw-personal #cw-nav button{font-size:11px}.cw-personal .cv-business{gap:16px;font-size:11px}.cw-personal .cv-business strong{margin-left:4px}.cw-personal .cv-bank-status{font-size:11px;gap:8px}.cw-personal .cv-summary{gap:14px;justify-content:space-between}.cw-personal .cv-summary dd{font-size:18px}.cw-personal .cv-summary dt{font-size:9px}.cw-personal .cv-note{font-size:11px}}
+@media(max-width:700px){.cw-personal .cw-heading>div{gap:10px}.cw-personal .cw-heading p{display:block;font-size:10px}.cw-personal .cw-heading #refresh{padding-inline:8px}.cw-personal .cw-heading{gap:10px}}
+@media(max-width:700px){.cw-personal .cw-payment-card{padding-block:6px}.cw-personal .cv-next .cw-inline{margin-top:8px}}

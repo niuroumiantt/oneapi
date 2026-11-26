@@ -585,7 +585,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   panelOrg=null;teamUsage=null;
   personalTab=current.startsWith('personal/')?current.split('/')[1]:'overview';
   if(!['overview','models','keys','usage','compare','connect','vip'].includes(personalTab))personalTab='overview';
-  if(personalTab==='vip'){panelRedraw=null;mount(panelPage(null,'vip',`<iframe class="workspace-compare-frame personal-api" title="VIP 合作计划" src="/promotion/vip.html?embedded=1&personal=1&view=program"></iframe>`));return;}
+  if(personalTab==='vip'){panelRedraw=null;mount(panelPage(null,'vip',`<iframe class="workspace-compare-frame personal-api" title="VIP 合作计划" src="/promotion/vip.html?embedded=1&personal=1"></iframe>`));return;}
   // The comparison endpoint owns eligibility; do not wait for unrelated dashboard data.
   if(personalTab==='compare'){panelRedraw=null;mount(panelPage(null,'compare',comparePanel()));return;}
   const intent=readModelIntent();if(current.startsWith('personal/connect/'))personalSelected=current.slice('personal/connect/'.length);else if(intent?.scope==='personal')personalSelected=intent.id;
@@ -786,7 +786,19 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    (org?tab('support','circle-alert','支持'):link('support','#support','circle-alert','支持'))+
    tab('compare','layers','API 对比');
  }
- const panelPage=(org,active,stage)=>`<div class="personal-console" data-workspace-scope="${org?esc(org.id):'personal'}">${customerHeader(org)}<aside class="pc-sidebar"><nav aria-label="工作台导航">${panelNav(org,active)}${me?.backoffice?.business?`<a href="#console/business/acquisition">${ico('briefcase-business')} 商务管理</a>`:''}${!org?`<a href="#security" data-nav="settings" class="pc-settings-link ${active==='settings'?'active':''}" aria-current="${active==='settings'?'page':'false'}">${ico('settings')}<span>个人设置</span></a><a href="#personal/vip" class="pc-vip-link ${active==='vip'?'active':''}" aria-current="${active==='vip'?'page':'false'}"><span class="pc-vip-label">去申请 VIP<svg class="pc-vip-circle" viewBox="0 0 150 48" fill="none" aria-hidden="true"><path d="M135 9C113 0 39 0 14 12C-7 24 6 43 62 44C112 48 150 34 145 20C142 10 127 7 114 6M19 8C-3 20 7 36 29 40"/></svg></span>${ico('arrow-up-right')}</a>`:''}</nav></aside><div class="pc-stage ${active==='billing'?'billing-stage':''}">${stage}</div>${window.SiteHeader.footer()}</div>`;
+ let personalVipState=null;
+ function personalVipLabel(){
+  const status=personalVipState&&personalVipState.userId===me?.user?.id?personalVipState.status:null;
+  return status==='active'||(!status&&me?.user?.vip)?'VIP 工作台':status&&status!=='none'?'VIP 申请进度':'去申请 VIP';
+ }
+ window.addEventListener('message',event=>{
+  const frame=host?.querySelector('iframe[title="VIP 合作计划"]');
+  if(event.origin!==location.origin||!frame||event.source!==frame.contentWindow||event.data?.type!=='personal-vip-status')return;
+  if(!['none','pending','confirmed','active','suspended','rejected'].includes(event.data.status))return;
+  personalVipState={userId:me?.user?.id,status:event.data.status};
+  const label=host.querySelector('[data-vip-label]');if(label)label.textContent=personalVipLabel();
+ });
+ const panelPage=(org,active,stage)=>`<div class="personal-console" data-workspace-scope="${org?esc(org.id):'personal'}">${customerHeader(org)}<aside class="pc-sidebar"><nav aria-label="工作台导航">${panelNav(org,active)}${me?.backoffice?.business?`<a href="#console/business/acquisition">${ico('briefcase-business')} 商务管理</a>`:''}${!org?`<a href="#security" data-nav="settings" class="pc-settings-link ${active==='settings'?'active':''}" aria-current="${active==='settings'?'page':'false'}">${ico('settings')}<span>个人设置</span></a><a href="#personal/vip" class="pc-vip-link ${active==='vip'?'active':''}" aria-current="${active==='vip'?'page':'false'}"><span class="pc-vip-label"><span data-vip-label>${personalVipLabel()}</span><svg class="pc-vip-circle" viewBox="0 0 150 48" fill="none" aria-hidden="true"><path d="M135 9C113 0 39 0 14 12C-7 24 6 43 62 44C112 48 150 34 145 20C142 10 127 7 114 6M19 8C-3 20 7 36 29 40"/></svg></span>${ico('arrow-up-right')}</a>`:''}</nav></aside><div class="pc-stage ${active==='billing'?'billing-stage':''}">${stage}</div>${window.SiteHeader.footer()}</div>`;
  const comparePanel=()=>`<iframe class="workspace-compare-frame${panelOrg?'':' personal-api'}" title="API 对比台" src="/compare.html?embedded=1${panelOrg?'':'&personal=1'}"></iframe>`;
  const panelBody=content=>`<div data-personal-content>${content}</div>`;
  const panelLoading='<p class="personal-model-empty">正在读取…</p>';
