@@ -16,6 +16,7 @@
 - 隔离 PostgreSQL（127.0.0.1:55526/vip_notifications_test）：VIP 集成 17/17 通过，包含通知权限/已读隔离、重复申请、回滚、SMTP 未配置、入队失败和并发去重。
 - 页头及后台加载测试 11/11 通过。独立 Chrome 验证 8 条流程，包含真实 15 秒自动更新、申请/发码/充值不足/达标/拒绝/开通、通知已读、嵌入滚动和手机宽度；接口是本地模拟，不是真实付款。
 - Impeccable 静态检查无发现；人工查看桌面及手机截图。截图：`/private/tmp/vip-progress-*.png`。
+- 草稿 PR：https://github.com/niuroumiantt/oneapi/pull/145。源码和正式静态发布包的 8 项浏览器流程均通过，包内通知脚本哈希引用已核对。
 - 分支：`codex/vip-progress-notifications`。未操作生产数据、未发送真实邮件、未发布生产。正式发布须同时包含迁移 089、邮件 worker 和带哈希的前端资源。
 
 ## 入口与下一步
