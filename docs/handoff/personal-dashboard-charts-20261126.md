@@ -43,3 +43,11 @@ API source_sha=`728bd246feb0d0867c2c7b1948829aa1b1a80572`，静态 source_sha=`3
 - 非空数据展示由本地正式模块响应测试及真实 PostgreSQL 聚合测试覆盖；本轮公网账号没有非零数据可供验收。
 - 发布日志：`/private/tmp/oneapi-dashboard-preview/delta-publish.log`。这份发布回执属于文档后续提交，无需再次部署。
 
+## 单屏高度调整（同日后续）
+
+- 用户反馈概览需要滚动，要求一屏看全；按既有上线授权直接修正发布。
+- 桌面宽度1001px起：额度与 API 接入改为同排，图表置于下一排；按窗口高度调整留白、柱图区与热力图尺寸，保留原字号和主要操作。手机维持可读的纵向布局。
+- 月图原位替换周图/热力图区域，通过「返回概览」恢复，聚焦按钮且不再 scrollIntoView。数值明细替换月图绘图区，表格内部滚动，不推长整页。
+- 带正式备案页脚的本地浏览器：1319×705概览；1163×582概览/月图/数值明细均 stage clientHeight=scrollHeight=457；1024×650空态=525；390×844无横向溢出。异常提示亦检查。未用隐藏主内容溢出来伪造一屏。
+- JavaScript语法检查、5项图表生命周期/导航回归通过；Impeccable detector无发现。本次仅前端布局，未改后端或数据统计。
+- 验收截图在 `/private/tmp/oneapi-dashboard-preview/compact-{overview,month,mobile}.jpg`（本地测试响应）。
