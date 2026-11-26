@@ -1075,7 +1075,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   panelRedraw=null;if(orgTab==='support'){loadPanelData('tickets','/api/support/tickets',()=>organizationV2(lastOrg));loadPanelData('answers','/api/support/answers',()=>organizationV2(lastOrg));}if(orgTab==='settings'){
    const redraw=()=>{if(orgTab==='settings'&&lastOrg?.organization.id===o.id)organizationV2(lastOrg);};
    loadPanelData('sessions','/api/auth/list-sessions',redraw);
-   if(me.user.phoneOnly&&phonePasswordAvailable)loadPanelData('smsBinding','/api/auth/sms/binding',redraw);
+   if(phoneLoginAvailable||me.user.phoneOnly)loadPanelData('smsBinding','/api/auth/sms/binding',redraw);
   }
   if(![...'overview models keys compare usage support settings'.split(' '),...(manager?['people']:[])].includes(orgTab))orgTab='overview';
   const usageOf=person=>{const row=team?.members.find(x=>x.user_id===person.user_id);return row?`<span class="usage-cell"><span>${employeeYuan(row.spent_yuan)} / ${employeeYuan(row.granted_yuan)}</span>${usageBar(row.spent_yuan,row.granted_yuan)}</span>`:'—';};
