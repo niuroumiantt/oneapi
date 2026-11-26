@@ -43,3 +43,5 @@ body.console-active>*:not(#console-view):not(.toast):not(dialog):not(script){dis
 #console-view:not(.technical) .cs-message{background:#fff}
 #console-view .cs-panes iframe{background:#fff}
 @media(max-width:700px){#console-view .site-brand:after{display:none}#console-view .cs-tabs{gap:4px}#console-view .site-footer{display:none}}
+
+#console-view.owner-workspace .site-brand:after{content:'老板工作台'}

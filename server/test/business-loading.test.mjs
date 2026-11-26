@@ -4,13 +4,13 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../private/workspace.js',import.meta.url),'utf8');
 const settle=()=>new Promise(r=>setImmediate(r));
-function app(fetch){
- const nodes=new Map(),events={},location={hash:'#transfers',origin:'https://test.invalid'},parent={};
+function app(fetch,search='?surface=owner'){
+ const nodes=new Map(),events={},location={search,hash:'#transfers',origin:'https://test.invalid'},parent={};
  const node=s=>{if(!nodes.has(s))nodes.set(s,{innerHTML:'',textContent:'',classList:{toggle(){}}});return nodes.get(s)};
- const context=vm.createContext({fetch,AbortSignal,location,parent,document:{body:node('body'),querySelector:node,addEventListener(){}},addEventListener:(k,f)=>events[k]=f});
+ const context=vm.createContext({fetch,AbortSignal,URLSearchParams,location,parent,document:{body:node('body'),querySelector:node,addEventListener(){}},addEventListener:(k,f)=>events[k]=f});
  vm.runInContext(source,context);return {nodes,events,location,parent,html:()=>node('#content').innerHTML};
 }
-const summary={staff:{finance:true,technical:true},counts:{}};
+const summary={staff:{finance:true,technical:true,admin:true,role:'platform_admin'},counts:{}};
 const record={entries:[{id:'test-entry',customer_name:'Test company',customer_kind:'enterprise',customer_code:'E-test',cash_fen:1,face_fen:1,status:'approved',created_by:'admin',decided_by:'admin',decision_role:'platform_admin',created_by_name:'Test admin',decided_by_name:'Test admin',decided_at:'2026-11-16T08:41:01Z',decision_note:'Verified bank receipt'}]};
 const response=data=>({ok:true,json:async()=>data});
 test('transfer page and refresh never wait for unrelated finance statistics',async()=>{
@@ -40,7 +40,7 @@ test('expired staff authentication does not expose cached transfer records',asyn
 });
 test('employee home loads only summary and support, not company financial aggregates',async()=>{
  const paths=[];
- const a=app(async p=>{paths.push(p);return response(p.includes('dashboard')?{staff:{role:'support',name:'客服',finance:false},counts:{tickets:1,invoices_requested:8}}:p.endsWith('bank-transfers')?record:{tickets:[],answers:[]});});
+ const a=app(async p=>{paths.push(p);return response(p.includes('dashboard')?{staff:{role:'support',name:'客服',finance:false},counts:{tickets:1,invoices_requested:8}}:p.endsWith('bank-transfers')?record:{tickets:[],answers:[]});},'');
  await settle();paths.length=0;a.location.hash='#home';a.events.hashchange();await settle();
  assert.match(a.html(),/待处理工单/);assert.doesNotMatch(a.html(),/发票申请待处理/);
  assert.deepEqual(paths,['/api/staff/business/support']);
@@ -50,9 +50,9 @@ test('employee home distinguishes a failed support read from an empty queue',asy
  await settle();a.location.hash='#home';a.events.hashchange();await settle();
  assert.match(a.html(),/503/);assert.doesNotMatch(a.html(),/目前没有未结工单/);
 });
-test('employee home puts role-relevant work first and escapes customer content',async()=>{
- const a=app(async p=>response(p.includes('dashboard')?{staff:{role:'finance',finance:true,name:'财务'},counts:{tickets:2,bank_transfers_pending:1}}:p.endsWith('bank-transfers')?record:{tickets:[{id:'t1',subject:'<script>bad()</script>',name:'Example',status:'open',created_at:'2026-11-26',tier:'first_line'}]}));
+test('employee home never shows company tasks even with legacy finance flags and escapes content',async()=>{
+ const a=app(async p=>response(p.includes('dashboard')?{staff:{role:'finance',finance:true,name:'财务'},counts:{tickets:2,bank_transfers_pending:1}}:p.endsWith('bank-transfers')?record:{tickets:[{id:'t1',subject:'<script>bad()</script>',name:'Example',status:'open',created_at:'2026-11-26',tier:'first_line'}]}),'');
  await settle();a.location.hash='#home';a.events.hashchange();await settle();
- assert.ok(a.html().indexOf('对公到账待复核')<a.html().indexOf('待处理工单'));
+ assert.doesNotMatch(a.html(),/对公到账待复核|经营损益|上游供应商/);assert.match(a.html(),/招揽客户/);
  assert.match(a.html(),/&lt;script&gt;/);assert.doesNotMatch(a.html(),/<script>/);
 });

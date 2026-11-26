@@ -5,7 +5,7 @@
 const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '—').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const att = v => esc(v ?? '');
-const NAV = [
+const OWNER_NAV = [
  ['工作台', [['home','今日工作']]],
  ['客户', [['customers','客户档案'], ['upgrades','企业认证审核']]],
  ['客户支持', [['tickets','工单与反馈'], ['answers','快捷问答库']]],
@@ -14,9 +14,16 @@ const NAV = [
  ['订单与资金', [['payments','收款与退款'], ['transfers','对公入账'], ['invoices','发票'], ['payables','上游付款']], 'finance'],
  ['经营分析', [['overview','经营概况'], ['pnl','经营损益']], 'finance']
 ];
-const PAGES = Object.fromEntries(NAV.flatMap(([, items, gate]) => items.map(([key, label]) => [key, { label, gate }])));
+const EMPLOYEE_NAV = [
+ ['员工工作台', [['home','今日工作'],['direct','招揽客户'],['cw','招揽 VIP'],['customers','我的客户'],['tickets','客户服务'],['approvals','我的申请']]]
+];
+const ownerSurface = new URLSearchParams(location.search||'').get('surface')==='owner';
+const NAV = ownerSurface ? OWNER_NAV : EMPLOYEE_NAV;
+const employeePages = new Set(['home','acquisition','direct','cw','customers','tickets','answers','approvals','promotions']);
+const PAGES = Object.fromEntries(OWNER_NAV.flatMap(([, items, gate]) => items.map(([key, label]) => [key, { label, gate }])));
+if(!ownerSurface)for(const [key,label] of EMPLOYEE_NAV[0][1])PAGES[key].label=label;
 const SUBTITLES = {
- home:'先处理待办，再进入具体业务。',
+ home:'招揽客户，跟进 VIP，处理客户服务。',
  acquisition:'查看负责客户的进度、实付和待办。',cw:'招募邀请码、电话面试、付款核验与 VIP 客户档案。',direct:'员工直接招募最终用户，不产生 VIP 返佣。',promotions:'VIP 推荐客户的充值、使用与返佣。',approvals:'特殊折扣与原单开通特批，由管理员处理。',
  overview: '收入、成本、利润和今天要处理的事。', pnl: '按月看收入、成本和毛利，按产品、客户、上游拆开。', payments: '客户付款订单与原路退款。',
  transfers: '对公转账：财务登记实付与官价面额，复核后入账。',
@@ -72,6 +79,7 @@ async function api(path, body) {
 }
 const get = path => { const started = generation; return cache[path] ? Promise.resolve(cache[path]) : api(path).then(d => { if (started === generation) cache[path] = d; return d; }); };
 function notify(text, ok = false) { const n = $('#notice'); n.textContent = text || ''; n.classList.toggle('ok', ok); }
+const allowedPage = page => ownerSurface ? state?.dash.staff.admin===true : employeePages.has(page);
 const currentPage = () => { let page = ALIASES[location.hash.slice(1)] || location.hash.slice(1) || 'home'; return PAGES[page] ? page : 'overview'; };
 const options = (map, selected, blank) => (blank === undefined ? '' : `<option value="">${blank}</option>`) + Object.entries(map).map(([k, v]) => `<option value="${att(k)}" ${k === selected ? 'selected' : ''}>${esc(v)}</option>`).join('');
 const table = (head, rows, empty = '暂无记录。') => `<div class="panel"><table><thead><tr>${head.map(h => Array.isArray(h) ? `<th class="num">${h[0]}</th>` : `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${head.length}" class="empty">${empty}</td></tr>`}</tbody></table></div>`;
@@ -177,14 +185,15 @@ function tip(e) {
 const pages = {};
 const fin = () => state.dash.finance;
 
-const roleNames = {platform_admin:'平台管理员',operations:'商务运营',support:'客户支持',supply:'供应运营',finance:'财务'};
+const roleNames = {platform_admin:'老板',operations:'商务运营',support:'客户支持',supply:'供应运营',finance:'财务'};
 // Priorities shape the work queue; API authorization remains the source of access rights.
 const workItems = [
  ['tickets','tickets','待处理工单','回复客户、核实问题并跟进处理结果','support'],
  ['tickets','tickets_technical','等待技术反馈','查看已转交技术的工单','support'],
  ['cw','vip_pending','VIP 申请待跟进','查看申请资料，安排面试与跟进','operations'],
- ['approvals','vip_discount_pending','VIP 折扣待审批','核对申请与授权范围','operations'],
- ['approvals','vip_activation_exception_pending','原单特批待审批','核对申请依据与处理记录','operations'],
+ ['cw','vip_confirmed','VIP 待核验开通','跟进付款进度，按已定条件完成开通','operations'],
+ ['approvals','vip_discount_pending','VIP 折扣申请进度','查看老板的审批结果','operations'],
+ ['approvals','vip_activation_exception_pending','原单特批申请进度','补充材料，跟进处理结果','operations'],
  ['upgrades','upgrades','企业认证待审核','核对企业资料与联系人','operations'],
  ['transfers','bank_transfers_pending','对公到账待复核','核对到账记录，再完成入账','finance'],
  ['invoices','invoices_requested','发票申请待处理','核对抬头与可开票金额','finance'],
@@ -194,12 +203,12 @@ const workItems = [
 ];
 pages.home = d => {
  const {staff,counts:c}=state.dash,role=staff.role||(staff.admin?'platform_admin':'operations');
- const rows=workItems.filter(([page,key])=>c[key]!==undefined&&(!PAGES[page].gate||staff[PAGES[page].gate]))
+ const rows=workItems.filter(([page,key])=>allowedPage(page)&&c[key]!==undefined&&(!PAGES[page].gate||staff[PAGES[page].gate]))
   .filter(([,key])=>Number(c[key])>0).sort((a,b)=>Number(b[4]===role)-Number(a[4]===role));
  const pending=d.tickets.filter(t=>t.status!=='closed').sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,5);
  const queue=rows.map(([page,key,title,hint])=>`<button class="work-item" data-work-page="${page}" data-work-key="${key}"><span><strong>${title}</strong><small>${hint}</small></span><b>${esc(c[key])}<span class="work-arrow" aria-hidden="true"> →</span></b></button>`).join('');
- return `<div class="employee-intro"><p>${esc(staff.name||'同事')}，你好。<span>${esc(roleNames[role]||'业务运营')}</span></p><form id="employeeSearch" class="employee-search"><label for="employeeQuery">查找客户</label><div><input id="employeeQuery" type="search" placeholder="客户名称、编码或邮箱" required><button type="submit">搜索</button></div></form></div>`
- + `<div class="work-columns"><section class="work-queue"><div class="heading"><h2>待处理事项</h2><small>当前可见业务范围</small></div>${queue||'<div class="empty">目前没有待处理事项。可从左侧进入业务记录。</div>'}</section><section class="work-shortcuts"><div class="heading"><h2>常用入口</h2></div>${(role==='supply'?['products','suppliers','tickets']:role==='finance'&&staff.finance?['transfers','payments','invoices']:role==='operations'?['customers','acquisition','cw']:['customers','tickets','answers']).map(key=>`<button data-go="${key}">${PAGES[key].label}<span aria-hidden="true">→</span></button>`).join('')}<p>待办按岗位优先排列。业务数据的可见范围沿用当前授权。</p></section></div>`
+ return `<div class="employee-intro"><p>${esc(staff.name||'同事')}，你好。<span>${esc(ownerSurface?'老板': '客户拓展与服务')}</span></p><form id="employeeSearch" class="employee-search"><label for="employeeQuery">查找客户</label><div><input id="employeeQuery" type="search" placeholder="客户名称、编码或邮箱" required><button type="submit">搜索</button></div></form></div>`
+ + `<div class="work-columns"><section class="work-queue"><div class="heading"><h2>待处理事项</h2><small>${ownerSurface?'全公司':'我负责的客户'}</small></div>${queue||'<div class="empty">目前没有待处理事项。可从左侧进入业务记录。</div>'}</section><section class="work-shortcuts"><div class="heading"><h2>常用入口</h2></div>${(ownerSurface?['overview','customers','approvals']:['direct','cw','customers']).map(key=>`<button data-go="${key}">${PAGES[key].label}<span aria-hidden="true">→</span></button>`).join('')}<p>${ownerSurface?'公司经营与审批由老板身份处理。':'只处理自己负责的客户。特殊事项提交申请，由老板审批。'}</p></section></div>`
  + section('最近未结工单',table(['问题 / 客户','处理状态','提交时间','操作'],pending.map(t=>`<tr><td><strong>${esc(t.subject)}</strong><small>${esc(t.name)}${t.customer_code?' · '+esc(t.customer_code):''}</small></td><td>${pill('ticket',t.status)}${t.tier==='technical'?'<small>等待技术反馈</small>':''}</td><td>${when(t.created_at)}</td><td><button data-act="ticket" data-id="${att(t.id)}">处理</button></td></tr>`).join(''),'目前没有未结工单。'),'<button class="link" data-work-page="tickets" data-work-key="all">查看全部工单 →</button>');
 };
 
@@ -290,8 +299,8 @@ pages.customers = d => {
  const f = ui.customers, rows = customerRows(d), tags = Object.fromEntries(d.tags.map(t => [t.tag, `${t.tag}（${t.customers}）`]));
  const body = rows.map(c => `<tr class="clickable" data-customer="${att(c.id)}" data-find="${att([c.code, c.name, c.email, c.orgs, c.tags.join(' ')].join(' ').toLowerCase())}"><td><code>${esc(c.code)}</code></td><td><b>${esc(c.name)}</b><small>${esc(c.email)}${c.kind === 'enterprise' ? ` · ${c.members} 位成员` : c.orgs ? ' · 所属 ' + esc(c.orgs) : ''}${c.disabled ? ' · 已停用' : ''}</small></td><td>${pill('kind', c.kind)}</td><td>${pill('stage', c.stage)}${c.tags.map(t => ` <span class="pill">${esc(t)}</span>`).join('')}</td><td>${esc(c.owner_name || '未分配')}</td>${num(fen(c.list_credit_fen) + `<small>实付 ${fen(c.balance_fen)}</small>`, c.list_credit_fen)}${num(yuan(c.credit_spent) + `<small>/ ${yuan(c.credit_granted)}</small>`, c.credit_spent)}${num(c.calls_30d + `<small>${dayOf(c.last_call_at)}</small>`, c.calls_30d)}${num(c.open_tickets || '—', c.open_tickets)}</tr>`).join('');
  return `<div class="filters"><input id="find" type="search" value="${att(f.q)}" placeholder="编码 / 名称 / 邮箱 / 标签" aria-label="搜索客户"><select data-filter="kind" aria-label="客户类型">${options(LABEL.kind, f.kind, '全部类型')}</select><select data-filter="stage" aria-label="客户阶段">${options(LABEL.stage, f.stage, '全部阶段')}</select><select data-filter="tag" aria-label="分群标签">${options(tags, f.tag, '全部标签')}</select><small id="customerResultCount" data-total="${d.customers.length}">${rows.length} / ${d.customers.length} 个客户</small></div>`
-  + `<div style="margin-top:12px">${table(['编码', '客户', '类型', '阶段 / 标签', '负责人', ['官价额度'], ['内部额度已用'], ['30 天调用'], ['未结工单']], body, '没有符合条件的客户。')}</div>`
-  + '<p style="margin-top:10px">点一行查看详情、修改阶段和标签、写跟进记录。企业客户编码以 E 开头，个人客户以 P 开头；标签同时是折扣授权里的“客户分群”。</p>';
+  + `<div style="margin-top:12px">${table(['编码', '客户', '类型', '阶段 / 标签', '负责人', ['官价额度'], ['内部额度已用'], ['30 天调用'], ['未结工单']], body, ownerSurface?'没有符合条件的客户。':'没有符合条件的负责客户。客户归属由老板分配。')}</div>`
+  + `<p style="margin-top:10px">${ownerSurface?'点一行查看详情、分配负责人、管理客户阶段和分群。':'点一行查看资料、更新跟进阶段、添加联系记录。客户归属和优惠分群由老板维护。'}</p>`;
 };
 
 pages.upgrades = () => section('企业升级申请', table(['企业', '信用代码', '联系人', '申请人', '状态', '操作'], state.biz.upgrades.map(u => `<tr><td><b>${esc(u.legal_name)}</b><small>${when(u.created_at)}</small></td><td>${esc(u.credit_code)}</td><td>${esc(u.contact_name)}<small>${esc(u.contact_phone)}</small></td><td>${esc(u.name)}<small>${esc(u.email)}</small></td><td>${pill('upgrade', u.status)}${u.reject_reason ? `<small>${esc(u.reject_reason)}</small>` : ''}</td><td>${u.status === 'pending' ? `<button data-act="upgrade" data-id="${att(u.id)}" data-decision="approve" data-name="${att(u.legal_name)}">通过</button> <button data-act="upgrade" data-id="${att(u.id)}" data-decision="reject" data-name="${att(u.legal_name)}">驳回</button>` : '—'}</td></tr>`).join(''), '没有升级申请。'), '', '通过后该账号转为企业账号并获得企业客户编码，不能降级。');
@@ -321,10 +330,10 @@ pages.tickets = d => {
   + table(['工单', '客户', '分类', '状态', '提交时间', '操作'], list.map(t => `<tr><td><b>${esc(t.subject)}</b><small>${esc(t.body.length > 90 ? t.body.slice(0, 90) + '…' : t.body)}</small></td><td>${t.customer_code ? `<code>${esc(t.customer_code)}</code> ` : ''}${esc(t.name)}<small>${esc(t.email)}</small></td><td>${esc(LABEL.category[t.category])}${t.tier === 'technical' ? '<small class="warn">已转技术</small>' : ''}</td><td>${pill('ticket', t.status)}<small>${t.replies.length} 条回复</small></td><td>${when(t.created_at)}</td><td><button data-act="ticket" data-id="${att(t.id)}">${t.status === 'closed' ? '查看' : '处理'}</button></td></tr>`).join(''), '没有符合条件的工单。') + '</div>';
 };
 
-pages.answers = d => section('快捷问答库', table(['分类', '问题', '标准答复', '对客户公开', ['引用次数'], '操作'], d.answers.map(a => `<tr><td>${esc(LABEL.category[a.category])}</td><td><b>${esc(a.question)}</b></td><td style="white-space:pre-wrap">${esc(a.answer.length > 160 ? a.answer.slice(0, 160) + '…' : a.answer)}</td><td>${a.published ? '<span class="pill good">公开</span>' : '<span class="pill off">仅内部</span>'}</td>${num(a.use_count)}<td><button data-act="answer-edit" data-id="${att(a.id)}">编辑</button> <button data-act="answer-archive" data-id="${att(a.id)}">归档</button></td></tr>`).join(''), '还没有标准问答。先把最常被问到的三五个问题写进来。'), '<button class="primary" data-act="answer-edit">新建问答</button>', '回复工单时可以一键引用；勾选“对客户公开”的问答会显示在客户面板的“支持 → 常见问题”里。');
+pages.answers = d => section('快捷问答库', table(['分类', '问题', '标准答复', '对客户公开', ['引用次数'], '操作'], d.answers.map(a => `<tr><td>${esc(LABEL.category[a.category])}</td><td><b>${esc(a.question)}</b></td><td style="white-space:pre-wrap">${esc(a.answer.length > 160 ? a.answer.slice(0, 160) + '…' : a.answer)}</td><td>${a.published ? '<span class="pill good">公开</span>' : '<span class="pill off">仅内部</span>'}</td>${num(a.use_count)}<td>${ownerSurface?`<button data-act="answer-edit" data-id="${att(a.id)}">编辑</button> <button data-act="answer-archive" data-id="${att(a.id)}">归档</button>`:'可在工单回复中引用'}</td></tr>`).join(''), '还没有标准问答。先把最常被问到的三五个问题写进来。'), ownerSurface?'<button class="primary" data-act="answer-edit">新建问答</button>':'', '回复工单时可以一键引用；勾选“对客户公开”的问答会显示在客户面板的“支持 → 常见问题”里。');
 
 // Business acquisition has one stable navigation surface across both sales channels.
-const acquisitionPages = [['acquisition','工作概览'],['cw','VIP 招募与管理'],['direct','直营客户与折扣码'],['promotions','VIP 推广与返佣'],['approvals','审批中心']];
+const acquisitionPages = [['acquisition','客户进度'],['cw','招揽 VIP'],['direct','招揽客户'],['promotions','VIP 客户推广情况'],['approvals',ownerSurface?'审批中心':'我的申请']];
 const acquisitionTabs = page => `<div class="acquisition-tabs" role="navigation" aria-label="商务管理">${acquisitionPages.map(([key,label])=>`<button data-go="${key}" aria-current="${page===key?'page':'false'}">${label}</button>`).join('')}</div>`;
 const scopeRows=(rows,ownerKey='owner_subject')=>rows.filter(x=>(!ui.acquisitionOwner||x[ownerKey]===ui.acquisitionOwner)&&(!ui.acquisitionQuery||Object.values(x).some(v=>String(v??'').toLowerCase().includes(ui.acquisitionQuery.toLowerCase()))));
 const scopeControls=d=>`<div class="acquisition-filter">${d.administrator?`<label>负责员工<select id="acquisitionOwner"><option value="">全部员工</option>${d.owners.map(o=>`<option value="${att(o.subject)}" ${ui.acquisitionOwner===o.subject?'selected':''}>${esc(o.name)}</option>`).join('')}</select></label>`:'<p>仅显示你负责的客户和发出的直营码。</p>'}<label>查找客户、码或商户订单号<input id="acquisitionQuery" type="search" value="${att(ui.acquisitionQuery||'')}" placeholder="输入关键词，按回车查找"></label><button data-act="acquisition-search">查找</button></div>${d.truncated?'<p class="notice">每类最多显示最近 500 条，当前结果不是全量统计。</p>':''}`;
@@ -369,7 +378,7 @@ function drawNav(page) {
  const c = state.dash.counts, counts = { tickets: c.tickets, upgrades: c.upgrades, invoices: c.invoices_requested, transfers: c.bank_transfers_pending, discounts: c.discounts_pending };
  $('#nav').innerHTML = NAV.filter(([, , gate]) => !gate || state.dash.staff[gate]).map(([group, items]) => {
   const buttons=items.map(([key,label])=>`<button data-tab="${key}" class="${page===key?'active':''}" ${page===key?'aria-current="page"':''}>${label}${counts[key]?`<span class="count">${counts[key]}</span>`:''}</button>`).join('');
-  if(group==='工作台')return `<div class="nav-home">${buttons}</div>`;
+  if(group==='工作台'||group==='员工工作台')return `<div class="nav-home">${buttons}</div>`;
   const active=items.some(([key])=>key===page),preferred={support:'客户支持',operations:'推广与合作',supply:'产品与供应',finance:'订单与资金'}[state.dash.staff.role];
   return `<details class="nav-group" ${active||(page==='home'&&group===preferred)?'open':''}><summary>${group}</summary><div>${buttons}</div></details>`;
  }).join('');
@@ -378,10 +387,12 @@ async function draw() {
  const page = currentPage(), content = $('#content');
  document.body.classList.toggle('code-screen',['direct','promotions'].includes(page)||Boolean(ui.codeActivity));
  if(ui.codeActivity&&['direct','promotions'].includes(page)){content.innerHTML=`<iframe class="staff-code-activity" title="推广码收支明细" src="/code-activity.html?audience=staff&amp;kind=${ui.codeActivity.kind}&amp;code=${encodeURIComponent(ui.codeActivity.id)}"></iframe>`;return;}
- $('#title').textContent = PAGES[page].label;
- $('#subtitle').textContent = SUBTITLES[page];
+ document.title=ownerSurface?'semifly.ai · 老板工作台':'semifly.ai · 员工工作台';
+ $('#title').textContent = (!ownerSurface?{customers:'我的客户',tickets:'客户服务',direct:'招揽客户',cw:'招揽 VIP',approvals:'我的申请'}[page]:null)||PAGES[page].label;
+ $('#subtitle').textContent = !ownerSurface&&page==='customers'?'管理自己负责的客户，记录跟进并提供服务。':SUBTITLES[page];
  if (!state) { content.innerHTML = `<div class="panel empty">${esc(loadError || '正在读取…')}</div>`; return; }
- $('#technical').hidden = !state.dash.staff.technical;
+ $('#technical').hidden = !ownerSurface||!state.dash.staff.technical;
+ if(!allowedPage(page)){ $('#nav').innerHTML='';drawNav('home');content.innerHTML='<div class="panel empty">此页面不属于员工工作台。请返回今日工作；经营、供应与资金由老板身份管理。<p><button data-go="home">返回今日工作</button></p></div>';return; }
  drawNav(page);
  if (PAGES[page].gate && !state.dash.staff[PAGES[page].gate]) { content.innerHTML = '<div class="panel empty">这一页需要财务权限。请平台管理员在“账户与权限”里为你打开财务开关。</div>'; return; }
  const turn = ++drawing, started = generation, source = SOURCES[page]?.();
@@ -399,7 +410,7 @@ async function draw() {
   if (turn !== drawing || started !== generation || currentPage() !== page) return;
   Object.assign(state, { overview, biz });
   if (dash) state.dash = dash;
-  content.innerHTML = (page!=='cw'&&acquisitionPages.some(([key])=>key===page)?acquisitionTabs(page):'')+pages[page](source ? cache[source] : null);
+  content.innerHTML = (page!=='cw'&&acquisitionPages.some(([key])=>key===page)?acquisitionTabs(page):'')+pages[page](source ? (!ownerSurface&&['acquisition','direct','promotions','approvals'].includes(page)?{...cache[source],administrator:false}:cache[source]) : null);
   if (page === 'customers' && ui.customers.q) filterRows(ui.customers.q);
  } catch (e) {
   if (turn === drawing && started === generation && currentPage() === page) content.innerHTML = `<div class="panel empty">${esc(e.message)}，请点击刷新重试。</div>`;
@@ -430,14 +441,14 @@ async function customerDialog(customerId) {
  const fact = (label, value) => `<div><span>${label}</span><b>${value}</b></div>`;
  let body = `<p>${pill('kind', c.kind)} ${esc(c.email)}${c.kind === 'personal' && c.orgs ? ' · 所属 ' + esc(c.orgs) : ''} · 建档 ${dayOf(c.created_at)}</p>`
   + `<div class="facts">${fact('官价额度', fen(c.list_credit_fen))}${fact('实付余额', fen(c.balance_fen))}${fact('累计实付', fen(c.recharged_fen))}${fact('内部额度已用 / 发放', `${yuan(c.credit_spent)} / ${yuan(c.credit_granted)}`)}${fact('30 天调用', c.calls_30d)}${fact('最近调用', dayOf(c.last_call_at))}${f ? fact('可开票金额', fen(f.invoice_limit.available_fen)) : ''}</div>`
-  + `<div class="row2"><label>客户阶段<select name="stage">${options(LABEL.stage, c.stage)}</select></label><label>负责人<select name="owner_subject">${options(staff, c.owner_subject, '未分配')}</select></label></div><label>标签（用空格分隔，同时作为折扣的客户分群）<input name="tags" value="${att(c.tags.join(' '))}" placeholder="例如：高校 重点行业"></label>`;
+  + `<div class="row2"><label>客户阶段<select name="stage">${options(LABEL.stage, c.stage)}</select></label><label>负责人<select name="owner_subject" ${ownerSurface?'':'disabled'}>${options(staff, c.owner_subject, '未分配')}</select></label></div><label>标签（用空格分隔，同时作为折扣的客户分群）<input name="tags" ${ownerSurface?'':'readonly'} value="${att(c.tags.join(' '))}" placeholder="例如：高校 重点行业"></label>`;
  body += `<h3 style="margin-top:8px">跟进记录</h3><div class="row2" style="grid-template-columns:1fr auto;align-items:end"><textarea id="noteBody" rows="2" maxlength="2000" placeholder="电话、拜访、报价、客户反馈…"></textarea><button type="button" data-act="note-add" data-id="${att(c.id)}">添加记录</button></div><div class="thread">${d.notes.map(n => `<article><header>${esc(n.created_by_name)} · ${when(n.created_at)}</header>${esc(n.body)}</article>`).join('') || '<small>还没有跟进记录。</small>'}</div>`;
  if (d.discounts.length) body += `<h3>适用的折扣授权</h3>${table(['授权', '对象', ['客户实付'], '有效期', '状态'], d.discounts.map(g => `<tr><td>${esc(g.name)}</td><td>${audienceText(g)}</td>${num(discountText(g.customer_price_percent))}<td>${dayOf(g.starts_at)} – ${lastDay(g.ends_at)}</td><td>${pill('discount', g.state)}</td></tr>`).join(''))}`;
  if (d.members.length) body += `<h3 style="margin-top:12px">成员</h3>${table(['姓名', '邮箱', '身份'], d.members.map(m => `<tr><td>${esc(m.name)}</td><td>${esc(m.email)}</td><td>${['owner', 'admin', 'billing'].includes(m.role) ? '管理者' : '成员'}</td></tr>`).join(''))}`;
  if (d.tickets.length) body += `<h3 style="margin-top:12px">最近工单</h3>${table(['工单', '分类', '状态', '时间'], d.tickets.map(t => `<tr><td>${esc(t.subject)}</td><td>${esc(LABEL.category[t.category])}</td><td>${pill('ticket', t.status)}</td><td>${when(t.created_at)}</td></tr>`).join(''))}`;
  if (f?.orders.length) body += `<h3 style="margin-top:12px">付款记录</h3>${table(['订单', ['金额'], ['已退'], '付款时间'], f.orders.map(o => `<tr><td>${esc(o.out_trade_no)}</td>${num(fen(o.amount_fen))}${num(fen(o.refunded_fen))}<td>${when(o.paid_at)}</td></tr>`).join(''))}`;
  if (f?.invoices.length) body += `<h3 style="margin-top:12px">发票</h3>${table(['抬头', ['金额'], '状态', '发票号'], f.invoices.map(i => `<tr><td>${esc(i.title)}</td>${num(fen(i.amount_fen))}<td>${pill('invoice', i.status)}</td><td>${esc(i.invoice_number || '—')}</td></tr>`).join(''))}`;
- openForm({ title: `<code>${esc(c.code)}</code> ${esc(c.name)}`, body, wide: true, submit: '保存阶段、负责人和标签', onSubmit: async v => { await api('business/customers/' + c.id, { stage: v.stage, owner_subject: v.owner_subject || null, tags: v.tags.split(/[\s,，]+/).filter(Boolean) }); return `${c.code} 已更新。`; } });
+ openForm({ title: `<code>${esc(c.code)}</code> ${esc(c.name)}`, body, wide: true, submit: ownerSurface?'保存阶段、负责人和标签':'保存客户阶段', onSubmit: async v => { await api('business/customers/' + c.id, { stage: v.stage, owner_subject: ownerSurface?(v.owner_subject||null):c.owner_subject, tags: v.tags.split(/[\s,，]+/).filter(Boolean) }); return `${c.code} 已更新。`; } });
 }
 
 async function invoiceDialog() {
