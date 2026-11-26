@@ -27,3 +27,15 @@
 - `http://127.0.0.1:4188/?scenario=existing#billing/personal`
 
 后续上线前按 scripts/build_static.py 生成已提交版本；新增 personal-compare.css/js 已加入指纹构建。保留用户其它未跟踪 CW/design/output/.workbuddy 文件。
+
+## 公网发布回执 · 2026-11-26
+
+用户确认后已发布源码 `286f2b34057454e107c05f3315067c470281f45e`（包含第三方接入字段集中修复）。Git 已推送 origin/main。
+
+- 第三方来源、Base URL、Key、模型同区显示，取消选择第三方 / 手填模型时自动跳到更多设置。
+- 19 项相关测试通过；1280×640 桌面主内容 535/535；小屏分步骤显示。
+- 发布目录 `/srv/oneapi-data/oneapi-cutover-q72dymap/releases/286f2b340574.2rOM81`。
+- 采用既有发布流程：增量上传后校验完整静态包、备份、迁移、容器健康检查、原子发布。
+- 已在公网 Chrome 已登录的专用验收账户查看 API 对比及充值与账单。账户无余额，对比显示充值提示；账单显示实付、赠送、当前可退金额与说明。
+- 非零红蓝条及完整对比表单/模拟结果在本地预览验证。没有真实付费推理、充值或退款。
+- VIP 新版属于下一阶段本地预览，未包含在本次生产发布；见 `personal-vip-compact-20261126.md`。
