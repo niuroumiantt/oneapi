@@ -1,4 +1,4 @@
-import {readPersonalUsage,readPersonalCalls} from './personal-usage.mjs';
+import {readPersonalUsage,readPersonalCalls,readPersonalUsageChart} from './personal-usage.mjs';
 import {HttpError} from './core.mjs';
 import {employeeCreditRoutes} from './employee-credit.mjs';
 import {customerCompareRoutes} from './customer-compare.mjs';
@@ -27,6 +27,7 @@ export function staffApiIdentity(pool,cfg){
 
 export function staffApiRoutes(app,pool,cfg,requireStaff){
  const identity=staffApiIdentity(pool,cfg);
+ app.get('/api/staff/self-api/usage/chart',requireStaff,identity,async(req,res)=>res.json(await readPersonalUsageChart(pool,req.customer.id,new Date(),{allocated:true})));
  app.get('/api/staff/self-api/usage',requireStaff,identity,async(req,res)=>res.json(await readPersonalUsage(pool,req.customer.id,req.query.period||'month',{allocated:true})));
  app.get('/api/staff/self-api/usage/calls',requireStaff,identity,async(req,res)=>res.json(await readPersonalCalls(pool,req.customer.id,req.query,{allocated:true})));
  const routes={get:new Set(['/status']),post:new Set(['/keys','/keys/:key/manage','/keys/:key/revoke'])};

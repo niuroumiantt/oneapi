@@ -90,6 +90,7 @@ http.createServer(async(req,res)=>{
   if(customer){const c=customers.find(c=>c.id===customer[1]);if(!c||!finance&&c.owner_subject!=='demo')return json({error:'客户不存在或不在你的负责范围内'},404);if(!finance&&!customer[2]&&(b.owner_subject!==c.owner_subject||JSON.stringify(b.tags)!==JSON.stringify(c.tags)))return json({error:'客户归属和优惠分群由老板管理'},403);if(customer[2])notes.set(c.id,[...(notes.get(c.id)||[]),{body:b.body,created_by_name:'示例员工',created_at:new Date().toISOString()}]);else Object.assign(c,{stage:b.stage,owner_subject:b.owner_subject,tags:b.tags});return json({ok:true});}
   return json({error:'此操作未接入本地评审；未写入任何真实业务数据。'},409);
  }
+ if(api==='self-api/usage/chart')return json({time_zone:'Asia/Shanghai',models:apiModels.map(({id,name})=>({id,name})),days:Array.from({length:90},(_,i)=>({date:new Date(Date.now()-(89-i)*86400000).toISOString().slice(0,10),values:apiModels.map((_,j)=>String((i+j)%4?1000+i*40:0)),total:String(apiModels.reduce((n,_,j)=>n+((i+j)%4?1000+i*40:0),0))})),unreported_calls:'0'});
  if(api==='self-api/usage'||api==='self-api/usage/calls'){
   const period=url.searchParams.get('period')||'month',page=Number(url.searchParams.get('page')||0),size=Number(url.searchParams.get('size')||3);
   const items=apiCalls.map(c=>({...c,model_name:apiModels.find(m=>m.id===c.model_id)?.name,key_hint:'DEMO01',cash_fen:c.status==='settled'?'1':null}));

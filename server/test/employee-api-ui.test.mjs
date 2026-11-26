@@ -20,7 +20,7 @@ test('same personal key template renders company mode without payment flows',()=
  assert.match(html,/class="personal-api api-key-manager"/);assert.match(html,/所有 Key 共用公司额度/);assert.match(html,/共用公司额度/);assert.match(html,/data-live="paid-limit"/);assert.doesNotMatch(html,/充值|购买|支付|退款|billing\/personal/);
 });
 test('shared overview uses company balance and preserves personal purchase affordance outside employee mode',()=>{
- const {context:c}=context();const ctx={employeeApi:c,paidCredit:c.normalize(data),personalBilling:c.billing(data),personalPilot:null,ico:()=>'',esc:x=>x,personalMoney:n=>String(n)};
+ const {context:c}=context();const ctx={employeeApi:c,paidCredit:c.normalize(data),personalBilling:c.billing(data),personalPilot:null,ico:()=>'',esc:x=>x,personalMoney:n=>String(n),personalBalanceBar:()=>'<div>personal balance</div>'};
  const render=()=>vm.runInNewContext(section('function personalHomeContent(){','function overviewContent(){')+'personalHomeContent()',ctx);
  assert.match(render(),/公司可用额度/);assert.doesNotMatch(render(),/billing\/personal|充值|查看账单/);
  ctx.employeeApi=null;assert.match(render(),/billing\/personal/);

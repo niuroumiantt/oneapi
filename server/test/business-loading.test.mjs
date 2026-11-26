@@ -7,7 +7,7 @@ const settle=()=>new Promise(r=>setImmediate(r));
 function app(fetch,search='?surface=owner'){
  const nodes=new Map(),events={},domEvents={},location={search,hash:'#transfers',origin:'https://test.invalid'},parent={};
  const node=s=>{if(!nodes.has(s))nodes.set(s,{innerHTML:'',textContent:'',classList:{toggle(){}}});return nodes.get(s)};
- const context=vm.createContext({fetch,AbortSignal,URLSearchParams,location,parent,document:{body:node('body'),querySelector:node,addEventListener:(k,f)=>domEvents[k]=f},addEventListener:(k,f)=>events[k]=f});
+ const context=vm.createContext({innerHeight:900,fetch,AbortSignal,URLSearchParams,location,parent,document:{body:node('body'),querySelector:node,addEventListener:(k,f)=>domEvents[k]=f},addEventListener:(k,f)=>events[k]=f});
  vm.runInContext(source,context);return {nodes,events,domEvents,location,parent,html:()=>node('#content').innerHTML};
 }
 const summary={staff:{finance:true,technical:true,admin:true,role:'platform_admin'},counts:{}};

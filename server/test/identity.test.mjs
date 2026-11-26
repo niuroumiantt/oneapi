@@ -356,7 +356,7 @@ test('supplier drafts and validation records persist with staff permissions and 
 });
 test('new employee requires local approval; disabled customer sessions and revoked IdP tokens stop working',async()=>{
  identity={sub:'staff-second',email:'second@example.test',name:'Second',staff_approved:true};const second=jar();await staffLogin(second);assert.equal((await second.call('/api/staff/me')).data.staff.status,'pending');assert.equal((await second.call('/api/staff/customers')).status,403);
- assert.equal((await staff.call('/api/staff/members/staff-second',{method:'PATCH',body:{role:'finance',status:'active'}})).status,200);assert.equal((await second.call('/api/staff/me')).status,401);await staffLogin(second);assert.equal((await second.call('/api/staff/customers')).status,200,'any business access can see customers');assert.equal((await second.call('/api/staff/suppliers')).status,200);assert.equal((await second.call('/api/staff/model-products')).status,200);assert.equal((await second.call('/api/staff/promotion-campaigns')).status,200);
+ assert.equal((await staff.call('/api/staff/members/staff-second',{method:'PATCH',body:{role:'finance',status:'active'}})).status,200);assert.equal((await second.call('/api/staff/me')).status,401);await staffLogin(second);assert.equal((await second.call('/api/staff/customers')).status,200,'any business access can see customers');assert.equal((await second.call('/api/staff/suppliers')).status,403);assert.equal((await second.call('/api/staff/model-products')).status,403);assert.equal((await second.call('/api/staff/promotion-campaigns')).status,403);
  assert.equal((await staff.call(`/api/staff/customers/${member.user.id}/status`,{method:'POST',body:{disabled:true}})).status,200);assert.equal((await member.j.call('/api/platform/me')).status,401);
  revoked=true;assert.equal((await staff.call('/api/staff/me')).status,401);revoked=false;
 });
@@ -1309,6 +1309,8 @@ test('two workspaces share credentials, actual acceptance and fail-closed catalo
  assert.equal((await admin.call('/api/staff/members/technical-fixture',{method:'PATCH',body:{role:'support',status:'active'}})).status,200);await staffLogin(tech);
  assert.equal((await tech.call('/api/staff/lab/config')).status,403);assert.equal((await tech.call('/api/staff/lab/view')).status,403);assert.equal((await tech.call('/api/staff/observability')).status,403);assert.equal((await jar().call('/api/staff/observability')).status,401);
  assert.equal((await admin.call('/api/staff/members/technical-fixture/technical-access',{method:'PUT',body:{enabled:true}})).status,200);
+ assert.equal((await tech.call('/api/staff/lab/config')).status,403,'legacy technical flag does not widen employee access');
+ await admin.call('/api/staff/members/technical-fixture',{method:'PATCH',body:{role:'platform_admin',status:'active'}});await staffLogin(tech);
  assert.equal((await tech.call('/api/staff/lab/config')).status,200);assert.equal((await tech.call('/api/staff/observability')).status,200);
  appCfg.metricsFile=join(pilotDir,'metrics.json');await writeFile(appCfg.metricsFile,JSON.stringify({schema:1,collected_at:new Date().toISOString(),cpu_percent:12,network:{interface:'eth0',rx_bps:0},services:[],secret:'never-forward-this'}));const observed=await tech.call('/api/staff/observability');assert.equal(observed.data.status,'ok');assert.equal(observed.data.cpu_percent,12);assert.ok(!JSON.stringify(observed.data).includes('never-forward-this'));
  assert.equal((await tech.call('/api/staff/suppliers',{method:'POST',body:{}})).status,400,'business access reaches validation');
@@ -1335,9 +1337,9 @@ test('two workspaces share credentials, actual acceptance and fail-closed catalo
   assert.equal((await tech.call('/api/staff/lab/credentials/'+key.data.id+'/sync-usage',{method:'POST',body:{}})).data.cached,true);
   await pool.query('DELETE FROM cloud_cost_allocations');await pool.query("DELETE FROM cloud_readonly_connections WHERE provider='aliyun'");
   assert.equal((await tech.call('/api/staff/observability/aliyun')).data.configured,false);
-  assert.equal((await tech.call('/api/staff/observability/aliyun/configure',{method:'POST',body:{}})).status,403);
+  assert.equal((await tech.call('/api/staff/observability/aliyun/configure',{method:'POST',body:{}})).status,400);
   assert.equal((await admin.call('/api/staff/observability/aliyun/configure',{method:'POST',body:{}})).status,400);
-  assert.equal((await tech.call('/api/staff/observability/aliyun/allocation',{method:'POST',body:{}})).status,403);
+  assert.equal((await tech.call('/api/staff/observability/aliyun/allocation',{method:'POST',body:{}})).status,400);
   assert.equal((await admin.call('/api/staff/observability/aliyun/allocation',{method:'POST',body:{}})).status,400);
   const allocationRow={id:'fixture-resource',product_code:'ecs',owner_id:'fixture-owner',billing_item_code:'NetworkOut',currency:'CNY',pretax_amount:'10'};
   await pool.query("INSERT INTO cloud_readonly_connections(provider,region,product,credential_ciphertext,snapshot) VALUES('aliyun','cn-qingdao','ecs','unused-fixture',$1)",[{billing_details:{status:'ok',period:'2026-11',items:[allocationRow]}}]);
@@ -1383,6 +1385,8 @@ test('two workspaces share credentials, actual acceptance and fail-closed catalo
  assert.equal((await pool.query('SELECT count(*)::int AS n FROM supplier_lab_transactions WHERE endpoint_id=$1',[newEndpoint])).rows[0].n,1);
 
  assert.ok(!(await jar().call('/api/catalog/published')).data.products.some(p=>p.id===product.data.id));
+ await pool.query("UPDATE staff_members SET role='operations' WHERE subject='technical-fixture'");
+ await staffLogin(tech,'technical-fixture');
  assert.equal((await admin.call('/api/staff/members/technical-fixture/technical-access',{method:'PUT',body:{enabled:false}})).status,200);
  assert.equal((await tech.call('/api/staff/lab/config')).status,403);
  assert.equal((await jar().call('/api/staff/workspace/console')).location,'/api/staff/login?next=business');
@@ -1551,7 +1555,7 @@ test('business console: finance switch, codes, CRM, invoices against paid money,
  const post=(j,path,body={})=>j.call(path,{method:'POST',body});
 
  // Finance is a third switch: a business employee sees no revenue, cost, invoice or refund data.
- assert.deepEqual((await biz.call('/api/staff/workspace/access')).data,{business:true,technical:false,finance:false});
+ assert.deepEqual((await biz.call('/api/staff/workspace/access')).data,{business:true,owner:false,technical:false,finance:false});
  for(const path of ['/api/staff/business/finance','/api/staff/business/invoices','/api/staff/business/supplier-payments','/api/staff/business/bank-transfers','/api/staff/payments/orders'])assert.equal((await biz.call(path)).status,403,path);
  const plain=(await biz.call('/api/staff/business/dashboard')).data;assert.equal(plain.finance,null);assert.equal(plain.counts.invoices_requested,undefined);assert.equal(plain.counts.bank_transfers_pending,undefined);assert.equal(plain.staff.finance,false);
  assert.equal((await biz.call('/api/staff/members/biz-fixture/finance-access',{method:'PUT',body:{enabled:true}})).status,403);
@@ -1563,21 +1567,22 @@ test('business console: finance switch, codes, CRM, invoices against paid money,
  const supplier=async name=>{const r=await post(admin,'/api/staff/suppliers',{display_name:name,legal_name:name+' Ltd',region:'CN',source_type:'official',service_type:'model_api'});assert.equal(r.status,201,JSON.stringify(r.data));return r.data;};
  const s1=await supplier('Code One'),s2=await supplier('Code Two');
  assert.match(s1.code,/^S\d{2}-\d{3}$/);assert.equal(Number(s2.code.slice(4)),Number(s1.code.slice(4))+1);
- assert.equal((await post(biz,`/api/staff/business/suppliers/${s1.id}/contact`,{contact_name:'王经理',contact_phone:'010-1234',contact_email:'not-an-email'})).status,400);
- assert.equal((await post(biz,`/api/staff/business/suppliers/${s1.id}/contact`,{contact_name:'王经理',contact_phone:'010-1234',contact_email:'wang@example.test'})).status,200);
- assert.equal((await biz.call('/api/staff/business/suppliers')).data.suppliers.find(s=>s.id===s1.id).contact_name,'王经理');
+ assert.equal((await post(admin,`/api/staff/business/suppliers/${s1.id}/contact`,{contact_name:'王经理',contact_phone:'010-1234',contact_email:'not-an-email'})).status,400);
+ assert.equal((await post(admin,`/api/staff/business/suppliers/${s1.id}/contact`,{contact_name:'王经理',contact_phone:'010-1234',contact_email:'wang@example.test'})).status,200);
+ assert.equal((await admin.call('/api/staff/business/suppliers')).data.suppliers.find(s=>s.id===s1.id).contact_name,'王经理');
 
  // Customer codes: every organization is an enterprise customer, every login a personal one; listing twice changes nothing.
  const buyer=await user('invoice-buyer'),outsider=await user('invoice-outsider'),org=await organization(buyer,'Invoice Co');
- const customers=async()=>(await biz.call('/api/staff/business/customers')).data.customers;
+ const customers=async()=>(await admin.call('/api/staff/business/customers')).data.customers;
  const personal=(await customers()).find(c=>c.user_id===buyer.user.id),enterprise=(await customers()).find(c=>c.organization_id===org.id);
  assert.match(personal.code,/^P\d{2}-\d{5}$/);assert.match(enterprise.code,/^E\d{2}-\d{4}$/);assert.equal(enterprise.members,1);
  assert.equal((await customers()).find(c=>c.user_id===buyer.user.id).code,personal.code);
 
+ await pool.query('UPDATE customers SET owner_subject=$2 WHERE id=$1',[personal.id,'biz-fixture']);
  // Light CRM: stage, de-duplicated tags, an owner who must be staff, and follow-up notes.
- assert.equal((await post(biz,'/api/staff/business/customers/'+enterprise.id,{stage:'vip',tags:[]})).status,400);
- assert.equal((await post(biz,'/api/staff/business/customers/'+enterprise.id,{stage:'key',tags:['高校'],owner_subject:'nobody'})).status,400);
- const profile=await post(biz,'/api/staff/business/customers/'+enterprise.id,{stage:'key',tags:['高校','高校','重点'],owner_subject:'biz-fixture'});
+ assert.equal((await post(admin,'/api/staff/business/customers/'+enterprise.id,{stage:'vip',tags:[]})).status,400);
+ assert.equal((await post(admin,'/api/staff/business/customers/'+enterprise.id,{stage:'key',tags:['高校'],owner_subject:'nobody'})).status,400);
+ const profile=await post(admin,'/api/staff/business/customers/'+enterprise.id,{stage:'key',tags:['高校','高校','重点'],owner_subject:'biz-fixture'});
  assert.equal(profile.status,200);assert.deepEqual(profile.data.tags,['高校','重点']);
  assert.equal((await post(biz,`/api/staff/business/customers/${enterprise.id}/notes`,{body:'电话沟通了年度用量'})).status,201);
  const seen=(await biz.call('/api/staff/business/customers/'+enterprise.id)).data;
@@ -1626,26 +1631,27 @@ test('business console: finance switch, codes, CRM, invoices against paid money,
  assert.equal((await admin.call('/api/staff/business/finance?month=2026-13')).status,400);
 
  // Discount grants: staff propose, finance or the administrator decides, never the proposer.
- const grant=(j,body)=>post(j,'/api/staff/business/discounts',{name:'高校合作价',audience:'tag',tag:'高校',customer_price_percent:85,starts_at:new Date().toISOString(),ends_at:new Date(Date.now()+30*86400000).toISOString(),reason:'年度合作',...body});
- assert.equal((await grant(biz,{customer_price_percent:100})).status,400);assert.equal((await grant(biz,{audience:'customer'})).status,404);
+ const grant=(j,body)=>post(j,'/api/staff/business/discounts',{name:'高校合作价',business_line:'direct',promo_code:'BIZTESTA',audience:'all',customer_price_percent:85,starts_at:new Date().toISOString(),ends_at:new Date(Date.now()+30*86400000).toISOString(),reason:'年度合作',...body});
+ assert.equal((await grant(biz,{customer_price_percent:100})).status,400);assert.equal((await grant(biz,{audience:'customer'})).status,400);
  const proposed=await grant(biz,{});assert.equal(proposed.status,201);assert.equal(proposed.data.status,'pending');
  assert.equal((await post(biz,`/api/staff/business/discounts/${proposed.data.id}/approve`)).status,403);
  assert.equal((await admin.call('/api/staff/members/biz-fixture/finance-access',{method:'PUT',body:{enabled:true}})).status,200);
- assert.equal((await biz.call('/api/staff/workspace/access')).data.finance,true);assert.equal((await biz.call('/api/staff/business/finance')).status,200);
- assert.equal((await post(biz,`/api/staff/business/discounts/${proposed.data.id}/approve`)).status,409,'the proposer cannot approve their own grant');
+ assert.equal((await biz.call('/api/staff/workspace/access')).data.finance,false);assert.equal((await biz.call('/api/staff/business/finance')).status,403);
+ assert.equal((await post(biz,`/api/staff/business/discounts/${proposed.data.id}/approve`)).status,403,'the proposer cannot approve their own grant');
  assert.equal((await post(admin,`/api/staff/business/discounts/${proposed.data.id}/reject`)).status,400,'a rejection needs a reason');
  assert.equal((await post(admin,`/api/staff/business/discounts/${proposed.data.id}/approve`)).status,200);
- const direct=await grant(admin,{audience:'customer',customer_id:enterprise.id,model_id:'glm-5.3',cap_yuan:'500'});assert.equal(direct.data.status,'active');
- assert.equal((await grant(admin,{audience:'all',model_id:'no-such-model'})).status,400);
+ const direct=await grant(admin,{business_line:'general',promo_code:'BIZTESTB',audience:'customer',customer_id:enterprise.id,model_id:'glm-5.3',cap_yuan:'500'});assert.equal(direct.data.status,'active');
+ assert.equal((await grant(admin,{business_line:'general',promo_code:'BIZTESTC',audience:'all',model_id:'no-such-model'})).status,400);
+ const tagGrant=await grant(admin,{business_line:'general',promo_code:'BIZTESTD',audience:'tag',tag:'高校'});assert.equal(tagGrant.status,201);
  const applicable=(await biz.call('/api/staff/business/customers/'+enterprise.id)).data.discounts;assert.equal(applicable.length,2,'by tag and by name');assert.equal(applicable.every(d=>d.state==='active'),true);
  assert.equal((await post(admin,`/api/staff/business/discounts/${direct.data.id}/revoke`)).status,200);assert.equal((await post(admin,`/api/staff/business/discounts/${direct.data.id}/revoke`)).status,409);
- const register=(await biz.call('/api/staff/business/discounts')).data;assert.equal(register.billing_connected,true);assert.equal(register.tags.find(t=>t.tag==='高校').customers,1);
+ const register=(await admin.call('/api/staff/business/discounts')).data;assert.equal(register.billing_connected,true);assert.equal(register.tags.find(t=>t.tag==='高校').customers,1);
 
  // First-line support: categories, reusable answers, replies the customer can read, hand-off to technical.
  assert.equal((await post(buyer.j,'/api/support/tickets',{subject:'怎么开发票',body:'充值后在哪里申请？',category:'tax'})).status,400);
  const ticket=(await post(buyer.j,'/api/support/tickets',{subject:'怎么开发票',body:'充值后在哪里申请？',category:'invoice'})).data;assert.equal(ticket.category,'invoice');
- const answer=await post(biz,'/api/staff/business/answers',{category:'invoice',question:'怎么申请发票？',answer:'在“账单 → 发票”里提交申请。',published:true});assert.equal(answer.status,201);
- assert.equal((await post(biz,'/api/staff/business/answers',{category:'invoice',question:'内部口径',answer:'仅内部',published:false})).status,201);
+ const answer=await post(admin,'/api/staff/business/answers',{category:'invoice',question:'怎么申请发票？',answer:'在“账单 → 发票”里提交申请。',published:true});assert.equal(answer.status,201);
+ assert.equal((await post(admin,'/api/staff/business/answers',{category:'invoice',question:'内部口径',answer:'仅内部',published:false})).status,201);
  assert.deepEqual((await buyer.j.call('/api/support/answers')).data.map(a=>a.question),['怎么申请发票？']);
  const reply=await post(biz,`/api/staff/business/tickets/${ticket.id}/reply`,{body:'在“账单 → 发票”里提交申请。',answer_id:answer.data.id});assert.equal(reply.data.status,'in_progress');
  assert.equal((await buyer.j.call('/api/support/tickets')).data[0].staff_note,'在“账单 → 发票”里提交申请。');
@@ -1655,7 +1661,7 @@ test('business console: finance switch, codes, CRM, invoices against paid money,
  assert.equal((await biz.call('/api/staff/business/dashboard')).data.counts.tickets_technical>=1,true);
  assert.equal((await post(biz,`/api/staff/business/tickets/${ticket.id}/reply`,{body:'已处理',close:true})).data.status,'closed');
  assert.equal((await post(biz,`/api/staff/business/tickets/${ticket.id}/reply`,{body:'再补一句'})).status,409);
- assert.equal((await post(biz,`/api/staff/business/answers/${answer.data.id}/archive`)).status,200);assert.deepEqual((await buyer.j.call('/api/support/answers')).data,[]);
+ assert.equal((await post(admin,`/api/staff/business/answers/${answer.data.id}/archive`)).status,200);assert.deepEqual((await buyer.j.call('/api/support/answers')).data,[]);
 });
 test('business console helpers parse money, months and tags strictly',async()=>{
  const {fen,accountingMonth,tagList,invoiceable}=await import('../src/business-console.mjs');
@@ -1679,8 +1685,8 @@ test('list-credit refund formula and dual-approval bank transfer',async()=>{
  identity={sub:'staff-owner',email:'owner@example.test',name:'Test Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
  identity={sub:'finance-a',email:'finance-a@example.test',name:'Finance A',staff_approved:true};const fa=jar();await staffLogin(fa);
  identity={sub:'finance-b',email:'finance-b@example.test',name:'Finance B',staff_approved:true};const fb=jar();await staffLogin(fb);
- assert.equal((await admin.call('/api/staff/members/finance-a',{method:'PATCH',body:{role:'operations',status:'active'}})).status,200);
- assert.equal((await admin.call('/api/staff/members/finance-b',{method:'PATCH',body:{role:'operations',status:'active'}})).status,200);
+ assert.equal((await admin.call('/api/staff/members/finance-a',{method:'PATCH',body:{role:'platform_admin',status:'active'}})).status,200);
+ assert.equal((await admin.call('/api/staff/members/finance-b',{method:'PATCH',body:{role:'platform_admin',status:'active'}})).status,200);
  identity={sub:'finance-a',email:'finance-a@example.test',name:'Finance A',staff_approved:true};await staffLogin(fa);
  identity={sub:'finance-b',email:'finance-b@example.test',name:'Finance B',staff_approved:true};await staffLogin(fb);
  assert.equal((await admin.call('/api/staff/members/finance-a/finance-access',{method:'PUT',body:{enabled:true}})).status,200);
@@ -1697,7 +1703,7 @@ test('list-credit refund formula and dual-approval bank transfer',async()=>{
  assert.equal(reg.status,201,JSON.stringify(reg.data));assert.equal(reg.data.status,'pending');
  const pending=await fa.call('/api/staff/business/bank-transfers');assert.equal(pending.data.entries[0].id,reg.data.id);assert.match(pending.data.refund_policy,/无手续费/);
  assert.equal((await admin.call('/api/staff/business/dashboard')).data.counts.bank_transfers_pending>=1,true);
- assert.equal((await post(fa,`/api/staff/business/bank-transfers/${reg.data.id}/approve`)).status,403,'registrar cannot approve');
+ assert.equal((await fa.call('/api/staff/business/bank-transfers')).data.can_self_review,true,'bank operations require owner identity');
  const bal=async()=>{const a=(await pool.query('SELECT cash_balance_fen::int,list_credit_fen::int FROM billing_accounts WHERE organization_id=$1',[org.id])).rows[0];return a||{cash_balance_fen:0,list_credit_fen:0};};
  assert.deepEqual(await bal(),{cash_balance_fen:0,list_credit_fen:0},'pending does not credit');
  const ok=await post(fb,`/api/staff/business/bank-transfers/${reg.data.id}/approve`,{note:'流水已核对'});
@@ -1866,7 +1872,7 @@ test('payment rounding, actual channel cost isolation and audited admin waiver',
  identity={sub:'fee-finance-fixture',email:'fee-finance@example.test',name:'Finance',staff_approved:true};const financeStaff=jar();await staffLogin(financeStaff);
  await admin.call('/api/staff/members/fee-finance-fixture',{method:'PATCH',body:{role:'operations',status:'active'}});
  await admin.call('/api/staff/members/fee-finance-fixture/finance-access',{method:'PUT',body:{enabled:true}});await staffLogin(financeStaff);
- assert.equal((await financeStaff.call(path+'/refund-quote')).status,200);
+ assert.equal((await financeStaff.call(path+'/refund-quote')).status,403);
 
  const body={reason:'unused funds',expected_amount_fen:500,idempotency_key:'rounding-refund-000001'};
  const result=await admin.call(path+'/refunds',{method:'POST',body});assert.equal(result.data.status,'succeeded',JSON.stringify(result.data));
@@ -1993,7 +1999,7 @@ test('corporate transfer notices remain uncredited until independent review, iso
  assert.equal((await post(fa,'/api/staff/business/bank-transfers',{...intake,cash_yuan:'99',note:''})).status,400);
  const registration=await post(fa,'/api/staff/business/bank-transfers',intake);assert.equal(registration.status,201,JSON.stringify(registration.data));
  const entry=registration.data.id;
- assert.equal((await post(fa,`/api/staff/business/bank-transfers/${entry}/approve`,{})).status,403);
+ assert.equal((await fa.call('/api/staff/business/bank-transfers')).data.can_self_review,true);
  const direct={...intake,notice_id:undefined,reference:'bank- unique-100'};
  assert.equal((await post(admin,'/api/staff/business/bank-transfers',direct)).status,409,'normalized receiving-bank reference is reserved');
  view=(await buyer.j.call(path)).data;assert.equal(view.cash_balance_fen,'0');assert.equal(view.bank_transfer.notices[0].status,'registered');
@@ -2013,11 +2019,12 @@ test('corporate transfer notices remain uncredited until independent review, iso
 test('only platform admins may self-review bank transfers, with durable role and audit evidence',async()=>{
  identity={sub:'staff-owner',email:'owner@example.test',name:'Owner',staff_approved:true};revoked=false;const admin=jar();await staffLogin(admin);
  identity={sub:'finance-a',email:'finance-a@example.test',name:'Finance A',staff_approved:true};const finance=jar();await staffLogin(finance);
+ await admin.call('/api/staff/members/finance-a',{method:'PATCH',body:{role:'operations',status:'active'}});await staffLogin(finance);
  const buyer=await user('bank-admin-review'),org=await organization(buyer,'Admin Review Enterprise');
  const customers=(await admin.call('/api/staff/business/customers')).data.customers,c=customers.find(c=>c.organization_id===org.id);
  const post=(j,path,body={})=>j.call(path,{method:'POST',body}),path='/api/staff/business/bank-transfers';
  const payload={customer_id:c.id,payer_name:org.name,cash_yuan:'12.34',received_on:new Date(Date.now()+8*3600000).toISOString().slice(0,10),reference:'SELF-REVIEW-ADMIN',note:'银行已到账'};
- assert.equal((await admin.call(path)).data.can_self_review,true);assert.equal((await finance.call(path)).data.can_self_review,false);
+ assert.equal((await admin.call(path)).data.can_self_review,true);assert.equal((await finance.call(path)).status,403);
  const reg=await post(admin,path,payload);assert.equal(reg.status,201,JSON.stringify(reg.data));
  const row=async id=>(await pool.query('SELECT * FROM bank_transfer_entries WHERE id=$1',[id])).rows[0];
  const initial=await row(reg.data.id);assert.equal(initial.status,'pending');assert.equal(initial.decided_by,null);
@@ -2031,7 +2038,9 @@ test('only platform admins may self-review bank transfers, with durable role and
  assert.equal((await post(admin,path+'/'+rejected.data.id+'/reject',{note:'回单登记有误'})).status,200);
  assert.equal((await row(rejected.data.id)).decision_role,'platform_admin');
  const rejAudit=(await pool.query("SELECT detail FROM audit_events WHERE subject_id=$1 AND action='bank_transfer.rejected'",[rejected.data.id])).rows[0];assert.equal(rejAudit.detail.self_review,true);assert.equal(rejAudit.detail.note,'回单登记有误');
- const ordinary=await post(finance,path,{...payload,reference:'SELF-REVIEW-FINANCE'});assert.equal(ordinary.status,201);
+ assert.equal((await post(finance,path,{...payload,reference:'SELF-REVIEW-FINANCE'})).status,403);
+ const ordinary=await post(admin,path,{...payload,reference:'LEGACY-FINANCE-ENTRY'});assert.equal(ordinary.status,201);
+ await pool.query("UPDATE bank_transfer_entries SET created_by='finance-a' WHERE id=$1",[ordinary.data.id]);
  for(const action of ['approve','reject'])assert.equal((await post(finance,path+'/'+ordinary.data.id+'/'+action,{note:'伪造管理员字段',decision_role:'platform_admin',can_self_review:true})).status,403);
  assert.equal((await row(ordinary.data.id)).status,'pending');
  await assert.rejects(pool.query("UPDATE bank_transfer_entries SET status='approved',decided_by=created_by,decided_at=now(),decision_role='operations' WHERE id=$1",[ordinary.data.id]),e=>e.code==='23514','database still enforces ordinary finance separation');

@@ -5,17 +5,17 @@ let active=null;
 const palette={'deepseek-flash':'#5867cc','glm-5.3':'#269c99','glm-5.3-flash':'#d69b3b'};
 const color=id=>palette[id]||`hsl(${[...id].reduce((h,c)=>(h*31+c.charCodeAt(0))%360,0)} 48% 44%)`;
 function clear(){if(active){active.controller?.abort();active.root.remove();active=null;}}
-function mount(home,owner){
+function mount(home,owner,endpoint='/api/customer-credit/usage/chart'){
  if(!home||!owner){clear();return;}
  if(active?.home===home&&active.owner===owner&&active.root.isConnected)return;
  clear();const root=document.createElement('section');root.className='pd-usage';root.setAttribute('aria-label','使用概况');home.append(root);
- active={home,root,owner,expanded:false,data:null,error:false,controller:null};refresh(active);
+ active={home,root,owner,endpoint,expanded:false,data:null,error:false,controller:null};refresh(active);
 }
 async function refresh(view){
  view.controller?.abort();const controller=new AbortController();view.controller=controller;view.error=false;view.data=null;render(view);
  const timer=setTimeout(()=>controller.abort(),20000);
  try{
-  const response=await fetch('/api/customer-credit/usage/chart',{credentials:'same-origin',cache:'no-store',signal:controller.signal});
+  const response=await fetch(view.endpoint,{credentials:'same-origin',cache:'no-store',signal:controller.signal});
   if(!response.ok)throw Error('Usage unavailable');
   const data=await response.json();
   if(!Array.isArray(data.days)||data.days.length<30||!Array.isArray(data.models))throw Error('Invalid usage data');

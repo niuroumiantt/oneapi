@@ -9,7 +9,7 @@ function harness(){
  const requests=[],renders=[],window={};
  const root=()=>({isConnected:false,setAttribute(){},remove(){this.isConnected=false;}});
  const home=()=>({append(node){node.isConnected=true;}});
- vm.runInNewContext(boot,{window,document:{createElement:root},AbortController,setTimeout,clearTimeout,render:view=>renders.push({owner:view.owner,data:view.data,error:view.error}),fetch:(_url,options)=>new Promise(resolve=>requests.push({resolve,options}))});
+ vm.runInNewContext(boot,{window,document:{createElement:root},AbortController,setTimeout,clearTimeout,render:view=>renders.push({owner:view.owner,data:view.data,error:view.error}),fetch:(_url,options)=>new Promise(resolve=>requests.push({resolve,options,url:_url}))});
  return {ui:window.PersonalUsageCharts,home,requests,renders};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
@@ -24,3 +24,5 @@ test('chart failure stays separate from empty data, and unmount aborts pending w
  h.ui.mount(h.home(),'a');h.ui.clear();assert.equal(h.requests[1].options.signal.aborted,true);const before=h.renders.length;
  h.requests[1].resolve({ok:true,json:async()=>fixture()});await tick();assert.equal(h.renders.length,before);
 });
+
+test('employee charts reuse the renderer with their own authorized endpoint',()=>{const h=harness();h.ui.mount(h.home(),'employee','/api/staff/self-api/usage/chart');assert.equal(h.requests[0].url,'/api/staff/self-api/usage/chart');h.ui.clear();});

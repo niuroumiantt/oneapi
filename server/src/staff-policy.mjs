@@ -3,6 +3,7 @@ import {HttpError} from './core.mjs';
 export const isBusinessOwner = staff => staff?.status === 'active' && staff.role === 'platform_admin';
 // Employee access is an allowlist. Historic finance/technical switches do not widen it.
 const employeeReads = new Set([
+ '/api/staff/self-api/usage/chart','/api/code-activity/staff/:kind/:code',
  '/api/staff/self-api/usage','/api/staff/self-api/usage/calls','/api/staff/self-api/status','/api/staff/self-api/compare/config',
  '/api/staff/me','/api/staff/customers','/api/staff/console','/api/staff/console.js',
  '/api/staff/select-menu.js','/api/staff/table-sort.js',

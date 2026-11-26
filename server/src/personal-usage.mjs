@@ -73,7 +73,7 @@ export async function readPersonalCalls(pool,owner,{period='month',page='0',size
 
 // One bounded query over the owner's complete call history, grouped by Shanghai day.
 // The optional clock is for deterministic boundary tests; routes never accept it from clients.
-export async function readPersonalUsageChart(pool,owner,clock=new Date()){
+export async function readPersonalUsageChart(pool,owner,clock=new Date(),{allocated=false}={}){
  const result=await pool.query(`
   WITH today AS (SELECT ($2::timestamptz AT TIME ZONE 'Asia/Shanghai')::date AS day),
   bounds AS (SELECT (day-interval '3 months'+interval '1 day')::date AS start_day,day AS end_day FROM today),
@@ -82,11 +82,9 @@ export async function readPersonalUsageChart(pool,owner,clock=new Date()){
     coalesce(sum(c.input_tokens),0)::text AS input_tokens,
     coalesce(sum(c.output_tokens),0)::text AS output_tokens,
     count(*) FILTER(WHERE c.status<>'failed' AND (c.input_tokens IS NULL OR c.output_tokens IS NULL))::text AS unreported_calls
-   FROM billing_accounts a
-   JOIN customer_calls c ON c.account_id=a.id
-   JOIN customer_api_keys k ON k.id=c.key_id AND k.account_id=a.id
+   ${usageSource(allocated)}
    CROSS JOIN bounds b
-   WHERE a.owner_id=$1 AND k.purpose='api'
+   WHERE ${allocated?'c.owner_id':'a.owner_id'}=$1 AND k.purpose='api'
     AND c.created_at >= (b.start_day::timestamp AT TIME ZONE 'Asia/Shanghai')
     AND c.created_at < ((b.end_day+1)::timestamp AT TIME ZONE 'Asia/Shanghai')
    GROUP BY 1,c.model_id

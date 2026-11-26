@@ -66,7 +66,7 @@
   return Boolean(a&&b&&a.getAttribute('src')===b.getAttribute('src'));
  }
  function mount(content){
-  if(employeeApi){host.innerHTML=`<main class="employee-api-stage">${content}</main>`;host.hidden=false;document.body.classList.add("identity-active");document.body.classList.remove("identity-route-pending");return;}
+  if(employeeApi){host.innerHTML=`<main class="employee-api-stage">${content}</main>`;host.hidden=false;document.body.classList.add("identity-active");document.body.classList.remove("identity-route-pending");syncPersonalUsageCharts();return;}
   const wasIdentityActive=document.body.classList.contains('identity-active');
   host.classList.toggle('org-dashboard',current.startsWith('organization/'));host.classList.toggle('supply-dashboard',current.startsWith('ops/supply')||current==='ops/products'||current==='ops/payments'||current==='ops/promotions');host.classList.toggle('invite-dashboard',current.startsWith('join/'));host.classList.toggle('enterprise-dashboard',['enterprise','enterprise-login','enterprise-register'].includes(current)&&!!me);host.classList.toggle('auth-dashboard',content.includes('class="live-auth-layout"'));
   const existing=host.querySelector('.supply-shell');
@@ -98,7 +98,7 @@
   host.classList.remove('route-loading');
   syncPersonalUsageCharts();
  }
- function syncPersonalUsageCharts(){window.PersonalUsageCharts?.mount(host?.querySelector('.personal-home'),me?.user?.id);}
+ function syncPersonalUsageCharts(){window.PersonalUsageCharts?.mount(host?.querySelector('.personal-home'),me?.user?.id,employeeApi?'/api/staff/self-api/usage/chart':undefined);}
  async function staffContext(ticket){if(!staff){const info=await api('/api/staff/me');if(ticket!==generation)return false;staff=info.staff;}me=null;return true;}
  const note=(message,error=false)=>`<div class="live-notice ${error?'error':''}" role="${error?'alert':'status'}">${esc(message)}</div>`;
  let phoneLoginAvailable=false,phoneRegistrationAvailable=false,phonePasswordAvailable=false,authMethodsRequest;
