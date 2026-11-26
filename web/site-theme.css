@@ -19,7 +19,7 @@ html[data-site-theme] {
 
 html[data-site-theme] body,
 html[data-site-theme] :is(#site-boot,#docs-view,#market-view,#console-view,.live-main,.pc-stage,.org-shell,.lp-shell,
-  .welcome-page,.welcome-main,.welcome-story,.welcome-entry,#cw-content,.guide-personal,.guide-vip) {
+  .welcome-page,.welcome-main,.welcome-entry,#cw-content,.guide-personal,.guide-vip) {
   background-color: var(--personal-canvas);
   color: var(--personal-ink);
 }
@@ -108,11 +108,11 @@ html[data-site-theme="ink-green"] :is(.m-model-facts span,.m-rate-preview,.mx-co
   color: var(--personal-ink);
   border-color: var(--personal-line);
 }
-html[data-site-theme="ink-green"] :is(.welcome-hero,.welcome-story,.m-hero,.lp-hero,.guide-personal .hero,.guide-vip .hero) {
+html[data-site-theme="ink-green"] :is(.welcome-hero,.m-hero,.lp-hero,.guide-personal .hero,.guide-vip .hero) {
   background-color: var(--personal-canvas);
   color: var(--personal-ink);
 }
-html[data-site-theme="ink-green"] :is(.welcome-story h1,.welcome-entry h2,.m-hero h1,.doc-main h1,
+html[data-site-theme="ink-green"] :is(.welcome-entry h2,.m-hero h1,.doc-main h1,
   .doc-main h2,.doc-main h3,.cw-app h1,.cw-app h2,.cv-profile-sections h2,.settings-block h2,.settings-info-group h3,
   .m-model-name,.m-model h3,.m-model h4,.guide-personal h1,.guide-vip h1,.skills-page h1,.skills-page h2) {
   color: var(--personal-ink);
@@ -140,4 +140,50 @@ html[data-site-theme="ink-green"] :is(.mm-status i,.live-dot i) { background: va
   .site-header .site-header-actions > .site-account > a:not(.live-signin) { font-size: 12px; }
   [data-theme-control] .personal-theme-picker { position: relative; }
   [data-theme-control] .personal-theme-options { top: calc(100% + 6px); max-width: min(222px, 80vw); }
+}
+
+/* These surfaces still set their own local colors in the route stylesheets. */
+html[data-site-theme] #market-view .model-explorer {
+  --mx-ink: var(--personal-ink);
+  --mx-muted: var(--personal-muted);
+  --mx-line: var(--personal-line);
+  background: var(--personal-canvas);
+  color: var(--personal-ink);
+}
+html[data-site-theme] :is(.workspace-compare-frame,.pc-global-search,.settings-block-head,.skills-context,
+ .skills-context button,.skills-page .search,.skills-page .board-tabs,.cw-app button:not(.cw-primary)) {
+  background-color: var(--personal-surface);
+  border-color: var(--personal-line);
+  color: var(--personal-ink);
+}
+html[data-site-theme] :is(.pc-sidebar nav button,.pc-sidebar nav a) { color: var(--personal-muted); }
+html[data-site-theme] .pc-sidebar .ui-icon { color: inherit; }
+html[data-site-theme] :is(.settings-block-head h2,.welcome-entry-inner h3,.cw-app .cv-info-list dd) { color: var(--personal-ink); }
+html[data-site-theme] :is(.cv-info-list dt,.cw-app .cv-management-nav button:not([aria-current="page"]),
+ .cw-app .cv-view-tabs button:not([aria-pressed="true"]),.pc-global-search input,.doc-table td,.skills-page .rank-number,
+ .skills-page .rank-copy small,.skills-page .hero-facts,.welcome-entry-lead,.welcome-entry-links a,.site-account > a:not(.live-signin)) {
+  color: var(--personal-muted);
+}
+html[data-site-theme] :is(.cv-info-list > div,.doc-table td,.cv-management-nav,.cv-bank-status) {
+  border-color: var(--personal-line);
+}
+html[data-site-theme] :is(.universe-active .welcome-entry-inner,.universe-active .welcome-choices) {
+  background: var(--personal-surface);
+  border-color: var(--personal-line);
+}
+html[data-site-theme] .universe-active .welcome-choices button {
+  background-color: var(--personal-rail);
+  color: var(--personal-ink);
+  border-color: var(--personal-line);
+}
+html[data-site-theme] :is(.cw-app .cv-management-nav button[aria-current="page"],.cw-app .cv-view-tabs button[aria-pressed="true"],
+ .cw-app #cw-nav button[aria-current="page"],.skills-page .board-tabs button[aria-pressed="true"]) {
+  background-color: var(--personal-selection);
+  color: var(--site-active-ink);
+}
+html[data-site-theme] .pc-sidebar nav .active:not(.pc-vip-link) { color: var(--personal-nav-selection-text); }
+html[data-site-theme] .pc-sidebar nav .pc-vip-link { color: var(--personal-ink); }
+html[data-site-theme] :is(.skills-page .search input,.pc-global-search input) { background: transparent; }
+@media (max-width: 600px) {
+  .cv-profile-sections .profile-row { grid-template-columns: minmax(62px, .7fr) minmax(0, 1fr); gap: 6px; font-size: 12px; }
 }

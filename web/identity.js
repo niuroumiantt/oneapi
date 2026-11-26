@@ -935,14 +935,13 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   if(!org)return personalSettingsContent();
   const manager=Boolean(org&&lastOrg?.permissions?.manager),role=lastOrg?.membership?.role,list=panelData.sessions,u=me.upgrade;
   const depts=org?lastOrg?.departments||[]:[];
-  const canUpgrade=!org&&!(me.organizations||[]).length;
   const smsBinding=panelData.smsBinding;
-  const phone=phoneLoginAvailable&&!org;
+  const phone=phoneLoginAvailable||me.user.phoneOnly;
   const passwordLabel=me.user.phoneOnly&&!smsBinding?.hasPassword?'设置密码':'修改密码';
   const name=me.user.name||'—',initial=(name||'?').trim().charAt(0).toUpperCase(),vip=!!me.user.vip;
   // 账户头部：头像 + 姓名 + 类型，右侧升级入口；正式 VIP 显示金色名与角标
   const nameBlock=vip?`<span class="account-name-vip"><b>${esc(name)}</b><i class="vip-badge" aria-hidden="true">VIP</i></span>`:`<b>${esc(name)}</b>`;
-  const accountHead=`<div class="settings-profile${vip?' is-vip':''}"><div class="settings-avatar">${esc(initial)}</div><div class="settings-profile-id">${nameBlock}<small>${org?esc(org.name):(vip?'个人账号 · 正式 VIP':'个人账号')}</small></div>${canUpgrade?`<a class="live-button primary" href="#upgrade">${ico('building-2')} 升级为企业账号</a>`:''}</div>`;
+  const accountHead=`<div class="settings-profile${vip?' is-vip':''}"><div class="settings-avatar">${esc(initial)}</div><div class="settings-profile-id">${nameBlock}<small>${org?esc(org.name):(vip?'个人账号 · 正式 VIP':'个人账号')}</small></div></div>`;
   // 账户资料：分组信息卡片
   const infoGroup=(title,rows)=>`<div class="settings-info-group"><h3>${esc(title)}</h3>${rows.join('')}</div>`;
   const infoRow=window.SiteHeader.profileRow;
