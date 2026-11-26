@@ -213,20 +213,37 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
   app.get('/api/cw/me', requireCustomer, enabled, async (req, res) => {
     const p = (await pool.query('SELECT * FROM cw_partners WHERE user_id=$1', [req.customer.id])).rows[0];
     if (!p) return res.json({ partner: null });
-    const totals = (
-      await pool.query(
-        `SELECT coalesce(sum(cash_fen),0)::text AS paid_fen,coalesce(sum(used_cash_fen),0)::text AS used_fen,coalesce(sum(expected_fen),0)::text AS expected_fen,coalesce(sum(unlocked_fen),0)::text AS unlocked_fen FROM cw_commissions WHERE partner_id=$1`,
-        [p.id],
-      )
-    ).rows[0];
-    const codes = (
-      await pool.query(
-        `SELECT k.id,k.code,k.name,k.status,k.customer_price_percent,k.commission_bps,k.is_self_code,k.starts_at,k.ends_at,
-   coalesce(sum(c.cash_fen),0)::text AS paid_fen,coalesce(sum(c.used_cash_fen),0)::text AS used_fen,coalesce(sum(c.expected_fen),0)::text AS expected_fen,coalesce(sum(c.unlocked_fen),0)::text AS unlocked_fen
-   FROM cw_codes k LEFT JOIN cw_commissions c ON c.code_id=k.id WHERE k.partner_id=$1 GROUP BY k.id ORDER BY k.is_self_code DESC,k.created_at`,
-        [p.id],
-      )
-    ).rows;
+    // A single statement keeps each code's disjoint stages on the same ledger snapshot.
+    const codes = (await pool.query(`WITH earnings AS (
+      SELECT code_id,sum(cash_fen) paid_fen,sum(used_cash_fen) used_fen,
+        sum(expected_fen) expected_fen,sum(unlocked_fen) unlocked_fen
+      FROM cw_commissions WHERE partner_id=$1 GROUP BY code_id
+    ), ready AS (
+      SELECT code_id,sum(commission_fen) available_fen FROM (${eligible}) z GROUP BY code_id
+    ), reserved AS (
+      SELECT c.code_id,
+        sum(e.commission_fen) FILTER (WHERE p.status IN ('requested','approved')) payout_pending_fen,
+        sum(e.commission_fen) FILTER (WHERE p.status='paid') paid_out_fen
+      FROM cw_commissions c JOIN cw_commission_events e ON e.order_id=c.order_id
+      JOIN cw_payout_items i ON i.event_id=e.id AND i.released_at IS NULL
+      JOIN cw_payouts p ON p.id=i.payout_id
+      WHERE c.partner_id=$1 AND e.kind='used' GROUP BY c.code_id
+    ), refunds AS (
+      SELECT c.code_id,sum(e.cash_fen) refunded_fen FROM cw_commissions c
+      JOIN cw_commission_events e ON e.order_id=c.order_id AND e.kind='refund'
+      WHERE c.partner_id=$1 GROUP BY c.code_id
+    ) SELECT k.id,k.code,k.name,k.status,k.customer_price_percent,k.commission_bps,k.is_self_code,k.starts_at,k.ends_at,
+      coalesce(e.paid_fen,0)::text paid_fen,coalesce(e.used_fen,0)::text used_fen,
+      coalesce(e.expected_fen,0)::text expected_fen,coalesce(e.unlocked_fen,0)::text unlocked_fen,
+      coalesce(a.available_fen,0)::text available_fen,coalesce(r.payout_pending_fen,0)::text payout_pending_fen,
+      coalesce(r.paid_out_fen,0)::text paid_out_fen,coalesce(f.refunded_fen,0)::text refunded_fen
+    FROM cw_codes k LEFT JOIN earnings e ON e.code_id=k.id LEFT JOIN ready a ON a.code_id=k.id
+      LEFT JOIN reserved r ON r.code_id=k.id LEFT JOIN refunds f ON f.code_id=k.id
+    WHERE k.partner_id=$1 ORDER BY k.is_self_code DESC,k.created_at`, [p.id])).rows;
+    const totals = Object.fromEntries(
+      ['paid_fen','used_fen','expected_fen','unlocked_fen','available_fen','payout_pending_fen','paid_out_fen','refunded_fen']
+        .map(key => [key, codes.reduce((sum, code) => sum + BigInt(code[key]), 0n).toString()]),
+    );
     const contracts = (
       await pool.query(
         'SELECT template_version,document_sha256,expires_at,verified_at FROM cw_contracts WHERE partner_id=$1 ORDER BY verified_at DESC',
@@ -245,13 +262,6 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         [p.id],
       )
     ).rows;
-    const perCode = (
-      await pool.query(
-        `SELECT z.code_id,sum(z.commission_fen)::text AS amount FROM (${eligible}) z GROUP BY z.code_id`,
-        [p.id],
-      )
-    ).rows;
-    for (const k of codes) k.available_fen = perCode.find((r) => r.code_id === k.id)?.amount || '0';
     const taskCodes = (
       await pool.query(
         "SELECT id,code,customer_price_percent,status,starts_at,ends_at,note FROM vip_task_codes WHERE partner_id=$1 AND status='active' AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) ORDER BY created_at DESC LIMIT 50",
@@ -266,7 +276,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       feedback:feedback?.reason||null,
       owner_name:owner?.name||null,recharges,activation_progress:await vipActivationProgress(pool,p.id),activate_min_cash_fen:VIP_ACTIVATE_MIN_CASH_FEN,
       partner: publicPartner(p),
-      totals: { ...totals, available_fen: await available(pool, p.id) },
+      totals,
       codes,
       contracts,
       payouts,

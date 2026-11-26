@@ -7,7 +7,7 @@ const drawSource=source.slice(source.indexOf('  let personalPage='),source.index
 function harness(status='active',options={}){
  const nodes=new Map();const node=key=>{if(!nodes.has(key))nodes.set(key,{innerHTML:'',textContent:'',dataset:{}});return nodes.get(key);};
  const data={partner:status?{status,legal_name:'测试伙伴',public_code:'VIP12345',bank_verified:true,bank_last4:'1234'}:null,totals:{available_fen:3200},codes:[],contracts:[],payouts:[],...options.data};
- const ctx=vm.createContext({data,base:"/api/cw",staff:false,params:new URLSearchParams('personal=1'),tab:'overview',innerWidth:1280,innerHeight:515,offset:0,viewVersion:1,location:{origin:'https://example.test'},window:{parent:null},parent:{postMessage(){}},document:{documentElement:{classList:{add(){}}},querySelector(){return null;}},$:node,esc:v=>String(v??''),money:v=>'¥'+(Number(v||0)/100).toFixed(2),when:v=>v||'—',labels:{requested:'待审核',paid:'已支付'},hasCurrentContract:cs=>cs.some(c=>Date.parse(c.expires_at)>Date.now()),hasPromotionTrial:()=>false,table:(h,r)=>`<table>${h.join('|')}${r}</table>`,form:(a,h,l)=>`<form>${h}${l}</form>`,field:()=>'',discount:()=>'',employeeInviteCode:'',referrer:'',api:options.api||(async()=>({events:[],has_more:false}))});
+ const ctx=vm.createContext({data,base:"/api/cw",staff:false,params:new URLSearchParams('personal=1'),tab:'overview',innerWidth:1280,innerHeight:515,offset:0,viewVersion:1,location:{origin:'https://example.test'},window:{parent:null},parent:{postMessage(){}},document:{documentElement:{classList:{add(){}}},querySelector(){return null;}},$:node,esc:v=>String(v??''),money:v=>'¥'+(Number(v||0)/100).toFixed(2),when:v=>v||'—',labels:{requested:'待审核',paid:'已支付'},hasCurrentContract:cs=>cs.some(c=>Date.parse(c.expires_at)>Date.now()),hasPromotionTrial:()=>false,table:(h,r)=>`<table>${h.join('|')}${r}</table>`,form:(a,h,l)=>`<form>${h}${l}</form>`,field:()=>'',discount:()=>'',promotionStatus:()=> '已生效',payLink:code=>'/?cw='+code,employeeInviteCode:'',referrer:'',api:options.api||(async()=>({events:[],has_more:false}))});
  vm.runInContext(drawSource,ctx);
  return {ctx,nodes,data,async draw(tab){ctx.tab=tab;await vm.runInContext("drawPersonalVIP($('#cw-content'),viewVersion)",ctx);return node('#cw-content').innerHTML;}};
 }
@@ -38,10 +38,19 @@ test('VIP status messages must come from the current same-origin VIP frame',()=>
  listener({...event,origin:'https://example.test',data:{type:'personal-vip-status',status:'confirmed'}});assert.equal(label.textContent,'VIP 申请进度');ctx.me={user:{id:'u2'}};assert.equal(vm.runInContext('personalVipLabel()',ctx),'去申请 VIP');
 });
 
-test('commission bars use one scale, retain numbers, and handle an empty balance',()=>{
- const h=harness();h.ctx.totals={expected_fen:12800,unlocked_fen:6400,available_fen:3200};
- const html=vm.runInContext('commissionBars(totals)',h.ctx);assert.match(html,/width:100%/);assert.match(html,/width:50%/);assert.match(html,/width:25%/);assert.match(html,/不相加/);assert.match(html,/¥32.00/);
- const empty=vm.runInContext('commissionBars({})',h.ctx);assert.doesNotMatch(empty,/NaN|Infinity/);assert.equal((empty.match(/width:0%/g)||[]).length,3);
+test('one strip partitions expected commission without double-counting withdrawals',()=>{
+ const h=harness();h.ctx.totals={expected_fen:12800,unlocked_fen:6400,available_fen:3200,payout_pending_fen:800,paid_out_fen:1600};
+ const amounts=vm.runInContext('commissionStages(totals).map(r=>r[2])',h.ctx);
+ assert.deepEqual(Array.from(amounts),[6400,800,3200,800,1600]);assert.equal(amounts.reduce((n,v)=>n+v,0),12800);
+ const html=vm.runInContext('commissionBar(totals)',h.ctx);assert.match(html,/width:50%/);assert.match(html,/width:25%/);assert.match(html,/提现中.*¥8.00/);assert.match(html,/已提现.*¥16.00/);assert.equal((html.match(/class="cv-commission-track"/g)||[]).length,1);
+ const empty=vm.runInContext('commissionBar({})',h.ctx);assert.doesNotMatch(empty,/NaN|Infinity|width:|提现中|已提现/);assert.equal((empty.match(/¥0.00/g)||[]).length,3);
+});
+test('each promotion code retains its own payments, refund and commission with pagination',async()=>{
+ const codes=[{id:'a',code:'A',name:'社群',paid_fen:10000,used_fen:4000,refunded_fen:6000,expected_fen:400,unlocked_fen:400,available_fen:400},{id:'b',code:'B',name:'朋友',paid_fen:20000,expected_fen:2000},{id:'c',code:'C',name:'未使用',paid_fen:0}];
+ const h=harness('active',{data:{codes,contracts:[{expires_at:'2099-01-01'}]}});h.ctx.innerHeight=650;
+ let html=await h.draw('codes');assert.match(html,/社群.*客户累计实付.*¥100.00.*已退款 ¥60.00.*可提现.*¥4.00/);assert.match(html,/朋友.*¥200.00/);assert.doesNotMatch(html,/未使用/);assert.equal((html.match(/class="cv-commission-track"/g)||[]).length,2);
+ vm.runInContext('personalPage=1',h.ctx);html=await h.draw('codes');assert.match(html,/未使用/);assert.doesNotMatch(html,/社群|朋友/);
+ h.data.codes=[{id:'self',is_self_code:true,name:'自用'}];assert.match(await h.draw('codes'),/自用充值码，不计推广佣金/);assert.doesNotMatch(await h.draw('codes'),/客户累计实付/);
 });
 test('contracts distinguish unavailable signing, real pending tasks and archived files',async()=>{
  const off=harness();assert.match(await off.draw('contracts'),/暂未开放/);assert.doesNotMatch(await off.draw('contracts'),/去法大大实名并签署|下载已签 PDF/);

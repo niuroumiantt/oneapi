@@ -585,20 +585,24 @@ body.cw-staff{height:auto;min-height:100dvh}.cw-staff .cw-app{display:block}.cw-
 @media(max-width:700px){.cw-personal .cw-heading>div{gap:10px}.cw-personal .cw-heading p{display:block;font-size:10px}.cw-personal .cw-heading #refresh{padding-inline:8px}.cw-personal .cw-heading{gap:10px}}
 @media(max-width:700px){.cw-personal .cw-payment-card{padding-block:6px}.cw-personal .cv-next .cw-inline{margin-top:8px}}
 
-/* Commission stages are separate, comparable bars; never additive balance segments. */
-.cv-commission-bars{display:grid;gap:15px;max-width:860px;font-variant-numeric:tabular-nums}
-.cv-commission-row{--commission-color:#3474bb}.cv-commission-unlocked{--commission-color:#b97222}.cv-commission-available{--commission-color:#26816b}
-.cv-commission-label{display:flex;justify-content:space-between;align-items:baseline;gap:16px;font-size:13px}.cv-commission-label strong{font-size:19px;font-weight:600}.cw-personal .cv-commission-label small{font-size:11px}
-.cv-commission-track{height:9px;background:#eef1f5;margin-top:5px;border-radius:4px;overflow:hidden}.cv-commission-track>span{display:block;height:100%;background:var(--commission-color);border-radius:4px}
-.cw-personal .cv-commission-row p{font-size:11px;margin:4px 0 0}.cw-personal .cv-commission-note{font-size:11px;margin:10px 0}
-.cw-personal #cw-content:has(.cv-commission-bars) .cw-progress{display:flex;align-items:baseline;gap:20px;margin-bottom:18px}.cw-personal #cw-content:has(.cv-commission-bars) .cw-progress h2{margin:0}.cw-personal #cw-content:has(.cv-commission-bars) .cw-progress p{margin:0}
+/* Each strip partitions one commission total; payments are reported separately. */
+.cv-code-overview{margin:20px 0 24px}
+.cv-commission{font-variant-numeric:tabular-nums}
+.cv-commission-track{display:flex;height:14px;gap:2px;background:#eef1f5;border-radius:4px;overflow:hidden;margin:12px 0 8px}
+.cv-commission-track>span{display:block;height:100%}
+.cv-stage-locked{background:#537da7}.cv-stage-settling{background:#b47b32}.cv-stage-available{background:#25836d}.cv-stage-pending{background:#8871a3}.cv-stage-paid{background:#7e899a}
+.cv-commission-legend{display:flex;flex-wrap:wrap;gap:8px 24px;font-size:11px;color:#65738a}
+.cv-commission-legend span{display:inline-flex;align-items:center;gap:5px}.cv-commission-legend i{width:7px;height:7px;border-radius:2px}.cv-commission-legend strong{color:#20273d;font-weight:500}
+.cv-code-amounts{display:flex;align-items:baseline;gap:24px;color:#65738a;font-size:12px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
+.cv-code-amounts strong{margin-left:8px;font-weight:500;font-size:17px;color:#20273d}.cv-code-amounts small{font-size:11px}
+.cv-code-list{margin-top:8px}.cv-code-row{padding:16px 0;border-bottom:1px solid #e3e7ee}
+.cv-code-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:12px}.cv-code-heading>div:first-child{min-width:0}.cv-code-heading strong{font-size:14px;font-weight:600;overflow-wrap:anywhere}.cv-code-heading small{font-size:11px;color:#65738a;margin-left:16px;overflow-wrap:anywhere}
+.cv-code-actions{display:flex;gap:14px;align-items:center;flex:none}.cw-personal .cv-code-actions button{min-height:28px;padding:4px 8px;font-size:11px}.cv-code-actions a{font-size:11px}
+.cw-personal .cv-commission-note{font-size:11px;line-height:1.6;margin:12px 0 0;color:#65738a}
+.cw-personal #cw-content:has(.cv-code-overview) .cw-progress{display:flex;align-items:baseline;gap:20px;margin-bottom:16px}.cw-personal #cw-content:has(.cv-code-overview) .cw-progress h2,.cw-personal #cw-content:has(.cv-code-overview) .cw-progress p{margin:0}
+@media(max-height:600px){.cv-code-row{padding:11px 0}.cv-code-heading{margin-bottom:8px}.cv-code-overview{margin:16px 0}.cv-code-amounts strong{font-size:16px}.cv-commission-track{height:12px;margin-top:9px}.cw-personal .cv-commission-note{margin-top:8px}}
+@media(max-width:700px){.cv-code-heading{align-items:flex-start;gap:10px}.cv-code-heading small{display:block;margin:3px 0 0}.cv-code-actions{gap:8px}.cv-code-amounts{gap:6px 14px;font-size:11px}.cv-code-amounts strong{font-size:15px;margin-left:4px}.cv-commission-legend{gap:6px 12px;font-size:10px}.cw-personal .cv-commission-note{font-size:10px}.cv-code-row{padding:12px 0}.cv-code-overview{margin:16px 0}.cw-personal #cw-content:has(.cv-code-overview) .cw-progress{gap:12px}.cw-personal #cw-content:has(.cv-code-overview) .cw-progress p{font-size:10px}}
 .cv-profile-sections{display:grid;grid-template-columns:1fr 1fr;gap:48px}.cv-profile-sections>section{min-width:0}.cv-info-list{margin:0 0 16px}.cv-info-list>div{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid #e3e7ee}.cv-info-list dt{color:#65738a}.cv-info-list dd{margin:0;overflow-wrap:anywhere;text-align:right}
 .cw-personal .cv-detail-note{font-size:11px;margin:8px 0}.cw-personal .cv-signing-status{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:12px 0;border-bottom:1px solid #e3e7ee}.cw-personal .cv-signing-status p{margin:4px 0}.cw-personal .cv-signing-status .cw-form{margin:0}
-@media(max-height:600px){.cv-commission-bars{gap:9px}.cw-personal #cw-content:has(.cv-commission-bars) .cw-progress{margin-bottom:10px}.cw-personal .cv-commission-note{margin:7px 0}.cv-info-list>div{padding:8px 0}}
-@media(max-width:700px){.cv-commission-bars{gap:8px}.cv-commission-label{font-size:12px}.cv-commission-label strong{font-size:16px}.cw-personal .cv-commission-row p,.cw-personal .cv-commission-note{font-size:10px;line-height:1.5}.cv-commission-track{height:7px}.cw-personal #cw-content:has(.cv-commission-bars) .cw-progress{gap:12px}.cw-personal #cw-content:has(.cv-commission-bars) .cw-progress p{font-size:10px}.cw-personal #cw-content:has(.cv-commission-bars) .cw-inline{margin-top:8px}.cv-profile-sections{gap:16px}.cw-personal .cv-profile-sections h2{font-size:15px;margin-bottom:8px}.cv-info-list{font-size:11px;margin-bottom:10px}.cv-info-list>div{display:block;padding:6px 0}.cv-info-list dd{text-align:left;margin-top:2px}.cw-personal .cv-profile-sections .cw-button,.cw-personal .cv-profile-sections button{font-size:10px;padding-inline:6px}.cw-personal .cv-detail-note{font-size:10px}.cw-personal .cv-signing-status{gap:12px;font-size:12px}.cw-personal .cv-signing-status>p{max-width:55%;font-size:10px}}
-
-.cv-commission-label{line-height:1.25}
-@media(max-height:600px){.cw-personal #cw-content:has(.cv-commission-bars)>.cw-inline{margin-top:8px}.cw-personal #cw-content:has(.cv-commission-bars)>.cv-business+p{margin:6px 0}.cv-commission-label strong{font-size:17px}}
-
-@media(max-width:700px){.cv-commission-bars{gap:6px}.cw-personal #cw-content:has(.cv-profile-sections)>.cw-inline{margin-top:8px}.cw-personal .cv-profile-sections .cv-detail-note{margin-block:6px}}
-@media(max-width:700px){.cw-personal #cw-content:has(.cv-profile-sections)>.cw-inline{margin-top:5px}}
+@media(max-height:600px){.cv-info-list>div{padding:8px 0}}
+@media(max-width:700px){.cv-profile-sections{gap:16px}.cw-personal .cv-profile-sections h2{font-size:15px;margin-bottom:8px}.cv-info-list{font-size:11px;margin-bottom:10px}.cv-info-list>div{display:block;padding:6px 0}.cv-info-list dd{text-align:left;margin-top:2px}.cw-personal .cv-profile-sections .cw-button,.cw-personal .cv-profile-sections button{font-size:10px;padding-inline:6px}.cw-personal .cv-detail-note{font-size:10px}.cw-personal .cv-signing-status{gap:12px;font-size:12px}.cw-personal .cv-signing-status>p{max-width:55%;font-size:10px}.cw-personal #cw-content:has(.cv-profile-sections)>.cw-inline{margin-top:5px}.cw-personal .cv-profile-sections .cv-detail-note{margin-block:6px}}

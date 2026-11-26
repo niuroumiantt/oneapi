@@ -253,6 +253,11 @@ test('CW application, code cap, payment, usage, month close and payout lifecycle
     pack = (await pool.query('SELECT * FROM credit_packs WHERE source_id=$1', [order.id])).rows[0];
     const p = (await call('/api/cw/me', null, 'b')).data;
     assert.equal(p.totals.expected_fen, '1000');
+    assert.equal(p.totals.paid_fen, '10000');
+    assert.equal(p.codes.find(k=>k.id===offer.id).paid_fen, '10000');
+    assert.equal(p.codes.find(k=>k.id===offer.id).expected_fen, '1000');
+    assert.equal(p.totals.refunded_fen, '0');
+    for(const key of Object.keys(p.totals)) assert.equal(p.codes.reduce((sum,k)=>sum+BigInt(k[key]),0n).toString(),p.totals[key]);
     assert.equal(
       Number(pack.face_fen),
       20000,
@@ -327,6 +332,9 @@ test('CW application, code cap, payment, usage, month close and payout lifecycle
       await transaction(pool, (db) => refundCW(db, ref));
       p = (await call('/api/cw/me', null, 'b')).data;
       assert.equal(p.totals.expected_fen, '400');
+      assert.equal(p.totals.paid_fen, '10000', 'refund does not rewrite cumulative actual payment');
+      assert.equal(p.totals.refunded_fen, '6000', 'duplicate refund is counted once');
+      assert.equal(p.codes.find(k=>k.id===offer.id).refunded_fen, '6000');
       assert.equal(p.totals.unlocked_fen, '400');
       const events = await call('/api/cw/events', null, 'b');
       assert.equal(events.data.events.length, 3);
@@ -430,6 +438,11 @@ test('CW application, code cap, payment, usage, month close and payout lifecycle
       const i = results.findIndex((r) => r.status === 201),
         r = results[i].data;
       assert.equal((await call('/api/cw/payouts', { request_key: keys[i] }, 'b')).data.id, r.id);
+      const pending = (await call('/api/cw/me', null, 'b')).data;
+      assert.equal(pending.totals.payout_pending_fen, '400');
+      assert.equal(pending.totals.paid_out_fen, '0');
+      assert.equal(pending.totals.available_fen, '0');
+      assert.equal(pending.codes.find(k=>k.id===offer.id).payout_pending_fen, '400');
       assert.equal(
         (
           await call(
@@ -466,6 +479,7 @@ test('CW application, code cap, payment, usage, month close and payout lifecycle
         200,
       );
       assert.equal((await call('/api/cw/me', null, 'b')).data.totals.available_fen, '400');
+      assert.equal((await call('/api/cw/me', null, 'b')).data.totals.payout_pending_fen, '0');
       assert.equal(
         (
           await pool.query(
@@ -500,6 +514,11 @@ test('CW application, code cap, payment, usage, month close and payout lifecycle
       assert.equal((await staff('/payouts/' + payout.id + '/complete', done)).status, 200);
       assert.equal((await staff('/payouts/' + payout.id + '/complete', done)).status, 409);
       assert.equal((await call('/api/cw/me', null, 'b')).data.totals.available_fen, '0');
+      const settled = (await call('/api/cw/me', null, 'b')).data;
+      assert.equal(settled.totals.payout_pending_fen, '0');
+      assert.equal(settled.totals.paid_out_fen, '400', 'commission bar uses gross, not net after withholding');
+      assert.equal(settled.codes.find(k=>k.id===offer.id).paid_out_fen, '400');
+      for(const key of Object.keys(settled.totals)) assert.equal(settled.codes.reduce((sum,k)=>sum+BigInt(k[key]),0n).toString(),settled.totals[key]);
       assert.equal((await call('/api/cw/payouts', { request_key: randomUUID() }, 'b')).status, 409);
     },
   );
