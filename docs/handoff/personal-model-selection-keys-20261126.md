@@ -44,3 +44,11 @@
 - 前端回滚目录 `/srv/oneapi-data/oneapi-cutover-q72dymap/releases/2a02ce618511-static.eXpkEF/previous-web`。
 - 正式用户全选6个模型：只显示一个「为已选模型生成 Key」主按钮，提示4个可用于Key、2个待开放，空备选区已收起；主区域clientHeight=scrollHeight=598。短窗口本地最终验证部分选择亦457=457。未修改生产清单或Key。
 - 发布日志 `/private/tmp/oneapi-dashboard-preview/models-polish-publish.log`。本回执仅文档，不再次部署。
+
+## 提交、上线与本地清理收尾核验
+
+用户明确要求提交、合入main、公网上线并删除本地无用分支。PR #146–150及全部回执已在远程main；公网静态仍为2a02ce6，API为95a365b，首页HTTP200，两份identity资源SHA256与文件名一致。本轮无需重复部署文档。
+
+清理前核验：本任务工作树无未提交/未跟踪文件，唯一忽略项node_modules为指向主目录依赖的符号链接；已停止本任务5个预览进程并移除该链接（依赖本体保留），没有LaunchAgents、配置或Codex项目路径依赖。任务分支与两个未被工作树占用的旧分支codex/customer-api-compare、codex/readable-ui-system均完整包含在origin/main，相应PR已合并，可使用不带force的git worktree remove和git branch -d清理。
+
+主目录/Users/m5/code/oneapi的main有7个独立提交、落后远程18个提交，并有其他任务的未跟踪文件，保留原样。其余被工作树占用或未完全合并的分支不在此次删除范围。
