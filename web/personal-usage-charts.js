@@ -2,7 +2,7 @@
 (() => {
 'use strict';
 let active=null;
-const palette={'deepseek-flash':'#5867cc','glm-5.3':'#269c99','glm-5.3-flash':'#d69b3b'};
+const palette={'deepseek-flash':'var(--personal-chart-deepseek,#5867cc)','glm-5.3':'var(--personal-chart-glm,#269c99)','glm-5.3-flash':'var(--personal-chart-flash,#d69b3b)'};
 const color=id=>palette[id]||`hsl(${[...id].reduce((h,c)=>(h*31+c.charCodeAt(0))%360,0)} 48% 44%)`;
 function clear(){if(active){active.controller?.abort();active.root.remove();active=null;}}
 function mount(home,owner){
