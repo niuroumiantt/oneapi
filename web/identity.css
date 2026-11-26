@@ -1789,3 +1789,54 @@ td>.live-dot:first-child{margin-right:5px}
 @media(min-width:701px) and (max-height:650px){
  .personal-api.api-key-manager td{padding-block:4px}
 }
+/* Personal settings: account facts and security actions, details on demand. */
+.personal-console:has(.personal-settings) .pc-stage{padding:28px 36px}
+.personal-settings h1{font-size:25px;line-height:36px;font-weight:600;margin:0 0 32px}
+.personal-settings h2{font-size:15px;line-height:24px;font-weight:600;margin:0 0 12px}
+.ps-columns{display:grid;grid-template-columns:1fr 1fr;gap:64px}
+.ps-row{display:grid;grid-template-columns:86px minmax(0,1fr) auto;gap:12px;align-items:center;min-height:64px;padding:12px 0;border-bottom:1px solid var(--ph-line);font-size:13px}
+.ps-row>span,.ps-muted{color:var(--ph-muted)}
+.ps-value{overflow-wrap:anywhere}
+.personal-settings button:not(.primary),.ps-upgrade{background:none;border:0;color:var(--ph-ink);font:inherit;cursor:pointer}
+.personal-settings .ps-row button,.ps-device-head button{font-size:12px;min-height:32px;padding:4px 0;white-space:nowrap}
+.personal-settings button:disabled{opacity:.5;cursor:default}
+.personal-settings :is(a,button):focus-visible{outline:2px solid #637a9c;outline-offset:3px}
+.ps-upgrade{display:inline-flex;align-items:center;gap:6px;margin-top:28px;font-size:12px;color:var(--ph-muted)}
+.personal-settings .ps-back{display:inline-flex;align-items:center;gap:6px;padding:0;min-height:32px;font-size:13px;color:var(--ph-muted);margin-bottom:20px}
+.ps-detail .panel-form{max-width:460px;margin:0}
+.ps-detail .panel-title{font-size:24px;line-height:32px;margin:0 0 12px}
+.ps-detail .live-form{gap:14px}
+.ps-detail .live-form label{font-size:13px;gap:6px}
+.ps-detail .live-form input{height:40px;min-height:40px}
+.ps-detail .live-form small{font-size:11px;color:var(--ph-muted);line-height:1.5}
+.ps-detail .live-button.primary{background:var(--ph-ink);border-color:var(--ph-ink);min-height:40px;font-size:13px}
+.ps-detail .live-form .live-small{margin:0;color:var(--ph-muted);font-size:12px}
+.ps-device-head{display:flex;justify-content:space-between;align-items:center;gap:16px}
+.ps-device-head h1{margin-bottom:0}.ps-muted{font-size:12px;margin:12px 0 20px}
+.ps-devices{list-style:none;margin:0 0 20px;padding:0}
+.ps-devices li{display:flex;justify-content:space-between;gap:16px;align-items:center;min-height:64px;border-bottom:1px solid var(--ph-line);font-size:13px}
+.ps-devices strong{font-weight:500}.ps-devices time{font-size:12px;color:var(--ph-muted)}
+@media(max-height:760px){
+ .personal-console:has(.personal-settings) .pc-stage{padding:18px 28px}
+ .personal-settings h1{margin-bottom:24px}.personal-settings .ps-back{margin-bottom:12px}
+ .ps-detail .live-form{gap:10px}.ps-detail .panel-title{margin-bottom:4px}
+ .ps-detail .live-form input{height:36px;min-height:36px}
+}
+@media(max-width:900px){.ps-columns{gap:32px}.ps-row{grid-template-columns:72px minmax(0,1fr) auto;gap:8px}}
+@media(max-width:700px){
+ .personal-console:has(.personal-settings) .pc-stage{padding:16px 18px}
+ .personal-settings h1{font-size:22px;margin-bottom:18px}
+ .ps-columns{grid-template-columns:1fr;gap:22px}
+ .personal-settings h2{font-size:13px;margin-bottom:4px}
+ .ps-row{min-height:44px;padding:7px 0;font-size:12px}
+ .ps-upgrade{margin-top:18px;font-size:11px}
+ .ps-devices li{align-items:flex-start;justify-content:center;flex-direction:column;gap:4px;padding:12px 0}
+ .ps-devices time{font-size:11px}.ps-device-head h1{margin:0}
+ .ps-detail .live-form{gap:8px}.ps-detail .live-form .live-button{min-height:36px}
+ .ps-detail .panel-title{font-size:22px}.ps-detail .live-form label{font-size:12px}
+}
+.personal-settings .live-form .live-sms-code-row .live-button{color:var(--ph-ink);border:1px solid var(--ph-line);background:#fff}
+@media(min-width:801px) and (max-height:650px){
+ .personal-console:has(.personal-settings) .pc-sidebar{padding:16px 12px}
+ .personal-console:has(.personal-settings) .pc-sidebar nav :is(button,a){min-height:40px;padding-block:8px}
+}

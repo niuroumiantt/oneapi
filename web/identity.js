@@ -789,7 +789,36 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  function redrawPasswordSettings(){
   if(panelOrg&&lastOrg)organizationV2(lastOrg);else securityPage();
  }
+ let personalSettingsView='overview',personalSettingsPage=0;
+ function personalDeviceName(agent=''){
+  const browser=/Edg\//.test(agent)?'Edge':/Firefox\//.test(agent)?'Firefox':/Chrome\//.test(agent)?'Chrome':/Safari\//.test(agent)?'Safari':'浏览器';
+  const system=/Android/.test(agent)?'Android':/iPhone|iPad/.test(agent)?'iOS':/Macintosh|Mac OS/.test(agent)?'macOS':/Windows/.test(agent)?'Windows':/Linux/.test(agent)?'Linux':'';
+  return agent?browser+(system?' · '+system:''):'未知设备';
+ }
+ function personalSettingsContent(){
+  const binding=panelData.smsBinding,sessions=Array.isArray(panelData.sessions)?panelData.sessions:null,byPhone=me.user.phoneOnly;
+  const action=(label,view,disabled=false)=>`<button type="button" data-live="settings-view" data-settings-view="${view}" ${disabled?'disabled':''}>${label}</button>`;
+  const row=(label,value,control='')=>`<div class="ps-row"><span>${label}</span><div class="ps-value">${value}</div>${control}</div>`;
+  const back=`<button type="button" class="ps-back" data-live="settings-view" data-settings-view="overview">${ico('arrow-left')}设置</button>`;
+  const errorRetry=kind=>`<button type="button" data-live="settings-retry" data-kind="${kind}">重新加载</button>`;
+  if(personalSettingsView==='password')return `<section class="personal-api personal-settings ps-detail">${back}${passwordSettings(binding).replace(/<h2 class="panel-title">([^<]+)<\/h2>/,'<h1 class="panel-title">$1</h1>')}</section>`;
+  if(personalSettingsView==='phone')return `<section class="personal-api personal-settings ps-detail">${back}<h1>${binding?.lastFour?'更换手机号':'绑定手机号'}</h1><form id="live-sms-bind" class="live-form panel-form">${smsFields(true)}<div id="live-form-message" role="status"></div><button class="live-button primary" type="submit">验证并绑定</button></form></section>`;
+  if(personalSettingsView==='devices'){
+   const pages=Math.max(1,Math.ceil((sessions?.length||0)/3)),page=Math.min(personalSettingsPage,pages-1);
+   const list=panelData['error:sessions']?`<p role="status">登录记录暂时无法读取。</p>${errorRetry('sessions')}`:!sessions?panelLoading:!sessions.length?'<p class="ps-muted">暂无登录记录。</p>':`<ul class="ps-devices">${sessions.slice(page*3,page*3+3).map(s=>`<li><strong>${esc(personalDeviceName(s.userAgent))}</strong><time>登录于 ${esc(new Date(s.createdAt).toLocaleString('zh-CN'))}</time></li>`).join('')}</ul>`;
+   return `<section class="personal-api personal-settings ps-detail">${back}<div class="ps-device-head"><h1>登录设备</h1><button type="button" data-live="revoke-others" ${!sessions||sessions.length<2?'disabled':''}>退出其他设备</button></div><p class="ps-muted">${sessions?`${sessions.length} 个有效会话。`:''}退出其他设备不会影响当前登录。</p>${list}${pages>1?`<nav class="pu-pages" aria-label="设备分页"><button type="button" data-live="settings-page" data-page="${page-1}" aria-label="上一页" ${page===0?'disabled':''}>${ico('chevron-left')}</button><span>${page+1} / ${pages}</span><button type="button" data-live="settings-page" data-page="${page+1}" aria-label="下一页" ${page===pages-1?'disabled':''}>${ico('chevron-right')}</button></nav>`:''}</section>`;
+  }
+  const phone=phoneLoginAvailable||byPhone;
+  const phoneValue=binding?.lastFour?'尾号 '+esc(binding.lastFour):panelData['error:smsBinding']?'暂时无法读取':binding?'未绑定':'正在读取…';
+  const phoneAction=panelData['error:smsBinding']?errorRetry('smsBinding'):phoneLoginAvailable&&!byPhone?action(binding?.lastFour?'更换':'绑定','phone',!binding):'';
+  const passwordLabel=byPhone&&binding?.hasPassword===false?'设置密码':'修改密码';
+  const passwordAvailable=!byPhone||phonePasswordAvailable&&typeof binding?.hasPassword==='boolean';
+  const deviceValue=panelData['error:sessions']?'暂时无法读取':sessions?`${sessions.length} 个有效会话`:'正在读取…';
+  const upgrade=!(me.organizations||[]).length?`<a class="ps-upgrade" href="#upgrade">${me.upgrade?.status==='pending'?'企业升级审核中':'升级为企业账号'}${ico('arrow-up-right')}</a>`:'';
+  return `<section class="personal-api personal-settings"><h1>设置</h1><div class="ps-columns"><section><h2>账户资料</h2>${row('姓名',esc(me.user.name||'—'))}${!byPhone&&me.user.email?row('登录邮箱',esc(me.user.email)):''}${phone?row('手机号',phoneValue,phoneAction):''}</section><section><h2>账户安全</h2>${row('登录密码',byPhone?(binding?.hasPassword?'已设置':'短信验证码登录'):'密码登录',passwordAvailable?action(passwordLabel,'password'):'')}${row('登录设备',deviceValue,panelData['error:sessions']?errorRetry('sessions'):action('查看','devices',!sessions))}</section></div>${upgrade}</section>`;
+ }
  function settingsContent(org=null){
+  if(!org)return personalSettingsContent();
   const manager=Boolean(org&&lastOrg?.permissions?.manager),role=lastOrg?.membership?.role,list=panelData.sessions,u=me.upgrade;
   const depts=org?lastOrg?.departments||[]:[];
   const canUpgrade=!org&&!(me.organizations||[]).length;
@@ -817,7 +846,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   panelOrg=null;panelRedraw=null;mount(panelPage(null,'settings',panelBody(`<section class="pc-tab-page"><div class="pc-tab-body"><div class="panel-form"><h2 class="panel-title">升级为企业账号</h2><p class="live-small">企业账号在个人账号全部功能上，增加员工管理、全公司用量和额度分配。</p>${pending?`<h3>申请审核中</h3><p class="live-small">${esc(u.legal_name)} 的升级申请已提交，审核通过后个人工作区会转为企业空间。审核期间可以照常使用。</p>`:`${rejected?note('上次申请未通过：'+u.reject_reason,true):''}<form id="live-upgrade" class="live-form"><label>企业全称<input name="legal_name" required maxlength="160"></label><label>统一社会信用代码<input name="credit_code" required minlength="18" maxlength="18"></label><label>联系人<input name="contact_name" required maxlength="80"></label><label>联系电话<input name="contact_phone" required maxlength="40"></label><label class="demo-check"><input type="checkbox" name="confirm_irreversible" value="yes" required> 我确认升级后不能降级，现有余额和 Key 归入企业。</label><div id="live-form-message" role="status"></div><button class="live-button primary" type="submit">提交升级申请</button></form>`}</div></div></section>`)));
  }
  function supportPage(){panelOrg=null;panelRedraw=supportPage;loadPanelData('tickets','/api/support/tickets',supportPage);loadPanelData('answers','/api/support/answers',supportPage);mount(panelPage(null,'support',panelBody(supportContent())));}
- function securityPage(){panelOrg=null;panelRedraw=securityPage;loadPanelData('sessions','/api/auth/list-sessions',securityPage);if(phoneLoginAvailable)loadPanelData('smsBinding','/api/auth/sms/binding',securityPage);mount(panelPage(null,'settings',panelBody(settingsContent())));}
+ function securityPage(){panelOrg=null;panelRedraw=securityPage;const redraw=()=>{if(current==='security'&&['overview','devices'].includes(personalSettingsView))securityPage();};loadPanelData('sessions','/api/auth/list-sessions',redraw);if(phoneLoginAvailable||me.user.phoneOnly)loadPanelData('smsBinding','/api/auth/sms/binding',redraw);mount(panelPage(null,'settings',panelBody(settingsContent())));}
  let orgTab='overview',orgShown=null;
  const organizationMoney=value=>{if(value===null||value===undefined)return '读取中';const cents=BigInt(value),absolute=cents<0n?-cents:cents;return `${cents<0n?'-':''}¥${absolute/100n}.${String(absolute%100n).padStart(2,'0')}`;};
  async function refreshOrganizationBilling(orgId,ticket){
@@ -1259,7 +1288,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  async function route(view){
   focusRefundHeading=view===refundRoute&&current!==refundRoute;
   if(personalConnectIssued&&view!=='personal/connect/'+personalConnectIssued.modelId)personalConnectIssued=null;
-  const previous=current,wasIdentityActive=document.body.classList.contains('identity-active');current=view;authMode=['register','enterprise-register'].includes(view)?'register':'login';publicTicket++;const ticket=++generation;if(Date.now()-panelDataAt>60000){panelData={tickets:null,sessions:null};panelDataAt=Date.now();}panelRedraw=null;
+  const previous=current,wasIdentityActive=document.body.classList.contains('identity-active');current=view;if(view==='security'&&previous!=='security')personalSettingsView='overview';authMode=['register','enterprise-register'].includes(view)?'register':'login';publicTicket++;const ticket=++generation;if(Date.now()-panelDataAt>60000){panelData={tickets:null,sessions:null};panelDataAt=Date.now();}panelRedraw=null;
   if(!host){host=document.createElement('div');host.id='identity-view';host.hidden=true;document.body.append(host);}
   document.body.classList.add('identity-route-pending');
   resetScrollOnMount=(!wasIdentityActive||previous!==view)&&!(previous.startsWith('ops/')&&view.startsWith('ops/'))&&!(previous.startsWith('organization/')&&view.startsWith('organization/')&&previous.split('/')[1]===view.split('/')[1]);
@@ -1443,6 +1472,9 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     redrawPasswordSettings();
     host.querySelector('#live-phone-password-settings input,#live-password-form input')?.focus();
    }
+   else if(action==='settings-view'){personalSettingsView=['password','phone','devices'].includes(b.dataset.settingsView)?b.dataset.settingsView:'overview';personalSettingsPage=0;securityPage();}
+   else if(action==='settings-page'){personalSettingsPage=Math.max(0,Number(b.dataset.page)||0);securityPage();}
+   else if(action==='settings-retry'){const kind=b.dataset.kind;if(['sessions','smsBinding'].includes(kind)){panelData[kind]=null;panelData['loading:'+kind]=false;delete panelData['error:'+kind];securityPage();}}
    else if(action==='sms-bind'){
     form('绑定短信登录手机号',smsFields(true),'live-sms-bind','验证并绑定');
    }
@@ -1537,7 +1569,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    else if(action==='edit-staff'){const s=staffList[Number(b.dataset.index)],admin=s.role==='platform_admin';form('设置 '+esc(s.name)+' 的权限',`<input type="hidden" name="subject" value="${esc(s.subject)}"><input type="hidden" name="admin" value="${admin?'yes':''}">${admin?'<p class="live-small">平台管理员拥有商务、财务和技术全部权限。</p>':`<label class="demo-check"><input type="checkbox" name="business" value="yes" ${s.role!=='pending'?'checked':''}> 商务后台</label><label class="demo-check"><input type="checkbox" name="finance" value="yes" ${s.finance_access?'checked':''}> 财务（收入、成本、毛利、发票、退款；需同时打开商务后台）</label><label class="demo-check"><input type="checkbox" name="technical" value="yes" ${s.technical_access?'checked':''}> 技术后台</label>`}<label>状态<select name="status"><option value="active">有效</option><option value="suspended" ${s.status==='suspended'?'selected':''}>停用</option></select></label><p class="live-small">保存后撤销该员工当前会话，需重新登录。</p>`,'live-staff-update');}
    else if(action==='customer-status'){const u=customers[Number(b.dataset.index)];dialog(u.disabled?'恢复客户账户':'停用客户账户',`<p class="live-small">${esc(u.email)}。停用将撤销该客户所有semifly.ai会话；恢复后需要重新登录。</p>${btn('确认操作','confirm-customer-status',`data-index="${b.dataset.index}"`,'primary')}`);}
    else if(action==='confirm-customer-status'){const u=customers[Number(b.dataset.index)];await api(`/api/staff/customers/${encodeURIComponent(u.id)}/status`,{disabled:!u.disabled});document.querySelector('#config-dialog').close();await route(current);}
-   else if(action==='revoke-others'){await api('/api/auth/revoke-other-sessions',{});await route(current);}
+   else if(action==='revoke-others'){await api('/api/auth/revoke-other-sessions',{});panelData.sessions=null;panelData['loading:sessions']=false;delete panelData['error:sessions'];await route(current);showToast('其他设备已退出，当前登录保留。');}
   }catch(err){message=document.querySelector('#live-dialog-message')||host?.querySelector('#live-form-message');if(message)message.innerHTML=note(err.message,true);else showToast(err.message);}finally{b.disabled=false;}
  });
  document.addEventListener('submit',async e=>{
@@ -1585,7 +1617,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     const result=await api('/api/auth/sms/verify',{phone:values.phone,code:values.code,
      challenge:form.dataset.smsChallenge,purpose,newPassword:purpose==='password'?values.newPassword:undefined});
     if(binding){
-     document.querySelector('#config-dialog').close();panelData.smsBinding={lastFour:result.lastFour};securityPage();showToast('已绑定短信登录手机号。');
+     document.querySelector('#config-dialog').close();personalSettingsView='overview';panelData.smsBinding={lastFour:result.lastFour};securityPage();showToast('已绑定短信登录手机号。');
     }else if(purpose==='password'){
      panelData.smsBinding={...panelData.smsBinding,hasPassword:true};
      panelData.sessions=null;
@@ -1689,7 +1721,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    else if(formId==='live-promotion'){const payload={...values,starts_at:new Date(values.starts_at).toISOString(),ends_at:new Date(values.ends_at).toISOString()};await api('/api/staff/promotion-campaigns',payload);document.querySelector('#config-dialog').close();await promotionPage(generation);showToast('活动草稿已保存，尚未发布。');}
    else if(formId==='live-supply-offer-update'){await api('/api/staff/supplier-offers/'+values.id,values,'PATCH');document.querySelector('#config-dialog').close();await supplierPage(generation,values.id);}
    else if(formId==='live-supply-check'){await api('/api/staff/supplier-offers/'+offerDetail.offer.id+'/checks/'+values.check_key,values,'PATCH');document.querySelector('#config-dialog').close();await supplierPage(generation,offerDetail.offer.id);}
-   else if(formId==='live-password-form'){await api('/api/auth/change-password',{...values,revokeOtherSessions:true});form.reset();message.innerHTML=note('密码已更新，其他设备已退出。');}
+   else if(formId==='live-password-form'){await api('/api/auth/change-password',{...values,revokeOtherSessions:true});panelData.sessions=null;panelData['loading:sessions']=false;delete panelData['error:sessions'];form.reset();message.innerHTML=note('密码已更新，其他设备已退出。');}
    else if(formId==='live-reset-form'){await api('/api/auth/reset-password',{token:resetToken,newPassword:values.newPassword});resetToken=null;form.reset();message.innerHTML=note('密码已重设，请返回登录。');}
   }catch(err){
    if(formId==='live-auth-form'&&err.code==='ACCOUNT_ALREADY_REGISTERED'){
