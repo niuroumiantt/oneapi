@@ -2,11 +2,13 @@
 (() => {
  'use strict';
  const known = {
-  business: ['acquisition','direct','promotions','approvals','overview', 'pnl', 'payments', 'transfers', 'invoices', 'payables', 'suppliers', 'customers', 'upgrades', 'products', 'discounts', 'cw', 'tickets', 'answers'],
+  business: ['home','acquisition','direct','promotions','approvals','overview', 'pnl', 'payments', 'transfers', 'invoices', 'payables', 'suppliers', 'customers', 'upgrades', 'products', 'discounts', 'cw', 'tickets', 'answers'],
   technical: ['overview', 'keys', 'evalkeys', 'features', 'agents', 'agentcmp', 'matrix', 'supplier', 'suppliers', 'credentials', 'models', 'tests', 'transactions', 'compare', 'identity', 'stress', 'monitor', 'routing', 'handoff', 'releases', 'billing', 'upstream', 'servers', 'capacity', 'prices', 'catalog', 'market']
  };
- const titles = { business: '商务后台', technical: '技术后台' };
- const positions = { business: 'acquisition', technical: 'overview' }, frames = {};
+ known.owner = [...known.business];
+ known.business = ['apioverview','apimodels','apikeys','apiusage','apicompare','vipcodes','customeroverview','vipoverview','customerapplications','vipapplications','home','acquisition','direct','cw','customers','tickets','answers','approvals','promotions'];
+ const titles = { owner:'老板工作台', business: '员工工作台', technical: '技术后台' };
+ const positions = { owner:'overview', business: 'home', technical: 'overview' }, frames = {};
  let host = null, access = null, accessPromise = null, current = null, supplier = '';
  const handles = view => view === 'console' || view.startsWith('console/');
 
@@ -15,7 +17,7 @@
   host = document.createElement('div');
   host.id = 'console-view';
   host.hidden = true;
-  host.innerHTML = `${window.SiteHeader.render('workspace',{className:'cs-top',account:'<a class="live-signin" href="#staff-account">账户与权限</a>',tools:`<nav class="cs-tabs" role="tablist" aria-label="切换面板"><a href="#workspace" role="tab" aria-selected="false">企业管理工作台</a><a href="#console/business" data-console-tab="business" role="tab" aria-selected="false" hidden>商务后台</a><a href="#console/technical" data-console-tab="technical" role="tab" aria-selected="false" hidden>技术后台</a></nav><span class="cs-live" role="status">正在验证员工权限…</span>`})}<main class="cs-panes"><div class="cs-message" role="status">正在打开后台…</div></main>${window.SiteHeader.footer()}`;
+  host.innerHTML = `${window.SiteHeader.render('workspace',{className:'cs-top',account:'<a class="live-signin" href="#staff-account">账户与权限</a>',tools:`<nav class="cs-tabs" role="tablist" aria-label="切换面板"><a href="#workspace" role="tab" aria-selected="false">个人与企业空间</a><a href="#console/business" data-console-tab="business" role="tab" aria-selected="false" hidden>员工工作台</a><a href="#console/owner" data-console-tab="owner" role="tab" aria-selected="false" hidden>老板工作台</a><a href="#console/technical" data-console-tab="technical" role="tab" aria-selected="false" hidden>技术后台</a></nav><span class="cs-live" role="status">正在验证员工权限…</span>`})}<main class="cs-panes"><div class="cs-message" role="status">正在打开后台…</div></main>${window.SiteHeader.footer()}`;
   document.body.append(host);
  }
  const panes = () => host.querySelector('.cs-panes'), message = () => host.querySelector('.cs-message'), live = text => { host.querySelector('.cs-live').textContent = text; };
@@ -45,12 +47,14 @@
  }
 
  function show(workspace, section) {
+  if(workspace==='owner'&&!access?.owner){denied(Object.assign(new Error('老板工作台需要独立的老板身份。'),{status:403}),workspace);return;}
   if (!access?.[workspace]) workspace = access?.business ? 'business' : 'technical';
   if (!access?.[workspace]) { denied(Object.assign(new Error('你的员工账户没有后台权限。'), { status: 403 }), workspace); return; }
   section = known[workspace].includes(section) ? section : positions[workspace];
   positions[workspace] = section;
   current = workspace;
   host.classList.toggle('technical', workspace === 'technical');
+  host.classList.toggle('owner-workspace',workspace==='owner');
   for (const tab of host.querySelectorAll('[data-console-tab]')) {
    tab.hidden = !access[tab.dataset.consoleTab];
    tab.setAttribute('aria-selected', String(tab.dataset.consoleTab === workspace));
@@ -58,8 +62,8 @@
   }
   if (!frames[workspace]) {
    const frame = document.createElement('iframe');
-   frame.title = workspace === 'technical' ? '技术运维工作台' : '业务运营工作台';
-   frame.src = '/api/staff/' + (workspace === 'technical' ? 'lab' : 'workspace') + '/view' + (workspace === 'technical' && supplier ? '?supplier=' + encodeURIComponent(supplier) : '') + '#' + section;
+   frame.title = workspace === 'technical' ? '技术运维工作台' : workspace==='owner'?'老板工作台':'业务运营工作台';
+   frame.src = '/api/staff/' + (workspace === 'technical' ? 'lab' : 'workspace') + '/view' + (workspace==='owner'?'?surface=owner':'') + (workspace === 'technical' && supplier ? '?supplier=' + encodeURIComponent(supplier) : '') + '#' + section;
    frame.addEventListener('load', () => {
     frame.dataset.loaded = 'true';
     if (current === workspace) message().hidden = true;
@@ -74,7 +78,7 @@
   const loading = !frames[workspace].dataset.loaded;
   message().textContent = '正在打开' + titles[workspace] + '…';
   message().hidden = !loading;
-  if (host.querySelector('.cs-live').textContent.startsWith('正在验证')) live('切换面板会保留各自位置');
+  if (host.querySelector('.cs-live').textContent.startsWith('正在验证')) live('公司内部工作空间');
   document.title = 'semifly.ai · ' + titles[workspace];
   const target = hashFor(workspace, section);
   if (location.hash !== target) history.replaceState(null, '', location.pathname + location.search + target);
@@ -94,7 +98,7 @@
   const pick = new URLSearchParams(query).get('supplier');
   if (pick && /^[a-f0-9-]{36}$/.test(pick)) supplier = pick;
   try { await loadAccess(); } catch (e) { denied(e, workspace); return; }
-  if (!host.hidden) show(['business', 'technical'].includes(workspace) ? workspace : current || (access.technical ? 'technical' : 'business'), section);
+  if (!host.hidden) show(['business', 'owner', 'technical'].includes(workspace) ? workspace : current || (access.technical ? 'technical' : 'business'), section);
  }
 
  function hide() {

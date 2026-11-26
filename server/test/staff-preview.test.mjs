@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import net from 'node:net';
+import {once} from 'node:events';
+
+test('local preview allows employee promotion applications while reserving decisions for owner',async t=>{
+ const socket=net.createServer();socket.listen(0,'127.0.0.1');await once(socket,'listening');const port=socket.address().port;await new Promise(r=>socket.close(r));
+ const child=spawn(process.execPath,['scripts/dev/staff-preview.mjs'],{cwd:new URL('../../',import.meta.url),env:{...process.env,STAFF_PREVIEW_PORT:String(port)},stdio:['ignore','pipe','pipe']});
+ t.after(()=>{child.kill();});
+ await Promise.race([once(child.stdout,'data'),once(child,'exit').then(()=>{throw Error('Preview exited before startup');})]);
+ const request=async(path,body,owner=false)=>{const res=await fetch(`http://127.0.0.1:${port}/api/staff/`+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',Cookie:'previewRole='+(owner?'platform_admin':'operations')},body:body?JSON.stringify(body):undefined});return {status:res.status,data:await res.json()};};
+ const form={business_line:'direct',audience:'all',promo_code:'LOCALABC',name:'Local test',reason:'Test application',customer_price_percent:30,min_cash_yuan:'5',non_refundable:false,starts_at:new Date().toISOString(),ends_at:new Date(Date.now()+86400000).toISOString()};
+ const applied=await request('business/discounts',form);assert.equal(applied.status,201);assert.equal(applied.data.status,'pending');
+ let list=(await request('business/acquisition')).data.grants;assert.equal(list[0].id,applied.data.id);assert.equal(list[0].state,'pending');assert.equal(list[0].min_cash_fen,500);
+ const decision=`business/discounts/${applied.data.id}/approve`;
+ assert.equal((await request(decision,{})).status,403);assert.equal((await request('business/finance')).status,403);assert.equal((await request('business/discounts')).status,403);
+ assert.equal((await request('business/discounts',{...form,business_line:'general'})).status,403);
+ assert.equal((await request('business/discounts',form)).status,409);
+ assert.equal((await request(decision,{},true)).data.status,'active');
+ assert.equal((await request('business/acquisition')).data.grants[0].state,'active');
+ assert.equal((await request(`business/discounts/${applied.data.id}/revoke`,{})).data.status,'revoked');
+ assert.equal((await request('business/discounts',form)).status,409,'revoked code remains reserved');
+ const standard=await request('business/discounts',{...form,promo_code:'LOCALDEF',customer_price_percent:50,min_cash_yuan:'0'});assert.equal(standard.data.status,'active');
+ const restricted=await request('business/discounts',{...form,promo_code:'LOCALGHI',customer_price_percent:50,min_cash_yuan:'0',non_refundable:true});assert.equal(restricted.data.status,'pending');
+ assert.equal((await request(`business/discounts/${restricted.data.id}/reject`,{},true)).status,400);
+ assert.equal((await request(`business/discounts/${restricted.data.id}/reject`,{note:'测试驳回'},true)).data.status,'rejected');
+ const ownerMade=await request('business/discounts',{...form,promo_code:'LOCALJKL'},true);assert.equal(ownerMade.data.status,'active');
+ list=(await request('business/acquisition')).data.grants;assert.ok(list.every(g=>g.id!==ownerMade.data.id));
+ assert.equal((await request(`business/discounts/${ownerMade.data.id}/revoke`,{})).status,404);
+});

@@ -25,11 +25,11 @@ function parameters(body){
  return out;
 }
 
-export function customerCompareRoutes(app,pool,cfg,requireCustomer){
+export function customerCompareRoutes(app,pool,cfg,requireCustomer,{prefix='/api/compare',allocatedOnly=false}={}){
  const router=express.Router(),active=new Set();
  // Injection exists only in server configuration for controlled tests, never in request data.
  const remote=cfg.compareReferenceFetch||publicFetch,local=cfg.comparePlatformFetch||fetch;
- router.use(requireCustomer,async(req,_res,next)=>{req.compareAccounts=await comparisonAccounts(pool,req.customer.id,cfg);if(!req.compareAccounts.length)throw new HttpError(402,'API 对比需要可用额度和 API 调用权限；支持自行购买、企业分配及赠送额度');next();},express.json({limit:'8mb'}));
+ router.use(requireCustomer,async(req,_res,next)=>{req.compareAccounts=(await comparisonAccounts(pool,req.customer.id,cfg)).filter(a=>!allocatedOnly||a.kind==='allocated');if(!req.compareAccounts.length)throw new HttpError(402,allocatedOnly?'公司分配额度不足，请联系老板调整额度。':'API 对比需要可用额度和 API 调用权限；支持自行购买、企业分配及赠送额度');next();},express.json({limit:'8mb'}));
  router.use(async(req,_res,next)=>{
   const count=(await pool.query("INSERT INTO request_limits(key,count,expires_at) VALUES($1,1,now()+interval '1 minute') ON CONFLICT(key) DO UPDATE SET count=CASE WHEN request_limits.expires_at<now() THEN 1 ELSE request_limits.count+1 END,expires_at=CASE WHEN request_limits.expires_at<now() THEN now()+interval '1 minute' ELSE request_limits.expires_at END RETURNING count",[hash('customer-compare|'+req.customer.id)])).rows[0].count;
   if(count>30)throw new HttpError(429,'对比台操作频繁，请一分钟后重试');next();
@@ -107,5 +107,5 @@ export function customerCompareRoutes(app,pool,cfg,requireCustomer){
    }));await send('end',{run_id:runId});}finally{clearInterval(ping);await retire();res.end();}
   }finally{clearTimeout(timeout);active.delete(req.customer.id);res.off('close',disconnect);await retire();}
  });
- app.use('/api/compare',router);
+ app.use(prefix,router);
 }
