@@ -1,6 +1,7 @@
 /* Real identities and organizations. No demo role selector is used by this module. */
 (() => {
  'use strict';
+ const employeeApi=window.EmployeeApiContext;
  const customerRoles={owner:'企业管理者',admin:'企业管理者',billing:'企业管理者',department_admin:'企业成员',member:'企业成员'};
  const staffRoles={platform_admin:'平台管理员',operations:'商务',supply:'商务',finance:'商务',support:'商务',pending:'未开通'};
  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -24,6 +25,7 @@
  const handles=v=>['workspace','enterprise-register','enterprise-login','register','personal','personal/models','personal/keys','personal/usage','personal/compare','personal/vip','enterprise','account','reset-password','staff','staff-account','admin','security','demo/personal','upgrade','support'].includes(v)||v.startsWith('personal/connect/')||personalBillingRoute(v)||v.startsWith('billing/organization/')||v.startsWith('demo/organization/')||v.startsWith('organization/')||v.startsWith('join/')||v.startsWith('ops/');
  let orgLoadedAt=0,panelDataAt=0,modelHealth=null,modelHealthAt=0,modelHealthTried=0,modelHealthLoading=false;
  async function api(path,body,method){
+  if(employeeApi)return employeeApi.request(path,body,method);
   const mutation=Boolean(body||method);
   if(mutation){navigationData.clear();orgLoadedAt=0;panelDataAt=0;lastOrgBilling=null;}
   const r=await fetch(path,{method:method||(body?'POST':'GET'),headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,credentials:'same-origin',cache:'no-store'});
@@ -64,6 +66,7 @@
   return Boolean(a&&b&&a.getAttribute('src')===b.getAttribute('src'));
  }
  function mount(content){
+  if(employeeApi){host.innerHTML=`<main class="employee-api-stage">${content}</main>`;host.hidden=false;document.body.classList.add("identity-active");document.body.classList.remove("identity-route-pending");return;}
   const wasIdentityActive=document.body.classList.contains('identity-active');
   host.classList.toggle('org-dashboard',current.startsWith('organization/'));host.classList.toggle('supply-dashboard',current.startsWith('ops/supply')||current==='ops/products'||current==='ops/payments'||current==='ops/promotions');host.classList.toggle('invite-dashboard',current.startsWith('join/'));host.classList.toggle('enterprise-dashboard',['enterprise','enterprise-login','enterprise-register'].includes(current)&&!!me);host.classList.toggle('auth-dashboard',content.includes('class="live-auth-layout"'));
   const existing=host.querySelector('.supply-shell');
@@ -203,10 +206,10 @@
  const wholeFen=value=>BigInt(String(value).split('.')[0]);
  const personalMoney=value=>{if(value===null||value===undefined)return '—';const cents=wholeFen(value),absolute=cents<0n?-cents:cents;return `${cents<0n?'-':''}¥${absolute/100n}.${String(absolute%100n).padStart(2,'0')}`;};
  const employeeCatalog=()=>(employeeCredit.models||[]).map(m=>{const base={hit:Number(m.cached_yuan),miss:Number(m.input_yuan),output:Number(m.output_yuan)},peak={hit:base.hit*m.peak_multiplier,miss:base.miss*m.peak_multiplier,output:base.output*m.peak_multiplier};return {id:m.id,family:m.family,name:m.name,subtitle:m.tags.join('、'),tags:m.capability_tags||m.tags,uses:m.uses,upstreamId:m.id,price:m.peak_multiplier>1?{kind:'timed',offpeak:base,peak}:{kind:'standard',standard:base}};});
- const personalCatalog=()=>creditActive()?employeeCatalog():((window.SemiflyModels||[]).filter(m=>['deepseek','glm'].includes(m.family)));
+ const personalCatalog=()=>employeeApi||creditActive()?employeeCatalog():((window.SemiflyModels||[]).filter(m=>['deepseek','glm'].includes(m.family)));
  const personalBaseRate=m=>m.price?.kind==='timed'?m.price[personalPricePeriod]:m.price?.standard;
  const personalDiscount=value=>window.SemiflyPrice?.discountedRate(value)||'待发布';
- const personalPrice=value=>creditActive()?'¥'+Number(value):personalDiscount(value);
+ const personalPrice=value=>employeeApi||creditActive()?'¥'+Number(value):personalDiscount(value);
  let personalModelGuideOpen=false;
  function personalModelAccess(model){
   if(paidCredit?.enabled&&paidCredit.models?.some(m=>m.id===model.id))return {label:'可调用',action:'paid-create',base:paidCredit.base_url};
@@ -214,7 +217,7 @@
   return {label:'待开放',action:null,base:null};
  }
  const personalModelChoices=new Map();
- function personalModelChoiceKey(){return me?.user?.id?'semifly.personal-models.v1:'+me.user.id:null;}
+ function personalModelChoiceKey(){return me?.user?.id?'semifly.'+(employeeApi?'employee':'personal')+'-models.v1:'+me.user.id:null;}
  function personalChosenModels(){
   const key=personalModelChoiceKey(),valid=new Set(personalCatalog().map(m=>m.id));
   let ids=personalModelChoices.get(key);
@@ -488,6 +491,7 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   return {title:'官价额度',balance:Number(personalBilling?.list_credit_fen??personalBilling?.cash_balance_fen??0)/100,note:`按官网价可消费 · 实付见账单`,daily:[],figures:[['累计已用',personalMoney(personalBilling?.total_spent_fen)],['30 天调用',(ok+bad).toLocaleString('zh-CN')],['成功率',ok+bad?(ok/(ok+bad)*100).toFixed(1)+'%':'—']],used:models.map(m=>m.model_id),attention:failedCalls(pilot?.recent_calls||[]),action:'recharge'};
  }
  function purchaseEntry(place='usage',compact=false){
+  if(employeeApi)return '';
   const org=panelOrg?.organization,manager=Boolean(panelOrg?.permissions?.manager);
   if(org&&!manager){
    if(compact)return '';
@@ -521,13 +525,13 @@ function personalHomeContent(){
   const tab=(name,label)=>`<button type="button" class="ph-link" data-live="personal-tab" data-tab="${name}">${label}${ico('arrow-right')}</button>`;
   return `<section class="personal-home" aria-labelledby="ph-title">
     <h1 id="ph-title">概览</h1>
-    <section class="ph-balance" aria-label="个人额度">
-      <div class="ph-balance-main"><span>可用官价额度</span><strong>${available===null?'—':personalMoney(available)}</strong><p>${available===null?'额度暂未加载，请刷新重试。':'按模型官网价计费'}</p></div>
-      <div class="ph-balance-actions"><a class="ph-primary" href="#billing/personal">${personalBilling?.payments_enabled?'充值':'查看账单'}</a>${personalBilling?.payments_enabled?'<a class="ph-link" href="#billing/personal/usage">消费账单</a>':''}</div>
-      ${personalBilling?personalBalanceBar(personalBilling,{overview:true}):'<div class="ph-spent"><span>累计消费</span><b>—</b></div>'}
+    <section class="ph-balance" aria-label="${employeeApi?'公司分配额度':'个人额度'}">
+      <div class="ph-balance-main"><span>${employeeApi?'公司可用额度':'可用官价额度'}</span><strong>${available===null?'—':personalMoney(available)}</strong><p>${available===null?'额度暂未加载，请刷新重试。':employeeApi?'公司统一分配，调用从公司额度扣除':'按模型官网价计费'}</p></div>
+      ${employeeApi?'':`<div class="ph-balance-actions"><a class="ph-primary" href="#billing/personal">${personalBilling?.payments_enabled?'充值':'查看账单'}</a>${personalBilling?.payments_enabled?'<a class="ph-link" href="#billing/personal/usage">消费账单</a>':''}</div>`}
+      ${employeeApi?`<div class="ph-spent"><span>累计消费</span><b>${personalBilling?personalMoney(personalBilling.total_spent_fen):'—'}</b></div>`:personalBilling?personalBalanceBar(personalBilling,{overview:true}):'<div class="ph-spent"><span>累计消费</span><b>—</b></div>'}
     </section>
     <section class="ph-connect" aria-labelledby="ph-connect-title"><div class="ph-section-head"><h2 id="ph-connect-title">API 接入</h2><a class="ph-link" href="#docs">接入文档${ico('arrow-up-right')}</a></div>
-      ${base?`<div class="ph-endpoint"><span>API 地址</span><code>${esc(base)}</code><button type="button" class="ph-copy" data-live="copy-text" data-text="${esc(base)}" aria-label="复制 API 地址">${ico('copy')}<span>复制</span></button></div><div class="ph-key-row"><span>${keys.length?`${keys.length} 枚有效密钥`:'创建密钥，开始第一次调用'}</span>${tab('keys',keys.length?'管理密钥':'创建密钥')}</div>`:'<p class="ph-unavailable">个人 API 调用暂未开放。</p>'}
+      ${base?`<div class="ph-endpoint"><span>API 地址</span><code>${esc(base)}</code><button type="button" class="ph-copy" data-live="copy-text" data-text="${esc(base)}" aria-label="复制 API 地址">${ico('copy')}<span>复制</span></button></div><div class="ph-key-row"><span>${keys.length?`${keys.length} 枚有效密钥`:'创建密钥，开始第一次调用'}</span>${tab('keys',keys.length?'管理密钥':'创建密钥')}</div>`:`<p class="ph-unavailable">${employeeApi?'公司尚未分配 API 额度，请联系老板开通。':'个人 API 调用暂未开放。'}</p>`}
     </section>
   </section>`;
 }
@@ -559,7 +563,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   if(personalTab==='compare')return comparePanel();
   if(personalTab==='models'&&!panelOrg)return personalModelsContent();
   if(personalTab==='connect'&&!panelOrg)return personalConnectContent();
-  if(personalTab==='keys'&&!panelOrg&&paidCredit?.enabled)return personalApiContent();
+  if(personalTab==='keys'&&!panelOrg&&(employeeApi||paidCredit?.enabled))return personalApiContent();
   const selected=personalCatalog().find(m=>m.id===personalSelected)||personalCatalog()[0];
   if(personalTab==='models'){
    const rows=personalCatalogRows(),rates=selected?personalBaseRate(selected):null,pilotSelected=Boolean(!panelOrg&&personalPilot?.enabled&&personalPilot.model_ids?.includes(selected?.id)),employeeSelected=Boolean(creditActive()&&employeeCredit.model_ids?.includes(selected?.id)),paidSelected=Boolean(!creditActive()&&paidCredit?.enabled&&paidCredit.models?.some(m=>m.id===selected?.id));
@@ -599,6 +603,13 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   host.querySelectorAll('[data-personal-tab]').forEach(b=>{const active=b.dataset.tab===personalTab||(personalTab==='connect'&&b.dataset.tab===(current==='personal/connect/all'?'keys':'models'));b.classList.toggle('active',active);if(b.getAttribute('role')==='tab')b.setAttribute('aria-selected',String(active));else b.setAttribute('aria-current',active?'page':'false');});
  }
  async function account(ticket,earlyBilling){
+  if(employeeApi){
+   panelOrg=null;teamUsage=null;personalTab=current==='personal'?'overview':current.split('/')[1];
+   const credit=await api('/api/customer-credit/status');if(ticket!==generation)return;paidCredit=credit;me={user:{id:credit.user_id}};
+   employeeCredit=employeeApi.status;personalBilling=employeeApi.billing(employeeCredit);personalPilot={enabled:false};
+   if(personalTab==='usage')await loadPersonalUsage(false);if(ticket!==generation)return;
+   mount(`<div data-personal-content>${personalDashboardContent()}</div>`);return;
+  }
   if(me?.upgrade?.status==='approved'&&me.upgrade.organization_id){location.hash='organization/'+me.upgrade.organization_id;return;}
   panelOrg=null;teamUsage=null;
   personalTab=current.startsWith('personal/')?current.split('/')[1]:'overview';
@@ -712,10 +723,11 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   let keyContent='';
   if(issued){keyContent=`<div class="mc-success">${ico('check')}Key 已生成</div><div class="mc-secret-label"><label for="mc-secret-value">API Key</label><div class="mc-secret"><input id="mc-secret-value" type="password" readonly value="${esc(issued.secret)}" aria-label="${esc(title)}" autocomplete="off" spellcheck="false"><button type="button" data-live="connect-secret-toggle" aria-controls="mc-secret-value" aria-label="显示密钥" title="显示密钥" aria-pressed="false">${ico('eye')}</button><button type="button" data-live="copy-text" data-text="${esc(issued.secret)}" aria-label="复制 Key">${ico('copy')}</button></div></div><dl class="mc-issued-meta">${unified?'':`<div><dt>允许模型</dt><dd>${esc(model.name)}</dd></div>`}<div><dt>${unified?'共用消费上限':'消费上限'}</dt><dd>¥${Number(issued.key.limit_yuan).toFixed(2)}</dd></div></dl><p class="mc-note">完整 Key 仅在本页显示，离开前请复制保存。</p><button type="button" class="pm-primary mc-mobile-next" data-live="connect-step" data-step="config">查看设置方法${ico('arrow-right')}</button>`;}
   else if(!paid){keyContent=`<p class="mc-message">${unified?'当前尚无已开放模型，开放后可创建通用 Key。':access.action==='pilot-create'?'此模型目前仅开放限量测试，可生成只调用此型号的测试 Key。':'此模型尚未开放调用，开放后可在这里生成专属 Key。'}</p>${access.action==='pilot-create'?'<button type="button" class="pm-primary" data-live="pilot-create">生成测试 Key</button>':'<a class="mc-text-link" href="#personal/models">返回我的模型</a>'}`;}
+  else if(employeeApi&&available<=0n){keyContent='<p class="mc-message">公司可用额度不足，请联系老板调整额度。</p>';}
   else if(balance<=0n){keyContent='<p class="mc-message">先补充账户额度，再生成 Key。</p><a class="pm-primary" href="#billing/personal" data-live="connect-recharge">充值后继续</a>';}
   else if(keys.length>=5){keyContent='<p class="mc-message">已达 5 把有效 Key 上限。停用不再使用的 Key 后，可继续创建。</p><a class="pm-primary" href="#personal/keys">管理已有 Key</a>';}
   else if(available<=0n){keyContent='<p class="mc-message">当前额度已分配给其他 Key。调整已有 Key 的消费上限，或充值后继续。</p><a class="pm-primary" href="#personal/keys">调整已有 Key</a><a class="mc-text-link" href="#billing/personal" data-live="connect-recharge">充值</a>';}
-  else{keyContent=`<form id="live-model-key" class="mc-form"><div class="mc-form-fields"><label>用途名称<input name="label" value="${esc(draft.label)}" required maxlength="50" autocomplete="off"></label><label>消费上限（元）<input name="limit_yuan" value="${esc(draft.limit)}" required inputmode="decimal" pattern="[0-9]+(\\.[0-9]{1,2})?" maxlength="9"></label></div><p class="mc-note">可分配 ${personalMoney(p.unallocated_fen)}。${unified?'所有模型共用此上限，按实际调用计费。':`此 Key 仅允许 ${esc(model.name)}。`}</p><div role="status" aria-live="polite"></div><button type="submit" class="pm-primary" ${personalConnectBusy||(unified&&!allowed.length)?'disabled':''}>${ico('key-round')}${personalConnectBusy?'正在生成…':unified?'一键生成通用 Key':'生成专属 Key'}</button>${unified?'<span class="mc-generate-note">可调用以上模型</span>':''}</form>`;}
+  else{keyContent=`<form id="live-model-key" class="mc-form"><div class="mc-form-fields"><label>用途名称<input name="label" value="${esc(draft.label)}" required maxlength="50" autocomplete="off"></label><label>消费上限（元）<input name="limit_yuan" value="${esc(draft.limit)}" required inputmode="decimal" pattern="[0-9]+(\\.[0-9]{1,2})?" maxlength="9"></label></div><p class="mc-note">${employeeApi?'公司可用额度':'可分配'} ${personalMoney(p.unallocated_fen)}。${employeeApi?'所有 Key 共用此额度，上限不代表额外分配。':''}${unified?'所有模型共用此上限，按实际调用计费。':`此 Key 仅允许 ${esc(model.name)}。`}</p><div role="status" aria-live="polite"></div><button type="submit" class="pm-primary" ${personalConnectBusy||(unified&&!allowed.length)?'disabled':''}>${ico('key-round')}${personalConnectBusy?'正在生成…':unified?'一键生成通用 Key':'生成专属 Key'}</button>${unified?'<span class="mc-generate-note">可调用以上模型</span>':''}</form>`;}
   return `<section class="personal-api personal-connect ${unified?'mc-unified':''}" data-step="${personalConnectStep}" aria-labelledby="mc-title"><header class="mc-heading"><div><a class="mc-back" href="${unified?'#personal/keys':'#personal/models'}">${ico('arrow-left')}${unified?'API 密钥':'我的模型'}</a><h1 id="mc-title">${esc(title)}</h1><p>${unified?(issued?'一把 Key，调用以下模型。':(allowed.length<(p?.models||[]).length?'包含你选中的已开放模型，可继续移除或恢复全部。':'包含全部已开放模型，可移除不需要的型号。')):`只调用这个模型。<a class="mc-unified-link" href="#personal/connect/all" data-live="connect-unified">多模型共用？创建通用 Key ${ico('arrow-right')}</a>`}</p></div><a class="mc-manage" href="#personal/keys">管理 Key${ico('arrow-up-right')}</a></header><nav class="mc-tabs" aria-label="接入步骤"><button type="button" data-live="connect-step" data-step="key" aria-pressed="${personalConnectStep==='key'}">${unified?'通用 Key':'专属 Key'}</button><button type="button" data-live="connect-step" data-step="config" aria-pressed="${personalConnectStep==='config'}">设置方法</button></nav><div class="mc-layout"><section class="mc-key" aria-labelledby="mc-key-title"><div class="mc-section-title"><h2 id="mc-key-title">密钥与额度</h2><span>${paid?'可用额度 '+personalMoney(p.list_credit_fen):access.label}</span></div>${scope}${keyContent}</section>${personalConnectConfig(model,allowed)}</div></section>`;
  }
  async function createPersonalModelKey(id,label,limit,selectedModels){
@@ -725,7 +737,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const credit=await api('/api/customer-credit/status');
   if(models.some(mid=>!credit.models?.some(m=>m.id===mid)))throw Error('所选模型的开放状态已变化，请刷新后重新选择。');
   if(!credit.enabled||!credit.models?.length||(id!=='all'&&!credit.models.some(m=>m.id===id)))throw Error('此模型当前未开放调用。');
-  if(wholeFen(credit.list_credit_fen||0)<=0n)throw Error('请先充值账户额度。');
+  if(wholeFen(credit.list_credit_fen||0)<=0n)throw Error(employeeApi?'公司可用额度不足，请联系老板调整额度。':'请先充值账户额度。');
   if((credit.keys||[]).filter(k=>!k.revoked_at).length>=5)throw Error('已达 5 把有效 Key 上限，请先管理已有 Key。');
   const match=String(limit).match(/^(\d{1,6})(?:\.(\d{1,2}))?$/),fen=match?BigInt(match[1])*100n+BigInt((match[2]||'').padEnd(2,'0')):0n;
   if(fen<=0n||fen>BigInt(credit.unallocated_fen||0))throw Error('消费上限须大于零，且不超过当前可分配额度。');
@@ -745,11 +757,12 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const p=paidCredit,keys=(p.keys||[]).filter(k=>!k.revoked_at),models=p.models||[];
   const usageMeter=k=>{
    const used=Math.max(0,Number(k.used_yuan)||0),limit=Math.max(0,Number(k.limit_yuan)||0),pct=limit>0?Math.min(100,used/limit*100):0,full=limit>0&&used>=limit;
+   if(employeeApi&&k.limit_yuan==null)return `<div class="ak-usage"><div class="ak-usage-label"><span>已用 <b>¥${used.toFixed(2)}</b> · 共用公司额度</span></div></div>`;
    const text=`已用 ¥${used.toFixed(2)} / 上限 ¥${limit.toFixed(2)}`;
    return `<div class="ak-usage ${full?'is-full':pct>=80?'is-near':''}"><div class="ak-usage-label"><span>已用 <b>¥${used.toFixed(2)}</b> / 上限 ¥${limit.toFixed(2)}</span>${full?'<small>已达上限</small>':''}</div><div class="ak-usage-track" role="progressbar" aria-label="${esc(k.label)}额度使用" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct.toFixed(2)}" aria-valuetext="${text}"><span style="width:${pct}%"></span></div></div>`;
   };
   const rows=keys.map(k=>`<tr><td><strong>${esc(k.label)}</strong>${(k.model_ids||[]).length>1?'<span class="ak-kind">多模型</span>':''}<small>•••• ${esc(k.key_hint)}</small></td><td class="ak-model" data-label="对应模型">${(k.model_ids||[]).map(id=>`<span>${esc(models.find(m=>m.id===id)?.name||id)}</span>`).join('')}</td><td class="ak-budget" data-label="额度使用">${usageMeter(k)}</td><td><div class="api-row-actions"><button type="button" data-live="paid-limit" data-id="${esc(k.id)}" data-label="${esc(k.label)}" data-limit="${esc(k.limit_yuan)}">调整上限</button><button type="button" data-live="paid-revoke" data-id="${esc(k.id)}">停用</button></div></td></tr>`).join('');
-  return `<section class="personal-api api-key-manager" aria-labelledby="api-title"><div class="api-page-head"><div><h1 id="api-title">API 密钥</h1><p>通用 Key 调用多个模型，专属 Key 只调用一个模型。</p></div><nav class="api-create-actions" aria-label="创建密钥"><a href="#personal/models">模型专属 Key</a><a class="pm-primary" href="#personal/connect/all" data-live="connect-unified">${ico('key-round')}创建通用 Key</a></nav></div><div class="api-balance-line"><span>账户额度 <b>${personalMoney(p.list_credit_fen)}</b></span><span>可分配额度 <b>${personalMoney(p.unallocated_fen)}</b></span><a href="#billing/personal">充值</a></div>${keys.length?`<div class="api-table-wrap"><table data-nosort><thead><tr><th>密钥</th><th>对应模型</th><th>额度使用</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="api-empty"><h2>还没有 API Key</h2><p>创建通用 Key 调用全部已开放模型，或从「我的模型」创建专属 Key。</p></div>'}<p class="api-caption">${keys.length} / 5 把有效 Key。充值后如需提高 Key 的消费上限，请在这里调整。</p></section>`;
+  return `<section class="personal-api api-key-manager" aria-labelledby="api-title"><div class="api-page-head"><div><h1 id="api-title">API 密钥</h1><p>通用 Key 调用多个模型，专属 Key 只调用一个模型。</p></div><nav class="api-create-actions" aria-label="创建密钥"><a href="#personal/models">模型专属 Key</a><a class="pm-primary" href="#personal/connect/all" data-live="connect-unified">${ico('key-round')}创建通用 Key</a></nav></div><div class="api-balance-line"><span>${employeeApi?'公司可用额度':'账户额度'} <b>${personalMoney(p.list_credit_fen)}</b></span>${employeeApi?'<span>所有 Key 共用公司额度</span>':`<span>可分配额度 <b>${personalMoney(p.unallocated_fen)}</b></span><a href="#billing/personal">充值</a>`}</div>${keys.length?`<div class="api-table-wrap"><table data-nosort><thead><tr><th>密钥</th><th>对应模型</th><th>额度使用</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="api-empty"><h2>还没有 API Key</h2><p>创建通用 Key 调用全部已开放模型，或从「我的模型」创建专属 Key。</p></div>'}<p class="api-caption">${keys.length} / 5 把有效 Key。${employeeApi?'额度由公司分配；可在此调整单个 Key 上限。':'充值后如需提高 Key 的消费上限，请在这里调整。'}</p></section>`;
  }
  function paidKeyPanel(){
   const p=paidCredit;
@@ -795,7 +808,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const count=n=>BigInt(n||0).toLocaleString('zh-CN'),money=n=>{const v=BigInt(n||0);return '¥'+(v/100n).toLocaleString('zh-CN')+'.'+String(v%100n).padStart(2,'0');};
   const totals=data?.totals;
   const content=personalUsageView==='calls'?personalCallContent():state?.error?`<div class="pu-empty" role="alert"><p>${state.error}</p><button type="button" data-live="usage-refresh">重新加载</button></div>`:!data?'<div class="pu-empty" role="status">正在加载用量…</div>':!rows.length?'<div class="pu-empty"><h2>这个时段还没有调用记录</h2><p>发起调用后，这里会显示模型和 Key 的用量。</p><a href="#personal/models">我的模型 '+ico('arrow-right')+'</a></div>':`<table class="pu-table" data-nosort><thead><tr><th>${personalUsageView==='models'?'模型':'API Key'}</th><th>输入 Token</th><th>输出 Token</th><th>费用</th></tr></thead><tbody>${rows.slice(page*pageSize,(page+1)*pageSize).map(row=>`<tr><td><strong>${esc(row.name)}</strong>${personalUsageView==='keys'?`<small>•••• ${esc(row.key_hint)}${row.revoked_at?' · 已停用':''}</small>`:''}</td><td>${count(row.input_tokens)}</td><td>${count(row.output_tokens)}</td><td>${money(row.cash_fen)}</td></tr>`).join('')}</tbody></table>`;
-  return `<section class="personal-api personal-usage" aria-labelledby="pu-title"><header class="pu-heading"><h1 id="pu-title">用量</h1><select data-usage-period aria-label="用量时间范围">${[['month','本月'],['week','最近 7 天'],['all','累计']].map(([value,label])=>`<option value="${value}" ${value===personalUsagePeriod?'selected':''}>${label}</option>`).join('')}</select></header><div class="pu-summary">${totals?`<span>总用量 <b>${count(BigInt(totals.input_tokens||0)+BigInt(totals.output_tokens||0))}</b> Token</span><span>费用 <b>${money(totals.cash_fen)}</b></span>`:'<span>API 调用用量</span>'}</div><nav class="pu-tabs" aria-label="用量分组"><button type="button" data-live="usage-view" data-usage-view="models" aria-pressed="${personalUsageView==='models'}">按模型</button><button type="button" data-live="usage-view" data-usage-view="keys" aria-pressed="${personalUsageView==='keys'}">按 Key</button><button type="button" data-live="usage-view" data-usage-view="calls" aria-pressed="${personalUsageView==='calls'}">调用明细</button></nav><div class="pu-results" aria-live="polite">${content}</div><footer class="pu-foot"><p>费用为已结算实付消耗，赠送额度不计入。${Number(totals?.unsettled_calls||0)>0?` ${count(totals.unsettled_calls)} 次调用待结算。`:''}</p>${personalUsageView!=='calls'&&pages>1?`<nav class="pu-pages" aria-label="用量分页"><button type="button" data-live="usage-page" data-page="${page-1}" aria-label="上一页" ${page===0?'disabled':''}>${ico('chevron-left')}</button><span>${page+1} / ${pages}</span><button type="button" data-live="usage-page" data-page="${page+1}" aria-label="下一页" ${page===pages-1?'disabled':''}>${ico('chevron-right')}</button></nav>`:''}</footer></section>`;
+  return `<section class="personal-api personal-usage" aria-labelledby="pu-title"><header class="pu-heading"><h1 id="pu-title">用量</h1><select data-usage-period aria-label="用量时间范围">${[['month','本月'],['week','最近 7 天'],['all','累计']].map(([value,label])=>`<option value="${value}" ${value===personalUsagePeriod?'selected':''}>${label}</option>`).join('')}</select></header><div class="pu-summary">${totals?`<span>总用量 <b>${count(BigInt(totals.input_tokens||0)+BigInt(totals.output_tokens||0))}</b> Token</span><span>费用 <b>${money(totals.cash_fen)}</b></span>`:'<span>API 调用用量</span>'}</div><nav class="pu-tabs" aria-label="用量分组"><button type="button" data-live="usage-view" data-usage-view="models" aria-pressed="${personalUsageView==='models'}">按模型</button><button type="button" data-live="usage-view" data-usage-view="keys" aria-pressed="${personalUsageView==='keys'}">按 Key</button><button type="button" data-live="usage-view" data-usage-view="calls" aria-pressed="${personalUsageView==='calls'}">调用明细</button></nav><div class="pu-results" aria-live="polite">${content}</div><footer class="pu-foot"><p>${employeeApi?'费用为已结算的公司额度消耗。':'费用为已结算实付消耗，赠送额度不计入。'}${Number(totals?.unsettled_calls||0)>0?` ${count(totals.unsettled_calls)} 次调用待结算。`:''}</p>${personalUsageView!=='calls'&&pages>1?`<nav class="pu-pages" aria-label="用量分页"><button type="button" data-live="usage-page" data-page="${page-1}" aria-label="上一页" ${page===0?'disabled':''}>${ico('chevron-left')}</button><span>${page+1} / ${pages}</span><button type="button" data-live="usage-page" data-page="${page+1}" aria-label="下一页" ${page===pages-1?'disabled':''}>${ico('chevron-right')}</button></nav>`:''}</footer></section>`;
  }
  function paidUsagePanel(){return `${purchaseEntry('usage')}<section class="personal-ledger"><h2>付费调用用量</h2><p>按调用时官网价格计量；实付款消耗按购买批次折算。没有可靠用量的请求暂时预留，不按估算强制扣费。</p><div class="personal-table-wrap"><table><thead><tr><th>时间</th><th>模型</th><th>输入 / 输出 Token</th><th>官价额度（元）</th><th>状态</th></tr></thead><tbody>${paidCredit.calls.map(c=>`<tr><td>${new Date(c.created_at).toLocaleString('zh-CN')}</td><td>${esc(c.model_id)}</td><td>${c.input_tokens??'—'} / ${c.output_tokens??'—'}</td><td>${c.charged_yuan==null?'待结算':Number(c.charged_yuan).toFixed(6)}</td><td>${esc({settled:'已结算',pending:'调用中',awaiting_bill:'等待用量',failed:'未扣费'}[c.status])}</td></tr>`).join('')}</tbody></table></div></section>`;}
  let panelData={tickets:null,sessions:null},panelRedraw=null;
@@ -825,7 +838,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const label=host.querySelector('[data-vip-label]');if(label)label.textContent=personalVipLabel();
  });
  const panelPage=(org,active,stage)=>`<div class="personal-console" data-workspace-scope="${org?esc(org.id):'personal'}">${customerHeader(org)}<aside class="pc-sidebar"><nav aria-label="工作台导航">${panelNav(org,active)}${me?.backoffice?.business?`<a href="#console/business/acquisition">${ico('briefcase-business')} 商务管理</a>`:''}${!org?`<a href="#security" data-nav="settings" class="pc-settings-link ${active==='settings'?'active':''}" aria-current="${active==='settings'?'page':'false'}">${ico('settings')}<span>个人设置</span></a><a href="#personal/vip" class="pc-vip-link ${active==='vip'?'active':''}" aria-current="${active==='vip'?'page':'false'}"><span class="pc-vip-label"><span data-vip-label>${personalVipLabel()}</span><svg class="pc-vip-circle" viewBox="0 0 150 48" fill="none" aria-hidden="true"><path d="M135 9C113 0 39 0 14 12C-7 24 6 43 62 44C112 48 150 34 145 20C142 10 127 7 114 6M19 8C-3 20 7 36 29 40"/></svg></span>${ico('arrow-up-right')}</a>`:''}</nav></aside><div class="pc-stage ${active==='billing'?'billing-stage':''}">${stage}</div>${window.SiteHeader.footer()}</div>`;
- const comparePanel=()=>`<iframe class="workspace-compare-frame${panelOrg?'':' personal-api'}" title="API 对比台" src="/compare.html?embedded=1${panelOrg?'':'&personal=1'}"></iframe>`;
+ const comparePanel=()=>`<iframe class="workspace-compare-frame${panelOrg?'':' personal-api'}" title="API 对比台" src="/compare.html?embedded=1${panelOrg?'':'&personal=1'}${employeeApi?'&employee=1':''}"></iframe>`;
  const panelBody=content=>`<div data-personal-content>${content}</div>`;
  const panelLoading='<p class="personal-model-empty">正在读取…</p>';
  const settingRow=(label,value)=>`<div class="org-setting-row"><span>${label}</span><b>${value}</b></div>`;
@@ -1470,6 +1483,10 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const previous=current,wasIdentityActive=document.body.classList.contains('identity-active');current=view;if(view==='security'&&previous!=='security')personalSettingsView='overview';authMode=['register','enterprise-register'].includes(view)?'register':'login';publicTicket++;const ticket=++generation;if(Date.now()-panelDataAt>60000){panelData={tickets:null,sessions:null};panelDataAt=Date.now();}panelRedraw=null;
   if(!host){host=document.createElement('div');host.id='identity-view';host.hidden=true;document.body.append(host);}
   document.body.classList.add('identity-route-pending');
+  if(employeeApi){
+   if(!['personal','personal/models','personal/keys','personal/usage','personal/compare'].includes(view)&&!/^personal\/connect\/[a-z0-9.-]+$/.test(view)){location.hash='personal';return;}
+   try{await account(ticket);}catch(error){if(ticket===generation)mount(note(error.message,true));}return;
+  }
   resetScrollOnMount=(!wasIdentityActive||previous!==view)&&!(previous.startsWith('ops/')&&view.startsWith('ops/'))&&!(previous.startsWith('organization/')&&view.startsWith('organization/')&&previous.split('/')[1]===view.split('/')[1]);
   if(wasIdentityActive&&staff&&previous.startsWith('ops/')&&!host.classList.contains('route-loading')){const oldShell=host.querySelector('.supply-shell');if(oldShell)opsPageCache.set(previous,oldShell.outerHTML);}
   const [,orgId,section]=view.match(/^organization\/([^/]+)\/?([^/]*)$/)||[];
@@ -1571,7 +1588,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     paidKeyCreateForm(credit);
    }
    else if(action==='paid-revoke'){await api('/api/customer-credit/keys/'+b.dataset.id+'/revoke'+paidScope(),{});paidCredit=await api('/api/customer-credit/status'+paidScope());if(panelRedraw)panelRedraw();else updatePersonalDashboard();}
-   else if(action==='paid-limit'){const curLimit=Number(b.dataset.limit||0),otherSum=(paidCredit?.keys||[]).filter(k=>!k.revoked_at&&k.id!==b.dataset.id).reduce((n,k)=>n+Number(k.limit_yuan||0),0),remaining=(Number(paidCredit?.list_credit_fen||0)/100)-otherSum;form('调整这把 Key 的消费上限',`<input type="hidden" name="key_id" value="${esc(b.dataset.id)}"><p class="live-small">${esc(b.dataset.label)}</p><label>新的官价额度消费上限（元）<input name="limit_yuan" required inputmode="decimal" value="${esc(b.dataset.limit)}" placeholder="例如 10"></label><p class="live-small">这把 Key 加上其他 Key 的额度总和不能超过剩余官价额度，这把最多可设 <b>¥${Math.max(0,remaining).toFixed(2)}</b>。上限不是充值，不会增加余额；调低不能低于这把 Key 已经用掉的额度。</p>`,'live-paid-limit','保存上限');}
+   else if(action==='paid-limit'){const curLimit=Number(b.dataset.limit||0),otherSum=(paidCredit?.keys||[]).filter(k=>!k.revoked_at&&k.id!==b.dataset.id).reduce((n,k)=>n+Number(k.limit_yuan||0),0),remaining=employeeApi?Number(paidCredit?.list_credit_fen||0)/100+Number(paidCredit.keys.find(k=>k.id===b.dataset.id)?.used_yuan||0):(Number(paidCredit?.list_credit_fen||0)/100)-otherSum;form('调整这把 Key 的消费上限',`<input type="hidden" name="key_id" value="${esc(b.dataset.id)}"><p class="live-small">${esc(b.dataset.label)}</p><label>新的官价额度消费上限（元）<input name="limit_yuan" required inputmode="decimal" value="${esc(b.dataset.limit)}" placeholder="例如 10"></label><p class="live-small">${employeeApi?'所有 Key 共用公司额度，这把最多可设':'这把 Key 加上其他 Key 的额度总和不能超过剩余官价额度，这把最多可设'} <b>¥${Math.max(0,remaining).toFixed(2)}</b>。${employeeApi?'调整上限不会增加公司额度；调低不能低于这把 Key 已使用及预留额度。':'上限不是充值，不会增加余额；调低不能低于这把 Key 已经用掉的额度。'}</p>`,'live-paid-limit','保存上限');}
    else if(action==='refund-refresh'){await route(current);}
    else if(action==='pack-refund'){
     const pack=personalBilling?.packs?.find(p=>p.id===b.dataset.id);

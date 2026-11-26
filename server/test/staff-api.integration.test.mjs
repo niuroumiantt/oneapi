@@ -45,13 +45,26 @@ test('staff API uses only preassigned company allowance and own keys',{skip:!url
   await pool.query('UPDATE "user" SET "emailVerified"=true WHERE id=$1',[b]);
  });
  const made=await call('/api/staff/self-api/keys',{label:'Own test key',owner_id:b});assert.equal(made.status,201,JSON.stringify(made.data));const key=made.data.key.id,secret=made.data.secret;
+ await t.test('shared usage contract covers full history, periods and only this employee',async()=>{
+  const another=await call('/api/staff/self-api/keys',{label:'Other employee'},b);
+  await pool.query("INSERT INTO employee_calls(key_id,owner_id,model_id,price_snapshot,status,hold_yuan,charged_yuan,input_tokens,output_tokens,created_at) SELECT $1,$2,'deepseek-v4-pro','{}','settled',0,0.0125,100,20,now() FROM generate_series(1,40)",[key,a]);
+  await pool.query("INSERT INTO employee_calls(key_id,owner_id,model_id,price_snapshot,status,hold_yuan,charged_yuan,input_tokens,output_tokens,created_at) VALUES($1,$2,'deepseek-v4-pro','{}','settled',0,1,10,2,now()-interval '400 days'),($3,$4,'deepseek-v4-pro','{}','settled',0,9,900,90,now())",[key,a,another.data.key.id,b]);
+  const monthly=await call('/api/staff/self-api/usage?period=month&owner='+b);assert.equal(monthly.status,200,JSON.stringify(monthly.data));assert.equal(monthly.data.totals.calls,'40');assert.equal(monthly.data.totals.cash_fen,'50');assert.equal(monthly.data.models[0].input_tokens,'4000');
+  const all=await call('/api/staff/self-api/usage?period=all');assert.equal(all.data.totals.calls,'41');assert.equal(all.data.totals.cash_fen,'150');
+  const other=await call('/api/staff/self-api/usage?period=all',null,b);assert.equal(other.data.totals.cash_fen,'900');
+  const detail=await call('/api/staff/self-api/usage/calls?period=all&size=3&page=0');assert.equal(detail.status,200,JSON.stringify(detail.data));assert.equal(detail.data.items.length,3);assert.equal(detail.data.has_more,true);assert.equal(detail.data.items[0].cash_fen,'1');
+  assert.equal((await call('/api/staff/self-api/usage/calls?size=100')).status,400);
+  await pool.query('UPDATE employee_api_keys SET revoked_at=now() WHERE id=$1',[another.data.key.id]);
+  assert.equal((await call('/api/staff/self-api/usage?period=all',null,b)).data.totals.calls,'1');
+  await pool.query('DELETE FROM employee_calls WHERE owner_id=ANY($1::text[])',[[a,b]]);
+ });
  await t.test('own key operations reject cross-user and over-budget edits',async()=>{
   assert.equal((await pool.query('SELECT owner_id FROM employee_api_keys WHERE id=$1',[key])).rows[0].owner_id,a);
   assert.equal((await call('/api/staff/self-api/keys/'+key+'/revoke',{},b)).status,404);
   assert.equal((await call('/api/staff/self-api/keys/'+key+'/manage',{label:'new',limit_yuan:500})).status,409);
   assert.equal((await call('/api/staff/self-api/keys/'+key+'/manage',{label:'new',limit_yuan:5})).status,200);
   const view=await call('/api/staff/self-api/status');assert.equal(view.data.keys[0].secret,undefined);
-  assert.equal((await call('/api/staff/self-api/status',null,b)).data.keys.length,0);
+  assert.ok((await call('/api/staff/self-api/status',null,b)).data.keys.every(k=>k.id!==key));
  });
  await t.test('comparison exposes allocated account only and exhaustion stops before upstream',async()=>{
   const compare=await call('/api/staff/self-api/compare/config');assert.equal(compare.status,200,JSON.stringify(compare.data));assert.deepEqual(compare.data.products.map(p=>p.kind),['allocated']);

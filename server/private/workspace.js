@@ -42,7 +42,9 @@ const ALIASES = { ...(!ownerSurface?{acquisition:'customeroverview',approvals:'c
 const SOURCES = { home:()=> 'business/support', acquisition:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),direct:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),promotions:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),approvals:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''), pnl: () => 'business/finance?month=' + (ui.month || ''), payments: () => 'payments/orders', transfers: () => 'business/bank-transfers', invoices: () => 'business/invoices', payables: () => 'business/supplier-payments', suppliers: () => 'business/suppliers', customers: () => 'business/customers', discounts: () => 'business/discounts', tickets: () => 'business/support', answers: () => 'business/support' };
 for(const page of ['customeroverview','vipoverview','customerapplications','vipapplications'])SOURCES[page]=SOURCES.acquisition;
 SOURCES.vipcodes=()=> 'cw';
-for(const page of ['apioverview','apimodels','apikeys','apiusage'])SOURCES[page]=()=> 'self-api/status';
+const API_VIEWS={apioverview:'personal',apimodels:'personal/models',apikeys:'personal/keys',apiusage:'personal/usage',apicompare:'personal/compare'};
+let apiInnerNavigation=false;
+addEventListener('message',event=>{const frame=document.querySelector('#employee-api-frame');if(event.origin!==location.origin||event.source!==frame?.contentWindow||event.data?.type!=='employee-api-position'||!API_VIEWS[event.data.page]||currentPage()===event.data.page)return;apiInnerNavigation=true;location.hash=event.data.page;});
 const LABEL = {
  stage: { new: '新客户', following: '跟进中', key: '重点客户', risk: '流失风险', lost: '已流失' },
  kind: { enterprise: '企业', personal: '个人' },
@@ -428,6 +430,7 @@ async function draw() {
  if(ui.codeActivity&&['direct','promotions'].includes(page)){content.innerHTML=`<iframe class="staff-code-activity" title="推广码收支明细" src="/code-activity.html?audience=staff&amp;kind=${ui.codeActivity.kind}&amp;code=${encodeURIComponent(ui.codeActivity.id)}"></iframe>`;return;}
  const channel=promotionChannel(page);
  if(!ownerSurface&&channel&&channel!==ui.promotionChannel){ui.promotionSearch||={};if(ui.promotionChannel)ui.promotionSearch[ui.promotionChannel]=ui.acquisitionQuery||'';ui.acquisitionQuery=ui.promotionSearch[channel]||'';ui.promotionChannel=channel;}
+ document.querySelector('.shell')?.classList.toggle('shared-api',Boolean(API_VIEWS[page]));
  document.title=ownerSurface?'semifly.ai · 老板工作台':'semifly.ai · 员工工作台';
  $('#title').textContent = !ownerSurface&&['customerapplications','vipapplications'].includes(page)?(page==='customerapplications'?'客户推广 · 我的申请':'VIP推广 · 我的申请'):PAGES[page].label;
  $('#subtitle').textContent = !ownerSurface&&page==='customers'?'管理自己负责的客户，记录跟进并提供服务。':SUBTITLES[page];
@@ -436,6 +439,13 @@ async function draw() {
  if(!allowedPage(page)){ $('#nav').innerHTML='';drawNav('home');content.innerHTML='<div class="panel empty">此页面不属于员工工作台。请返回今日工作；经营、供应与资金由老板身份管理。<p><button data-go="home">返回今日工作</button></p></div>';return; }
  drawNav(page);
  if (PAGES[page].gate && !state.dash.staff[PAGES[page].gate]) { content.innerHTML = '<div class="panel empty">这一页需要财务权限。请平台管理员在“账户与权限”里为你打开财务开关。</div>'; return; }
+ if(API_VIEWS[page]){
+  ++drawing;const frame=document.querySelector('#employee-api-frame');
+  if(frame?.contentWindow){if(!apiInnerNavigation)frame.contentWindow.location.replace('/employee-api.html#'+API_VIEWS[page]);}
+  else content.innerHTML=`<iframe id="employee-api-frame" class="employee-api-frame" title="我的 API" src="/employee-api.html#${API_VIEWS[page]}"></iframe>`;
+  apiInnerNavigation=false;return;
+ }
+ apiInnerNavigation=false;
  const turn = ++drawing, started = generation, source = SOURCES[page]?.();
  const needsOverview = ['suppliers', 'products'].includes(page);
  const needsBusiness = ['overview', 'products', 'upgrades'].includes(page);
@@ -619,7 +629,7 @@ const ACTIONS = {
  }
 };
 
-if(typeof StaffApiUI==='function'){const ownApi=StaffApiUI({esc,att,table,section,api,get,openForm,reload,notify});Object.assign(pages,ownApi.pages);Object.assign(ACTIONS,ownApi.actions);}
+
 
 document.addEventListener('submit',e=>{
  if(e.target.id!=='employeeSearch')return;
@@ -634,7 +644,7 @@ document.addEventListener('click', async e => {
  }
  if (e.target.closest('[data-close]')) return $('#dialog').close();
  const tab = e.target.closest('[data-tab],[data-go]');
- if (tab) { notify(''); location.hash = tab.dataset.tab || tab.dataset.go; return; }
+ if (tab) { notify('');const next=tab.dataset.tab||tab.dataset.go;if(next===currentPage()&&API_VIEWS[next]){apiInnerNavigation=false;draw();}else location.hash=next;return; }
  if (e.target.id === 'refresh') { notify(''); return reload(); }
  const act = e.target.closest('[data-act]');
  if (act) {

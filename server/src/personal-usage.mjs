@@ -1,8 +1,14 @@
 import {HttpError} from './core.mjs';
 import {findOfficialModel} from './official-models.mjs';
 
+// Table choice is an internal option, never request input. Both identities share
+// periods, aggregation, pagination and the response contract used by identity.js.
+const usageSource=allocated=>allocated
+ ? 'FROM employee_calls c JOIN employee_api_keys k ON k.id=c.key_id AND k.owner_id=c.owner_id'
+ : 'FROM billing_accounts a JOIN customer_calls c ON c.account_id=a.id JOIN customer_api_keys k ON k.id=c.key_id AND k.account_id=a.id';
+
 // Aggregate all calls in the chosen interval; never derive totals from the recent-call feed.
-export async function readPersonalUsage(pool,owner,period='month'){
+export async function readPersonalUsage(pool,owner,period='month',{allocated=false}={}){
  if(!['month','week','all'].includes(period))throw new HttpError(400,'请选择有效时间范围');
  const result=await pool.query(`
   WITH bounds AS (
@@ -15,17 +21,15 @@ export async function readPersonalUsage(pool,owner,period='month'){
    count(*)::text AS calls,
    coalesce(sum(c.input_tokens),0)::text AS input_tokens,
    coalesce(sum(c.output_tokens),0)::text AS output_tokens,
-   coalesce(sum(cash.cash_fen),0)::text AS cash_fen,
+   ${allocated?"coalesce(sum(CASE WHEN c.status='settled' THEN c.charged_yuan ELSE 0 END)*1000000000000,0)::numeric(30,0)":'coalesce(sum(cash.cash_fen),0)'}::text AS cash_fen,
    count(*) FILTER(WHERE c.status IN ('pending','awaiting_bill'))::text AS unsettled_calls
-  FROM billing_accounts a
-  JOIN customer_calls c ON c.account_id=a.id
-  JOIN customer_api_keys k ON k.id=c.key_id AND k.account_id=a.id
+  ${usageSource(allocated)}
   CROSS JOIN bounds
-  LEFT JOIN LATERAL (
+  ${allocated?'':`LEFT JOIN LATERAL (
    SELECT sum(cc.cash_fen) AS cash_fen FROM credit_consumptions cc
    WHERE cc.call_id=c.id AND c.status='settled'
-  ) cash ON true
-  WHERE a.owner_id=$1 AND k.purpose='api' AND c.created_at>=bounds.start_at
+  ) cash ON true`}
+  WHERE ${allocated?'c.owner_id':'a.owner_id'}=$1 AND k.purpose='api' AND c.created_at>=bounds.start_at
   GROUP BY c.key_id,c.model_id,k.label,k.key_hint,k.revoked_at
  `,[owner,period]);
  const fields=['calls','input_tokens','output_tokens','cash_fen','unsettled_calls'];
@@ -37,6 +41,7 @@ export async function readPersonalUsage(pool,owner,period='month'){
   if(!keys.has(row.key_id))keys.set(row.key_id,{id:row.key_id,name:row.label,key_hint:row.key_hint,revoked_at:row.revoked_at,...zero()});
   add(models.get(row.model_id),row);add(keys.get(row.key_id),row);add(totals,row);
  }
+ if(allocated)for(const row of [totals,...models.values(),...keys.values()])row.cash_fen=String(BigInt(row.cash_fen)/10000000000n);
  const order=(a,b)=>BigInt(a.cash_fen)===BigInt(b.cash_fen)?a.name.localeCompare(b.name):BigInt(a.cash_fen)>BigInt(b.cash_fen)?-1:1;
  return {period,totals,models:[...models.values()].sort(order),keys:[...keys.values()].sort(order)};
 }
@@ -50,7 +55,7 @@ export function personalUsageRoutes(app,pool,requireCustomer){
  });
 }
 
-export async function readPersonalCalls(pool,owner,{period='month',page='0',size='3'}={}){
+export async function readPersonalCalls(pool,owner,{period='month',page='0',size='3'}={},{allocated=false}={}){
  if(!['month','week','all'].includes(period)||!/^\d{1,6}$/.test(String(page))||!['2','3'].includes(String(size)))throw new HttpError(400,'调用明细的时间范围或分页无效');
  const offset=Number(page)*Number(size),limit=Number(size);
  const result=await pool.query(`WITH bounds AS (
@@ -58,11 +63,10 @@ export async function readPersonalCalls(pool,owner,{period='month',page='0',size
    WHEN 'week' THEN now()-interval '7 days' ELSE '-infinity'::timestamptz END AS start_at
  ) SELECT c.id,c.created_at,c.model_id,k.label AS key_label,k.key_hint,c.status,
   c.input_tokens::text,c.output_tokens::text,c.cached_input_tokens::text,c.charged_yuan::text,
-  CASE WHEN c.status='settled' THEN coalesce(cash.fen,0)::text ELSE NULL END AS cash_fen
- FROM billing_accounts a JOIN customer_calls c ON c.account_id=a.id
- JOIN customer_api_keys k ON k.id=c.key_id AND k.account_id=a.id CROSS JOIN bounds
- LEFT JOIN LATERAL (SELECT sum(cc.cash_fen) AS fen FROM credit_consumptions cc WHERE cc.call_id=c.id) cash ON true
- WHERE a.owner_id=$1 AND k.purpose='api' AND c.created_at>=bounds.start_at
+  CASE WHEN c.status='settled' THEN ${allocated?'floor(coalesce(c.charged_yuan,0)*100)':'coalesce(cash.fen,0)'}::text ELSE NULL END AS cash_fen
+ ${usageSource(allocated)} CROSS JOIN bounds
+ ${allocated?'':`LEFT JOIN LATERAL (SELECT sum(cc.cash_fen) AS fen FROM credit_consumptions cc WHERE cc.call_id=c.id) cash ON true`}
+ WHERE ${allocated?'c.owner_id':'a.owner_id'}=$1 AND k.purpose='api' AND c.created_at>=bounds.start_at
  ORDER BY c.created_at DESC,c.id DESC LIMIT $3 OFFSET $4`,[owner,period,limit+1,offset]);
  return {period,page:Number(page),has_more:result.rows.length>limit,items:result.rows.slice(0,limit).map(row=>({...row,model_name:findOfficialModel(row.model_id)?.name||row.model_id}))};
 }

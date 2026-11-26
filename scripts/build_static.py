@@ -56,7 +56,7 @@ def main():
     html = git('show', 'HEAD:web/index.html').decode()
     assets = {}
     asset_names = {}
-    for name in ('styles.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'navigation-data.js', 'identity.js', 'identity.css', 'personal-usage-charts.js', 'personal-usage-charts.css', 'home.css', 'landings.css', 'landings.js', 'brand.css', 'icons.js', 'model-catalog.js', 'model-explorer.js', 'model-explorer.css', 'app.js', 'welcome.js', 'table-sort.js', 'docs.js', 'docs.css', 'console.js', 'staff-api.js', 'console.css', 'realtesting.js', 'realtesting.css', 'select-menu.js', 'vip-notifications.js', 'site-header.js', 'site-header.css', 'cw.css', 'cw.js'):
+    for name in ('styles.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'navigation-data.js', 'identity.js', 'identity.css', 'personal-usage-charts.js', 'personal-usage-charts.css', 'home.css', 'landings.css', 'landings.js', 'brand.css', 'icons.js', 'model-catalog.js', 'model-explorer.js', 'model-explorer.css', 'app.js', 'welcome.js', 'table-sort.js', 'docs.js', 'docs.css', 'console.js', 'employee-api-context.js', 'employee-api-entry.js', 'console.css', 'realtesting.js', 'realtesting.css', 'select-menu.js', 'vip-notifications.js', 'site-header.js', 'site-header.css', 'cw.css', 'cw.js'):
         content = git('show', f'HEAD:web/{name}')
         if name == 'site-header.js':
             content = content.replace(b"'vip-notifications.js'", repr(asset_names['vip-notifications.js']).encode())
@@ -77,6 +77,10 @@ def main():
     for source, target in asset_names.items():
         compare_html = compare_html.replace(f'"{source}"', f'"{target}"')
     assets['compare.html'] = compare_html.encode()
+    employee_html = git('show', 'HEAD:web/employee-api.html').decode()
+    for source, target in asset_names.items():
+        employee_html = employee_html.replace(f'"/{source}"', f'"/{target}"')
+    assets['employee-api.html'] = employee_html.encode()
 
     for name in ('pinapi-mark.svg', 'pinapi-wordmark.svg', 'semifly-email-logo.png', 'universe-speed-knob.png', 'favicon.svg', 'semifly-wordmark.svg', 'semifly-lockup.svg', 'THIRD-PARTY-LICENSES.txt'):
         assets[name] = git('show', f'HEAD:web/{name}')

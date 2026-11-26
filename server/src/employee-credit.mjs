@@ -375,7 +375,7 @@ export function employeeCreditRoutes(app,pool,cfg,requireCustomer,upstreamFetch=
    pool.query("SELECT to_char(created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD') AS day,model_id,count(*)::int AS calls,coalesce(sum(charged_yuan),0) AS yuan FROM employee_calls WHERE owner_id=$1 AND created_at>=now()-interval '14 days' GROUP BY 1,2 ORDER BY 1,2",[req.customer.id]),
    pool.query("SELECT count(*)::int AS calls_30d,count(*) FILTER(WHERE status='failed')::int AS failed_30d,coalesce(sum(charged_yuan) FILTER(WHERE settled_at>=(date_trunc('month',now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai')),0) AS month_yuan FROM employee_calls WHERE owner_id=$1 AND created_at>=now()-interval '30 days'",[req.customer.id])
   ]);
-  res.json({enabled:true,summaries_enabled:await summariesOn(pool,cfg),summary_chars:SUMMARY_CHARS,organization_id:organization.id,organization_name:organization.name,...money,base_url:cfg.origin+'/v1',model_ids:available.map(r=>r.model.id),models:available.map(r=>publicModel(r.model)),daily:daily.rows,...period.rows[0],key_limit:MAX_KEYS,max_output_tokens:MAX_OUTPUT,keys:keys.rows,recent_calls:calls.rows});
+  res.json({enabled:true,...(assignedOnly?{user_id:req.customer.id}:{}),summaries_enabled:await summariesOn(pool,cfg),summary_chars:SUMMARY_CHARS,organization_id:organization.id,organization_name:organization.name,...money,base_url:cfg.origin+'/v1',model_ids:available.map(r=>r.model.id),models:available.map(r=>publicModel(r.model)),daily:daily.rows,...period.rows[0],key_limit:MAX_KEYS,max_output_tokens:MAX_OUTPUT,keys:keys.rows,recent_calls:calls.rows});
  });
  app.post('/api/employee-credit/keys',requireCustomer,async(req,res)=>{
   await requireMember(req);
