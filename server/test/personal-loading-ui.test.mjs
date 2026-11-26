@@ -6,11 +6,11 @@ const read=name=>readFileSync(new URL('../../web/'+name,import.meta.url),'utf8')
 const identity=read('identity.js'),account=identity.slice(identity.indexOf(' async function account('),identity.indexOf(' // 同一套页眉'));
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject};};
 test('comparison mounts without waiting on four unrelated dashboard endpoints',async()=>{
- let mounts=0;const ctx={me:{user:{}},current:'personal/compare',panelPage:(_o,tab,body)=>{assert.equal(tab,'compare');return body;},comparePanel:()=>'<iframe>',mount:()=>mounts++,api:()=>{throw Error('unnecessary account request');}};
+ let mounts=0;const ctx={employeeApi:null,me:{user:{}},current:'personal/compare',panelPage:(_o,tab,body)=>{assert.equal(tab,'compare');return body;},comparePanel:()=>'<iframe>',mount:()=>mounts++,api:()=>{throw Error('unnecessary account request');}};
  await vm.runInNewContext(account+';account(1)',ctx);assert.equal(mounts,1);
 });
 test('dashboard reads start together and stale responses never replace current account data',async()=>{
- const calls=[],waits=[];const ctx={accountReadPaths:[],navigationData:{fresh:()=>true},accountLoading(){},me:{user:{}},current:'personal/overview',generation:1,personalBilling:'unchanged',paidCredit:'unchanged',readModelIntent:()=>null,navigationRead:path=>{calls.push(path);const d=deferred();waits.push(d);return d.promise;}};
+ const calls=[],waits=[];const ctx={employeeApi:null,accountReadPaths:[],navigationData:{fresh:()=>true},accountLoading(){},me:{user:{}},current:'personal/overview',generation:1,personalBilling:'unchanged',paidCredit:'unchanged',readModelIntent:()=>null,navigationRead:path=>{calls.push(path);const d=deferred();waits.push(d);return d.promise;}};
  const work=vm.runInNewContext(account+';account(1)',ctx);
  assert.equal(calls.length,4);ctx.generation=2;for(const d of waits)d.resolve({enabled:true});await work;
  assert.equal(ctx.personalBilling,'unchanged');assert.equal(ctx.paidCredit,'unchanged');
@@ -19,7 +19,7 @@ const source=read('compare.js'),boot=source.slice(source.lastIndexOf("api('confi
 function harness(){
  const pending=deferred(),classes=new Set(['compare-booting']),elements=new Map();const node=()=>({hidden:false,textContent:'',append(){},replaceChildren(){}});
  const $=id=>{if(!elements.has(id))elements.set(id,node());return elements.get(id);};let result;
- const ctx={api:()=>pending.promise,$,models:[],config:null,Option:function(){},document:{body:{classList:{remove:c=>classes.delete(c)}},documentElement:{classList:{add:c=>classes.add(c),remove:c=>classes.delete(c)}},createElement:node,querySelectorAll:()=>[]},window:{PersonalCompare:{unavailable:(status)=>{result=status}}},location:{reload(){}},updateProvider(){},chooseProduct(){}};
+ const ctx={employeeApi:null,api:()=>pending.promise,$,models:[],config:null,Option:function(){},document:{body:{classList:{remove:c=>classes.delete(c)}},documentElement:{classList:{add:c=>classes.add(c),remove:c=>classes.delete(c)}},createElement:node,querySelectorAll:()=>[]},window:{PersonalCompare:{unavailable:(status)=>{result=status}}},location:{reload(){}},updateProvider(){},chooseProduct(){}};
  const done=vm.runInNewContext(boot,ctx);return {pending,classes,$,done,get result(){return result}};
 }
 test('eligibility remains loading until resolution, then chooses funded or recharge without exposing a premature form',async()=>{

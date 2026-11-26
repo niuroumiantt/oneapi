@@ -1,3 +1,4 @@
+import {enforceStaffSurface,isBusinessOwner} from './staff-policy.mjs';
 import * as oidc from 'openid-client';
 import { HttpError,token,hash,vault,transaction,audit,text,hasBusiness } from './core.mjs';
 const vipPath = '/promotion/vip.html?staff=1';
@@ -21,7 +22,8 @@ export function staffRoutes(app,pool,cfg){
   let info;try{info=await oidc.fetchUserInfo(await client(),box.open(row.access_payload).accessToken,row.subject);}catch{await pool.query('DELETE FROM staff_sessions WHERE token_hash=$1',[hash(value)]);throw new HttpError(401,'公司身份会话已失效，请重新登录');}
   if(!approved(info)){await pool.query('DELETE FROM staff_sessions WHERE token_hash=$1',[hash(value)]);throw new HttpError(403,'公司员工身份未获准访问');}
   if(row.status==='suspended')throw new HttpError(403,'员工权限已停用');
-  req.staff={subject:row.subject,email:row.email,name:row.name,role:row.role,status:row.status,technical_access:row.role==='platform_admin'||row.technical_access===true,finance_access:row.role==='platform_admin'||row.finance_access===true};req.actor={kind:'staff',id:row.subject};
+  req.staff={subject:row.subject,email:row.email,name:row.name,role:row.role,status:row.status,technical_access:row.role==='platform_admin',finance_access:row.role==='platform_admin'};req.actor={kind:'staff',id:row.subject};
+  enforceStaffSurface(req);
   await pool.query('UPDATE staff_sessions SET last_seen=now() WHERE token_hash=$1',[hash(value)]);next();
  }
  function administrator(req,res,next){if(req.staff.role!=='platform_admin'||req.staff.status!=='active')throw new HttpError(403,'仅平台管理员可执行此操作');next();}
@@ -66,7 +68,7 @@ export function staffRoutes(app,pool,cfg){
   });res.json({ok:true});
  });
  app.get('/api/staff/audit',requireStaff,administrator,async(req,res)=>res.json((await pool.query('SELECT actor_kind,actor_id,action,subject_id,created_at FROM audit_events ORDER BY id DESC LIMIT 100')).rows));
- app.get('/api/staff/customers',requireStaff,async(req,res)=>{if(!hasBusiness(req.staff))throw new HttpError(403,'当前岗位没有客户管理权限');res.json((await pool.query('SELECT id,name,email,"emailVerified",disabled,"createdAt" FROM "user" ORDER BY "createdAt" DESC LIMIT 100')).rows);});
+ app.get('/api/staff/customers',requireStaff,async(req,res)=>{if(!hasBusiness(req.staff))throw new HttpError(403,'当前岗位没有客户管理权限');res.json((await pool.query('SELECT u.id,u.name,u.email,u."emailVerified",u.disabled,u."createdAt" FROM "user" u WHERE $1::boolean OR EXISTS (SELECT 1 FROM customers c WHERE c.user_id=u.id AND c.owner_subject=$2) ORDER BY u."createdAt" DESC LIMIT 100',[isBusinessOwner(req.staff),req.staff.subject])).rows);});
  app.post('/api/staff/customers/:user/status',requireStaff,administrator,async(req,res)=>{if(typeof req.body.disabled!=='boolean')throw new HttpError(400,'状态不正确');await transaction(pool,async db=>{await db.query("SELECT pg_advisory_xact_lock(148921,2)");if(!(await db.query("SELECT subject FROM staff_members WHERE subject=$1 AND role=\'platform_admin\' AND status=\'active\'",[req.staff.subject])).rowCount)throw new HttpError(403,"管理员权限已变化");const r=await db.query('UPDATE "user" SET disabled=$2 WHERE id=$1 RETURNING id',[req.params.user,req.body.disabled]);if(!r.rowCount)throw new HttpError(404,'客户不存在');await db.query('DELETE FROM session WHERE "userId"=$1',[req.params.user]);await audit(db,req.actor,'customer.status_updated',null,req.params.user,{disabled:req.body.disabled});});res.json({ok:true});});
  return {configured,requireStaff};
 }

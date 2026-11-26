@@ -1187,7 +1187,7 @@ td>.live-dot:first-child{margin-right:5px}
 @media(max-width:480px){#live-recharge-confirm .recharge-breakdown{grid-template-columns:1fr}#live-recharge-confirm .recharge-breakdown>div{grid-template-columns:1fr auto;align-items:baseline}#live-recharge-confirm .recharge-breakdown dd{white-space:nowrap}}
 
 /* Personal overview: one balance, one connection surface. Other pages keep their layout. */
-.personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow){--ph-ink:#20263c;--ph-muted:#647084;--ph-line:#e8ebf0;background:#fff;grid-template-columns:188px minmax(0,1fr)}
+.employee-api-stage,.personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow){--ph-ink:#20263c;--ph-muted:#647084;--ph-line:#e8ebf0;background:#fff;grid-template-columns:188px minmax(0,1fr)}
 .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .site-tools:not(:has(.pc-workspace,.pc-surface)){display:none}
 .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .site-tools :is(.pc-identity,.pc-purchase-link,.pc-global-search,.pc-product-title){display:none}
 .personal-console:has(.personal-home,.personal-models,.personal-api,.personal-recharge-flow) .pc-sidebar{background:#fafbfc;border-color:var(--ph-line)}

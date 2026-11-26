@@ -1,3 +1,4 @@
+import {isBusinessOwner,customerScope,ticketScope,lockOwnedCustomer} from './staff-policy.mjs';
 import { acquisitionRoutes } from './business-acquisition.mjs';
 import {bankSnapshot,transferDay} from './bank-transfers.mjs';
 import {addPack} from './pack-ledger.mjs';
@@ -8,7 +9,7 @@ import { OFFICIAL_MODELS } from './official-models.mjs';
 import { isManager } from './organizations.mjs';
 import { REFUND_POLICY_ZH } from './list-credit.mjs';
 
-export const hasFinance = staff => hasBusiness(staff) && (staff.role === 'platform_admin' || staff.finance_access === true);
+export const hasFinance = isBusinessOwner;
 const isAdmin = staff => staff?.status === 'active' && staff.role === 'platform_admin';
 function requireBusiness(req) { if (!hasBusiness(req.staff)) throw new HttpError(403, '需要业务运营权限'); }
 export function requireFinance(req) { if (!hasFinance(req.staff)) throw new HttpError(403, '需要财务权限'); }
@@ -235,6 +236,19 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
  app.get('/api/staff/business/dashboard', requireStaff, async (req, res) => {
   requireBusiness(req);
   const finance = hasFinance(req.staff), summary = req.query.summary === '1';
+  if(!isAdmin(req.staff)){
+   const args=[false,req.staff.subject];
+   const counts=(await pool.query(`SELECT
+    (SELECT count(*)::int FROM support_tickets t WHERE t.status<>'closed' AND t.tier='first_line' AND ${ticketScope()}) AS tickets,
+    (SELECT count(*)::int FROM support_tickets t WHERE t.status<>'closed' AND t.tier='technical' AND ${ticketScope()}) AS tickets_technical,
+    (SELECT count(*)::int FROM customers c WHERE ${customerScope()}) AS my_customers,
+    (SELECT count(*)::int FROM cw_partners WHERE owner_subject=$2 AND status='pending') AS vip_pending,
+    (SELECT count(*)::int FROM cw_partners WHERE owner_subject=$2 AND status='confirmed') AS vip_confirmed,
+    (SELECT count(*)::int FROM vip_payment_discount_requests r JOIN cw_partners p ON p.id=r.partner_id WHERE p.owner_subject=$2 AND r.status='pending') AS vip_discount_pending,
+    (SELECT count(*)::int FROM vip_activation_exceptions r JOIN cw_partners p ON p.id=r.partner_id WHERE p.owner_subject=$2 AND r.status='pending') AS vip_activation_exception_pending`,args)).rows[0];
+   return res.json({staff:{name:req.staff.name,role:req.staff.role,finance:false,technical:false,admin:false},counts,top_customers:[],finance:null});
+  }
+
   await pool.query('SELECT ensure_customers()');
   const [counts, top] = await Promise.all([
    pool.query(`SELECT (SELECT count(*) FROM account_upgrade_requests WHERE status='pending')::int AS upgrades,
@@ -260,7 +274,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
   const c = counts.rows[0];
   if (!finance) { delete c.invoices_requested; delete c.refunds_pending; delete c.bank_transfers_pending; }
   res.json({
-   staff: { name: req.staff.name, finance, technical: req.staff.role === 'platform_admin' || req.staff.technical_access === true, admin: isAdmin(req.staff) },
+   staff: { name: req.staff.name, role: req.staff.role, finance, technical: req.staff.role === 'platform_admin' || req.staff.technical_access === true, admin: isAdmin(req.staff) },
    counts: c, top_customers: top.rows,
    finance: finance && !summary ? await financeReport(pool, accountingMonth()) : null
   });
@@ -471,16 +485,16 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
  app.get('/api/staff/business/customers', requireStaff, async (req, res) => {
   requireBusiness(req);
   await pool.query('SELECT ensure_customers()');
-  const [customers, staff, tags] = await Promise.all([pool.query(`${CUSTOMER_ROWS} ORDER BY c.kind,c.code LIMIT 1000`),
-   pool.query("SELECT subject,name FROM staff_members WHERE status='active' AND role<>'pending' ORDER BY name"),
-   pool.query('SELECT t AS tag,count(*)::int AS customers FROM customers,unnest(tags) t GROUP BY 1 ORDER BY 2 DESC,1')]);
+  const [customers, staff, tags] = await Promise.all([pool.query(`${CUSTOMER_ROWS} WHERE ${customerScope()} ORDER BY c.kind,c.code LIMIT 1000`,[isAdmin(req.staff),req.staff.subject]),
+   pool.query("SELECT subject,name FROM staff_members WHERE status='active' AND role<>'pending' AND ($1::boolean OR subject=$2) ORDER BY name",[isAdmin(req.staff),req.staff.subject]),
+   pool.query(`SELECT t AS tag,count(*)::int AS customers FROM customers c,unnest(tags) t WHERE ${customerScope()} GROUP BY 1 ORDER BY 2 DESC,1`,[isAdmin(req.staff),req.staff.subject])]);
   res.json({ customers: customers.rows, staff: staff.rows, tags: tags.rows, stages: STAGES });
  });
  app.get('/api/staff/business/customers/:customer', requireStaff, async (req, res) => {
   requireBusiness(req);
-  const customerId = id(req.params.customer), customer = (await pool.query(`${CUSTOMER_ROWS} WHERE c.id=$1`, [customerId])).rows[0];
+  const customerId = id(req.params.customer), customer = (await pool.query(`${CUSTOMER_ROWS} WHERE c.id=$1 AND ${customerScope('c','$2','$3')}`, [customerId,isAdmin(req.staff),req.staff.subject])).rows[0];
   if (!customer) throw new HttpError(404, '客户不存在');
-  const finance = hasFinance(req.staff), people = customer.kind === 'enterprise' ? 't.user_id IN (SELECT m.user_id FROM memberships m WHERE m.organization_id=$1 AND m.status=\'active\')' : 't.user_id=$1';
+  const finance = hasFinance(req.staff), people = !isAdmin(req.staff)&&customer.kind==='enterprise' ? 'false AND t.user_id=$1::text' : customer.kind === 'enterprise' ? 't.user_id IN (SELECT m.user_id FROM memberships m WHERE m.organization_id=$1 AND m.status=\'active\')' : 't.user_id=$1';
   const [notes, members, tickets, discounts, invoices, orders] = await Promise.all([
    pool.query('SELECT n.id,n.body,n.created_at,m.name AS created_by_name FROM customer_notes n LEFT JOIN staff_members m ON m.subject=n.created_by WHERE n.customer_id=$1 ORDER BY n.created_at DESC LIMIT 100', [customerId]),
    customer.kind === 'enterprise' ? pool.query(`SELECT u.name,u.email,m.role FROM memberships m JOIN "user" u ON u.id=m.user_id WHERE m.organization_id=$1 AND m.status='active' ORDER BY m.role,u.name LIMIT 200`, [customer.organization_id]) : { rows: [] },
@@ -494,6 +508,9 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
   requireBusiness(req);
   const b = req.body || {}, customerId = id(req.params.customer), stage = choice(b.stage, STAGES, '客户阶段'), tags = tagList(b.tags), owner = b.owner_subject ? text(b.owner_subject, '负责人', 120) : null;
   const row = await transaction(pool, async db => {
+   const current=await lockOwnedCustomer(db,req.staff,customerId);
+   if(!isAdmin(req.staff)&&owner!==current.owner_subject)throw new HttpError(403,'只有老板可以分配或转移客户');
+   if(!isAdmin(req.staff)){const saved=(await db.query('SELECT tags FROM customers WHERE id=$1',[customerId])).rows[0];if(JSON.stringify(tags)!==JSON.stringify(saved.tags))throw new HttpError(403,'客户优惠分群由老板管理');}
    if (owner && !(await db.query("SELECT 1 FROM staff_members WHERE subject=$1 AND status='active' AND role<>'pending'", [owner])).rowCount) throw new HttpError(400, '负责人须是在职的业务员工');
    const updated = (await db.query('UPDATE customers SET stage=$2,tags=$3,owner_subject=$4,updated_at=now() WHERE id=$1 RETURNING id,code,stage,tags,owner_subject', [customerId, stage, tags, owner])).rows[0];
    if (!updated) throw new HttpError(404, '客户不存在');
@@ -505,8 +522,10 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
  app.post('/api/staff/business/customers/:customer/notes', requireStaff, async (req, res) => {
   requireBusiness(req);
   const customerId = id(req.params.customer), body = text(req.body?.body, '跟进记录', 2000);
-  if (!(await pool.query('SELECT 1 FROM customers WHERE id=$1', [customerId])).rowCount) throw new HttpError(404, '客户不存在');
-  const note = (await pool.query('INSERT INTO customer_notes(customer_id,body,created_by) VALUES($1,$2,$3) RETURNING id,body,created_at', [customerId, body, req.staff.subject])).rows[0];
+  const note=await transaction(pool,async db=>{
+   await lockOwnedCustomer(db,req.staff,customerId);
+   return (await db.query('INSERT INTO customer_notes(customer_id,body,created_by) VALUES($1,$2,$3) RETURNING id,body,created_at',[customerId,body,req.staff.subject])).rows[0];
+  });
   res.status(201).json({ ...note, created_by_name: await staffName(req.staff.subject) });
  });
 
@@ -516,7 +535,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
   requireBusiness(req);
   const [grants, campaigns, tags] = await Promise.all([pool.query(`${DISCOUNT_ROWS} WHERE d.business_line='general' ORDER BY d.status='pending' DESC,d.created_at DESC LIMIT 500`),
    pool.query('SELECT c.id,c.name,c.customer_price_percent,c.starts_at,c.ends_at,c.total_discount_budget_fen,p.display_name AS product_name FROM promotion_campaigns c JOIN model_products p ON p.id=c.model_product_id ORDER BY c.created_at DESC LIMIT 100'),
-   pool.query('SELECT t AS tag,count(*)::int AS customers FROM customers,unnest(tags) t GROUP BY 1 ORDER BY 2 DESC,1')]);
+   pool.query(`SELECT t AS tag,count(*)::int AS customers FROM customers c,unnest(tags) t WHERE ${customerScope()} GROUP BY 1 ORDER BY 2 DESC,1`,[isAdmin(req.staff),req.staff.subject])]);
   res.json({ grants: grants.rows, campaigns: campaigns.rows, tags: tags.rows, models: OFFICIAL_MODELS.map(m => ({ id: m.id, name: m.name })), can_decide: hasFinance(req.staff), me: req.staff.subject, billing_connected: true });
  });
  app.post('/api/staff/business/discounts', requireStaff, async (req, res) => {
@@ -529,6 +548,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
   if (ends <= new Date()) throw new HttpError(400, '结束时间须晚于现在');
   const model = b.model_id ? choice(b.model_id, OFFICIAL_MODELS.map(m => m.id), '适用产品') : null, cap = b.cap_yuan === undefined || b.cap_yuan === '' ? null : fen(b.cap_yuan, '优惠上限');
   const direct=b.business_line==='direct';
+  if(!isAdmin(req.staff)&&!direct)throw new HttpError(403,'员工只能创建自己的直营客户码');
   if(b.non_refundable!==undefined&&typeof b.non_refundable!=='boolean')throw new HttpError(400,'退款规则格式不正确');
   const nonRefundable=b.non_refundable===true,minCash=b.min_cash_yuan!=null&&String(b.min_cash_yuan).trim()!==''&&!/^0(?:\.0{1,2})?$/.test(String(b.min_cash_yuan).trim())?fen(b.min_cash_yuan,'单笔实付门槛',50000):0;
   const promo=String(b.promo_code||'').normalize('NFKC').trim().toUpperCase();
@@ -554,6 +574,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
   const row = await transaction(pool, async db => {
    const grant = (await db.query('SELECT * FROM discount_grants WHERE id=$1 FOR UPDATE', [grantId])).rows[0];
    if (!grant) throw new HttpError(404, '折扣授权不存在');
+   if(!isAdmin(req.staff)&&(grant.business_line!=='direct'||grant.created_by!==req.staff.subject||action!=='revoke'))throw new HttpError(403,'员工只能停用自己的直营码，审批由老板处理');
    if(grant.business_line==='direct'||grant.non_refundable||Number(grant.min_cash_fen)>0){
     if(action==='revoke' ? (!isAdmin(req.staff)&&grant.created_by!==req.staff.subject) : !isAdmin(req.staff))throw new HttpError(403,'直营特殊折扣只有管理员能审批；发码员工只能停用自己的码');
    }
@@ -581,8 +602,8 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
  app.get('/api/staff/business/support', requireStaff, async (req, res) => {
   requireBusiness(req);
   const [tickets, replies, answers] = await Promise.all([
-   pool.query(`SELECT t.id,t.subject,t.body,t.status,t.category,t.tier,t.created_at,t.updated_at,u.name,u.email,c.id AS customer_id,c.code AS customer_code FROM support_tickets t JOIN "user" u ON u.id=t.user_id LEFT JOIN customers c ON c.user_id=t.user_id ORDER BY t.status='closed',t.created_at DESC LIMIT 300`),
-   pool.query(`SELECT r.ticket_id,r.body,r.created_at,m.name AS created_by_name FROM support_ticket_replies r LEFT JOIN staff_members m ON m.subject=r.created_by WHERE r.ticket_id IN (SELECT id FROM support_tickets ORDER BY status='closed',created_at DESC LIMIT 300) ORDER BY r.created_at`),
+   pool.query(`SELECT t.id,t.subject,t.body,t.status,t.category,t.tier,t.created_at,t.updated_at,u.name,u.email,c.id AS customer_id,c.code AS customer_code FROM support_tickets t JOIN "user" u ON u.id=t.user_id LEFT JOIN customers c ON c.user_id=t.user_id WHERE ${ticketScope()} ORDER BY t.status='closed',t.created_at DESC LIMIT 300`,[isAdmin(req.staff),req.staff.subject]),
+   pool.query(`SELECT r.ticket_id,r.body,r.created_at,m.name AS created_by_name FROM support_ticket_replies r LEFT JOIN staff_members m ON m.subject=r.created_by WHERE r.ticket_id IN (SELECT t.id FROM support_tickets t WHERE ${ticketScope()} ORDER BY t.status='closed',t.created_at DESC LIMIT 300) ORDER BY r.created_at`,[isAdmin(req.staff),req.staff.subject]),
    pool.query('SELECT id,category,question,answer,published,use_count,updated_at FROM support_answers WHERE archived_at IS NULL ORDER BY use_count DESC,updated_at DESC LIMIT 300')]);
   const thread = new Map();
   for (const r of replies.rows) { if (!thread.has(r.ticket_id)) thread.set(r.ticket_id, []); thread.get(r.ticket_id).push(r); }
@@ -592,7 +613,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
   requireBusiness(req);
   const ticketId = id(req.params.ticket), body = text(req.body?.body, '回复内容', 2000), close = req.body?.close === true, answer = req.body?.answer_id ? id(req.body.answer_id) : null;
   const row = await transaction(pool, async db => {
-   const ticket = (await db.query('SELECT status FROM support_tickets WHERE id=$1 FOR UPDATE', [ticketId])).rows[0];
+   const ticket = (await db.query(`SELECT t.status FROM support_tickets t WHERE t.id=$1 AND ${ticketScope('t','$2','$3')} FOR UPDATE`, [ticketId,isAdmin(req.staff),req.staff.subject])).rows[0];
    if (!ticket) throw new HttpError(404, '工单不存在');
    if (ticket.status === 'closed') throw new HttpError(409, '工单已关闭');
    await db.query('INSERT INTO support_ticket_replies(ticket_id,body,answer_id,created_by) VALUES($1,$2,$3,$4)', [ticketId, body, answer, req.staff.subject]);
@@ -605,7 +626,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
  app.post('/api/staff/business/tickets/:ticket/triage', requireStaff, async (req, res) => {
   requireBusiness(req);
   const b = req.body || {}, category = choice(b.category, CATEGORIES, '工单分类'), tier = choice(b.tier, ['first_line', 'technical'], '处理层级');
-  const row = (await pool.query('UPDATE support_tickets SET category=$2,tier=$3,updated_at=now() WHERE id=$1 RETURNING id,category,tier', [id(req.params.ticket), category, tier])).rows[0];
+  const row = (await pool.query(`UPDATE support_tickets t SET category=$2,tier=$3,updated_at=now() WHERE t.id=$1 AND ${ticketScope('t','$4','$5')} RETURNING id,category,tier`, [id(req.params.ticket), category, tier,isAdmin(req.staff),req.staff.subject])).rows[0];
   if (!row) throw new HttpError(404, '工单不存在');
   res.json(row);
  });

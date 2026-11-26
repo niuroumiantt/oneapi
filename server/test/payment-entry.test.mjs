@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 const src=readFileSync(new URL('../../web/identity.js',import.meta.url),'utf8');
 const helper=src.slice(src.indexOf(' function purchaseEntry('),src.indexOf('// Red/green progress bar:',src.indexOf(' function purchaseEntry(')));
-function render(state={},place='keys',compact=false){const ctx=vm.createContext({panelOrg:null,lastOrgBilling:null,personalBilling:null,paidCredit:null,esc:s=>String(s).replaceAll('&','&amp;').replaceAll('"','&quot;'),...state});vm.runInContext(helper,ctx);return ctx.purchaseEntry(place,compact);}
+function render(state={},place='keys',compact=false){const ctx=vm.createContext({employeeApi:null,panelOrg:null,lastOrgBilling:null,personalBilling:null,paidCredit:null,esc:s=>String(s).replaceAll('&','&amp;').replaceAll('"','&quot;'),...state});vm.runInContext(helper,ctx);return ctx.purchaseEntry(place,compact);}
 test('personal credit entry points to personal billing and explains zero available credit',()=>{
  const html=render({personalBilling:{payments_enabled:true},paidCredit:{list_credit_fen:'100',held_fen:'100'}});assert.match(html,/#billing\/personal/);assert.match(html,/可用额度已用完/);assert.match(html,/充值额度/);assert.match(html,/创建 Key 或设置上限不会增加余额/);
 });

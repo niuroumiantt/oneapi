@@ -13,6 +13,7 @@
  }
  if(typeof module==='object')module.exports={pages};
  if(typeof document==='undefined'||!document.documentElement.classList.contains('compare-personal'))return;
+ const employee=new URLSearchParams(location.search).get('employee')==='1';
  const $=id=>document.getElementById(id),q=s=>document.querySelector(s);
  const make=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text)e.textContent=text;return e;};
  const button=(label,action)=>{const b=make('button','',label);b.type='button';b.onclick=action;return b;};
@@ -26,7 +27,7 @@
  const connections=make('div','cp-connections');connections.append(platform,reference);setup.prepend(connections);workspace.prepend(setup,results);q('.compare-content').remove();
  setup.append(composer);const charge=q('.charge-note');charge.textContent='开始后两侧分别计费。Key、任务及附件经本站转发至所选接口，不落库；停止请求不保证上游停止计费。';composer.append(charge);
  platform.querySelector('h2').textContent='semifly API';reference.querySelector('h2').textContent='参照 API';
- platform.querySelector('.connection-foot a').href='/#billing/personal';platform.querySelector('.connection-foot a').target='_parent';
+ platform.querySelector('.connection-foot a').href=employee?'/?#console/business/apioverview':'/#billing/personal';if(employee)platform.querySelector('.connection-foot a').textContent='公司分配额度';platform.querySelector('.connection-foot a').target='_parent';
  const warning=q('.key-warning');warning.className='cp-key-note';warning.querySelector('svg').remove();warning.textContent='请用临时测试 Key；测试后到供应商平台撤销。本站不保存 Key。';reference.append(warning);
  const cleanup=q('.key-cleanup');cleanup.querySelector('span').remove();$('clear-ref-key').textContent='清除 Key';reference.append(cleanup);
  const keyLabel=$('ref-key').closest('label');reference.insertBefore(keyLabel,reference.querySelector('.fields'));
@@ -98,7 +99,7 @@
   if(resultView==='cost'){const c=SemiflyCostComparison.compare(last?.results.a,last?.results.b);resultNote.textContent=c.status==='compared'?`${c.label} · ${c.direction==='more'?'多花':'少花'} ${money(c.absolute_difference_yuan)}${c.percentage==null?'':' · '+c.percentage+'%'}。参照费用为预估，以供应商账单为准。`:c.reason||'等待两侧完成及费用结算。';}
   else resultNote.textContent=resultView==='metrics'?'缓存命中属于输入子项；未提供的指标不按 0 处理。':'单次对比不能鉴定模型身份。完整结果可导出 PDF 或在更多设置中导出 JSON。';
  }
- root.PersonalCompare={panel,update(last,busy){connectionLayout();if(last!==snapshot)resultPages={a:0,b:0};snapshot=last;running=busy;render();renderPreview();},unavailable(status,message){setup.hidden=true;advanced.hidden=true;results.hidden=true;toolbar.hidden=true;$('auth-error').replaceChildren(make('h2','',status===401?'登录后开始对比':status===402?'充值后开始对比':'暂时无法加载对比'),make('p','',message));const link=make('a','primary',status===401?'前往登录':status===402?'充值额度':'返回工作台');link.href=status===401?'/#personal':status===402?'/#billing/personal':'/#personal';link.target='_parent';$('auth-error').append(link);}};
+ root.PersonalCompare={panel,update(last,busy){connectionLayout();if(last!==snapshot)resultPages={a:0,b:0};snapshot=last;running=busy;render();renderPreview();},unavailable(status,message){setup.hidden=true;advanced.hidden=true;results.hidden=true;toolbar.hidden=true;$('auth-error').replaceChildren(make('h2','',status===401?'登录后开始对比':status===402?(employee?'公司额度不足':'充值后开始对比'):'暂时无法加载对比'),make('p','',message));const link=make('a','primary',status===401?'前往登录':status===402?(employee?'返回公司额度':'充值额度'):'返回工作台');link.href=employee?'/?#console/business/apioverview':status===401?'/#personal':status===402?'/#billing/personal':'/#personal';link.target='_parent';$('auth-error').append(link);}};
  new MutationObserver(renderPreview).observe(preview,{childList:true,characterData:true,subtree:true});
  window.addEventListener('resize',()=>{render();renderPreview();});
  panel('setup');
