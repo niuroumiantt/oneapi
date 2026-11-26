@@ -152,6 +152,8 @@ test('managers keep one department list that members and join requests must use'
  assert.equal((await joined()).department,'','deleting returns members to 未分组');assert.equal((await list()).length,0);
 });
 test('real billing reads are isolated and cannot credit funds without a merchant',async()=>{
+ assert.equal((await jar().call('/api/billing/personal/records?kind=usage')).status,401);
+ assert.equal((await owner.j.call('/api/billing/personal/records?kind=usage&page=-1')).status,400);
  assert.equal((await jar().call('/api/billing/personal')).status,401);
  const personal=await owner.j.call('/api/billing/personal');assert.equal(personal.status,200);assert.equal(personal.data.scope,'personal');assert.equal(personal.data.cash_balance_fen,'0');assert.equal(personal.data.list_credit_fen,'0');assert.equal(personal.data.total_recharged_fen,'0');assert.deepEqual(personal.data.entries,[]);assert.deepEqual(personal.data.usage_by_model,[]);assert.equal(personal.data.recharge.enabled,false);assert.equal(personal.data.recharge.minimum_fen,500);assert.match(personal.data.refund.policy,/无手续费/);assert.equal(personal.data.refund.fee_percent,0);assert.equal(personal.data.bank_transfer,undefined);
  const org=await owner.j.call(`/api/billing/organizations/${orgA.id}`);assert.equal(org.status,200);assert.equal(org.data.scope,'organization');assert.equal(org.data.cash_balance_fen,'0');assert.equal(org.data.list_credit_fen,'0');assert.equal(org.data.refund.enabled,true);assert.equal(org.data.bank_transfer.enabled,true);assert.equal(org.data.bank_transfer.account_number,'0000000000000000');
@@ -1127,6 +1129,9 @@ test('pack refunds return only red cash with no fee, forfeit green, survive reje
  assert.equal((await buyer.j.call('/api/billing/alipay-orders/'+order.id)).data.order.status,'paid');
  const balance=async()=>(await buyer.j.call('/api/billing/personal')).data;
  const pack=(await balance()).packs[0],selfPath=`/api/customer-credit/packs/${pack.id}/refund`;
+ const records=await buyer.j.call('/api/billing/personal/records?kind=refund');assert.equal(records.status,200,JSON.stringify(records.data));assert.equal(records.data.items[0].id,pack.id);assert.equal(records.data.items[0].refundable_fen,'3000');
+ const rechargeRecords=await buyer.j.call('/api/billing/personal/records?kind=recharge');assert.equal(rechargeRecords.data.items[0].cash_fen,'3000');
+ assert.ok(!(await other.j.call('/api/billing/personal/records?kind=refund')).data.items.some(p=>p.id===pack.id));
  assert.equal(pack.payment_provider,'alipay_f2f');
  assert.ok(pack.paid_at);
  const ask=(key,expected_amount_fen)=>buyer.j.call(selfPath,{method:'POST',body:{reason:'退回红色实付',idempotency_key:key,expected_amount_fen}});
@@ -1257,6 +1262,9 @@ test('invoicing a recharge locks out refunds; voiding the invoice releases them'
  assert.equal((await buyer.j.call('/api/billing/alipay-orders/'+order.id)).data.order.status,'paid');
  const balance=async()=>(await buyer.j.call('/api/billing/personal')).data;
  const pack=(await balance()).packs[0],selfPath=`/api/customer-credit/packs/${pack.id}/refund`;
+ const records=await buyer.j.call('/api/billing/personal/records?kind=refund');assert.equal(records.status,200,JSON.stringify(records.data));assert.equal(records.data.items[0].id,pack.id);assert.equal(records.data.items[0].refundable_fen,'3000');
+ const rechargeRecords=await buyer.j.call('/api/billing/personal/records?kind=recharge');assert.equal(rechargeRecords.data.items[0].cash_fen,'3000');
+ assert.ok(!(await other.j.call('/api/billing/personal/records?kind=refund')).data.items.some(p=>p.id===pack.id));
  const ask=key=>buyer.j.call(selfPath,{method:'POST',body:{reason:'test',idempotency_key:key}});
  // Recharge is invoiceable at the cash price even with zero usage.
  const inv=async()=>(await buyer.j.call('/api/billing/personal/invoices')).data;

@@ -103,7 +103,7 @@
  function passwordField(name,label,fresh=false){return `<label>${label}<span class="password-control"><input name="${name}" type="password" autocomplete="${fresh?'new-password':'current-password'}" required ${fresh?'minlength="8" data-password-new aria-describedby="password-rules-'+name+'"':''} maxlength="128"><button type="button" data-password-toggle aria-label="显示${label}" aria-pressed="false">显示</button></span>${fresh?`<small id="password-rules-${name}">${passwordRules}</small><span class="password-checks" data-password-checks aria-live="polite"></span>`:''}</label>`;}
  function passwordValid(value){return value.length>=8&&value.length<=128&&/[A-Z]/.test(value)&&/[a-z]/.test(value)&&/[\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e]/.test(value);}
  document.addEventListener('click',e=>{const b=e.target.closest('[data-password-toggle]');if(!b)return;const input=b.parentElement.querySelector('input'),show=input.type==='password';input.type=show?'text':'password';b.textContent=show?'隐藏':'显示';b.setAttribute('aria-pressed',String(show));b.setAttribute('aria-label',show?'隐藏密码':'显示密码');});
- document.addEventListener('input',e=>{if(e.target.id!=='alipay-yuan')return;const value=e.target.value.trim(),fen=/^\d+(?:\.\d{1,2})?$/.test(value)?Math.round(Number(value)*100):NaN;host?.querySelectorAll('[data-live="alipay-amount"]').forEach(b=>{const selected=Number(b.dataset.fen)===fen;b.classList.toggle('active',selected);b.setAttribute('aria-pressed',String(selected));});const message=host?.querySelector('#live-form-message');if(message)message.innerHTML='';});
+ document.addEventListener('input',e=>{if(e.target.id!=='alipay-yuan')return;if(host?.querySelector('.personal-billing'))billingAmountDraft=e.target.value;const value=e.target.value.trim(),fen=/^\d+(?:\.\d{1,2})?$/.test(value)?Math.round(Number(value)*100):NaN;host?.querySelectorAll('[data-live="alipay-amount"]').forEach(b=>{const selected=Number(b.dataset.fen)===fen;b.classList.toggle('active',selected);b.setAttribute('aria-pressed',String(selected));});const message=host?.querySelector('#live-form-message');if(message)message.innerHTML='';});
  document.addEventListener('input',e=>{const input=e.target;if(!input.matches('[data-password-new]'))return;input.setCustomValidity(input.value&&!passwordValid(input.value)?passwordRules:'');const checks=input.closest('label').querySelector('[data-password-checks]');if(checks)checks.textContent=input.value?(passwordValid(input.value)?'已满足密码要求':'尚未满足全部要求'):'';});
  const phoneField=()=>'<label>中国大陆手机号<input name="phone" type="tel" autocomplete="tel" placeholder="11 位手机号，+86 可省略" maxlength="32" required></label>';
  function smsFields(binding=false){
@@ -1167,7 +1167,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  }
  const refundRoute='billing/personal/refunds', billingHistoryRoute='billing/personal/history';
  let focusRefundHeading=false;
- const personalBillingRoute=view=>view==='billing/personal'||view===refundRoute||view===billingHistoryRoute;
+ const personalBillingRoute=view=>['billing/personal','billing/personal/usage','billing/personal/invoices',refundRoute,billingHistoryRoute].includes(view);
  const refundableAmount=pack=>BigInt(pack.refundable_fen??pack.net_fen??0);
  const canRefundPack=pack=>!pack.refund_id&&!pack.refund_request_status&&!pack.refund_blocked&&refundableAmount(pack)>0n;
  const refundableTotal=packs=>packs.reduce((total,pack)=>canRefundPack(pack)?total+refundableAmount(pack):total,0n);
@@ -1198,7 +1198,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   return `<ol class="refund-progress" aria-label="退款进度（北京时间）">${stages}</ol>`;
  }
 
- function personalRefundContent(packs){
+ function personalRefundContent(packs,compact=false){
   const total=refundableTotal(packs);
   const rows=packs.map(pack=>{
    const amount=refundableAmount(pack),available=canRefundPack(pack);
@@ -1219,11 +1219,78 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   return `<section class="billing-refunds" aria-labelledby="refund-heading">
    <div class="refund-heading">
     <div><h2 id="refund-heading" class="panel-title" tabindex="-1">申请退款</h2><p>选择一笔充值，仅退回符合条件的未消费实付款，无手续费。激活款、已开票及约定不可退部分请提交工单。退款进度按北京时间显示。</p></div>
-    <div class="refund-total"><span>${packs.length>=100?'所列订单可自助退款':'当前可自助退款'}</span><strong>${yuanText(total)}</strong></div>
+    <div class="refund-total"><span>${compact?'本笔可自助退款':packs.length>=100?'所列订单可自助退款':'当前可自助退款'}</span><strong>${yuanText(total)}</strong></div>
    </div>
    <div class="refund-list-heading"><h3>充值订单</h3><button type="button" class="live-button quiet" data-live="refund-refresh">刷新进度</button></div>
    ${rows?`<ul class="refund-orders">${rows}</ul>`:'<p class="refund-empty">还没有充值订单。</p>'}
   </section>`;
+ }
+
+ // Personal billing keeps money paid, spendable credit and settled usage distinct.
+ let billingView='recharge',billingRecordPage=0,billingInvoicePage=0,billingAmountDraft='100.00';
+ const billingRoutesByView={recharge:'billing/personal',usage:'billing/personal/usage',history:billingHistoryRoute,refund:refundRoute,invoice:'billing/personal/invoices'};
+ const billingQuotaMoney=value=>{
+  const [whole='0',fraction='']=String(value??0).split('.'),cents=BigInt(whole),negative=cents<0n,abs=negative?-cents:cents;
+  const tail=(String(abs%100n).padStart(2,'0')+fraction).slice(0,6).replace(/0+$/,'').padEnd(2,'0');
+  if(abs===0n&&fraction.replace(/0/g,'')&&tail==='00')return '< ¥0.000001';
+  return `${negative?'-':''}¥${abs/100n}.${tail}`;
+ };
+ const billingPager=(page,more,action='billing-record-page')=>page||more?`<nav class="pu-pages" aria-label="账单分页"><button type="button" data-live="${action}" data-page="${page-1}" aria-label="上一页" ${page===0?'disabled':''}>${ico('chevron-left')}</button><span>第 ${page+1} 页</span><button type="button" data-live="${action}" data-page="${page+1}" aria-label="下一页" ${more?'':'disabled'}>${ico('chevron-right')}</button></nav>`:'';
+ function personalRechargeCompact(data){
+  const channels=(data.recharge?.channels||[]).filter(c=>PAY_CHANNELS[c]);
+  if(!channels.length)return `<div class="pb-empty"><p>当前账户暂未开放在线充值。</p><a href="#support">联系支持 ${ico('arrow-up-right')}</a></div>`;
+  if(!channels.includes(payChannel))payChannel=channels[0];
+  const o=alipayPay?.scope==='personal'?alipayPay.order:null;
+  const intent=readModelIntent(),next=intent?.scope==='personal'?'#personal/connect/'+esc(intent.id):'#personal/keys';
+  if(o?.status==='pending'&&!o.expired&&(o.qr_svg||o.pay_url))return alipayPanel('personal',channels);
+  if(o?.status==='paid')return `<div class="pb-paid"><h2>${ico('check')} 充值成功</h2>${rechargeBreakdown(o)}<p>额度已到账，可继续配置模型和 Key。</p><div><a class="live-button primary" href="${next}">继续接入</a>${btn('继续充值','alipay-reset')}</div></div>`;
+  return `<div class="pb-checkout"><div class="pb-amount-entry"><label for="alipay-yuan">充值金额（元）</label><div class="recharge-amount"><span aria-hidden="true">¥</span><input id="alipay-yuan" inputmode="decimal" autocomplete="off" maxlength="8" aria-describedby="pb-amount-help" value="${esc(billingAmountDraft)}"></div><div class="alipay-presets recharge-presets" aria-label="常用充值金额">${[5000,10000,50000,100000].map(f=>`<button type="button" aria-pressed="${Number(billingAmountDraft)*100===f}" class="alipay-preset ${Number(billingAmountDraft)*100===f?'active':''}" data-live="alipay-amount" data-fen="${f}">¥${f/100}</button>`).join('')}</div><p id="pb-amount-help" class="pb-muted">实付 ¥5–¥50,000，下一步核对到账额度。</p><label class="pb-promo" for="pack-promo">促销码 <span>选填</span><input id="pack-promo" autocomplete="off" maxlength="40" placeholder="有促销码可在此填写" value="${esc(cwInputCode)}"></label></div><div class="pb-pay-action"><label for="pb-channel">付款方式</label><select id="pb-channel" data-billing-channel>${channels.map(c=>`<option value="${c}" ${payChannel===c?'selected':''}>${PAY_CHANNELS[c].name}</option>`).join('')}</select><p class="pb-muted">实付金额 + 赠送额度 = 到账额度</p>${btn('核对金额，继续付款','alipay-create','type="button"','primary')}<p class="pb-payee">收款方：深圳市格洛可半导体有限公司</p><div id="live-form-message" role="status"></div></div></div>`;
+ }
+ async function personalBillingPage(ticket,data){
+  billingView=Object.keys(billingRoutesByView).find(k=>billingRoutesByView[k]===current)||'recharge';
+  const billingRecordCache={};billingRecordPage=0;billingInvoicePage=0;
+  let invoiceData=null,invoiceLoading=false;
+  const valid=()=>ticket===generation&&panelRedraw===draw;
+  const draw=()=>{
+   const sub=['refund','invoice','invoice-history'].includes(billingView),kind=billingView==='history'?'recharge':billingView,cacheKey=kind+':'+billingRecordPage;
+   let records=billingRecordCache[cacheKey];
+   if(['usage','recharge','refund'].includes(kind)&&billingView!=='recharge'&&!records){
+    records=billingRecordCache[cacheKey]={loading:true};
+    api(`/api/billing/personal/records?kind=${kind}&page=${billingRecordPage}`).then(r=>{billingRecordCache[cacheKey]=r;if(kind==='refund'&&valid())for(const p of r.items){data.packs=[...(data.packs||[]).filter(x=>x.id!==p.id),p];}},error=>{billingRecordCache[cacheKey]={failed:error.message};}).finally(()=>{if(valid())draw();});
+   }
+   if(billingView.startsWith('invoice')&&!invoiceData&&!invoiceLoading){invoiceLoading=true;api('/api/billing/personal/invoices').then(r=>{invoiceData=r;},error=>{invoiceData={failed:error.message};}).finally(()=>{invoiceLoading=false;if(valid())draw();});}
+   let body='',foot='';
+   if(billingView==='recharge')body=personalRechargeCompact(data);
+   else if(billingView.startsWith('invoice')){
+    if(!invoiceData)body='<p class="pb-empty" role="status">正在读取发票…</p>';
+    else if(invoiceData.failed)body=`<div class="pb-empty" role="alert"><p>${esc(invoiceData.failed)}</p>${btn('重新读取','billing-retry')}</div>`;
+    else if(billingView==='invoice-history'){
+     const rows=(invoiceData.items||[]).slice(billingInvoicePage*2,billingInvoicePage*2+2),states={requested:'待开票',issued:'已开具',rejected:'已退回',voided:'已作废',reversed:'已红冲'};
+     body=`<div class="pb-subhead"><h2>开票记录</h2>${btn('申请发票','billing-subview','data-billing-view="invoice"','quiet')}</div>${rows.length?`<ul class="pb-invoices">${rows.map(r=>`<li><div><strong>${esc(r.title)}</strong><small>${billingTime(r.created_at)}</small></div><div><b>${personalMoney(r.amount_fen)}</b><small>${esc(states[r.status]||r.status)}${r.invoice_number?' · '+esc(r.invoice_number):''}</small></div>${r.note?`<p>${esc(r.note)}</p>`:''}</li>`).join('')}</ul>`:'<p class="pb-empty">还没有开票申请。</p>'}`;
+     foot=`<span>显示最近 50 条申请</span>${billingPager(billingInvoicePage,(invoiceData.items||[]).length>(billingInvoicePage+1)*2,'billing-invoice-page')}`;
+    }else{
+     body=`<div class="pb-subhead"><h2>申请发票</h2>${btn('开票记录','billing-subview','data-billing-view="invoice-history"','quiet')}</div><p class="pb-muted">可开票 ${personalMoney(invoiceData.available_fen)} · 按实付金额开票，付款后 30 天内可申请。</p><form id="live-invoice" class="live-form pb-invoice-form" data-path="/api/billing/personal/invoices"><input type="hidden" name="invoice_type" value="general"><label>发票抬头<input name="title" required maxlength="160" autocomplete="off"></label><label>税号（个人抬头可不填）<input name="tax_number" maxlength="20" autocomplete="off"></label><label>开票金额（元）<input name="amount_yuan" required inputmode="decimal" placeholder="0.00"></label><label>收票邮箱<input name="email" type="email" required maxlength="254" value="${esc(me.user.email||'')}"></label><div class="pb-invoice-submit"><p class="pb-muted">电子普通发票发送至邮箱。已申请或已开票部分不可自助退款。</p><div id="live-form-message" role="status"></div><button class="live-button primary" type="submit" ${BigInt(invoiceData.available_fen||0)>0n?'':'disabled'}>提交开票申请</button></div></form>`;
+    }
+   }else if(records?.loading)body='<p class="pb-empty" role="status">正在读取账单…</p>';
+   else if(records?.failed)body=`<div class="pb-empty" role="alert"><p>账单读取失败，请重试。</p>${btn('重新读取','billing-retry')}</div>`;
+   else if(billingView==='refund'){
+    body=personalRefundContent(records?.items||[],true);
+    foot=`<span>每页一笔充值，退款前可核对明细。</span>${billingPager(billingRecordPage,records?.has_more)}`;
+   }else{
+    const usage=billingView==='usage',rows=records?.items||[];
+    const cell=(label,value)=>`<td data-label="${label}">${value}</td>`;
+    body=rows.length?`<table class="pb-table${usage?' pb-usage-table':''}" data-nosort><thead><tr><th>${usage?'模型 / Key':'充值时间 / 方式'}</th><th>${usage?'扣减额度':'实付金额'}</th><th>${usage?'实付费用':'赠送额度'}</th>${usage?'':'<th>到账额度</th>'}</tr></thead><tbody>${rows.map(r=>`<tr>${cell(usage?'模型 / Key':'充值时间 / 方式',usage?`<strong>${esc(r.model_name)}</strong><small title="${esc(r.key_label)} · ${esc(r.key_hint)}">${esc(r.key_label)} · ${esc(r.key_hint)}</small><time>${billingTime(r.created_at)}</time>`:`<strong>${billingTime(r.paid_at||r.created_at)}</strong><small>${esc(refundChannelName(r))}${r.refund_status==='succeeded'?' · 已退款':r.refund_id?' · 退款处理中':''}</small>`)}${usage?[['扣减额度',r.quota_fen],['实付费用',r.cash_fen]].map(([label,value])=>cell(label,esc(billingQuotaMoney(value)))).join(''):[['实付金额',r.cash_fen],['赠送额度',String(BigInt(r.face_fen)-BigInt(r.cash_fen))],['到账额度',r.face_fen]].map(([label,value])=>cell(label,personalMoney(value))).join('')}</tr>`).join('')}</tbody></table>`:`<div class="pb-empty"><h2>${usage?'还没有消费记录':'还没有充值记录'}</h2><p>${usage?'模型调用结算后，扣减额度与实付费用会显示在这里。':'完成充值后，可在这里核对每笔到账金额。'}</p></div>`;
+    foot=`<span>${usage?'实付费用按分累计结算，赠送不计费。仅列已结算消费。':'记录充值时到账额度；当前剩余额度见上方余额。'} 时间为北京时间。</span>${billingPager(billingRecordPage,records?.has_more)}`;
+   }
+   const balance=data.list_credit_exact_fen??data.list_credit_fen??data.cash_balance_fen??'0',paid=data.cash_balance_fen||'0',gift=String(wholeFen(balance)>wholeFen(paid)?wholeFen(balance)-wholeFen(paid):0n);
+   const header=`<header class="pb-heading"><h1>充值与账单</h1><nav aria-label="账单服务">${sub?'<a href="#billing/personal">'+ico('arrow-left')+' 返回充值</a>':'<a href="#'+refundRoute+'">退款</a><a href="#billing/personal/invoices">发票</a>'}</nav></header>`;
+   const activeOrder=billingView==='recharge'&&alipayPay?.scope==='personal'&&['pending','paid'].includes(alipayPay.order?.status)&&!alipayPay.order?.expired;
+   const summary=sub||activeOrder?'':`<div class="pb-balance"><div><span>额度余额</span><strong>${personalMoney(balance)}</strong></div><p>实付剩余 ${personalMoney(paid)} <span>＋</span> 赠送剩余 ${personalMoney(gift)}</p></div>${billingView==='recharge'?'<p class="pb-explainer">充值增加额度，模型调用按官网价扣减额度。</p>':'<div class="pb-balance-gap"></div>'}<nav class="pu-tabs pb-tabs" aria-label="充值与账单">${[['recharge','充值'],['usage','消费账单'],['history','充值记录']].map(([key,label])=>`<a href="#${billingRoutesByView[key]}" ${billingView===key?'aria-current="page"':''}>${label}</a>`).join('')}</nav>`;
+   mount(panelPage(null,'billing',panelBody(`<section class="personal-api personal-billing${sub?' pb-detail':''}">${header}${summary}<div class="pb-content">${body}</div>${foot?`<footer class="pb-foot">${foot}</footer>`:''}</section>`)));
+   if(billingView==='refund'&&focusRefundHeading){host.querySelector('#refund-heading')?.focus();focusRefundHeading=false;}
+   if(billingView==='recharge'&&alipayPay?.scope==='personal'&&!alipayTimer)alipayWatch();
+  };
+  panelRedraw=draw;draw();
  }
 
  async function billingPage(ticket,earlyBilling){
@@ -1237,7 +1304,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   else if(!orgId&&current===billingHistoryRoute)pageViews.billing='history';
   else if(!orgId&&['refund','history'].includes(pageViews.billing))pageViews.billing='recharge';
   if(orgId&&!cachedBilling)lastOrgBilling={id:orgId,data,at:Date.now()};
-  const org=orgId?lastOrg.organization:null;panelOrg=org?lastOrg:null;if(!orgId)personalBilling=data;
+  const org=orgId?lastOrg.organization:null;panelOrg=org?lastOrg:null;if(!orgId){personalBilling=data;return personalBillingPage(ticket,data);}
   // Invoice requests load on first visit to the tab; submitting re-runs this page, which fetches them again.
   const invoicePath=(orgId?'/api/billing/organizations/'+encodeURIComponent(orgId):'/api/billing/personal')+'/invoices',invoiceStates={requested:'待开票',issued:'已开具',rejected:'已退回',voided:'已作废',reversed:'已红冲'};let invoiceData=null,invoiceLoading=false;
   const draw=()=>{
@@ -1366,6 +1433,10 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const b=e.target.closest('[data-live]');if(!b)return;const action=b.dataset.live;let message=host?.querySelector('#live-form-message');b.disabled=true;
   try{
    if(action==='personal-tab'){if(!panelOrg&&['overview','models','keys','usage','compare'].includes(b.dataset.tab)){const target=b.dataset.tab==='overview'?'personal':'personal/'+b.dataset.tab;if(target&&current!==target){location.hash=target;return;}}personalTab=b.dataset.tab;if(host?.querySelector('.personal-console')&&!panelRedraw&&current!=='upgrade')updatePersonalDashboard();else location.hash='personal';}
+   else if(action==='billing-record-page'){billingRecordPage=Math.max(0,Number(b.dataset.page));panelRedraw?.();}
+   else if(action==='billing-invoice-page'){billingInvoicePage=Math.max(0,Number(b.dataset.page));panelRedraw?.();}
+   else if(action==='billing-subview'){billingView=b.dataset.billingView;panelRedraw?.();}
+   else if(action==='billing-retry'){await route(current);}
    else if(action==='page-turn'){pageViews[b.dataset.group+':page']=Number(b.dataset.page);if(panelRedraw)panelRedraw();else if(panelOrg&&lastOrg)organizationV2(lastOrg);else updatePersonalDashboard();}
    else if(action==='page-view'){
     pageViews[b.dataset.group]=b.dataset.pageView;
@@ -1762,7 +1833,8 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const help=document.querySelector('#cw-offer-help');
   if(help)help.textContent=cwOfferHelp();
 }
- document.addEventListener('change',event=>{if(event.target.id==='pack-promo')lookupCWOffer(event.target.value);});
+ document.addEventListener('input',event=>{if(event.target.id==='pack-promo'&&host?.querySelector('.personal-billing'))cwInputCode=event.target.value;});
+ document.addEventListener('change',event=>{if(event.target.matches('[data-billing-channel]'))payChannel=event.target.value;if(event.target.id==='pack-promo')lookupCWOffer(event.target.value);});
  if(cwInputCode)lookupCWOffer(cwInputCode);
  window.IdentityUI={refreshPublic,chooseModelIntent,customerSignedIn,handles:v=>handles(v)||v.startsWith('staff?'),route,cancel:()=>{personalConnectIssued=null;host?.querySelector('.personal-connect')?.replaceChildren();generation++;lastOrg=null;lastOrgBilling=null;opsPageCache.clear();document.body.classList.remove('identity-route-pending');}};
  function syncQuota(source){

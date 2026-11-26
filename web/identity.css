@@ -1840,3 +1840,100 @@ td>.live-dot:first-child{margin-right:5px}
  .personal-console:has(.personal-settings) .pc-sidebar{padding:16px 12px}
  .personal-console:has(.personal-settings) .pc-sidebar nav :is(button,a){min-height:40px;padding-block:8px}
 }
+/* Personal billing: one balance, one task, paged settlement records. */
+.personal-console:has(.personal-billing) .pc-stage{padding:28px 36px}
+.personal-billing{max-width:1120px;margin:0 auto;font-size:13px;font-variant-numeric:tabular-nums}
+.pb-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:26px}
+.pb-heading h1{font-size:25px;line-height:36px;font-weight:600;margin:0}
+.pb-heading nav{display:flex;gap:24px}.pb-heading a{display:inline-flex;align-items:center;gap:6px;min-height:32px;color:var(--ph-muted);font-size:12px}
+.pb-balance{display:flex;align-items:baseline;gap:32px}
+.pb-balance>div{display:flex;align-items:baseline;gap:16px}.pb-balance strong{font-size:28px;font-weight:600;letter-spacing:-.02em}
+.pb-balance p{font-size:12px;color:var(--ph-muted);margin:0}.pb-balance p>span{padding:0 12px;color:#8390a2}
+.pb-explainer{font-size:12px;color:var(--ph-muted);margin:12px 0 24px}
+.pb-tabs{border-bottom:1px solid var(--ph-line);gap:28px;margin-bottom:24px}
+.pb-tabs a{font-size:13px;padding:0 0 12px;color:var(--ph-muted);border-bottom:2px solid transparent;min-height:32px}
+.pb-tabs a[aria-current]{color:var(--ph-ink);border-color:var(--ph-ink)}
+.personal-billing :is(a,button,input,select):focus-visible{outline:2px solid #637a9c;outline-offset:3px}
+.personal-billing :is(input,select){min-width:0;min-height:38px;border:1px solid var(--ph-line);border-radius:5px;background:#fff;color:var(--ph-ink);font:inherit;caret-color:var(--ph-ink);padding:8px 10px}
+.personal-billing .live-button{min-height:38px;padding:8px 16px;font-size:12px;border-radius:5px}
+.personal-billing .live-button.primary{background:var(--ph-ink);border-color:var(--ph-ink);color:#fff}
+.personal-billing .live-button.quiet{color:var(--ph-muted);background:none;border:0;padding-inline:0}
+.pb-checkout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:64px;max-width:960px}
+.pb-checkout label{display:block;margin-bottom:8px;font-size:13px}
+.personal-billing .recharge-amount{height:54px;margin:0;box-shadow:none;border-color:var(--ph-line)}
+.personal-billing .recharge-amount input{border:0;min-height:0;height:100%;font-size:24px;font-weight:500;padding:6px 12px;box-shadow:none}
+.personal-billing .recharge-presets{margin:12px 0;gap:8px}.personal-billing .alipay-preset{font-size:12px;min-height:36px;border-radius:5px}
+.personal-billing .alipay-preset.active{border-color:#8995a7;background:#f0f3f7;color:var(--ph-ink);box-shadow:none}
+.pb-muted{color:var(--ph-muted);font-size:12px;line-height:1.6;margin:12px 0}
+.pb-promo{margin-top:22px!important}.pb-promo span{color:var(--ph-muted);font-size:11px;margin-left:6px}.pb-promo input{display:block;width:100%;margin-top:8px}
+.pb-pay-action select{width:100%;height:54px}.pb-pay-action>.live-button{margin-top:14px;width:100%}.pb-payee{font-size:11px;color:var(--ph-muted);line-height:1.5;margin:14px 0}
+.pb-content [role=status]:empty{display:none}.pb-content #live-form-message{font-size:12px;line-height:1.5;margin:8px 0 0}
+.pb-table{width:100%;border-collapse:collapse;table-layout:fixed}.pb-table th{font-size:12px;font-weight:400;background:#f7f8fa;color:var(--ph-muted);padding:10px 14px;text-align:right}
+.pb-table th:first-child{width:46%;text-align:left}.pb-table td{height:80px;padding:12px 14px;text-align:right;border-bottom:1px solid var(--ph-line);font-size:13px;overflow-wrap:anywhere}
+.pb-table td:first-child{text-align:left}.pb-table strong{font-weight:500}.pb-table :is(small,time){display:block;font-size:11px;line-height:1.5;color:var(--ph-muted);margin-top:3px}
+.pb-foot{display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:11px;color:var(--ph-muted);margin-top:16px;line-height:1.6}
+.pb-empty{padding:36px 0;color:var(--ph-muted)}.pb-empty h2{font-size:16px;font-weight:500;color:var(--ph-ink);margin:0 0 10px}.pb-empty p{margin:0 0 16px}
+.pb-empty a{display:inline-flex;align-items:center;gap:6px;color:var(--ph-ink)}
+.pb-paid h2{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:500;color:#247663}.pb-paid>p{color:var(--ph-muted);margin:20px 0}.pb-paid>div{display:flex;gap:16px}.pb-paid .recharge-breakdown{max-width:600px}
+.pb-subhead{display:flex;align-items:center;justify-content:space-between;gap:16px}.pb-subhead h2{font-size:18px;font-weight:500;margin:0}
+.pb-invoice-form{display:grid;grid-template-columns:1fr 1fr;gap:18px 32px;max-width:760px;margin-top:20px}
+.pb-invoice-form label{font-size:12px;gap:6px}.pb-invoice-form input{height:38px;min-height:38px}.pb-invoice-submit{grid-column:1/-1}.pb-invoice-submit p{margin:0 0 16px}
+.pb-invoices{list-style:none;margin:16px 0;padding:0}.pb-invoices li{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:18px 0;border-bottom:1px solid var(--ph-line)}.pb-invoices li>div:last-of-type{text-align:right}.pb-invoices :is(strong,b){font-weight:500}.pb-invoices small{display:block;font-size:12px;color:var(--ph-muted);margin-top:6px}.pb-invoices p{width:100%;margin:0;font-size:12px;overflow-wrap:anywhere}
+.personal-billing .refund-heading{margin-bottom:16px;gap:16px}.personal-billing .refund-heading h2{font-size:18px}.personal-billing .refund-heading p{font-size:12px;line-height:1.65;max-width:70ch}.personal-billing .refund-total{display:none}.personal-billing .refund-orders{margin:0}.personal-billing .refund-order{padding:16px 0}.personal-billing .refund-order :is(strong,span,time){font-size:12px}.personal-billing .refund-progress{margin-top:16px}.personal-billing .refund-policy-note{font-size:12px}
+.personal-billing .alipay-pay{margin:0;padding:0;gap:24px;background:none;border:0;box-shadow:none}.personal-billing .alipay-pay>.payment-brand-icon{display:none}.personal-billing .alipay-pay-info p{font-size:12px;line-height:1.6;max-width:65ch;margin:12px 0}.personal-billing .alipay-qr{width:180px;min-width:180px}.personal-billing .alipay-qr svg{width:100%;height:auto}
+@media(max-height:760px){
+ .personal-console:has(.personal-billing) .pc-stage{padding:18px 28px}.pb-heading{margin-bottom:16px}.pb-explainer{margin:8px 0 16px}.pb-tabs{margin-bottom:18px}.pb-table td{height:64px;padding-block:8px}.pb-promo{margin-top:14px!important}.pb-foot{margin-top:12px}.pb-invoice-form{gap:12px 24px}.pb-checkout{gap:40px}
+}
+@media(min-width:701px) and (max-height:650px){
+ .personal-console:has(.personal-billing) .pc-sidebar{padding:16px 12px}.personal-console:has(.personal-billing) .pc-sidebar nav :is(button,a){min-height:40px;padding-block:8px}
+ .pb-heading{margin-bottom:8px}.pb-balance strong{font-size:24px}.pb-explainer{margin-block:6px 12px}.pb-tabs{margin-bottom:14px}.pb-tabs a{padding-bottom:8px}.pb-table td{height:62px}.personal-billing .recharge-amount,.pb-pay-action select{height:44px}.pb-promo{margin-top:10px!important}.pb-muted{margin:8px 0}.personal-billing .refund-order{padding-block:10px}
+}
+@media(max-width:700px){
+ .personal-console:has(.personal-billing) .pc-stage{padding:16px 18px}.pb-heading{margin-bottom:14px}.pb-heading h1{font-size:22px;line-height:32px}.pb-heading nav{gap:16px}.pb-heading a{font-size:11px}
+ .pb-balance{display:block}.pb-balance strong{font-size:25px}.pb-balance>div{gap:14px}.pb-balance p{font-size:11px;margin-top:6px}.pb-explainer{font-size:11px;margin:8px 0 14px}
+ .pb-tabs{gap:24px;margin-bottom:16px}.pb-tabs a{font-size:12px;padding-bottom:9px}
+ .pb-checkout{grid-template-columns:1fr;gap:14px}.personal-billing .recharge-amount{height:42px}.personal-billing .recharge-amount input{font-size:22px}.personal-billing .recharge-presets{margin:8px 0}.pb-checkout label{font-size:12px;margin-bottom:6px}.pb-muted{font-size:11px;margin:8px 0}
+ .pb-promo{display:flex!important;align-items:center;gap:6px;margin:10px 0 0!important}.pb-promo span{margin:0;white-space:nowrap}.pb-promo input{width:auto;min-width:0;flex:1;margin:0 0 0 8px;height:34px;min-height:34px;font-size:11px;padding:6px 8px}
+ .pb-pay-action{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 12px;align-items:center}.pb-pay-action label{margin:0}.pb-pay-action select{height:34px;min-height:34px;padding:4px 8px;font-size:12px}.pb-pay-action>:is(p,button,div){grid-column:1/-1}.pb-pay-action>.live-button{margin:0}.pb-pay-action .pb-muted{margin:0}.pb-payee{margin:0;font-size:10px}
+ .pb-table thead{display:none}.pb-table,.pb-table tbody{display:block}.pb-table tr{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:10px 0;gap:8px;border-bottom:1px solid var(--ph-line)}.pb-table td{border:0;padding:0;height:auto;font-size:12px;text-align:left}.pb-table td:first-child{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px}.pb-table td:first-child strong{font-size:12px}.pb-table small{grid-column:1;grid-row:2;margin:0;font-size:10px}.pb-table time{grid-column:2;grid-row:1/3;margin:0;font-size:9px;max-width:70px;text-align:right;align-self:center}.pb-table td:not(:first-child):before{content:attr(data-label);display:block;font-size:10px;color:var(--ph-muted);margin-bottom:3px}
+ .pb-foot{gap:12px;font-size:10px;align-items:flex-start}.pb-foot .pu-pages{font-size:10px;gap:5px}
+ .pb-invoice-form{grid-template-columns:1fr;gap:10px;margin-top:16px}.pb-invoice-form input{height:34px;min-height:34px}.pb-invoice-form label{font-size:11px}.pb-invoice-submit p{font-size:10px;margin-bottom:10px}.pb-subhead h2{font-size:16px}
+ .personal-billing .refund-heading p{font-size:11px}.personal-billing .refund-order{gap:12px}.personal-billing .refund-order>div{gap:6px}.personal-billing .refund-progress{padding-top:10px}.personal-billing .refund-progress li span{font-size:10px}.personal-billing .refund-progress time{font-size:9px}
+ .personal-billing .alipay-pay{flex-direction:column;gap:12px}.personal-billing .alipay-qr{width:130px;min-width:130px}.personal-billing .alipay-pay-info p{font-size:11px;margin:8px 0}.personal-billing .recharge-breakdown{gap:8px;padding:10px 0}.personal-billing .recharge-breakdown dd{font-size:16px}
+}
+.personal-billing .recharge-amount{min-height:0;padding:0 12px}
+.personal-billing .recharge-amount input{width:100%}
+.personal-billing .alipay-preset{padding:7px 10px;line-height:20px}
+.personal-billing .pb-table{min-width:0}
+@media(max-width:700px){
+ .pb-heading{margin-bottom:10px}.pb-balance{line-height:1.35}.pb-balance p{margin-top:4px}.pb-explainer{margin:6px 0 10px}.pb-tabs{margin-bottom:12px}
+ .pb-table tr{padding:8px 0;gap:6px}.pb-table td{line-height:16px}.pb-table td:first-child{line-height:16px}.pb-table small{line-height:14px}.pb-table time{line-height:14px}.pb-table td:not(:first-child):before{line-height:13px;margin-bottom:2px}
+ .pb-foot{margin-top:10px}.personal-billing .pb-foot .pu-pages button{min-height:28px;width:28px}
+}
+@media(max-width:700px) and (max-height:700px){
+ .personal-console:has(.personal-billing) .pc-stage{padding:12px 16px}.pb-heading{margin-bottom:6px}.pb-heading h1{font-size:20px;line-height:28px}.pb-balance strong{font-size:22px}.pb-tabs{margin-bottom:8px}.pb-tabs a{min-height:28px;padding-bottom:6px}.pb-explainer{margin-bottom:8px}
+ .pb-checkout{gap:10px}.pb-checkout label{margin-bottom:4px}.personal-billing .recharge-amount{height:36px}.personal-billing .recharge-amount input{font-size:20px}.personal-billing .recharge-presets{margin:6px 0}.personal-billing .alipay-preset{min-height:32px;padding:5px 8px}.pb-muted{margin:6px 0}.pb-promo{margin-top:6px!important}.pb-pay-action{gap:6px 10px}.pb-pay-action>.live-button{min-height:34px;padding-block:6px}
+ .pb-table tr{padding-block:6px;gap:4px}.pb-foot{margin-top:8px;font-size:9px}.pb-invoice-form{gap:8px;margin-top:10px}
+}
+@media(max-width:700px){.pb-table.pb-usage-table tr{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.personal-billing .pb-table{white-space:normal}
+.personal-billing .pb-table :is(th,td){white-space:normal}
+.personal-billing .pb-invoice-form{gap:14px 28px}
+.personal-billing .pb-invoice-form label{font-size:12px;gap:6px}
+.personal-billing .pb-foot{display:grid;grid-template-columns:minmax(0,1fr) auto;flex-wrap:nowrap}
+@media(max-width:700px){
+ .personal-billing .pb-checkout{gap:10px}.personal-billing .pb-amount-entry>.pb-muted{margin-block:6px}.personal-billing .recharge-presets .alipay-preset{padding:6px 8px;min-height:34px}
+ .personal-billing .pb-table td{padding:0;height:auto;font-size:12px;line-height:16px}.personal-billing .pb-table td:first-child{gap:2px 8px}.personal-billing .pb-table :is(strong,small,time){margin:0;line-height:14px}.personal-billing .pb-table strong{line-height:16px}.personal-billing .pb-table time{white-space:normal;overflow-wrap:normal}
+ .personal-billing .pb-foot{gap:10px;font-size:10px}.personal-billing .pb-foot>span{line-height:15px}.personal-billing .pb-foot .pu-pages{white-space:nowrap}
+ .personal-billing .pb-invoice-form{gap:10px}.personal-billing .pb-invoice-form label{font-size:12px;gap:5px}
+}
+.pb-balance-gap{height:24px}
+@media(max-width:700px){.pb-balance-gap{height:12px}}
+@media(max-width:700px) and (max-height:700px){
+ .personal-console:has(.personal-billing) .pc-stage{padding-block:8px}
+ .personal-billing .pb-invoice-form{gap:8px}
+ .personal-billing .pb-checkout{gap:8px}.personal-billing .recharge-presets .alipay-preset{min-height:30px;padding:4px 8px}.personal-billing .pb-pay-action{gap:4px 10px}.personal-billing .pb-heading{margin-bottom:4px}.pb-balance-gap{height:8px}
+}
+.personal-billing .pb-table td:first-child small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pb-pay-action:has(#live-form-message:not(:empty))>:is(.pb-muted,.pb-payee){display:none}
+.personal-billing .pb-pay-action #live-form-message .live-notice{margin:0;padding:0;border:0;background:none;font-size:12px;line-height:1.5}

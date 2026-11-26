@@ -1,4 +1,5 @@
 import {transferNotices} from './bank-transfers.mjs';
+import {personalBillingRecordRoutes} from './personal-billing-records.mjs';
 import {refundQuote} from './pack-ledger.mjs';
 import { HttpError,id } from './core.mjs';
 import { isManager } from './organizations.mjs';
@@ -22,6 +23,7 @@ function disabled(account,entries,scope,totalRecharged,channels=[]){
 }
 
 export function billingRoutes(app,pool,requireCustomer,cfg,payments){
+ personalBillingRecordRoutes(app,pool,requireCustomer);
  async function view(account,scope,res,bankTransfer,channels=[]){
   const [entries,totalRecharged]=account?await Promise.all([
    pool.query('SELECT id,kind,amount_fen,balance_after_fen,reference_id,created_at FROM billing_ledger WHERE account_id=$1 ORDER BY id DESC LIMIT 50',[account.id]),
