@@ -14,10 +14,11 @@ export function acquisitionRoutes(app,pool,requireStaff,cfg) {
   const [grants,orders,partners,codes,vipOrders,owners]=await Promise.all([
    pool.query(`SELECT d.*,s.name AS created_by_name,
     CASE WHEN now()>=d.ends_at THEN 'expired' WHEN d.status<>'active' THEN d.status WHEN now()<d.starts_at THEN 'scheduled' ELSE 'active' END AS state,
-    coalesce(x.paid_fen,0)::text AS paid_fen,coalesce(x.refunded_fen,0)::text AS refunded_fen,coalesce(x.customers,0)::int AS customers
+    coalesce(x.paid_fen,0)::text AS paid_fen,coalesce(x.refunded_fen,0)::text AS refunded_fen,coalesce(x.customers,0)::int AS customers,coalesce(x.used_fen,0)::text AS used_fen
     FROM discount_grants d JOIN staff_members s ON s.subject=d.created_by
     LEFT JOIN LATERAL (SELECT sum(o.amount_fen) FILTER(WHERE o.status='paid') AS paid_fen,
-     sum(o.refunded_fen) FILTER(WHERE o.status='paid') AS refunded_fen,count(DISTINCT o.account_id) FILTER(WHERE o.status='paid') AS customers
+     sum(o.refunded_fen) FILTER(WHERE o.status='paid') AS refunded_fen,count(DISTINCT o.account_id) FILTER(WHERE o.status='paid') AS customers,
+     sum((SELECT coalesce(sum(p.consumed_cash_fen),0) FROM credit_packs p WHERE p.source_kind='payment' AND p.source_id=o.id)) FILTER(WHERE o.status='paid') AS used_fen
      FROM payment_orders o WHERE o.discount_snapshot->>'grant_id'=d.id::text) x ON true
     WHERE d.business_line='direct' AND ($1 OR d.created_by=$2) AND ($3='' OR d.promo_code ILIKE '%'||$3||'%' OR d.name ILIKE '%'||$3||'%' OR s.name ILIKE '%'||$3||'%') ORDER BY d.created_at DESC LIMIT 501`,args),
    pool.query(`SELECT o.id,o.out_trade_no,o.amount_fen::text,o.face_fen::text,o.refunded_fen::text,o.status,o.created_at,o.paid_at,

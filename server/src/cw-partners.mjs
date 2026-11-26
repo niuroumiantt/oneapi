@@ -274,7 +274,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     ).rows;
     const taskCodes = (
       await pool.query(
-        "SELECT id,code,customer_price_percent,status,starts_at,ends_at,note FROM vip_task_codes WHERE partner_id=$1 AND status='active' AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) ORDER BY created_at DESC LIMIT 50",
+        "SELECT id,code,customer_price_percent,status,starts_at,ends_at,note,(status='active' AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())) AS usable FROM vip_task_codes WHERE partner_id=$1 ORDER BY created_at DESC LIMIT 50",
         [p.id],
       )
     ).rows;
@@ -292,7 +292,8 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       contracts,
       payouts,
       invited,
-      task_codes: taskCodes,
+      task_codes: taskCodes.filter(code=>code.usable),
+      task_code_history: taskCodes,
     });
   });
   app.get('/api/cw/events', requireCustomer, enabled, async (req, res) => {

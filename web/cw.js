@@ -183,9 +183,10 @@
       }
     }
   }
+  addEventListener('message',e=>{if(e.origin===location.origin&&e.source===document.querySelector('.cv-code-activity')?.contentWindow&&e.data?.type==='semifly-code-activity-close'){tab='codes';draw();}});
   let personalPage=0, personalStarted=false;
   const personalGuideTabs=['intro','process','terms'];
-  let vipStatementItems=[],vipStatementHistory=null;
+  let vipStatementItems=[],vipStatementHistory=null,activityCode=null;
   function monthlyOverview(monthly={}){
     const latest=monthly.latest_statement;
     return `<section class="cv-monthly-overview"><h2>本月推广 <small>${esc(monthly.month||'')}</small></h2><div class="cv-monthly-totals"><div><span>客户实付</span><strong>${money(monthly.paid_fen)}</strong></div><div><span>实际消费</span><strong>${money(monthly.used_fen)}</strong></div></div><p class="cv-detail-note">实际消费按实付额度消耗统计，不含赠送额度。</p><div class="cv-latest-statement"><div><strong>${latest?esc(latest.month)+' 月账单':'月账单'}</strong><p>${latest?'本期提成（税前） '+money(latest.totals?.commission_fen):'首份账单将在下月 1 日生成。'}</p></div><button data-tab="inbox">查看收件箱${monthly.unread?' · '+Number(monthly.unread)+' 未读':''}</button></div><p class="cv-detail-note">每月 1 日，上月账单 PDF 自动送达收件箱，包含各推广码的脱敏金额明细。</p></section>`;
@@ -209,7 +210,7 @@
     const p=data.partner,t=data.totals||{},active=p?.status==='active',codes=data.codes||[],contracts=data.contracts||[];
     const guide=personalGuideTabs.includes(tab),destination=p?'overview':'apply';
     const sections=active?[['overview','概览'],['codes','推广码'],['inbox','收件箱'],['payouts','佣金与提现'],['profile','个人信息与合同']]:p?[['overview','申请进度'],['inbox','收件箱'],['profile','申请资料']]:[['apply','填写申请']];
-    const section=tab==='statement-history'?'inbox':['new-code'].includes(tab)?'codes':['withdraw'].includes(tab)?'payouts':['bank','invites','feedback','contracts','sign-request'].includes(tab)?'profile':tab;
+    const section=tab==='statement-history'?'inbox':['new-code','code-activity'].includes(tab)?'codes':['withdraw'].includes(tab)?'payouts':['bank','invites','feedback','contracts','sign-request'].includes(tab)?'profile':tab;
     $('#cw-title').textContent=guide?'VIP 合作计划':active?'VIP 工作台':'VIP 申请';
     $('#cw-description').textContent='';
     const guideLink=$('#cw-guide-link');guideLink.textContent=guide?(active?'返回工作台':p?'查看申请进度':'申请指南'):'了解合作计划';
@@ -256,8 +257,9 @@
     if(tab==='rules'){c.innerHTML=`<h2>充值与退款规则</h2><p>累计有效实付满 ¥100 后，由负责员工核验开通。</p><p>可多次充值；赠送、已退款金额不计入，处理中退款核实后再计算。</p><p>开通后首次 ¥100 实付作为激活款，可用于消费，不支持自助退款。特殊诉求请联系支持。</p>${go('overview','返回我的 VIP')}`;return;}
     if(!active&&!['inbox','statement-history'].includes(tab)){tab='overview';return drawPersonalVIP(c,version);}
     const verified=hasCurrentContract(contracts),trial=hasPromotionTrial(p),eligible=verified||trial;
+    if(tab==='code-activity'&&activityCode){c.innerHTML=`<iframe class="cv-code-activity" title="推广码收支明细" src="/code-activity.html?kind=${activityCode.kind}&amp;code=${encodeURIComponent(activityCode.id)}"></iframe>`;return;}
     if(tab==='codes'){
-      c.innerHTML=`<div class="cv-line"><h2>推广码 <small>${codes.length} / 50</small></h2>${eligible&&codes.length<50?go('new-code','生成推广码'):''}</div><p class="cv-detail-note">本月实付与消费按码统计，提成详见每月 1 日送达的账单。</p>${!eligible?'<p>完成合同与实名核验后，可生成推广码。<button data-tab="profile">查看个人信息与合同</button></p>':trial&&!verified?`<p>试用至 ${when(p.promotion_trial_until)}</p>`:''}`+personalList(['推广码','本月实付','实际消费','操作'],codes.map(k=>{const status=promotionStatus(k,true,verified,trial);return `<tr><td>${esc(k.name||k.code)}<small>${esc(k.code)} · ${discount(k.customer_price_percent)} · ${esc(status)}</small></td><td>${k.is_self_code?'自用码':money(k.month_paid_fen)}</td><td>${k.is_self_code?'—':money(k.month_used_fen)}</td><td>${status==='已生效'?`<button data-copy="${esc(location.origin+payLink(k.code))}">复制链接</button><a target="_blank" rel="noopener" href="/api/cw/codes/${encodeURIComponent(k.id)}/qr">二维码 ↗</a>`:'—'}</td></tr>`;}),false,innerWidth<700?2:innerHeight<600?3:5);return;
+      c.innerHTML=`<div class="cv-line"><h2>推广码 <small>${codes.length} / 50</small></h2>${eligible&&codes.length<50?go('new-code','生成推广码'):''}</div><p class="cv-detail-note">本月实付与消费按码统计，提成详见每月 1 日送达的账单。</p>${!eligible?'<p>完成合同与实名核验后，可生成推广码。<button data-tab="profile">查看个人信息与合同</button></p>':trial&&!verified?`<p>试用至 ${when(p.promotion_trial_until)}</p>`:''}`+personalList(['推广码','本月实付','实际消费','操作'],codes.map(k=>{const status=promotionStatus(k,true,verified,trial);return `<tr><td>${esc(k.name||k.code)}<small>${esc(k.code)} · ${discount(k.customer_price_percent)} · ${esc(status)}</small></td><td>${k.is_self_code?'自用码':money(k.month_paid_fen)}</td><td>${k.is_self_code?'—':money(k.month_used_fen)}</td><td><button data-code-activity="${esc(k.id)}">收支明细</button>${status==='已生效'?`<button data-copy="${esc(location.origin+payLink(k.code))}">复制链接</button><a target="_blank" rel="noopener" href="/api/cw/codes/${encodeURIComponent(k.id)}/qr">二维码 ↗</a>`:'—'}</td></tr>`;}).concat((data.task_code_history||data.task_codes||[]).map(k=>`<tr><td>本人付款码<small>${esc(k.code)} · ${discount(k.customer_price_percent)}</small></td><td>自用</td><td>不计提成</td><td><button data-code-activity="${esc(k.id)}" data-code-kind="task">收支明细</button></td></tr>`)),false,innerWidth<700?2:innerHeight<600?3:5);return;
     }
     if(tab==='new-code'){c.innerHTML='<h2>生成推广码</h2><p>符合推广条件后，生成即生效，无需逐个审批。提成 = 客户价格比例 − 40%。客户实际使用后解锁，月结确认后可提现。</p>'+(eligible&&codes.length<50?form('code',field('name','推广码名称','text','maxlength="60"')+field('customer_price_percent','客户价格比例（50 表示五折）','number','min="50" max="100" value="50"'),'生成并启用'):'<p>当前未具备生成条件。</p>')+go('codes','返回推广码');return;}
     if(tab==='inbox'){
@@ -629,6 +631,7 @@
     const b = e.target.closest('button');
     if (!b) return;
     try {
+      if(compactVIP&&b.dataset.codeActivity){activityCode={id:b.dataset.codeActivity,kind:b.dataset.codeKind||'cw'};tab='code-activity';await draw();return;}
       if(compactVIP&&b.dataset.statementHistory){vipStatementHistory=vipStatementItems.find(item=>item.id===b.dataset.statementHistory);tab='statement-history';personalPage=0;await draw();return;}
       if(compactVIP&&b.hasAttribute('data-vip-page')){personalPage=Number(b.dataset.vipPage);await draw();return;}
       if (b.dataset.tab) {
