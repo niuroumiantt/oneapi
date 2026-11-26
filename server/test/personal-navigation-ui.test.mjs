@@ -21,7 +21,7 @@ test('late usage requests never paint over billing, settings, VIP or a pending r
  }
 });
 test('active usage requests still update their own content',()=>{
- let rendered=0;const content={querySelector:()=>null};
- vm.runInNewContext(updateCode+';updatePersonalDashboard()',{current:'personal/usage',location:{hash:'#personal/usage'},panelOrg:null,personalTab:'usage',host:{querySelector:s=>s==='[data-personal-content]'?content:null,querySelectorAll:()=>[]},personalDashboardContent:()=>'<h1>用量</h1>',replacePanelContent:()=>rendered++});
- assert.equal(rendered,1);
+ let rendered=0,synced=0;const content={querySelector:()=>null};
+ vm.runInNewContext(updateCode+';updatePersonalDashboard()',{current:'personal/usage',location:{hash:'#personal/usage'},panelOrg:null,personalTab:'usage',host:{querySelector:s=>s==='[data-personal-content]'?content:null,querySelectorAll:()=>[]},personalDashboardContent:()=>'<h1>用量</h1>',replacePanelContent:()=>rendered++,syncPersonalUsageCharts:()=>synced++});
+ assert.equal(rendered,1);assert.equal(synced,1);
 });
