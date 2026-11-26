@@ -10,14 +10,19 @@ spec.loader.exec_module(preview)
 class Handler(preview.Handler):
     def do_GET(self):
         path = urlparse(self.path).path
-        if path == '/__preview__/label.js':
-            script = "const footer=SiteHeader.footer;SiteHeader.footer=(...args)=>footer(...args).replace(/<a class=\"site-filing\"[^>]*>[^<]*<\\/a>/,'<span class=\"site-filing\">本地配色预览 · 演示数据</span>');"
-            self.send_content(script.encode(), 'text/javascript')
+        if path in ('/__preview__/palettes.css', '/__preview__/palettes.js'):
+            name = path.rsplit('/', 1)[1]
+            media = 'text/css' if name.endswith('.css') else 'text/javascript'
+            self.send_content((HERE / name).read_bytes(), media)
             return
         if path in ('/', '/index.html'):
-            html = (preview.WEB / 'index.html').read_text().replace('<html lang="zh-CN">', '<html lang="zh-CN" data-icp-filing="本地配色预览 · 演示数据">')
-            html = html.replace('<script defer src="site-header.js"></script>', '<script defer src="site-header.js"></script><script defer src="/__preview__/label.js"></script>')
-            html = html.replace('</head>', '<style>.site-footer>span.site-filing{flex:0 0 100%;text-align:center}</style></head>')
+            html = (preview.WEB / 'index.html').read_text()
+            html = html.replace('<html lang="zh-CN">', '<html lang="zh-CN" data-icp-filing="本地配色预览 · 演示数据">')
+            html = html.replace(
+                '<script defer src="site-header.js"></script>',
+                '<script defer src="site-header.js"></script><script defer src="/__preview__/palettes.js"></script>',
+            )
+            html = html.replace('</head>', '<link rel="stylesheet" href="/__preview__/palettes.css"></head>')
             self.send_content(html.encode(), 'text/html; charset=utf-8')
             return
         if path == '/api/customer-credit/usage/chart':
