@@ -664,3 +664,21 @@ body.cw-staff{height:auto;min-height:100dvh}.cw-staff .cw-app{display:block}.cw-
   .cw-pricing-view #cw-content { padding: 12px; }
   .cw-pricing-view .cw-model-pricing { margin-block: 8px 0; }
 }
+
+
+/* Embedded VIP uses the same proportional gutters as the personal workspace. */
+.cw-personal .cw-app { max-width:none; }
+@media (min-width:1001px) {
+  .cw-personal .cw-app { padding-inline:clamp(20px,3vw,52px); }
+  .cw-personal .cw-form { max-width:none; }
+  .cw-personal .cv-vip-overview:has(.cv-latest-statement) {
+    display:grid;
+    grid-template-columns:minmax(0,3fr) minmax(240px,2fr);
+    gap:8px 36px;
+  }
+  .cw-personal .cv-view-tabs,
+  .cw-personal .cv-vip-overview .cv-metric-total { grid-column:1; }
+  .cw-personal .cv-latest-statement { grid-column:2; grid-row:1/3; margin:0; align-self:center; }
+  .cw-personal .cv-vip-overview .cv-detail-note { margin-top:0; }
+  .cw-personal .cv-vip-overview .cv-latest-statement + .cv-detail-note { grid-column:2; }
+}

@@ -4,8 +4,9 @@ import express from 'express';
 import {usageFilters,usageCsvCell,usageCsvRow,personalBillingRecordRoutes} from '../src/personal-billing-records.mjs';
 
 test('date and page size validation accepts only actual dates and supported sizes',()=>{
- for(const opts of [{page_size:3},{page_size:1000},{from:'2026-02-30'},{from:'2026-11-28',to:'2026-11-27'},{to:'invalid'}])assert.throws(()=>usageFilters(opts));
+ for(const opts of [{page_size:4},{page_size:1000},{from:'2026-02-30'},{from:'2026-11-28',to:'2026-11-27'},{to:'invalid'}])assert.throws(()=>usageFilters(opts));
  assert.deepEqual(usageFilters({page_size:'50',from:'2024-02-29',to:'2024-03-01'}),{size:50,from:'2024-02-29',to:'2024-03-01'});
+ for(const size of [2,3,5,8])assert.equal(usageFilters({page_size:String(size)}).size,size);
  assert.equal(usageFilters().size,20);
 });
 test('CSV escapes text, prevents formulas and preserves sub-fen precision',()=>{

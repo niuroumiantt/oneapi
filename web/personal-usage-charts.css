@@ -136,3 +136,28 @@
  .personal-home:has(.ph-credit) .ph-balance-main p{display:none}
  .personal-home .ph-credit .pb-credit-legend{font-size:11px;gap:6px 10px}
 }
+
+
+.personal-console[data-workspace-scope="personal"] .personal-home { max-width:none; }
+@media (min-width:1001px) {
+  .personal-console[data-workspace-scope="personal"] .pc-stage:has(.personal-home) > [data-personal-content] { flex:1; }
+  .personal-console[data-workspace-scope="personal"] .personal-home:has(.pd-usage) {
+    min-height:100%;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    grid-template-rows:auto auto minmax(0,1fr);
+    gap:clamp(12px,2vh,24px) var(--workspace-gap);
+  }
+  .personal-console[data-workspace-scope="personal"] .pd-usage { display:flex; flex-direction:column; min-width:0; }
+  .personal-console[data-workspace-scope="personal"] .pd-panels:not([hidden]) { flex:1; }
+  .personal-console[data-workspace-scope="personal"] .pd-card {
+    display:flex;
+    flex-direction:column;
+    --chart-height:clamp(120px, calc(52dvh - 210px), 390px);
+  }
+  .personal-console[data-workspace-scope="personal"] .pd-chart { height:var(--chart-height); }
+  .personal-console[data-workspace-scope="personal"] .pd-y-axis { height:calc(var(--chart-height) - 28px); }
+  .personal-console[data-workspace-scope="personal"] .pd-plot { height:calc(var(--chart-height) - 32px); }
+  .personal-console[data-workspace-scope="personal"] .pd-activity :is(.pd-heatmap,.pd-heat-footer) {
+    max-width:clamp(260px,calc(73dvh - 200px),620px);
+  }
+}
