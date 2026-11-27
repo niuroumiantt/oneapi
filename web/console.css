@@ -17,7 +17,8 @@ body.console-active>*:not(#console-view):not(.toast):not(dialog):not(script):not
 .cs-panes{position:relative;flex:1;min-height:0}
 .cs-panes iframe{display:block;width:100%;height:100%;border:0;background:#f4f6f8}
 .cs-panes iframe[hidden]{display:none}
-.cs-message{padding:32px;font-size:14px}.cs-message a{margin-left:6px;color:#7a26d9;font-weight:700}
+.cs-message{padding:32px;font-size:14px}.cs-signin-actions{display:flex;gap:8px 16px;flex-wrap:wrap;margin-top:16px}
+.cs-message a{display:inline-flex;align-items:center;min-height:44px;color:inherit;font-weight:650;text-decoration:underline;text-underline-offset:3px}
 @media(max-width:700px){.cs-top{gap:8px;padding:0 10px}.cs-brand img{width:84px}.cs-divider,.cs-live{display:none}.cs-tabs a{padding:6px 8px}.cs-link:last-child{display:none}}
 
 .cs-message{position:absolute;z-index:1;inset:0;background:#f4f6f8}
@@ -45,3 +46,9 @@ body.console-active>*:not(#console-view):not(.toast):not(dialog):not(script):not
 @media(max-width:700px){#console-view .site-brand:after{display:none}#console-view .cs-tabs{gap:4px}#console-view .site-footer{display:none}}
 
 #console-view.owner-workspace .site-brand:after{content:'老板工作台'}
+
+#console-view .site-account{display:flex;align-items:center;gap:12px}
+#console-view .cs-signout,#console-view [data-owner-team]{font:inherit;color:inherit;white-space:nowrap;text-decoration:none}
+#console-view .cs-signout{border:0;background:transparent;padding:8px 4px;cursor:pointer}
+#console-view .cs-signout:hover,#console-view [data-owner-team]:hover{text-decoration:underline;text-underline-offset:3px}
+#console-view .site-account [hidden]{display:none}

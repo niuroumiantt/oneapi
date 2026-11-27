@@ -5,7 +5,30 @@ const vipPath = '/promotion/vip.html?staff=1';
 const vipPartnerPrefix = vipPath + '&partner=';
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const vipDestination = partner => typeof partner==='string' && uuid.test(partner) ? vipPartnerPrefix+partner : vipPath;
-const staffDestination = next => next==='lab' ? '/api/staff/lab/console' : next==='business' ? '/api/staff/workspace/console' : '/#staff-account';
+const accountDestination = '/#staff-account';
+const consoleEntries = {owner:'home', employee:'home', technical:'overview'};
+const consolePaths = {owner:'owner', employee:'business', technical:'technical'};
+function loginDestination(next, section, partner) {
+ if (next === 'vip') return vipDestination(partner);
+ if (next === 'lab') return '/api/staff/lab/console';
+ if (next === 'business') return '/api/staff/workspace/console';
+ if (!Object.hasOwn(consoleEntries, next)) return accountDestination;
+ const page = typeof section==='string' && /^[a-z]{1,32}$/.test(section) ? section : consoleEntries[next];
+ return '/#console/'+consolePaths[next]+'/'+page;
+}
+function loginIntent(query) {
+ const next = typeof query.next==='string' ? query.next : query.next===undefined ? 'auto' : 'account';
+ const section = typeof query.section==='string' && /^[a-z]{1,32}$/.test(query.section) ? query.section : undefined;
+ return {next,section,partner:query.partner};
+}
+function retryDestination(intent) {
+ const query = new URLSearchParams({error:'authentication_failed'});
+ if (intent && Object.hasOwn(consoleEntries, intent.next)) {
+  query.set('next',intent.next);
+  if (intent.section) query.set('section',intent.section);
+ }
+ return '/#staff?'+query;
+}
 export const staffRoles=['platform_admin','operations','supply','finance','support'];
 export function staffRoutes(app,pool,cfg){
  const box=vault(cfg.secret),cookieName=cfg.production?'__Host-oneapi_staff':'oneapi_staff',bindingName=cfg.production?'__Host-oneapi_oidc':'oneapi_oidc';
@@ -29,20 +52,22 @@ export function staffRoutes(app,pool,cfg){
  function administrator(req,res,next){if(req.staff.role!=='platform_admin'||req.staff.status!=='active')throw new HttpError(403,'仅平台管理员可执行此操作');next();}
  app.get('/api/staff/login',async(req,res)=>{
   const c=await client(),state=oidc.randomState(),nonce=oidc.randomNonce(),verifier=oidc.randomPKCECodeVerifier(),binding=token();
-  const destination=req.query.next==='vip' ? vipDestination(req.query.partner) : staffDestination(req.query.next);
-  await pool.query('INSERT INTO staff_oidc_states(state_hash,binding_hash,payload) VALUES($1,$2,$3)',[hash(state),hash(binding),box.seal({state,nonce,verifier,destination})]);
+  const intent=loginIntent(req.query);
+  await pool.query('INSERT INTO staff_oidc_states(state_hash,binding_hash,payload) VALUES($1,$2,$3)',[hash(state),hash(binding),box.seal({state,nonce,verifier,intent})]);
   res.cookie(bindingName,binding,{...cookieOptions,maxAge:600000});
-  const url=oidc.buildAuthorizationUrl(c,{redirect_uri:cfg.origin+'/api/staff/callback',scope:'openid profile email',code_challenge:await oidc.calculatePKCECodeChallenge(verifier),code_challenge_method:'S256',state,nonce});
+  const url=oidc.buildAuthorizationUrl(c,{redirect_uri:cfg.origin+'/api/staff/callback',scope:'openid profile email',code_challenge:await oidc.calculatePKCECodeChallenge(verifier),code_challenge_method:'S256',state,nonce,...(req.query.relogin==='1'?{prompt:'login'}:{})});
   res.redirect(url.toString());
  });
  app.get('/api/staff/callback',async(req,res)=>{
+  let intent;
   try{
    const state=typeof req.query.state==='string'?req.query.state:'',binding=cookie(req,bindingName);if(!state||!binding)throw Error('Missing state binding');
    const saved=(await pool.query('DELETE FROM staff_oidc_states WHERE state_hash=$1 AND binding_hash=$2 AND expires_at>now() RETURNING payload',[hash(state),hash(binding)])).rows[0];if(!saved)throw Error('Invalid or replayed state');
-   const flow=box.open(saved.payload),c=await client(),tokens=await oidc.authorizationCodeGrant(c,new URL(req.originalUrl,cfg.origin),{pkceCodeVerifier:flow.verifier,expectedState:flow.state,expectedNonce:flow.nonce,idTokenExpected:true});
+   const flow=box.open(saved.payload);intent=flow.intent;
+   const c=await client(),tokens=await oidc.authorizationCodeGrant(c,new URL(req.originalUrl,cfg.origin),{pkceCodeVerifier:flow.verifier,expectedState:flow.state,expectedNonce:flow.nonce,idTokenExpected:true});
    const claims=tokens.claims();if(!claims?.sub||!tokens.access_token)throw Error('Missing identity');
    const info=await oidc.fetchUserInfo(c,tokens.access_token,claims.sub);if(!approved(info))throw Error('Employee not approved');
-   const value=token();await transaction(pool,async db=>{
+   const value=token();const member=await transaction(pool,async db=>{
     if(cfg.employeeCredit?.organizationId)await db.query('SELECT id FROM organizations WHERE id=$1 FOR UPDATE',[cfg.employeeCredit.organizationId]);
     const previous=(await db.query('SELECT subject FROM staff_members WHERE subject=$1',[claims.sub])).rows[0];
     const bootstrap=!previous&&cfg.bootstrapSub&&claims.sub===cfg.bootstrapSub;
@@ -50,11 +75,18 @@ export function staffRoutes(app,pool,cfg){
     if(cfg.employeeCredit?.organizationId)await db.query(`UPDATE staff_members s SET role='operations',status='active' WHERE s.subject=$1 AND s.role='pending' AND s.status='pending' AND EXISTS(SELECT 1 FROM "user" u JOIN memberships m ON m.user_id=u.id AND m.organization_id=$2 AND m.status='active' AND m.role='member' JOIN organization_join_requests r ON r.organization_id=m.organization_id AND r.user_id=u.id AND r.status='approved' WHERE lower(u.email)=lower(s.email) AND u."emailVerified" AND NOT coalesce(u.disabled,false))`,[claims.sub,cfg.employeeCredit.organizationId]);
     await db.query('INSERT INTO staff_sessions(token_hash,subject,access_payload,expires_at) VALUES($1,$2,$3,$4)',[hash(value),claims.sub,box.seal({accessToken:tokens.access_token}),new Date(Date.now()+Math.min(tokens.expires_in||300,8*3600)*1000)]);
     await audit(db,{kind:'staff',id:claims.sub},bootstrap?'staff.bootstrap':'staff.signed_in',null,claims.sub);
+    return (await db.query('SELECT role,status FROM staff_members WHERE subject=$1',[claims.sub])).rows[0];
    });
-   res.clearCookie(bindingName,cookieOptions);res.cookie(cookieName,value,{...cookieOptions,maxAge:8*3600*1000});const partner = flow.destination?.startsWith(vipPartnerPrefix) ? flow.destination.slice(vipPartnerPrefix.length) : '';
-   const destinations=[staffDestination('lab'),staffDestination('business'),vipDestination(partner)];
-   res.redirect(destinations.includes(flow.destination)?flow.destination:'/#staff-account');
-  }catch{res.clearCookie(bindingName,cookieOptions);res.redirect('/#staff?error=authentication_failed');}
+   res.clearCookie(bindingName,cookieOptions);res.cookie(cookieName,value,{...cookieOptions,maxAge:8*3600*1000});
+   // A login started before publication may still have the old destination in its state.
+   const legacy = flow.destination;
+   const legacyPartner = legacy?.startsWith(vipPartnerPrefix) ? legacy.slice(vipPartnerPrefix.length) : '';
+   const legacyNext = legacy === vipDestination(legacyPartner) ? 'vip' : legacy === loginDestination('lab') ? 'lab' : legacy === loginDestination('business') ? 'business' : 'auto';
+   const requested = intent || {next:legacyNext,partner:legacyPartner};
+   const next = requested.next==='auto' ? (member.role==='platform_admin'?'owner':'employee') : requested.next;
+   const waiting = member.status!=='active' || member.role==='pending';
+   res.redirect(waiting && (requested.next==='auto'||Object.hasOwn(consoleEntries,next)) ? accountDestination : loginDestination(next,requested.section,requested.partner));
+  }catch{res.clearCookie(bindingName,cookieOptions);res.redirect(retryDestination(intent));}
  });
  app.get('/api/staff/me',requireStaff,async(req,res)=>res.json({staff:req.staff}));
  app.post('/api/staff/logout',async(req,res)=>{await pool.query('DELETE FROM staff_sessions WHERE token_hash=$1',[hash(cookie(req,cookieName))]);res.clearCookie(cookieName,cookieOptions);res.json({ok:true});});

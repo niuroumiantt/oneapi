@@ -16,13 +16,11 @@
     <section class="welcome-entry" aria-labelledby="welcome-entry-title">
       <div class="welcome-entry-inner">
 
-        <h2 id="welcome-entry-title">从这里出发。</h2>
-        <p class="welcome-entry-lead">一个账号，个人和企业都能用。</p>
+        <h2 id="welcome-entry-title">进入工作台</h2>
+        <p class="welcome-entry-lead">选择你要使用的身份。</p>
         <div class="welcome-personal-choice">
-                    <h3>为你的想法，找到好模型。</h3>
-          <p>选模型、充值和使用都在工作台。企业成员登录后，按权限看到自己的额度或团队管理。</p>
-          <a class="welcome-continue" id="welcome-continue" href="#workspace"><span id="welcome-continue-label">登录 / 注册</span><span class="welcome-continue-arrow" data-icon="arrow-right"></span></a>
-          <p class="welcome-preview-note">个人和企业用同一个账号，登录后按权限显示功能。</p>
+          ${window.SiteHeader.signInChoices()}
+          <p>VIP 使用个人账户。公司老板和员工通过公司身份中心登录。</p>
         </div>
         <div class="welcome-explore"><span>还想先看看？</span><a href="#market">逛逛模型广场 <span data-icon="arrow-up-right"></span></a></div>
       </div>

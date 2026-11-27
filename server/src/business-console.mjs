@@ -255,6 +255,7 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
     (SELECT count(*) FROM support_tickets WHERE status<>'closed' AND tier='first_line')::int AS tickets,
     (SELECT count(*) FROM support_tickets WHERE status<>'closed' AND tier='technical')::int AS tickets_technical,
     (SELECT count(*) FROM discount_grants WHERE business_line='general' AND status='pending')::int AS discounts_pending,
+    (SELECT count(*) FROM discount_grants WHERE business_line='direct' AND status='pending')::int AS direct_discounts_pending,
     (SELECT count(*) FROM cw_partners WHERE status='pending' AND ($1 OR owner_subject=$2))::int AS vip_pending,
     (SELECT count(*) FROM vip_activation_exceptions e JOIN cw_partners p ON p.id=e.partner_id
       WHERE e.status='pending' AND ($1 OR p.owner_subject=$2))::int AS vip_activation_exception_pending,

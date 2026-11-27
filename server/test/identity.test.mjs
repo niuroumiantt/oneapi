@@ -236,10 +236,16 @@ test('isolated demo journey covers personal and enterprise orders, allocation, a
  assert.equal((await other.j.call(`/api/demo/keys/${enterpriseKey.data.key.id}/usage`,{method:'POST',body:{organization_id:orgB.id,model_code:'demo-code',input_tokens:100,output_tokens:100}})).status,404);
  assert.equal((await member.j.call('/api/demo/allocations',{method:'POST',body:{organization_id:orgA.id,user_id:member.user.id,limit_yuan:500,model_codes:[]}})).status,403);
 });
-async function staffLogin(j){const first=await j.call('/api/staff/login');assert.equal(first.status,302);const code=await j.call(first.location);assert.equal(code.status,302);const done=await j.call(code.location);assert.equal(done.status,302);assert.equal(done.location,'/#staff-account');return code.location;}
+async function staffLogin(j,path='/api/staff/login?next=account',destination='/#staff-account'){
+ const first=await j.call(path);assert.equal(first.status,302);
+ if(path.includes('relogin=1'))assert.equal(new URL(first.location).searchParams.get('prompt'),'login');
+ const code=await j.call(first.location);assert.equal(code.status,302);
+ const done=await j.call(code.location);assert.equal(done.status,302);assert.equal(done.location,destination);
+ return code.location;
+}
 let staff;
 test('real OIDC code/PKCE/nonce flow creates separate staff session; replay and cross-browser callback fail',async()=>{
- staff=jar();const callback=await staffLogin(staff);assert.equal((await staff.call('/api/staff/me')).data.staff.role,'platform_admin');assert.equal((await staff.call('/api/platform/me')).status,401);
+ staff=jar();const callback=await staffLogin(staff,'/api/staff/login','/#console/owner/home');assert.equal((await staff.call('/api/staff/me')).data.staff.role,'platform_admin');assert.equal((await staff.call('/api/platform/me')).status,401);
  assert.equal((await jar().call(callback)).location,'/#staff?error=authentication_failed');assert.equal((await staff.call(callback)).location,'/#staff?error=authentication_failed');
  const same=await staff.call('/api/staff/me');assert.equal(same.status,200);
  const last=await staff.call('/api/staff/members/staff-owner',{method:'PATCH',body:{role:'support',status:'active'}});assert.equal(last.status,409);
@@ -249,6 +255,27 @@ test('supplier lab link resumes after staff sign-in and rejects arbitrary return
  const first=await visitor.call(entry.location);assert.equal(first.status,302);const code=await visitor.call(first.location);assert.equal(code.status,302);const done=await visitor.call(code.location);assert.equal(done.status,302);assert.equal(done.location,'/api/staff/lab/console');
  assert.equal((await visitor.call('/api/staff/lab/config')).status,200);
  const unsafe=jar();const login=await unsafe.call('/api/staff/login?next=https://example.test/');const redirect=await unsafe.call(login.location);const callback=await unsafe.call(redirect.location);assert.equal(callback.location,'/#staff-account');
+});
+test('company entry resumes the selected workbench and preserves the employee permission boundary',async()=>{
+ const start='/api/staff/login?next=owner&section=customers';
+ await staffLogin(jar(),start+'&relogin=1','/#console/owner/customers');
+ await staffLogin(jar(),'/api/staff/login?next=owner&section=//outside.test','/#console/owner/home');
+ const original=identity;
+ try {
+  identity={sub:'staff-entry-employee',email:'entry-employee@example.test',name:'Entry Employee',staff_approved:true};
+  const employee=jar();
+  await staffLogin(employee,'/api/staff/login','/#staff-account');
+  assert.equal((await staff.call('/api/staff/members/staff-entry-employee',{method:'PATCH',body:{role:'operations',status:'active'}})).status,200);
+  await staffLogin(employee,'/api/staff/login','/#console/business/home');
+  await staffLogin(employee,'/api/staff/login?next=employee&section=vipcodes','/#console/business/vipcodes');
+  await staffLogin(employee,start,'/#console/owner/customers');
+  assert.equal((await employee.call('/api/staff/workspace/access')).data.owner,false);
+  assert.equal((await employee.call('/api/staff/workspace/view?surface=owner')).status,403);
+  assert.equal((await employee.call('/api/staff/logout',{method:'POST',body:{}})).status,200);
+  assert.equal((await employee.call('/api/staff/workspace/access')).status,401);
+  identity={...identity,staff_approved:false};
+  await staffLogin(jar(),start,'/#staff?error=authentication_failed&next=owner&section=customers');
+ } finally { identity=original; }
 });
 test('VIP customer links restore the specified lead after staff OIDC login',async()=>{
  const partner='1ac344ff-74f2-48aa-bca5-a55d9f694683';
@@ -1387,7 +1414,7 @@ test('two workspaces share credentials, actual acceptance and fail-closed catalo
 
  assert.ok(!(await jar().call('/api/catalog/published')).data.products.some(p=>p.id===product.data.id));
  await pool.query("UPDATE staff_members SET role='operations' WHERE subject='technical-fixture'");
- await staffLogin(tech,'technical-fixture');
+ await staffLogin(tech);
  assert.equal((await admin.call('/api/staff/members/technical-fixture/technical-access',{method:'PUT',body:{enabled:false}})).status,200);
  assert.equal((await tech.call('/api/staff/lab/config')).status,403);
  assert.equal((await jar().call('/api/staff/workspace/console')).location,'/api/staff/login?next=business');

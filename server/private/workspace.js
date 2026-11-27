@@ -5,7 +5,7 @@ const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '—').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const att = v => esc(v ?? '');
 const OWNER_NAV = [
- ['工作台', [['home','今日工作']]],
+ ['工作台', [['home','老板工作台']]],
  ['客户', [['customers','客户档案'], ['upgrades','企业认证审核']]],
  ['客户支持', [['tickets','工单与反馈'], ['answers','快捷问答库']]],
  ['推广与合作', [['acquisition','商务概览'], ['cw','VIP 招募与管理'], ['direct','直营客户与折扣码'], ['promotions','VIP 推广与返佣'], ['approvals','审批中心']]],
@@ -14,6 +14,7 @@ const OWNER_NAV = [
  ['经营分析', [['overview','经营概况'], ['pnl','经营损益']], 'finance']
 ];
 const ownerSurface = new URLSearchParams(location.search||'').get('surface')==='owner';
+if(ownerSurface)document.getElementById('nav').setAttribute('aria-label','老板工作台导航');
 const employeeSales = ownerSurface ? null : window.EmployeeSales;
 const EMPLOYEE_NAV = [
  ['员工工作台', [['home','今日工作'], ['pending','待处理事项']]],
@@ -29,7 +30,7 @@ if(!ownerSurface){for(const [,items] of EMPLOYEE_NAV)for(const [key,label] of it
 const promotionChannel = page => ['customeroverview','direct','customerapplications'].includes(page)?'customer':['vipoverview','cw','vipcodes','promotions','vipapplications'].includes(page)?'vip':null;
 const SUBTITLES = {
  apioverview:'公司分配额度，查看自己的 API 使用情况。',apimodels:'选择模型，接入客户端或自己的程序。',apikeys:'创建、设置和停用自己的 API Key。',apiusage:'查看调用趋势、Token 消耗与公司额度使用。',apicompare:'使用公司额度，对比模型的回答、速度和用量。',
- home:'客户推广、VIP推广与客户服务。',
+ home:'分配客户、处理审批、管理员工。',
  vipcodes:'邀请客户申请 VIP，查看自己发出的推广码。',customeroverview:'查看客户推广带来的客户和订单。',vipoverview:'查看负责的 VIP、开通进度和推广情况。',customerapplications:'客户推广的特殊折扣申请与处理记录。',vipapplications:'VIP 的付款折扣与开通特批申请。',
  acquisition:'查看负责客户的进度、实付和待办。',cw:'招募邀请码、电话面试、付款核验与 VIP 客户档案。',direct:'员工直接招募最终用户，不产生 VIP 返佣。',promotions:'VIP 推荐客户的充值、使用与返佣。',approvals:'特殊折扣与原单开通特批，由管理员处理。',
  overview: '收入、成本、利润和今天要处理的事。', pnl: '按月看收入、成本和毛利，按产品、客户、上游拆开。', payments: '客户付款订单与原路退款。',
@@ -44,7 +45,7 @@ if(!ownerSurface)Object.assign(SUBTITLES,{
  pending:'跟进本人负责的客户反馈和推广申请。'
 });
 const ALIASES = { ...(!ownerSurface?{acquisition:'customeroverview',approvals:'customerapplications'}:{}), accounts: 'customers', reports: 'products', upstream: 'products', finance: 'pnl' };
-const SOURCES = { home:()=> 'business/support', acquisition:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),direct:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),promotions:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),approvals:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''), pnl: () => 'business/finance?month=' + (ui.month || ''), payments: () => 'payments/orders', transfers: () => 'business/bank-transfers', invoices: () => 'business/invoices', payables: () => 'business/supplier-payments', suppliers: () => 'business/suppliers', customers: () => 'business/customers', discounts: () => 'business/discounts', tickets: () => 'business/support', answers: () => 'business/support' };
+const SOURCES = { acquisition:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),direct:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),promotions:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),approvals:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''), pnl: () => 'business/finance?month=' + (ui.month || ''), payments: () => 'payments/orders', transfers: () => 'business/bank-transfers', invoices: () => 'business/invoices', payables: () => 'business/supplier-payments', suppliers: () => 'business/suppliers', customers: () => 'business/customers', discounts: () => 'business/discounts', tickets: () => 'business/support', answers: () => 'business/support' };
 for(const page of ['customeroverview','vipoverview','customerapplications','vipapplications'])SOURCES[page]=SOURCES.acquisition;
 SOURCES.vipcodes=()=> 'cw';
 const API_VIEWS={apioverview:'personal',apimodels:'personal/models',apikeys:'personal/keys',apiusage:'personal/usage',apicompare:'personal/compare'};
@@ -204,29 +205,42 @@ const fin = () => state.dash.finance;
 
 const roleNames = {platform_admin:'老板',operations:'商务运营',support:'客户支持',supply:'供应运营',finance:'财务'};
 // Priorities shape the work queue; API authorization remains the source of access rights.
-const workItems = [
- ['tickets','tickets','待处理工单','回复客户、核实问题并跟进处理结果','support'],
- ['tickets','tickets_technical','等待技术反馈','查看已转交技术的工单','support'],
- ['cw','vip_pending','VIP 申请待跟进','查看申请资料，安排面试与跟进','operations'],
- ['cw','vip_confirmed','VIP 待核验开通','跟进付款进度，按已定条件完成开通','operations'],
- [ownerSurface?'approvals':'vipapplications','vip_discount_pending','VIP 折扣申请进度','查看老板的审批结果','operations'],
- [ownerSurface?'approvals':'vipapplications','vip_activation_exception_pending','原单特批申请进度','补充材料，跟进处理结果','operations'],
- ['upgrades','upgrades','企业认证待审核','核对企业资料与联系人','operations'],
- ['transfers','bank_transfers_pending','对公到账待复核','核对到账记录，再完成入账','finance'],
- ['invoices','invoices_requested','发票申请待处理','核对抬头与可开票金额','finance'],
- ['payments','refunds_pending','退款待确认','核对原订单和退款进度','finance'],
- ['discounts','discounts_pending','折扣待审批','核对适用客户、有效期与折扣','operations'],
- ['products','models_paused','产品已暂停','查看产品状态，跟进恢复进度','supply']
+const ownerTasks = [
+ ['cw','vip_pending','VIP 申请待跟进'],
+ ['approvals','vip_discount_pending','VIP 折扣待审批'],
+ ['approvals','vip_activation_exception_pending','VIP 开通特批'],
+ ['approvals','direct_discounts_pending','客户推广折扣待审批'],
+ ['discounts','discounts_pending','通用折扣待审批'],
+ ['upgrades','upgrades','企业认证待审核'],
+ ['tickets','tickets','客户工单待处理'],
+ ['transfers','bank_transfers_pending','对公到账待复核'],
+ ['invoices','invoices_requested','发票待开具'],
+ ['payments','refunds_pending','退款待确认']
 ];
-pages.home = d => {
- const {staff,counts:c}=state.dash,role=staff.role||(staff.admin?'platform_admin':'operations');
- const rows=workItems.filter(([page,key])=>allowedPage(page)&&c[key]!==undefined&&(!PAGES[page].gate||staff[PAGES[page].gate]))
-  .filter(([,key])=>Number(c[key])>0).sort((a,b)=>Number(b[4]===role)-Number(a[4]===role));
- const pending=d.tickets.filter(t=>t.status!=='closed').sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,5);
- const queue=rows.map(([page,key,title,hint])=>`<button class="work-item" data-work-page="${page}" data-work-key="${key}"><span><strong>${title}</strong><small>${hint}</small></span><b>${esc(c[key])}<span class="work-arrow" aria-hidden="true"> →</span></b></button>`).join('');
- return `<div class="employee-intro"><p>${esc(staff.name||'同事')}，你好。<span>${esc(ownerSurface?'老板': '客户拓展与服务')}</span></p><form id="employeeSearch" class="employee-search"><label for="employeeQuery">查找客户</label><div><input id="employeeQuery" type="search" placeholder="客户名称、编码或邮箱" required><button type="submit">搜索</button></div></form></div>`
- + `<div class="work-columns"><section class="work-queue"><div class="heading"><h2>待处理事项</h2><small>${ownerSurface?'全公司':'我负责的客户'}</small></div>${queue||'<div class="empty">目前没有待处理事项。可从左侧进入业务记录。</div>'}</section><section class="work-shortcuts"><div class="heading"><h2>常用入口</h2></div>${(ownerSurface?['overview','customers','approvals']:['customeroverview','vipoverview','customers']).map(key=>`<button data-go="${key}">${!ownerSurface&&key==='customeroverview'?'客户推广':!ownerSurface&&key==='vipoverview'?'VIP推广':PAGES[key].label}<span aria-hidden="true">→</span></button>`).join('')}<p>${ownerSurface?'公司经营与审批由老板身份处理。':'只处理自己负责的客户。特殊事项提交申请，由老板审批。'}</p></section></div>`
- + section('最近未结工单',table(['问题 / 客户','处理状态','提交时间','操作'],pending.map(t=>`<tr><td><strong>${esc(t.subject)}</strong><small>${esc(t.name)}${t.customer_code?' · '+esc(t.customer_code):''}</small></td><td>${pill('ticket',t.status)}${t.tier==='technical'?'<small>等待技术反馈</small>':''}</td><td>${when(t.created_at)}</td><td><button data-act="ticket" data-id="${att(t.id)}">处理</button></td></tr>`).join(''),'目前没有未结工单。'),'<button class="link" data-work-page="tickets" data-work-key="all">查看全部工单 →</button>');
+pages.home = () => {
+ const {staff,counts}=state.dash;
+ const tasks=ownerTasks.filter(([page,key])=>Number(counts[key])>0&&(!PAGES[page].gate||staff[PAGES[page].gate]));
+ const manage=(title,description,page)=>`<button class="owner-home-action" data-go="${page}"><span><strong>${title}</strong><small>${description}</small></span><span aria-hidden="true">→</span></button>`;
+ return `<div class="owner-home">
+  <section class="owner-home-panel">
+   <h2>客户与团队</h2>
+   ${manage('普通客户','查看客户档案，分配或更换负责人','customers')}
+   ${manage('VIP 客户','查看申请与进度，分配负责销售','cw')}
+   <a class="owner-home-action" href="/#staff-team" target="_top"><span><strong>员工管理</strong><small>邀请、审批、移除员工和分配 API 额度</small></span><span aria-hidden="true">→</span></a>
+  </section>
+  <section class="owner-home-panel">
+   <h2>待审批与跟进</h2>
+   ${tasks.map(([page,key,label])=>`<button class="owner-home-action owner-home-task" data-work-page="${page}" data-work-key="${key}"><strong>${label}</strong><b>${esc(counts[key])}</b><span aria-hidden="true">→</span></button>`).join('')||'<p class="owner-home-empty">当前没有待审批或跟进的事项。</p>'}
+  </section>
+  <section class="owner-home-panel owner-home-tools">
+   <h2>其他管理</h2>
+   <div>
+    ${staff.finance?'<button data-go="overview">经营概况 <span aria-hidden="true">→</span></button>':''}
+    ${staff.technical?'<a href="/api/staff/lab/console">技术运维 <span aria-hidden="true">→</span></a>':''}
+    <a href="/#staff-account" target="_top">账户与权限 <span aria-hidden="true">→</span></a>
+   </div>
+  </section>
+ </div>`;
 };
 
 pages.overview = () => {
