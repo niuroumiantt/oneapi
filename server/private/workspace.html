@@ -97,6 +97,22 @@ a,button.link{color:#343d50}body{background:#fff}aside{background:#f8f9fb;paddin
 
 @media(max-width:800px){.nav-home{display:flex;gap:4px;width:100%;overflow-x:auto}.nav-home button{width:auto;flex-shrink:0;white-space:nowrap}nav{min-width:0}}
 .shared-api .heading{display:none}.employee-api-frame{width:100%;height:calc(100dvh - 180px);min-height:620px;border:0;background:#fff}@media(max-width:800px){.employee-api-frame{height:1050px}}
+
+.owner-home{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);gap:16px;margin-top:12px}
+.owner-home-panel{margin:0;padding:16px 20px;border:1px solid var(--line);border-radius:12px;min-width:0}
+.owner-home-panel h2{margin:0 0 8px;font-size:16px}
+.owner-home-action{display:flex;width:100%;align-items:center;justify-content:space-between;gap:14px;padding:14px 0;border:0;border-radius:0;border-top:1px solid var(--line);background:transparent;color:inherit;text-align:left;text-decoration:none}
+.owner-home-action:hover,.owner-home-action:hover:not(:disabled){border-color:var(--line);background:var(--accent-soft);text-decoration:none}
+.owner-home-action strong,.owner-home-action small{display:block}
+.owner-home-action small{margin-top:3px;color:var(--muted)}
+.owner-home-task{justify-content:flex-start}.owner-home-task strong{flex:1}
+.owner-home-task b{min-width:24px;color:var(--accent-ink);font-variant-numeric:tabular-nums;text-align:right}
+.owner-home-empty{margin:0;padding:14px 0;border-top:1px solid var(--line)}
+.owner-home-tools{grid-column:1/-1}.owner-home-tools div{display:flex;flex-wrap:wrap;gap:8px 20px}
+.owner-home-tools a,.owner-home-tools button{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0;border:0;background:transparent;color:inherit}
+html.framed #content:has(.owner-home){height:auto!important;overflow:visible!important}
+body:has(.owner-home) .sp-controls{display:none!important}
+@media(max-width:860px){.owner-home{grid-template-columns:minmax(0,1fr)}}
 </style><header><b>semifly.ai</b><span>商务后台</span><div class="right"><a id="technical" href="/api/staff/lab/console" hidden>切换技术后台 ↗</a><a href="/#staff-account">账户与权限</a></div></header>
 <div class="shell"><aside><nav id="nav" aria-label="员工工作台导航"></nav><a href="/#personal">返回个人空间 ↗</a></aside>
 <main><div class="heading"><div><h1 id="title">商务后台</h1><p id="subtitle">正在读取实际业务数据…</p></div><div class="tools" id="tools"><button id="refresh">刷新</button></div></div>

@@ -14,10 +14,15 @@
   if(!user.vip)return `<b>${name}</b>`;
   return `<span class="account-name-vip"><b>${name}</b><i class="vip-badge" aria-hidden="true">VIP</i></span>`;
  }
+ const staffHome = staff => staff.role==='platform_admin' ? '#console/owner/home' : '#console/business/home';
+ function signInChoices(active='') {
+  const choices=[['personal','个人账户','#personal'],['vip','VIP 账户','#personal/vip'],['owner','公司老板','#console/owner/home'],['employee','公司员工','#console/business/home']];
+  return `<nav class="signin-choices" aria-label="选择登录身份">${choices.map(([id,label,url])=>`<a href="${root+url}"${active===id?' aria-current="page"':''}>${label}${ico('arrow-up-right')}</a>`).join('')}</nav>`;
+ }
  function accountMenu(user,kind='customer',settingsHref='#security'){
-  if(!user)return `<a class="live-signin" href="#workspace">${ico('user-round')}<span>登录 / 注册</span></a>`;
+  if(!user)return `<a class="live-signin" href="#universe">${ico('user-round')}<span>登录 / 注册</span></a>`;
   const name=esc(user.name||user.email),initial=esc(Array.from(user.name||user.email||'U')[0]),named=accountName(user);
-  return `<details class="account-menu${user.vip?' is-vip':''}"><summary aria-label="账户菜单：${name}${user.vip?'，VIP':''}，已登录"><span class="account-avatar" aria-hidden="true">${initial}<i></i></span><span class="account-label">${named}<small>${kind==='staff'?'员工已登录':user.vip?'VIP 已登录':'已登录'}</small></span>${ico('chevron-down')}</summary><div class="account-popover"><div class="account-person">${named}<small>${esc(user.email)}</small></div>${kind==='staff'?`<a href="#staff-account">${ico('shield-check')} 员工工作台</a>`:`<a href="#workspace">${ico('layout-dashboard')} 我的工作台</a><a href="${settingsHref}">${ico('settings')} 账户设置</a>`}<button data-live="logout" data-session-kind="${kind}">${ico('log-in')} 退出登录</button></div></details>`;
+  return `<details class="account-menu${user.vip?' is-vip':''}"><summary aria-label="账户菜单：${name}${user.vip?'，VIP':''}，已登录"><span class="account-avatar" aria-hidden="true">${initial}<i></i></span><span class="account-label">${named}<small>${kind==='staff'?(user.role==='platform_admin'?'老板已登录':'员工已登录'):user.vip?'VIP 已登录':'已登录'}</small></span>${ico('chevron-down')}</summary><div class="account-popover"><div class="account-person">${named}<small>${esc(user.email)}</small></div>${kind==='staff'?`<a href="${staffHome(user)}">${ico('layout-dashboard')} ${user.role==='platform_admin'?'老板工作台':'员工工作台'}</a><a href="#staff-account">${ico('shield-check')} 账户与权限</a>`:`<a href="#workspace">${ico('layout-dashboard')} 我的工作台</a><a href="${settingsHref}">${ico('settings')} 账户设置</a>`}<button data-live="logout" data-session-kind="${kind}">${ico('log-in')} 退出登录</button></div></details>`;
  }
 
  function render(active, {account='', tools='', className=''}={}) {
@@ -34,7 +39,7 @@
  function profileRow(label,value,control=''){
   return `<div class="profile-row"><span class="profile-label">${esc(label)}</span><div class="profile-value">${value}</div>${control}</div>`;
  }
- window.SiteHeader={render,accountMenu,footer,profileRow};
+ window.SiteHeader={render,accountMenu,footer,profileRow,signInChoices,staffHome};
  if(window.parent===window){const script=document.createElement('script');script.src=new URL('vip-notifications.js',assetBase).href;script.defer=true;document.head.append(script);}
  document.querySelectorAll('[data-site-footer]').forEach(el=>el.outerHTML=footer());
  document.querySelectorAll('[data-site-header]').forEach(el=>el.outerHTML=render(el.dataset.siteHeader==='compare'?'workspace':el.dataset.siteHeader));
