@@ -14,17 +14,9 @@ let family='all';
 const escapeHtml=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function renderModels(){window.ModelExplorer.render(models,modelOpen,family);}
 // Live availability: a catalog model without a working route is marked 暂未开放 instead of looking callable.
-fetch('/api/public/models').then(r=>r.ok?r.json():null).then(d=>{if(!d?.models)return;unavailableModels.clear();models.filter(m=>!d.models.some(x=>x.id===m.id&&x.available)).forEach(m=>unavailableModels.add(m.id));if($('#model-grid')&&$('#model-search'))renderModels();}).catch(()=>{});
+fetch('/api/public/models').then(r=>r.ok?r.json():null).then(d=>{if(!d?.models)return;unavailableModels.clear();models.filter(m=>!d.models.some(x=>x.id===m.id&&x.available)).forEach(m=>unavailableModels.add(m.id));if($('#model-grid'))renderModels();}).catch(()=>{});
 function openModelDetail(id){if(models.some(m=>m.id===id))location.hash='market/'+id;}
-function updatePricingExample(){
- const input=Math.max(0,Math.min(10000000,Number($('#pricing-input-tokens')?.value)||0));
- const output=Math.max(0,Math.min(10000000,Number($('#pricing-output-tokens')?.value)||0));
- const rates=models.find(m=>m.id==='deepseek-flash').price.offpeak;
- const inputRate=rates.miss*PRICE_DISCOUNT,outputRate=rates.output*PRICE_DISCOUNT;
- const cost=(input*inputRate+output*outputRate)/1000000;
- $('#pricing-example-result').textContent='¥'+cost.toFixed(4);
- $('#pricing-example-breakdown').textContent=`输入未命中 ${input.toLocaleString('zh-CN')} × ${formatRate(inputRate)} / 1M + 输出 ${output.toLocaleString('zh-CN')} × ${formatRate(outputRate)} / 1M`;
-}
+
 function switchView(view){
  const marketModel=view?.startsWith('market/')?view.slice(7):null;if(marketModel!==null)view='market';
  document.getElementById("site-boot")?.remove();
@@ -58,7 +50,7 @@ function switchView(view){
 function showToast(message){$('#toast').textContent=message;$('#toast').classList.add('visible');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>$('#toast').classList.remove('visible'),3000);}
 function showDialog(content){$('#dialog-content').innerHTML=content;if(!$('#config-dialog').open)$('#config-dialog').showModal();}
 const actions={
- 'reset-catalog':()=>{family='all';$('#model-search').value='';$('#model-use').value='all';renderModels();},
+ 'reset-catalog':()=>{family='all';renderModels();},
  tools:()=>{location.hash='docs/tools';},
  pricing:()=>{$('#config-dialog').close();$('#how-pricing-works').scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});},
  'model-personal':async button=>{if(!window.IdentityUI?.chooseModelIntent(button.dataset.modelId,'personal'))return;$('#config-dialog').close();location.hash=await window.IdentityUI.customerSignedIn()?'personal/connect/'+button.dataset.modelId:'register';},
@@ -73,8 +65,6 @@ document.addEventListener('click',event=>{
  if(b.hasAttribute('data-close-dialog'))$('#config-dialog').close();
  if(b.dataset.action)actions[b.dataset.action]?.(b);
 });
-$('#model-search').addEventListener('input',renderModels);$('#model-use').addEventListener('change',renderModels);$('#pricing-input-tokens').addEventListener('input',updatePricingExample);$('#pricing-output-tokens').addEventListener('input',updatePricingExample);updatePricingExample();
-document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();if(!$('#market-view').hidden)$('#model-search').focus();}});
 window.addEventListener('hashchange',()=>{switchView(location.hash.slice(1));});
 // 支付宝电脑网站支付 return_url 回跳：支付宝会把带 # 锚点的地址丢弃或转义，导致回到首页。
 // 服务端 return_url 改为带 ?alipay_return 查询参数；这里检测后清理参数并跳回账单页。

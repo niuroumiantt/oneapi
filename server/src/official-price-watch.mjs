@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto';
 import { HttpError, audit } from './core.mjs';
 import { requireTechnical } from './workspaces.mjs';
-import { OFFICIAL_MODELS } from './official-models.mjs';
+import { OFFICIAL_MODELS, officialPeak } from './official-models.mjs';
 import { holidayYearsMeta, CHINA_HOLIDAYS } from './china-holidays.mjs';
 
 export const PRICE_WATCH_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -76,6 +76,8 @@ export function parseGlmPricing(text) {
     // Markdown: | GLM-5.3 | 1M | 8 | 28 | 限时免费 | 2 |
     const md = text.match(new RegExp(`\\|\\s*${esc}\\s*\\|\\s*[^|\\n]*\\|\\s*([\\d.]+)\\s*\\|\\s*([\\d.]+)\\s*\\|\\s*[^|\\n]*\\|\\s*([\\d.]+)`));
     if (md) { models[name] = { input: norm(md[1]), output: norm(md[2]), cached: norm(md[3]) }; continue; }
+    const cells = text.match(new RegExp(`(?:^|\\s)${esc}\\s+1M\\s+([\\d.]+)\\s+([\\d.]+)\\s+限时免费\\s+([\\d.]+)(?=\\s|$)`, 'i'));
+    if (cells) { models[name] = { input: norm(cells[1]), output: norm(cells[2]), cached: norm(cells[3]) }; continue; }
     // HTML→text line: GLM-5.3 1M 8 28 限时免费 2 …
     const line = text.split('\n').map(l => l.trim()).find(l => new RegExp(`^\\|?\\s*${esc}(\\s|\\|)`).test(l));
     if (!line) continue;
@@ -250,6 +252,10 @@ export async function officialPriceWatchView(pool) {
 
 export function officialPriceWatchRoutes(app, pool, requireStaff, { fetchImpl = fetch } = {}) {
   let running = null;
+  app.get('/api/public/official-prices', async (req, res) => {
+    const sources = (await pool.query('SELECT source_id,http_status,fetched_at,parsed,comparisons,error FROM official_price_watch_sources')).rows;
+    res.set('Cache-Control', 'no-store').json(publicOfficialPrices(sources));
+  });
   app.get('/api/staff/lab/official-prices', requireStaff, async (req, res) => {
     requireTechnical(req);
     res.json({ ...(await officialPriceWatchView(pool)), running: Boolean(running) });
@@ -261,4 +267,23 @@ export function officialPriceWatchRoutes(app, pool, requireStaff, { fetchImpl = 
     await audit(pool, req.actor, 'official_price_watch.run', null, null, {});
     res.json(await running);
   });
+}
+
+// A public observation feed, never a billing-rate mutation. Only explicitly featured models.
+export function publicOfficialPrices(sources, now = new Date()) {
+  const ids = ['deepseek-flash', 'glm-5.3', 'glm-5.3-flash'];
+  return {
+    server_time: now.toISOString(), interval_hours: PRICE_WATCH_INTERVAL_MS / 3600000,
+    current_period: holidayYearsMeta().some(y => y.year === Number(new Date(now.getTime()+8*3600000).getUTCFullYear()))
+      ? (officialPeak(now, CHINA_HOLIDAYS) ? 'peak' : 'offpeak') : null,
+    models: OFFICIAL_MODELS.filter(m => ids.includes(m.id)).map(m => {
+      const source = sources.find(s => s.source_id === m.family);
+      const raw = source?.parsed?.[m.family === 'deepseek' ? m.id : m.name];
+      const valid = source?.http_status === 200 && !source.error && raw && ['input','cached','output'].every(k => raw[k] != null && Number.isFinite(Number(raw[k])) && Number(raw[k]) >= 0);
+      const age = now.getTime() - new Date(source?.fetched_at).getTime();
+      return { id: m.id, source: m.priceSource, checked_at: source?.fetched_at || null,
+        status: valid ? (age >= 0 && age <= PRICE_WATCH_INTERVAL_MS * 2 ? 'fresh' : 'stale') : 'unavailable',
+        rates: valid ? { miss: Number(raw.input), hit: Number(raw.cached), output: Number(raw.output) } : null };
+    })
+  };
 }

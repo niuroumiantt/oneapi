@@ -60,3 +60,27 @@ test('htmlToText keeps table numbers for DeepSeek-like markup', () => {
   const html = '<table><tr><td>百万tokens输入 （缓存命中）</td><td>空闲时段</td><td>0.02元</td><td>0.15元</td></tr></table>';
   assert.match(htmlToText(html), /0\.02元/);
 });
+
+test('GLM HTML table cells parse without merging adjacent model names', () => {
+ const text=htmlToText('<table><tr><td>GLM-5.3-Flash</td><td>1M</td><td>0.8</td><td>2.8</td><td>限时免费</td><td>0.23</td></tr></table>');
+ assert.deepEqual(parseGlmPricing(text).models['GLM-5.3-Flash'],{input:'0.8',output:'2.8',cached:'0.23'});
+ assert.equal(parseGlmPricing(text).models['GLM-5.3'],undefined);
+});
+
+test('public feed exposes only featured models, observed prices, freshness and holiday-aware period', async () => {
+ const {publicOfficialPrices}=await import('../src/official-price-watch.mjs');
+ const now=new Date('2026-11-27T02:00:00Z');
+ const sources=[{source_id:'glm',http_status:200,fetched_at:now,parsed:{'GLM-5.3':{input:'9',cached:'2',output:'28'}},error:null,secret:'must not leak'}];
+ const feed=publicOfficialPrices(sources,now);
+ assert.deepEqual(feed.models.map(m=>m.id),['deepseek-flash','glm-5.3','glm-5.3-flash']);
+ assert.equal(feed.models[1].rates.miss,9);
+ assert.equal(feed.models[1].status,'fresh');
+ assert.equal(feed.models[0].rates,null);
+ assert.equal(feed.current_period,'peak');
+ assert.ok(!JSON.stringify(feed).includes('secret'));
+ assert.equal(publicOfficialPrices(sources,new Date('2026-11-28T02:00:00Z')).models[1].status,'stale');
+ assert.equal(publicOfficialPrices([],new Date('2026-10-01T02:00:00Z')).current_period,'offpeak');
+ assert.equal(publicOfficialPrices([],new Date('2030-10-01T02:00:00Z')).current_period,null);
+ sources[0].http_status=503;
+ assert.equal(publicOfficialPrices(sources,now).models[1].rates,null);
+});
