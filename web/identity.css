@@ -2186,6 +2186,19 @@ td>.live-dot:first-child{margin-right:5px}
   .personal-console[data-workspace-scope="personal"] .my-models .mm-scoped td { padding-block:2px; }
 }
 
+.personal-console[data-workspace-scope="personal"] .my-models .mm-available .mm-actions {
+  flex-wrap:nowrap;
+  gap:4px;
+}
+.personal-console[data-workspace-scope="personal"] .my-models .mm-available .mm-actions button {
+  flex-shrink:0;
+}
+.personal-console[data-workspace-scope="personal"] .my-models .mm-available .mm-use { padding-inline:6px; }
+.personal-console[data-workspace-scope="personal"] .my-models .mm-available .mm-add { width:32px; padding-inline:0; }
+@media (min-width:701px) {
+  .personal-console[data-workspace-scope="personal"] .my-models .mm-available th:last-child { width:128px; }
+}
+
 @media (min-width:701px) and (max-width:1000px) {
   .personal-console[data-workspace-scope="personal"] .personal-home > .personal-compact-sections {
     display:flex;
