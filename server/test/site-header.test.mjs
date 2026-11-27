@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../../web/site-header.js',import.meta.url),'utf8');
 function header(icpFiling){
- const context=vm.createContext({URL,window:{},location:{pathname:'/'},document:{documentElement:{dataset:{icpFiling}},currentScript:{src:'https://example.test/site-header.123.js'},querySelector:()=>null,querySelectorAll:()=>[]}});
+ const context=vm.createContext({URL,window:{},location:{pathname:'/'},document:{createElement:()=>({}),head:{append(){}},documentElement:{dataset:{icpFiling}},currentScript:{src:'https://example.test/site-header.123.js'},querySelector:()=>null,querySelectorAll:()=>[]}});
  vm.runInContext(source,context);return context.window.SiteHeader;
 }
 test('the shared footer displays the build-provided ICP number and links to MIIT',()=>{
