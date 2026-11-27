@@ -251,3 +251,130 @@ html body.catalog-active{height:100dvh;overflow:hidden}
 @media(max-height:760px) and (min-width:901px){#market-view .mx-compare-panel th,#market-view .mx-compare-panel td{padding:4px 7px;font-size:10px;line-height:1.35}}
 @media(max-width:600px){#market-view .mx-compare-panel th,#market-view .mx-compare-panel td{padding:5px 3px;font-size:9px}}
 @media(max-height:760px) and (min-width:901px){#market-view .mx-compare-panel th,#market-view .mx-compare-panel td{font-size:11px;padding:4px 7px}.mx-comp-logo{display:block;margin-bottom:2px}.mx-comp-logo img{width:62px;height:13px}}
+
+/* The reader owns its pager. It never overlays the content or shifts the shell. */
+.mx-compact-nav{display:none}
+.mx-reader{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;border:1px solid #e2e8f2;border-radius:12px;background:#fff}
+#market-view #mx-pane{flex:1;min-height:0;border:0;border-radius:0;overflow:hidden}
+.mx-reader-pager{flex:none;display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:4px 9px;border-top:1px solid #e2e8f2;background:#f6f8fc;color:#344b6d;font-size:12px}
+.mx-reader-pager[hidden]{display:none}
+#market-view .mx-reader-pager button{font:inherit;min-height:32px;padding:4px 10px;border:1px solid #dce5f2;border-radius:6px;background:#fff;color:#344b6d}
+#market-view .mx-reader-pager button:disabled{opacity:.45}
+#market-view .model-explorer .mx-angles .mx-price-tab[aria-pressed=true]{display:flex}
+#market-view #model-grid.mx-selector{grid-auto-rows:minmax(0,1fr)}
+#market-view .mx-choice{min-height:0;min-width:0}
+.mx-choice-copy{max-width:100%}
+#market-view .mx-choice strong{overflow-wrap:anywhere}
+
+@media(max-width:900px){
+ #market-view>.model-explorer{padding:10px 16px}
+ #market-browse{grid-template-rows:auto 56px minmax(0,1fr);gap:9px}
+ #market-view .mx-heading h1{font-size:22px;margin:0}
+ #market-view .mx-heading p{display:none}
+ #market-view #model-grid.mx-selector{gap:8px}
+ .mx-workspace{grid-template-rows:126px 44px minmax(0,1fr);gap:8px}
+ .mx-story{padding:10px 15px}
+ .mx-vendor{margin-bottom:5px}
+ .mx-vendor img{height:16px;width:80px}
+ #market-view .mx-story h2{font-size:24px;margin:0 0 4px}
+ #market-view .mx-lead{font-size:12px;margin-bottom:3px}
+ #market-view .mx-scale{font-size:10px;margin-bottom:6px}
+ #market-view .model-explorer .mx-use{min-height:30px;padding:4px 10px;font-size:12px}
+ .mx-availability{margin-left:8px}
+ #market-view .mx-angles{display:none}
+ .mx-compact-nav{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+ #market-view .mx-compact-nav :is(select,button){font:inherit;font-size:13px;min-width:0;height:44px;color:#344b6d;background:#fff;border:1px solid #dce5f2;border-radius:8px;padding:0 12px}
+ #market-view .mx-compact-nav button{display:flex;align-items:center;gap:6px;white-space:nowrap}
+ .mx-compact-nav svg{width:15px;height:15px}
+ #market-view .mx-compact-nav button[aria-pressed=true]{color:#245bdc;background:#eaf1ff;border-color:#bed0ff}
+ #market-view #mx-pane{padding:10px}
+ #market-view #mx-pane>.mx-price{height:auto;max-width:none;padding:0;overflow:visible}
+ #market-view #mx-pane>.mx-price dl{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin:8px 0}
+ #market-view #mx-pane>.mx-price dl>div{display:grid;justify-content:stretch;gap:3px;padding:6px}
+ #market-view #mx-pane>.mx-price dt{font-size:11px}
+ #market-view #mx-pane>.mx-price .mx-rate-icon{display:none}
+ #market-view #mx-pane>.mx-price dd{font-size:19px}
+ #market-view #mx-pane>.mx-price-source{margin-top:5px}
+ #market-view .mx-price-source{padding-top:4px}
+ #market-view .mx-freshness{margin-top:4px}
+ #market-view .mx-compare-groups button{min-height:32px}
+}
+@media(max-width:600px){
+ #market-view>.model-explorer{padding:8px 12px}
+ #market-browse{grid-template-rows:auto 54px minmax(0,1fr);gap:7px}
+ #market-view #model-grid .mx-choice{justify-content:center;gap:3px;padding:4px 6px;border-radius:8px;transform:none}
+ #market-view #model-grid .mx-choice-arrow{display:none}
+ #market-view .mx-choice strong{white-space:normal;font-size:11px;line-height:1.15}
+ .mx-choice-brand img{height:13px}
+ .mx-story-copy{max-width:100%}
+ .mx-brand-art{opacity:.26}
+ #market-view .mx-scale span{display:inline;white-space:normal}
+ #market-view .mx-background dt,#market-view .mx-background dd{font-size:11px}
+ #market-view .mx-boundary{font-size:10px}
+ #market-view .mx-specs:not(.mx-background)>div{min-width:0;gap:4px}
+ #market-view .mx-specs:not(.mx-background) dt{flex-shrink:1}
+ #market-view .mx-compare-panel th,#market-view .mx-compare-panel td{font-size:10px}
+ #market-view .mx-compare-groups button{font-size:11px;padding-inline:5px}
+ .mx-compare-groups{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+ .mx-reader-pager button{min-height:36px}
+}
+@media(max-height:670px) and (min-width:901px){
+ #market-browse{grid-template-rows:36px 53px minmax(0,1fr);gap:8px}
+ .mx-workspace{grid-template-rows:130px 36px minmax(0,1fr);gap:8px}
+ .mx-story{padding:9px 18px}
+ .mx-vendor{margin-bottom:3px}
+ #market-view .mx-story h2{font-size:25px;margin-bottom:4px}
+ #market-view .mx-scale{margin-bottom:5px}
+ #market-view .mx-price{padding:10px 14px;overflow:auto}
+ #market-view .mx-price dl{margin:5px 0;gap:4px}
+ #market-view .mx-price dl>div{padding:4px 8px}
+ .mx-price-brand{display:none}
+}
+@media(max-height:510px) and (max-width:900px){
+ #market-browse{grid-template-rows:54px minmax(0,1fr)}
+ #market-view .mx-heading{display:none}
+ .mx-workspace{grid-template-rows:44px minmax(0,1fr)}
+ .mx-story{display:none}
+}
+@media(min-width:601px) and (max-width:900px){
+ #market-view #model-grid .mx-choice{display:flex;align-items:center;padding:5px 8px;gap:6px}
+ #market-view .mx-choice strong{font-size:12px;white-space:normal}
+ #market-view .mx-choice :is(.mx-choice-brand,.mx-choice-copy){display:flex;margin:0}
+ .mx-choice-brand{width:60px}
+ .mx-choice-brand img{width:52px}
+}
+@media(max-width:900px){
+ #market-view .mx-compact-nav select{width:100%}
+ #market-view #mx-pane>.mx-price .mx-period-note{margin:5px 0 0}
+ #market-view #mx-pane>.mx-price .mx-price-source{margin-top:4px;padding-top:0}
+ #market-view #mx-pane>.mx-price .mx-price-heading h3{font-size:16px;margin-bottom:0}
+}
+@media(max-width:600px){
+ .mx-workspace{grid-template-rows:107px 44px minmax(0,1fr)}
+ .mx-vendor{display:none}
+ .mx-story{padding:8px 12px}
+ #market-view .mx-story h2{font-size:21px}
+ #market-view .mx-comp-logo{display:none}
+ #market-view .mx-compare-panel{gap:5px}
+ #market-view .mx-compare-panel th,#market-view .mx-compare-panel td{padding:4px 3px}
+}
+@media(max-height:510px) and (max-width:900px){
+ .mx-workspace{grid-template-rows:44px minmax(0,1fr)}
+}
+/* Short phone windows give the reader priority over the introductory banner. */
+@media(max-width:600px) and (min-height:511px) and (max-height:620px){
+ #market-browse{grid-template-rows:54px minmax(0,1fr)}
+ #market-view .mx-heading{display:none}
+ .mx-workspace{grid-template-rows:65px 44px minmax(0,1fr)}
+ .mx-story-copy{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%}
+ #market-view .mx-story h2{font-size:15px;margin:0}
+ .mx-story :is(.mx-lead,.mx-scale,.mx-availability){display:none}
+ #market-view .model-explorer .mx-use{white-space:nowrap;gap:4px;font-size:11px}
+}
+@media(max-width:900px){
+ #market-view .mx-compact-nav select{max-width:none}
+}
+@media(max-width:600px){
+ #market-view .site-header .live-signin .ui-icon-wrap{display:inline-flex}
+ #market-view .site-header .live-signin span:last-child{display:block;position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+}

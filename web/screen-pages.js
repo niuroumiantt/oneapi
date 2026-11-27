@@ -71,9 +71,9 @@
   pending=0;documentChapters();compactNavigation();fitPrimary();
   for(const [el,rec] of records){if(!el.isConnected){rec.controls.remove();records.delete(el);}else update(rec);}
   for(const el of document.querySelectorAll(selectors)){
-   if(records.has(el)||!visible(el)||el.closest('.sp-controls,.site-header,.account-popover,[role="listbox"]')||el.matches('.mx-story,.mx-watermark'))continue;
+   if(records.has(el)||!visible(el)||el.closest('.sp-controls,.site-header,.account-popover,[role="listbox"],[data-screen-local]')||el.matches('.mx-story,.mx-watermark'))continue;
    const r=el.getBoundingClientRect();if(r.width<110||r.height<85)continue;
-   const style=getComputedStyle(el);if(!/auto|scroll/.test(style.overflowY+style.overflowX)&&!el.matches('#mx-pane'))continue;
+   const style=getComputedStyle(el);if(!/auto|scroll/.test(style.overflowY+style.overflowX))continue;
    if(el.scrollHeight<=el.clientHeight+3&&el.scrollWidth<=el.clientWidth+3)continue;
    // Reserve a stable line for controls inside this region, not on the whole page.
    const pad=parseFloat(style.paddingBottom)||0;const rec=attach(el);el.style.paddingBottom=(pad+36)+'px';update(rec);

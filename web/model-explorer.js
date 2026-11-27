@@ -11,6 +11,12 @@
   'glm-5.3':{label:'复杂文本任务',word:'5.3',lead:'长文本分析、多步推理与工具协作。',intro:'面向复杂文本工作的旗舰型号。始终先思考再回答，适合把长文档、需求和多步任务放在一起处理。',scenes:[['长文分析','梳理多份文本的观点、假设和冲突，保留原文依据。','对比这两份方案，列出分歧、证据和还需要确认的问题。'],['开发规划','结合需求与现有实现，拆分修改步骤和验收条件。','阅读需求和代码，给出分阶段实施方案与验收清单。'],['工具协作','在应用提供的工具之间组织多步调用。','先检索相关记录，再汇总异常；缺失信息时不要猜测。']],limit:'仅接受文本。思考不可关闭，短回答也需要预留思考预算；长上下文上限不代表实际任务效果。'},
   'glm-5.3-flash':{label:'轻量与看图',word:'Flash',lead:'用更低的 Token 成本，处理日常任务。',intro:'面向高频文本与图像理解任务的轻量选择。支持调整思考强度，适合信息提取、内容整理和结构化输出。',scenes:[['信息提取','从截图与文字里提取字段，交给后续业务流程。','按指定 JSON 字段提取截图信息，缺失项保留为空。'],['内容整理','完成分类、摘要和改写等重复性文本任务。','将这些反馈按问题类型分类，每类用一句话概括。'],['应用助手','结合工具调用与结构化输出，接入业务应用。','根据用户需求选择可用工具，执行前确认必要参数。']],limit:'始终思考，可调整强度。平台已确认文本与图片输入；官方列出的其他输入形式需另行确认接入支持。'}
  };
+ const sections=[
+  ['background','模型档案','cpu'], ['scenes','应用场景','layers'],
+  ['specs','能力规格','settings'], ['history','版本历史','clock'],
+  ['billing','计费说明','receipt-text'], ['compare','模型对比','arrow-left-right'],
+  ['price','官方价格','receipt-text']
+ ];
  let compareGroup='price';let scene=0;let current=ids[0],angle='background',period='auto',open=()=>false,feed=null,loading=false;
  const catalog=()=>ids.map(id=>(window.SemiflyModels||[]).find(m=>m.id===id)).filter(Boolean);
  const money=n=>'¥'+Number(n).toLocaleString('zh-CN',{maximumFractionDigits:4});
@@ -55,18 +61,94 @@
  function draw(){
   const m=catalog().find(m=>m.id===current);if(!m)return; const p=profiles[m.id],b=window.SemiflyModelBackground[m.id];
   document.getElementById('model-grid').innerHTML=catalog().map(x=>`<a href="#market/${x.id}" class="mx-choice" ${x.id===current?'aria-current="true"':''}><span class="mx-choice-brand">${brandLogo(x)}</span><span class="mx-choice-copy"><strong>${x.name}</strong><span>${profiles[x.id].label}</span></span><span class="mx-choice-arrow">↗</span></a>`).join('');
-  document.getElementById('market-detail').innerHTML=`<div class="mx-showcase" data-brand="${brand(m)}" data-model="${m.id}"><div class="mx-workspace"><section class="mx-story"><div class="mx-story-copy"><div class="mx-vendor">${brandLogo(m)}<span>模型档案 / ${m.id==='deepseek-flash'?'DEEPSEEK':'GLM'}</span></div><h2>${m.name}</h2><p class="mx-lead">${p.lead}</p><p class="mx-scale">${b.scale} <span>· ${m.context} 上下文 · ${m.maxOutput} 最大输出</span></p><button class="mx-use" data-action="model-personal" data-model-id="${m.id}">在工作台使用 <span aria-hidden="true">→</span></button><span class="mx-availability">${open(m)?'线路已接通':'可用性以工作台为准'}</span></div><div class="mx-brand-art" aria-hidden="true"><div class="mx-orbit mx-orbit-one"></div><div class="mx-orbit mx-orbit-two"></div><div class="mx-art-core">${brandLogo(m)}</div><span class="mx-art-node node-code">${icon('code-xml')}</span><span class="mx-art-node node-think">${icon('brain-circuit')}</span><span class="mx-art-node node-file">${icon(m.capabilities.input.includes('image')?'scan-eye':'pencil-line')}</span><span class="mx-art-spark">✦</span></div></section><nav class="mx-angles" aria-label="模型介绍角度">${[['background','模型档案'],['scenes','应用场景'],['specs','能力规格'],['history','版本历史'],['billing','计费说明'],['compare','模型对比'],['price','官方价格']].map(([id,label])=>`<button class="${id==='price'?'mx-price-tab':''}" data-mx-angle="${id}" aria-pressed="${angle===id}">${icon({background:'cpu',scenes:'layers',specs:'settings',history:'clock',billing:'receipt-text',compare:'arrow-left-right',price:'receipt-text'}[id])}${label}</button>`).join('')}</nav><div id="mx-pane">${pane(m)}</div></div><div id="mx-price-host">${pricePanel(m)}</div></div>`;
+  readerObserver.disconnect();
+  document.getElementById('market-detail').innerHTML=`<div class="mx-showcase" data-brand="${brand(m)}" data-model="${m.id}"><div class="mx-workspace"><section class="mx-story"><div class="mx-story-copy"><div class="mx-vendor">${brandLogo(m)}<span>模型档案 / ${m.id==='deepseek-flash'?'DEEPSEEK':'GLM'}</span></div><h2>${m.name}</h2><p class="mx-lead">${p.lead}</p><p class="mx-scale">${b.scale} <span>· ${m.context} 上下文 · ${m.maxOutput} 最大输出</span></p><button class="mx-use" data-action="model-personal" data-model-id="${m.id}">在工作台使用 <span aria-hidden="true">→</span></button><span class="mx-availability">${open(m)?'线路已接通':'可用性以工作台为准'}</span></div><div class="mx-brand-art" aria-hidden="true"><div class="mx-orbit mx-orbit-one"></div><div class="mx-orbit mx-orbit-two"></div><div class="mx-art-core">${brandLogo(m)}</div><span class="mx-art-node node-code">${icon('code-xml')}</span><span class="mx-art-node node-think">${icon('brain-circuit')}</span><span class="mx-art-node node-file">${icon(m.capabilities.input.includes('image')?'scan-eye':'pencil-line')}</span><span class="mx-art-spark">✦</span></div></section><nav class="mx-angles" aria-label="模型介绍角度">${sections.map(([id,label,glyph])=>`<button type="button" class="${id==='price'?'mx-price-tab':''}" data-mx-angle="${id}" aria-pressed="${angle===id}">${icon(glyph)}${label}</button>`).join('')}</nav>
+  <div class="mx-compact-nav"><select aria-label="选择模型栏目" data-mx-section>${sections.map(([id,label])=>`<option value="${id}" ${angle===id?'selected':''}>${label}</option>`).join('')}</select>
+  <button type="button" data-mx-angle="compare" aria-pressed="${angle==='compare'}">${icon('arrow-left-right')}模型对比</button></div>
+  <div class="mx-reader" data-screen-local><div id="mx-pane" data-screen-local>${pane(m)}</div>
+  <nav class="mx-reader-pager" aria-label="模型内容分页" hidden><button type="button" data-mx-page="-1">上一页</button><output aria-live="polite"></output><button type="button" data-mx-page="1">下一页</button></nav></div></div><div id="mx-price-host">${pricePanel(m)}</div></div>`;
+  readerObserver.observe(document.querySelector('.mx-reader'));
+  fitReader();
  }
  function render(models,isOpen){open=isOpen;draw();}
  function route(id,isOpen){open=isOpen;current=ids.includes(id)?id:ids[0];if(id&&!ids.includes(id))history.replaceState(null,'','#market');draw();document.title=`${id&&ids.includes(id)?profiles[current].label+' · ':''}模型广场 · semifly.ai`;}
  function estimate(){const m=catalog().find(m=>m.id===current),r=pricing(m).rates;let sum=0;document.querySelectorAll('[data-mx-tokens]').forEach(el=>{sum+=Math.max(0,Math.min(1e7,Number(el.value)||0))*r[el.dataset.mxTokens];});const out=document.getElementById('mx-cost');if(out)out.textContent=money(sum/1e6);}
  async function refresh(){
   if(loading)return;loading=true;
-  const update=()=>{const m=catalog().find(m=>m.id===current);if(m&&document.getElementById('mx-price-host')){document.getElementById('mx-price-host').innerHTML=pricePanel(m);if(angle==='price')document.getElementById('mx-pane').innerHTML=pricePanel(m);if(angle==='compare'&&compareGroup==='price')document.getElementById('mx-pane').innerHTML=comparison();estimate();}};
+  const update=()=>{const m=catalog().find(m=>m.id===current);if(m&&document.getElementById('mx-price-host')){document.getElementById('mx-price-host').innerHTML=pricePanel(m);if(angle==='price'||(angle==='compare'&&compareGroup==='price'))updatePane(m);estimate();}};
   update();
   try{const r=await fetch('/api/public/official-prices',{cache:'no-store',signal:AbortSignal.timeout(10000)});if(!r.ok)throw Error('unavailable');const data=await r.json();if(!Array.isArray(data.models))throw Error('invalid');feed={...data,receivedAt:Date.now()};}catch{feed=null;}finally{loading=false;update();}
  }
- document.addEventListener('click',e=>{const compareButton=e.target.closest('[data-mx-compare]');if(compareButton){compareGroup=compareButton.dataset.mxCompare;document.getElementById('mx-pane').innerHTML=comparison();document.querySelector(`[data-mx-compare="${compareGroup}"]`)?.focus({preventScroll:true});return;}const sceneButton=e.target.closest('[data-mx-scene]');if(sceneButton){scene=Number(sceneButton.dataset.mxScene);document.getElementById('mx-pane').innerHTML=pane(catalog().find(m=>m.id===current));return;}const b=e.target.closest('[data-mx-angle],[data-mx-period],[data-mx-refresh]');if(!b)return;if(b.hasAttribute('data-mx-refresh')){void refresh();return;}if(b.dataset.mxAngle){angle=b.dataset.mxAngle;document.querySelectorAll('[data-mx-angle]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));document.getElementById('mx-pane').innerHTML=pane(catalog().find(m=>m.id===current));}else{period=b.dataset.mxPeriod;document.getElementById('mx-price-host').innerHTML=pricePanel(catalog().find(m=>m.id===current));if(angle==='price')document.getElementById('mx-pane').innerHTML=pricePanel(catalog().find(m=>m.id===current));if(angle==='compare')document.getElementById('mx-pane').innerHTML=comparison();document.querySelector(`#${angle==='price'?'mx-pane':'mx-price-host'} [data-mx-period="${period}"]`)?.focus();estimate();}});
+ // Keep the controls in their own row, outside the clipped reading area.
+ const readerObserver=new ResizeObserver(fitReader);
+ function fitReader(){
+  const content=document.getElementById('mx-pane');
+  if(!content?.clientHeight)return;
+  const pager=content.nextElementSibling;
+  const fullHeight=content.parentElement.clientHeight;
+  const naturalHeight=content.scrollHeight;
+  const paged=naturalHeight>(pager.hidden?content.clientHeight:fullHeight)+1;
+  pager.hidden=!paged;
+  if(!paged){content.scrollTop=0;return;}
+  const step=Math.max(1,content.clientHeight-24);
+  const end=content.scrollHeight-content.clientHeight;
+  const pages=Math.ceil(end/step)+1;
+  const currentPage=content.scrollTop>=end-1?pages:Math.floor(content.scrollTop/step)+1;
+  pager.querySelector('output').textContent=`${currentPage} / ${pages}`;
+  pager.firstElementChild.disabled=content.scrollTop<1;
+  pager.lastElementChild.disabled=content.scrollTop>=end-1;
+ }
+ function updatePane(model,reset=false){
+  const content=document.getElementById('mx-pane');
+  content.innerHTML=pane(model);
+  if(reset)content.scrollTop=0;
+  fitReader();
+ }
+ function selectSection(section){
+  angle=section;
+  for(const button of document.querySelectorAll('[data-mx-angle]')){
+   button.setAttribute('aria-pressed',String(button.dataset.mxAngle===angle));
+  }
+  document.querySelector('[data-mx-section]').value=angle;
+  updatePane(catalog().find(m=>m.id===current),true);
+ }
+ document.addEventListener('change',event=>{
+  if(event.target.matches('[data-mx-section]'))selectSection(event.target.value);
+ });
+ document.addEventListener('scroll',event=>{
+  if(event.target.id==='mx-pane')fitReader();
+ },true);
+ document.addEventListener('click',event=>{
+  const button=event.target.closest('[data-mx-page],[data-mx-compare],[data-mx-scene],[data-mx-angle],[data-mx-period],[data-mx-refresh]');
+  if(!button)return;
+  const {mxPage,mxCompare,mxScene,mxAngle,mxPeriod}=button.dataset;
+  const model=catalog().find(m=>m.id===current);
+  if(mxPage){
+   const content=document.getElementById('mx-pane');
+   const step=Math.max(1,content.clientHeight-24);
+   const page=Math.ceil(content.scrollTop/step);
+   content.scrollTop=mxPage==='1'?(Math.floor(content.scrollTop/step)+1)*step
+     :Math.max(0,page-1)*step;
+   fitReader();
+  }else if(mxCompare || mxScene!==undefined){
+   if(mxCompare)compareGroup=mxCompare;
+   else scene=Number(mxScene);
+   updatePane(model,true);
+   const attr=mxCompare?'compare':'scene';
+   document.querySelector(`[data-mx-${attr}="${mxCompare??mxScene}"]`)?.focus({preventScroll:true});
+  }else if(mxAngle){
+   selectSection(mxAngle);
+  }else if(mxPeriod){
+   period=mxPeriod;
+   document.getElementById('mx-price-host').innerHTML=pricePanel(model);
+   if(angle==='price'||angle==='compare')updatePane(model);
+   const host=angle==='price'?'mx-pane':'mx-price-host';
+   document.querySelector(`#${host} [data-mx-period="${period}"]`)?.focus({preventScroll:true});
+   estimate();
+  }else{
+   void refresh();
+  }
+ });
  document.addEventListener('input',e=>{if(e.target.matches('[data-mx-tokens]'))estimate();});
  window.ModelExplorer={render,route};
  void refresh();setInterval(()=>{if(!document.hidden&&!document.getElementById('market-view')?.hidden)void refresh();},60000);
