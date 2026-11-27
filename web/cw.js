@@ -35,9 +35,10 @@
     loadVersion = 0;
   let data = null,
     selected = staff ? requestedPartner : null,
-    tab = selected ? 'manage' : 'overview',
+    tab = selected ? 'manage' : staff && params.get('view') === 'pricing' ? 'model-pricing' : 'overview',
     salesFilter = { query: '', stage: '', owner: '' },
     orderLookup = null,
+    pricingModel = '',
     offset = 0,
     filter = '',
     requestKey = crypto.randomUUID();
@@ -127,6 +128,7 @@
       ? [
           ['overview', data.administrator ? '全部 VIP 客户' : '我的 VIP 客户'],
           ['invite-codes', '招募邀请码'],
+          ...(data.administrator ? [['model-pricing', '模型定价']] : []),
           ...(selected ? [['manage', '客户档案']] : []),
           ...(data.finance && selected ? [['settlement', '月结与提现']] : []),
         ]
@@ -169,6 +171,7 @@
         if (version !== loadVersion) return;
       }
       data = result;
+      if (staff && tab === 'model-pricing' && !data.administrator) tab = 'overview';
       if(compactVIP&&!personalStarted){tab=params.get('view')==='program'?'intro':data.partner?'overview':'intro';personalStarted=true;}
       await draw();
       if (unavailable) $('#cw-message').textContent = '这位 VIP 客户当前不在你的管理范围内。';
@@ -192,7 +195,7 @@
   function modelCodeForm() {
     const offers = data.model_pack_offers || [];
     if (!offers.length) return '<p>暂时没有可推广的模型。</p>';
-    const options = offers.map(o => `<option value="${esc(o.model_id)}" data-floor="${o.min_price_bps}">${esc(o.name)}</option>`).join('');
+    const options = offers.map(o => `<option value="${esc(o.model_id)}" data-floor="${o.min_price_bps}">${esc(o.name)} · ${o.min_price_bps / 1000}–10 折</option>`).join('');
     return form('code', field('name','促销码名称','text','maxlength="60"') +
       `<label>适用模型<select name="model_id" required>${options}</select></label>` +
       field('model_discount','客户折扣（折）','number',`min="${offers[0].min_price_bps / 1000}" max="10" step="0.001" value="${offers[0].min_price_bps / 1000}" required`),
@@ -339,7 +342,9 @@
     }
     const c = $('#cw-content');
     if (staff) {
-      drawStaff(c);
+      document.body.classList.toggle('cw-pricing-view', tab === 'model-pricing');
+      if (tab === 'model-pricing' && data.administrator) await drawModelPricing(c, version);
+      else drawStaff(c);
       return;
     }
     if (!data.partner) {
@@ -377,7 +382,7 @@
       const trialActive = hasPromotionTrial(p);
       const eligible = contractVerified || trialActive;
       c.innerHTML = `<h2>我的推广码 <small>${data.codes.length} / 50</small></h2>
-        ${eligible ? '<p>生成后即生效。客户价格最低五折。</p>' : '<p>请联系负责销售完成合同与实名核验，核验后即可生成推广码。</p>'}
+        ${eligible ? '<p>生成后即生效。客户价格按平台允许的折扣设置。</p>' : '<p>请联系负责销售完成合同与实名核验，核验后即可生成推广码。</p>'}
         ${trialActive && !contractVerified ? `<p>推广试用至 ${when(p.promotion_trial_until)}。</p>` : ''}
         ${table(['名称／推广码', '状态／客户价格', '你的提成', '客户实付', '客户实用', '预计／已解锁／可提现', '推广'], data.codes.map((k) => {
           const status = promotionStatus(k, true, contractVerified, trialActive);
@@ -607,6 +612,29 @@
       ${d.feedback?`<p><strong>处理反馈：</strong>${esc(d.feedback)}</p>`:''}
       <p class="cw-muted">负责员工：${esc(d.owner_name||p.owner_name||'待管理员分配')}${!stopped&&index<4?' · 当前由'+(index===2&&usable&&!paid?'申请人':'公司')+'处理':''}</p></section>`;
   }
+  async function drawModelPricing(content, version) {
+    content.innerHTML = '<h2>模型定价</h2><p role="status">正在读取模型定价…</p>';
+    const {offers, commission_bps} = await api(base + '/model-pack-offers');
+    if (version !== viewVersion) return;
+    if (!offers.length) {
+      content.innerHTML = '<h2>模型定价</h2><p>暂无已开放的付费模型。</p>';
+      return;
+    }
+    const current = offers.find(offer => offer.model_id === pricingModel) || offers[0];
+    pricingModel = current.model_id;
+    const options = offers.map(offer => `<option value="${esc(offer.model_id)}"${offer === current ? ' selected' : ''}>${esc(offer.name)}${offer.id ? '' : ' · 待设置'}</option>`).join('');
+    const rateField = (name, label, min, bps) => field(name, label, 'number',
+      `min="${min}" max="10" step="0.001" value="${bps == null ? '' : bps / 1000}"`);
+    content.innerHTML = `<h2>模型定价</h2>
+      <p>VIP 提成固定为消费实付的 ${commission_bps / 100}%。最低售价须覆盖采购成本和提成。</p>
+      <form class="cw-form cw-model-pricing" data-action="model-pricing">
+        <label>模型<select name="model_id">${options}</select></label>
+        ${rateField('cost_discount', '采购成本（折）', 0, current.cost_bps)}
+        ${rateField('floor_discount', '最低售价（折）', 0.001, current.min_price_bps)}
+        <button type="submit">保存定价</button>
+      </form>`;
+  }
+
   function drawStaff(c) {
     if (tab === 'overview') { drawSalesList(c); return; }
     if (tab === 'invite-codes') { drawInviteCodes(c); return; }
@@ -663,9 +691,12 @@
       if(compactVIP&&b.hasAttribute('data-vip-page')){personalPage=Number(b.dataset.vipPage);await draw();return;}
       if (b.dataset.tab) {
         personalPage=0;
-        if(tab!==b.dataset.tab)offset=0;
+        if (tab !== b.dataset.tab) {
+          offset = 0;
+          if (tab === 'model-pricing' || b.dataset.tab === 'model-pricing') $('#cw-message').textContent = '';
+        }
         tab = b.dataset.tab;
-        if (staff && ['overview','invite-codes'].includes(tab)) {
+        if (staff && ['overview','invite-codes','model-pricing'].includes(tab)) {
           setSelected(null);
           orderLookup = null;
         }
@@ -768,6 +799,18 @@
     }
   });
   document.addEventListener('change', async (e) => {
+    if (e.target.matches('.cw-model-pricing select')) {
+      pricingModel = e.target.value;
+      $('#cw-message').textContent = '';
+      try {
+        await draw();
+        $('#cw-content .cw-model-pricing select')?.focus({preventScroll: true});
+      } catch (error) {
+        $('#cw-message').dataset.error = 'true';
+        $('#cw-message').textContent = error.message;
+      }
+      return;
+    }
     if (e.target.matches('[data-action=code-review] select[name=status]')) {
       const f = e.target.form;
       for (const name of ['customer_price_percent', 'starts_at', 'ends_at']) {
@@ -807,6 +850,21 @@
     try {
       let path,
         body = b;
+      if (action === 'model-pricing') {
+        const result = await api(base + '/model-pack-offers', {
+          model_id: b.model_id,
+          cost_bps: Math.round(Number(b.cost_discount) * 1000),
+          min_price_bps: Math.round(Number(b.floor_discount) * 1000),
+        });
+        if (!f.isConnected) return;
+        f.elements.cost_discount.value = result.cost_bps / 1000;
+        f.elements.floor_discount.value = result.min_price_bps / 1000;
+        f.elements.model_id.selectedOptions[0].textContent =
+          f.elements.model_id.selectedOptions[0].textContent.replace(/ · 待设置$/, '');
+        $('#cw-message').dataset.error = 'false';
+        $('#cw-message').textContent = '模型定价已保存。';
+        return;
+      }
       if (action === 'order-lookup') {
         const result = await api(base + '/order-lookup?out_trade_no=' + encodeURIComponent(b.out_trade_no.trim()));
         if (!f.isConnected) return;

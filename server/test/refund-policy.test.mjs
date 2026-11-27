@@ -267,6 +267,11 @@ test('platform floors, 35% cost snapshots and fixed 10% cash commission reconcil
   assert.equal((await api('/api/staff/cw/model-pack-offers',settings,{staff:'sales'})).status,403);
   assert.equal((await api('/api/staff/cw/model-pack-offers',{...settings,cost_bps:4600},{staff:'admin'})).status,400);
   assert.equal((await api('/api/staff/cw/model-pack-offers',{...settings,model_id:'unknown'},{staff:'admin'})).status,400);
+  assert.equal((await api('/api/staff/cw/model-pack-offers',null,{user:vip.user})).status,401);
+  assert.equal((await api('/api/staff/cw/model-pack-offers',null,{staff:'sales'})).status,403);
+  const catalog=await api('/api/staff/cw/model-pack-offers',null,{staff:'admin'});
+  assert.equal(catalog.status,200);
+  assert.deepEqual(catalog.data.offers.map(offer=>offer.model_id).sort(),[...cfg.customerPaid.models].sort());
   for(const model of cfg.customerPaid.models){
    const setting=await api('/api/staff/cw/model-pack-offers',{...settings,model_id:model},{staff:'admin'});
    assert.equal(setting.status,200,JSON.stringify(setting));
@@ -274,6 +279,11 @@ test('platform floors, 35% cost snapshots and fixed 10% cash commission reconcil
    assert.equal((await api('/api/cw/codes',{name:'under floor',model_id:model,model_price_bps:4999},{user:vip.user})).status,409);
    const made=await api('/api/cw/codes',{name:model+' fixed ten',model_id:model,model_price_bps:5000,commission_bps:9999,cost_bps:0},{user:vip.user});
    assert.equal(made.status,201);assert.equal(made.data.commission_bps,1000);
+   const vipView=await api('/api/cw/me',null,{user:vip.user});
+   const offer=vipView.data.model_pack_offers.find(offer=>offer.model_id===model);
+   assert.equal(offer.min_price_bps,5000);
+   assert.equal(offer.commission_bps,1000);
+   assert.equal(offer.cost_bps,undefined);
    const buyer=await person();
    const q=await api('/api/billing/quote',{cash_fen:5000,promo_code:made.data.code},{user:buyer.user});
    assert.equal(q.status,200);assert.equal(q.data.face_fen,10000);

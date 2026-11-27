@@ -8,6 +8,7 @@ import {config,HttpError} from '../../server/src/core.mjs';
 import {paymentRoutes,creditPaidOrder} from '../../server/src/payments.mjs';
 import {settlePaidCall} from '../../server/src/pack-ledger.mjs';
 import {OFFICIAL_MODELS} from '../../server/src/official-models.mjs';
+import {cwRoutes} from '../../server/src/cw-partners.mjs';
 import {billingRoutes} from '../../server/src/billing.mjs';
 
 const port=Number(process.env.LOCAL_PREVIEW_PORT||4297);
@@ -29,6 +30,7 @@ async function seed(email,name){
  return user.id;
 }
 const vip=await seed('vip@example.test','本地验收 VIP');
+const localAdmin=await seed('admin@example.test','本地定价管理员');
 const buyer=await seed('customer@example.test','本地验收客户');
 await pool.query("INSERT INTO staff_members(subject,email,name,role,status) VALUES('preview-staff','staff@example.test','本地管理员','platform_admin','active') ON CONFLICT DO NOTHING");
 await pool.query(`INSERT INTO cw_partners(user_id,public_code,legal_name,contact_cipher,consent_version,owner_subject,status,promotion_trial_until)
@@ -48,6 +50,18 @@ const customer=async(req,res,next)=>{
  req.actor={kind:'customer',id:s.user.id};
  next();
 };
+// Use a signed-in fixture account for the staff boundary; all pricing handlers are real.
+const previewStaff = [customer, async (req,res,next) => {
+ if (req.customer.id !== localAdmin) throw new HttpError(403,'仅本地管理员可访问');
+ req.staff = (await pool.query("SELECT * FROM staff_members WHERE subject='preview-staff'")).rows[0];
+ req.actor = {kind:'staff',id:req.staff.subject};
+ next();
+}];
+const staffFixture = express.Router();
+staffFixture.use(express.json());
+staffFixture.use((req,res,next)=>req.method==='GET'||req.get('origin')===origin?next():res.sendStatus(403));
+cwRoutes(staffFixture,pool,customer,previewStaff,cfg,{sendMail:async()=>({})});
+app.use((req,res,next)=>/^\/api\/staff\/cw(?:\/|$)/.test(req.path)?staffFixture(req,res,next):next());
 const wechat={mchId:'local',appId:'local',
  native:async ({outTradeNo})=>({status:200,data:{code_url:origin+'/local-payment/'+outTradeNo}}),
  query:async()=>({status:200,data:{}}),

@@ -437,8 +437,15 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
   // Internal pricing only. VIPs cannot read procurement costs or lower their floor.
   app.get('/api/staff/cw/model-pack-offers', requireStaff, async (req,res) => {
     admin(req);
-    res.json({commission_bps:MODEL_COMMISSION_BPS,offers:(await pool.query(
-      'SELECT id,model_id,min_price_bps,cost_bps,enabled,created_at FROM model_pack_offers WHERE enabled ORDER BY model_id')).rows});
+    const {rows} = await pool.query(`
+      SELECT o.id, m.model_id, o.min_price_bps, o.cost_bps
+      FROM unnest($1::text[]) AS m(model_id)
+      LEFT JOIN model_pack_offers o ON o.model_id=m.model_id AND o.enabled
+      ORDER BY m.model_id`, [[...new Set(saleModels)]]);
+    res.json({
+      commission_bps: MODEL_COMMISSION_BPS,
+      offers: rows.map(row => ({...row, name: modelPackName(row.model_id)})),
+    });
   });
   app.post('/api/staff/cw/model-pack-offers', requireStaff, async (req,res) => {
     admin(req);
