@@ -43,9 +43,9 @@ async function paid(who,cash=10000,face=cash,snapshot={}){
 }
 async function activate(who){return api('/api/staff/cw/'+who.partner+'/activate',{}, {staff:'sales'});}
 async function ticket(who){return (await pool.query("INSERT INTO support_tickets(user_id,subject,body,category) VALUES($1,'退款诉求','请按原单核对','billing') RETURNING id",[who.user])).rows[0].id;}
-async function consume(who,amount){
+async function consume(who,amount,walletPrice=null){
  const key=(await pool.query("INSERT INTO customer_api_keys(account_id,owner_id,label,secret_hash,key_hint,model_ids,limit_yuan) VALUES($1,$2,'test',$3,'test',ARRAY['deepseek-flash'],100000) RETURNING id",[who.account.id,who.user,randomUUID()])).rows[0].id;
- const call=(await pool.query("INSERT INTO customer_calls(account_id,key_id,owner_id,model_id,price_snapshot,status,hold_yuan) VALUES($1,$2,$3,'deepseek-flash','{}','pending',$4) RETURNING id",[who.account.id,key,who.user,amount])).rows[0].id;
+ const call=(await pool.query("INSERT INTO customer_calls(account_id,key_id,owner_id,model_id,price_snapshot,status,hold_yuan) VALUES($1,$2,$3,'deepseek-flash',$5,'pending',$4) RETURNING id",[who.account.id,key,who.user,amount,{shared_wallet_price_bps:walletPrice}])).rows[0].id;
  await settlePaidCall(pool,call,String(amount),{},'fixture',null,1);
 }
 async function invoice(who,amount){const v=await api('/api/billing/personal/invoices',{invoice_type:'general',title:'Test',amount_yuan:String(amount),email:'invoice@test.invalid'},{user:who.user});assert.equal(v.status,201,JSON.stringify(v.data));return v.data.id;}
@@ -345,4 +345,20 @@ test('sub-cent calls, zero use, fully used and legacy spread orders retain exact
  await consume(legacy,40);await migrate(pool,auth);
  assert.equal((await pool.query('SELECT unlocked_fen FROM cw_commissions WHERE order_id=$1',[l.order.id])).rows[0].unlocked_fen,'800');
  assert.equal((await pool.query('SELECT unlocked_fen FROM cw_commissions WHERE order_id=$1',[f.order.id])).rows[0].unlocked_fen,'500');
+});
+
+test('shared recharge uses the model rate and consumes paid balance across orders before gifts',{skip},async()=>{
+ const who=await person();
+ const first=await paid(who,10000,12000);
+ await paid(who,3000,3000);
+ await consume(who,135,8000);
+ let firstQuote=await refundQuote(pool,first.pack.id);
+ assert.equal(firstQuote.red_fen,'0');
+ assert.equal(firstQuote.bonus_fen,'2000','older gifts wait for all shared cash');
+ const wallet=async()=>(await pool.query('SELECT list_credit_fen,cash_balance_fen,total_spent_fen FROM billing_accounts WHERE id=$1',[who.account.id])).rows[0];
+ assert.deepEqual(await wallet(),{list_credit_fen:'4200.0000000000',cash_balance_fen:'2200',total_spent_fen:'10800'});
+ await consume(who,30,8000);
+ firstQuote=await refundQuote(pool,first.pack.id);
+ assert.equal(firstQuote.bonus_fen,'1800');
+ assert.deepEqual(await wallet(),{list_credit_fen:'1800.0000000000',cash_balance_fen:'0',total_spent_fen:'13000'});
 });

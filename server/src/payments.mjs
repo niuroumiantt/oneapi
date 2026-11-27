@@ -1,3 +1,4 @@
+import {customerUsagePrices,paidEnabled,paidRoutes} from './customer-credit.mjs';
 import {publicDiscount} from './model-packs.mjs';
 import {queueVipRechargeNotice} from './vip-recharges.mjs';
 import {creditCW,refundCW} from './cw-ledger.mjs';
@@ -184,7 +185,9 @@ export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
  app.post('/api/billing/quote',requireCustomer,async(req,res)=>{
   const account=await accountFor(pool,req.customer.id,req.body?.organization_id?id(req.body.organization_id):null,{create:true});
   const quote=await transaction(pool,db=>quotePack(db,account,parseRechargeFen(req.body?.face_fen??req.body?.cash_fen),req.body?.promo_code,{cashFen:req.body?.cash_fen===undefined?null:parseRechargeFen(req.body.cash_fen),buyerId:req.customer.id,cwEnabled:!!cfg.cw?.enabled,models:cfg.cw?.modelPacks&&cfg.customerPaid?.enabled?cfg.customerPaid.models:[]}));
-  res.json({...quote,discount_snapshot:publicDiscount(quote.discount_snapshot)});
+  const models=!account.organization_id&&req.body?.include_model_prices===true&&paidEnabled(cfg)
+   ?customerUsagePrices(await paidRoutes(pool,cfg),cfg):undefined;
+  res.json({...quote,discount_snapshot:publicDiscount(quote.discount_snapshot),models});
  });
  for(const provider of Object.keys(CHANNELS)){
   const path=CHANNELS[provider].path;

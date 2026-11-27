@@ -9,6 +9,9 @@ import {fenToYuan,yuanToFen} from './alipay.mjs';
 const pattern=/^Bearer (sf_paid_[A-Za-z0-9_-]{43})$/;
 export const paidEnabled=cfg=>Boolean(cfg.customerPaid?.enabled&&cfg.customerPaid?.models?.length&&process.env.SUPPLIER_LAB_SECRET);
 export const paidRoutes=async(pool,cfg)=>{const [routes,blocked]=await Promise.all([employeeRoutes(pool,cfg),guardedModels(pool)]);return routes.filter(r=>cfg.customerPaid?.models?.includes(r.model.id)&&!blocked.has(r.model.id)&&!blocked.has(r.model.upstreamModel));};
+export function customerUsagePrices(routes,cfg){
+ return routes.map(({model})=>({id:model.id,name:model.name,price_bps:cfg.customerPaid.usagePrices?.[model.id]??10000})).sort((a,b)=>a.price_bps-b.price_bps);
+}
 export function paidBackend(pool,cfg){return {
  matches:req=>pattern.test(req.get('authorization')||''),table:'customer_calls',routes:()=>paidRoutes(pool,cfg),
  async authenticate(req){
@@ -25,12 +28,14 @@ export function paidBackend(pool,cfg){return {
    const a=(await db.query('SELECT * FROM billing_accounts WHERE id=$1 FOR UPDATE',[key.account_id])).rows[0];
    const n=(await db.query(`SELECT count(*) FILTER(WHERE status='pending')::int AS active FROM customer_calls WHERE account_id=$1 AND status IN ('pending','awaiting_bill')`,[a.id])).rows[0];
    if(n.active>=10)throw new HttpError(429,'当前付费账户同时最多 10 个请求','concurrency_limit_exceeded');
-   const available=await availableForModel(db,a.id,model.id);
+   const prices=cfg.customerPaid.usagePrices;
+   const walletPrice=!key.organization_id&&Object.keys(prices||{}).length?(prices[model.id]??10000):null;
+   const available=await availableForModel(db,a.id,model.id,null,walletPrice);
    const enough=(await db.query('SELECT $1::numeric >= $2::numeric*100 AS ok',[available,hold])).rows[0].ok;
    if(!enough)throw new HttpError(402,'该模型可用额度不足，请充值或调小 max_tokens');
    const spent=(await db.query("SELECT coalesce(sum(coalesce(charged_yuan,CASE WHEN status IN ('pending','awaiting_bill') THEN hold_yuan END)),0) AS n FROM customer_calls WHERE key_id=$1",[key.key_id])).rows[0].n;
    if(!(await db.query('SELECT $1::numeric+$2::numeric <= $3::numeric AS ok',[spent,hold,key.limit_yuan])).rows[0].ok)throw new HttpError(402,'这把 Key 的消费上限不足','key_limit_reached');
-   return (await db.query(`INSERT INTO customer_calls(account_id,key_id,owner_id,model_id,credential_id,price_snapshot,status,hold_yuan,client,gateway_instance) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9) RETURNING id`,[a.id,key.key_id,key.owner_id,model.id,route.credentialId,{...model.rates,multiplier:model.multiplier},hold,origin.client,GATEWAY_INSTANCE])).rows[0].id;
+   return (await db.query(`INSERT INTO customer_calls(account_id,key_id,owner_id,model_id,credential_id,price_snapshot,status,hold_yuan,client,gateway_instance) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9) RETURNING id`,[a.id,key.key_id,key.owner_id,model.id,route.credentialId,{...model.rates,multiplier:model.multiplier,shared_wallet_price_bps:walletPrice},hold,origin.client,GATEWAY_INSTANCE])).rows[0].id;
   });
  },
  async answered(call,requestId,usage,started){
@@ -68,7 +73,7 @@ export function customerCreditRoutes(app,pool,cfg,requireCustomer){
   const calls=(await pool.query('SELECT id,model_id,status,charged_yuan,input_tokens,cached_input_tokens,output_tokens,latency_ms,error_code,created_at FROM customer_calls WHERE account_id=$1 ORDER BY created_at DESC LIMIT 100',[a.id])).rows;
   const held=(await pool.query("SELECT coalesce(sum(hold_yuan)*100,0) AS n FROM customer_calls WHERE account_id=$1 AND status IN ('pending','awaiting_bill')",[a.id])).rows[0].n;
   const allocation=await paidKeyAllocation(pool,a.id);
-  res.json({enabled:paidEnabled(cfg),account_id:a.id,base_url:cfg.origin+'/v1',models:routes.map(r=>({id:r.model.id,name:r.model.name})),keys,calls,list_credit_fen:allocation.list_credit_fen,held_fen:held,unallocated_fen:allocation.unallocated_fen});
+  res.json({enabled:paidEnabled(cfg),account_id:a.id,base_url:cfg.origin+'/v1',models:customerUsagePrices(routes,cfg),keys,calls,list_credit_fen:allocation.list_credit_fen,held_fen:held,unallocated_fen:allocation.unallocated_fen});
  });
  app.post('/api/customer-credit/keys',requireCustomer,async(req,res)=>{
   if(!paidEnabled(cfg))throw new HttpError(503,'客户付费调用尚未开放');

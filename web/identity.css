@@ -2221,3 +2221,69 @@ td>.live-dot:first-child{margin-right:5px}
   .personal-console[data-workspace-scope="personal"] .personal-home[data-compact-section="activity"] .pd-panels > :not(.pd-activity) { display:none; }
   .personal-console[data-workspace-scope="personal"] .personal-home .pd-panels { grid-template-columns:minmax(0,1fr); }
 }
+
+.pb-estimate {
+  grid-column:1/-1;
+  min-width:0;
+  margin-top:clamp(10px,3vh,28px);
+  padding:clamp(12px,2vh,20px) 0 0;
+  border-top:1px solid var(--ph-line);
+}
+.pb-estimate :is(h2,p){margin:0}
+.pb-estimate h2{font-size:16px;font-weight:600}
+.pb-estimate>p,.pb-estimate-head p,.pb-estimate-foot{color:var(--ph-muted);font-size:12px}
+.pb-estimate-head,.pb-estimate-foot{display:flex;justify-content:space-between;align-items:baseline;gap:8px 16px;flex-wrap:wrap}
+.pb-estimate-head b{color:var(--ph-ink);white-space:nowrap}
+.pb-estimate-track{display:flex;height:8px;margin:12px 0 14px;border-radius:10px;overflow:hidden;background:var(--ph-line)}
+.pb-estimate-track span:first-child{background:#3171b6}
+.pb-estimate-track span:last-child{background:#c64036}
+.pb-estimate-models{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(10px,2vw,28px)}
+.pb-estimate-model{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;align-items:baseline}
+.pb-estimate-model+ .pb-estimate-model{border-left:1px solid var(--ph-line);padding-left:clamp(8px,2vw,24px)}
+.pb-estimate-model>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pb-estimate-model>small{color:var(--ph-muted);white-space:nowrap}
+.pb-estimate-model strong{grid-column:1/-1;font-weight:600;font-size:clamp(18px,2vw,26px)}
+.pb-estimate-foot{margin-top:10px}
+.pb-estimate-foot nav{display:flex;align-items:center;gap:10px;margin-left:auto}
+.pb-estimate-foot button{border:1px solid var(--ph-line);border-radius:4px;padding:4px 7px;color:var(--ph-ink);background:transparent;cursor:pointer}
+.pb-estimate-foot button:disabled{opacity:.45;cursor:default}
+@media(min-width:701px) and (max-height:800px){
+  .pb-estimate{margin-top:10px;padding-top:10px}
+  .pb-estimate-track{margin-block:8px}
+  .pb-estimate-foot{margin-top:8px}
+}
+@media(max-width:700px){
+  .pb-recharge-workspace[data-compact-section="balance"] .pb-estimate,
+  .pb-recharge-workspace[data-compact-section="estimate"] :is(.pb-account-summary,.pb-content){display:none}
+  .pb-estimate-models{grid-template-columns:1fr;gap:0}
+  .pb-estimate-model{grid-template-columns:minmax(0,1fr) auto auto;min-height:44px;align-items:center}
+  .pb-estimate-model+ .pb-estimate-model{padding-left:0;border-left:0;border-top:1px solid var(--ph-line)}
+  .pb-estimate-model strong{grid-column:auto;font-size:18px}
+}
+
+@media (max-width:700px) and (min-height:810px) {
+  .pb-recharge-workspace[data-compact-section="payment"] .pb-estimate {
+    margin-top:10px;padding-top:8px;
+  }
+  .pb-recharge-workspace[data-compact-section="payment"] .pb-estimate-models {
+    grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;
+  }
+  .pb-recharge-workspace[data-compact-section="payment"] :is(.pb-estimate-head h2,.pb-estimate-foot nav,.pb-pay-action>.pb-muted) {display:none}
+  .pb-recharge-workspace[data-compact-section="payment"] .pb-estimate-head p {font-size:11px}
+  .pb-recharge-workspace[data-compact-section="payment"] .pb-estimate-track {margin:6px 0}
+  .pb-recharge-workspace[data-compact-section="payment"] .pb-estimate-model {
+    grid-template-columns:1fr;gap:0;align-content:start;min-height:0;border:0;
+  }
+  .pb-recharge-workspace[data-compact-section="payment"] .pb-estimate-model strong {font-size:15px}
+  .pb-recharge-workspace[data-compact-section="payment"] .pb-estimate-foot {margin-top:4px;font-size:11px}
+}
+@media (max-width:700px) and (max-height:809px) {
+  .pb-recharge-workspace[data-compact-section="payment"] .pb-estimate {display:none}
+}
+
+.model-pack-subtotal{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:10px 0}
+.model-pack-subtotal dt{font-size:12px;color:var(--personal-muted,#546172)}
+.model-pack-subtotal dd{margin:3px 0 0;font-size:clamp(14px,2vw,19px);font-weight:600}
+.model-pack-details .pb-estimate-track{margin:5px 0}
+.model-pack-key{display:inline-block;width:8px;height:8px;margin-right:4px;border-radius:2px;background:var(--ph-line,#dfe5ec)}
+.model-pack-gift{background:#3171b6}.model-pack-paid{background:#c64036}
