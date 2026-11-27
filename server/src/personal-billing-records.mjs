@@ -6,7 +6,7 @@ import {refundQuote} from './pack-ledger.mjs';
 // are insufficient: no cash movement is written when a call only spends gift credit.
 export function usageFilters(options={}){
  const size=Number(options.page_size??20);
- if(![20,50,100].includes(size))throw new HttpError(400,'每页请选择 20、50 或 100 条');
+ if(![2,3,5,8,20,50,100].includes(size))throw new HttpError(400,'不支持此账单分页大小');
  const day=value=>{if(!value)return null;if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value+'T00:00:00Z').toISOString().slice(0,10)!==value)throw new HttpError(400,'请选择有效日期');return value;};
  const from=day(options.from),to=day(options.to);
  if(from&&to&&from>to)throw new HttpError(400,'开始日期不能晚于结束日期');

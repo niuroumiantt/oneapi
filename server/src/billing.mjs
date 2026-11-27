@@ -40,15 +40,24 @@ export function billingRoutes(app,pool,requireCustomer,cfg,payments){
   const offset=Number(req.query.page??0);
   const model=typeof req.query.model==='string'?req.query.model:null;
   if(!Number.isSafeInteger(offset)||offset<0||offset>100000)throw new HttpError(400,'分页格式不正确');
-  const values=[req.customer.id,model,offset*3];
-  const {rows}=await pool.query(`SELECT p.id,p.model_id,p.created_at,p.face_fen,p.cash_fen,p.consumed_cash_fen,p.refunded_cash_fen,
-   p.remaining_fen, greatest(0,p.cash_fen-p.consumed_cash_fen-p.refunded_cash_fen) paid_left_fen,
-   greatest(0,round(p.remaining_fen)-(p.cash_fen-p.consumed_cash_fen-p.refunded_cash_fen)) gift_left_fen,
-   round(p.face_fen-p.removed_face_fen-p.remaining_fen)::text used_face_fen
-   FROM credit_packs p JOIN billing_accounts a ON a.id=p.account_id
-   WHERE a.owner_id=$1 AND a.organization_id IS NULL AND p.model_id=$2
-   ORDER BY p.created_at DESC,p.id DESC LIMIT 4 OFFSET $3`,values);
-  res.json({items:rows.slice(0,3),has_more:rows.length>3});
+  const selectBatches=`FROM credit_packs p JOIN billing_accounts a ON a.id=p.account_id
+   WHERE a.owner_id=$1 AND a.organization_id IS NULL AND p.model_id=$2`;
+  const paidLeft='greatest(0,p.cash_fen-p.consumed_cash_fen-p.refunded_cash_fen)';
+  const remaining=`CASE WHEN p.refund_id IS NOT NULL THEN 0
+   WHEN p.gift_expires_at>=now() OR p.gift_expires_at IS NULL THEN p.remaining_fen
+   ELSE least(p.remaining_fen,${paidLeft}) END`;
+  const [batches,totals]=await Promise.all([
+   pool.query(`SELECT p.id,p.model_id,p.created_at,p.face_fen,p.cash_fen,p.consumed_cash_fen,p.refunded_cash_fen,
+    (${remaining})::text remaining_fen, least(${remaining},${paidLeft})::text paid_left_fen,
+    greatest(0,(${remaining})-${paidLeft})::text gift_left_fen,
+    round(p.face_fen-p.removed_face_fen-p.remaining_fen)::text used_face_fen
+    ${selectBatches} ORDER BY p.created_at DESC,p.id DESC LIMIT 4 OFFSET $3`,[req.customer.id,model,offset*3]),
+   pool.query(`SELECT count(*)::int AS purchases,coalesce(sum(p.cash_fen),0)::text cash_fen,
+    coalesce(sum(p.face_fen),0)::text face_fen,coalesce(sum(round(p.face_fen-p.removed_face_fen-p.remaining_fen)),0)::text used_face_fen,
+    coalesce(sum(${remaining}),0)::text remaining_fen,
+    coalesce(sum(least(${remaining},${paidLeft})),0)::text paid_left_fen ${selectBatches}`,[req.customer.id,model]),
+  ]);
+  res.json({items:batches.rows.slice(0,3),has_more:batches.rows.length>3,subtotal:totals.rows[0]});
  });
  async function view(account,scope,res,bankTransfer,channels=[]){
   const [entries,totalRecharged]=account?await Promise.all([

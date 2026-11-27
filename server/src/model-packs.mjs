@@ -60,7 +60,7 @@ export async function quoteModelPack(db, code, account, cash, models) {
 
 // Reserve matching packs before shared credit. Other models reserve only their own
 // packs and the shared credit they still need. Hold the account lock for allocation.
-export async function availableForModel(db, accountId, modelId, excludeCallId = null) {
+export async function availableForModel(db, accountId, modelId, excludeCallId = null, walletPrice = null) {
  return (await db.query(`WITH balances AS (
    SELECT model_id,sum(remaining_fen) AS fen FROM credit_packs
    WHERE account_id=$1 AND remaining_fen>0 AND refund_id IS NULL GROUP BY model_id
@@ -69,10 +69,13 @@ export async function availableForModel(db, accountId, modelId, excludeCallId = 
    WHERE account_id=$1 AND ($3::uuid IS NULL OR id<>$3) AND status IN ('pending','awaiting_bill')
    GROUP BY model_id
   )
-  SELECT greatest(0, coalesce((SELECT sum(fen) FROM balances WHERE model_id IS NULL OR model_id=$2),0)
-   - coalesce((SELECT sum(CASE WHEN h.model_id=$2 THEN h.fen ELSE greatest(0,h.fen-coalesce(b.fen,0)) END)
-     FROM holds h LEFT JOIN balances b ON b.model_id=h.model_id),0))::text AS fen`,
- [accountId, modelId, excludeCallId])).rows[0].fen;
+  SELECT (greatest(0,coalesce((SELECT fen FROM balances WHERE model_id=$2),0)
+    -coalesce((SELECT fen FROM holds WHERE model_id=$2),0))
+   + trunc(greatest(0,coalesce((SELECT fen FROM balances WHERE model_id IS NULL),0)
+    -coalesce((SELECT sum(greatest(0,h.fen-coalesce(b.fen,0)))
+       FROM holds h LEFT JOIN balances b ON b.model_id=h.model_id),0))
+     *10000/coalesce($4::integer,10000),10))::text AS fen`,
+ [accountId, modelId, excludeCallId, walletPrice])).rows[0].fen;
 }
 
 // Procurement estimates and legacy settlement prices are internal, never checkout data.

@@ -18,7 +18,10 @@ if(!database)throw Error('Set LOCAL_PREVIEW_DATABASE_URL to a dedicated local *_
 const target=new URL(database);
 if(!['localhost','127.0.0.1'].includes(target.hostname)||!target.pathname.endsWith('_test'))throw Error('Local test database only');
 const pool=new pg.Pool({connectionString:database});
-const cfg=config({DATABASE_URL:database,APP_ORIGIN:origin,BETTER_AUTH_SECRET:'local-browser-fixture-not-a-real-credential-123',CW_ENABLED:'true',CW_MODEL_PACKS_ENABLED:'true',CUSTOMER_PAID_ENABLED:'true',CUSTOMER_PAID_MODELS:OFFICIAL_MODELS.filter(m=>m.verified).map(m=>m.id).join(',')});
+const usagePrices=[['deepseek-flash',8000],['glm-5.3',8500],['glm-5.3-flash',8700]];
+const enabledModels=process.env.LOCAL_PREVIEW_SCOPES==='true'
+ ?usagePrices.map(([id])=>id):OFFICIAL_MODELS.filter(model=>model.verified).map(model=>model.id);
+const cfg=config({DATABASE_URL:database,APP_ORIGIN:origin,BETTER_AUTH_SECRET:'local-browser-fixture-not-a-real-credential-123',CW_ENABLED:'true',CW_MODEL_PACKS_ENABLED:'true',CUSTOMER_MODEL_USAGE_PRICES:usagePrices.map(([id,price])=>id+'='+price).join(','),CUSTOMER_PAID_ENABLED:'true',CUSTOMER_PAID_MODELS:enabledModels.join(',')});
 const service=createApp(pool,cfg,{sendMail:async()=>({}),verify:async()=>true});
 await migrate(pool,service.auth);
 async function seed(email,name){

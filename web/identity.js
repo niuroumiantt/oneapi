@@ -32,7 +32,7 @@
    else if(path.startsWith('/api/employee-credit/'))path=path.replace('/api/employee-credit/','/api/staff/company/credit/');
    else if(!path.startsWith('/api/staff/'))throw Object.assign(Error('请在对应工作空间完成此操作'),{status:403});
   }
-  const mutation=Boolean(body||method);
+  const mutation=Boolean(body||method)&&path!=='/api/billing/quote';
   if(mutation){navigationData.clear();orgLoadedAt=0;panelDataAt=0;lastOrgBilling=null;}
   const r=await fetch(path,{method:method||(body?'POST':'GET'),headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,credentials:'same-origin',cache:'no-store'});
   let data;try{data=await r.json();}catch{data={};}
@@ -134,7 +134,7 @@
  function passwordField(name,label,fresh=false){return `<label>${label}<span class="password-control"><input name="${name}" type="password" autocomplete="${fresh?'new-password':'current-password'}" required ${fresh?'minlength="8" data-password-new aria-describedby="password-rules-'+name+'"':''} maxlength="128"><button type="button" data-password-toggle aria-label="显示${label}" aria-pressed="false">显示</button></span>${fresh?`<small id="password-rules-${name}">${passwordRules}</small><span class="password-checks" data-password-checks aria-live="polite"></span>`:''}</label>`;}
  function passwordValid(value){return value.length>=8&&value.length<=128&&/[A-Z]/.test(value)&&/[a-z]/.test(value)&&/[\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e]/.test(value);}
  document.addEventListener('click',e=>{const b=e.target.closest('[data-password-toggle]');if(!b)return;const input=b.parentElement.querySelector('input'),show=input.type==='password';input.type=show?'text':'password';b.textContent=show?'隐藏':'显示';b.setAttribute('aria-pressed',String(show));b.setAttribute('aria-label',show?'隐藏密码':'显示密码');});
- document.addEventListener('input',e=>{if(e.target.id!=='alipay-yuan')return;if(host?.querySelector('.personal-billing'))billingAmountDraft=e.target.value;const value=e.target.value.trim(),fen=/^\d+(?:\.\d{1,2})?$/.test(value)?Math.round(Number(value)*100):NaN;host?.querySelectorAll('[data-live="alipay-amount"]').forEach(b=>{const selected=Number(b.dataset.fen)===fen;b.classList.toggle('active',selected);b.setAttribute('aria-pressed',String(selected));});const message=host?.querySelector('#live-form-message');if(message)message.innerHTML='';});
+ document.addEventListener('input',e=>{if(e.target.id!=='alipay-yuan')return;if(host?.querySelector('.personal-billing'))billingAmountDraft=e.target.value;const value=e.target.value.trim(),fen=/^\d+(?:\.\d{1,2})?$/.test(value)?Math.round(Number(value)*100):NaN;host?.querySelectorAll('[data-live="alipay-amount"]').forEach(b=>{const selected=Number(b.dataset.fen)===fen;b.classList.toggle('active',selected);b.setAttribute('aria-pressed',String(selected));});const message=host?.querySelector('#live-form-message');if(message)message.innerHTML='';refreshRechargeEstimate();});
  document.addEventListener('input',e=>{const input=e.target;if(!input.matches('[data-password-new]'))return;input.setCustomValidity(input.value&&!passwordValid(input.value)?passwordRules:'');const checks=input.closest('label').querySelector('[data-password-checks]');if(checks)checks.textContent=input.value?(passwordValid(input.value)?'已满足密码要求':'尚未满足全部要求'):'';});
  const phoneField=()=>'<label>中国大陆手机号<input name="phone" type="tel" autocomplete="tel" placeholder="11 位手机号，+86 可省略" maxlength="32" required></label>';
  function smsFields(binding=false){
@@ -213,7 +213,12 @@
  const wholeFen=value=>BigInt(String(value).split('.')[0]);
  const personalMoney=value=>{if(value===null||value===undefined)return '—';const cents=wholeFen(value),absolute=cents<0n?-cents:cents;return `${cents<0n?'-':''}¥${absolute/100n}.${String(absolute%100n).padStart(2,'0')}`;};
  const employeeCatalog=()=>(employeeCredit.models||[]).map(m=>{const base={hit:Number(m.cached_yuan),miss:Number(m.input_yuan),output:Number(m.output_yuan)},peak={hit:base.hit*m.peak_multiplier,miss:base.miss*m.peak_multiplier,output:base.output*m.peak_multiplier};return {id:m.id,family:m.family,name:m.name,subtitle:m.tags.join('、'),tags:m.capability_tags||m.tags,uses:m.uses,upstreamId:m.id,price:m.peak_multiplier>1?{kind:'timed',offpeak:base,peak}:{kind:'standard',standard:base}};});
- const personalCatalog=()=>employeeApi||creditActive()?employeeCatalog():((window.SemiflyModels||[]).filter(m=>['deepseek','glm'].includes(m.family)));
+ function personalCatalog(){
+  if(employeeApi||creditActive())return employeeCatalog();
+  const configured=paidCredit?.configured_model_ids;
+  const catalog=window.SemiflyModels||[];
+  return configured?catalog.filter(model=>configured.includes(model.id)):catalog.filter(model=>['deepseek','glm'].includes(model.family));
+ }
  const personalBaseRate=m=>m.price?.kind==='timed'?m.price[personalPricePeriod]:m.price?.standard;
  const personalDiscount=value=>window.SemiflyPrice?.discountedRate(value)||'待发布';
  const personalPrice=value=>employeeApi||creditActive()?'¥'+Number(value):personalDiscount(value);
@@ -257,21 +262,31 @@
  }
  function personalModelBalance(id){
   const rows=personalScopeRows(personalBilling);if(!rows)return '<span class="scope-note">暂未加载</span>';
-  const common=personalScopeAmount(rows.find(r=>!r.model_id)),own=personalScopeAmount(rows.find(r=>r.model_id===id)),total=common+own;
-  return `<b>${personalScopeMoney(total)}</b><small>${total>0?(own>0?'专属 '+personalScopeMoney(own)+' + 通用 '+personalScopeMoney(common):'使用通用额度'):'暂无额度'}</small>`;
+  const shared=personalScopeAmount(rows.find(r=>!r.model_id)),own=personalScopeAmount(rows.find(r=>r.model_id===id));
+  const price=paidCredit?.models?.find(model=>model.id===id)?.price_bps??10000;
+  const common=shared*10000n/BigInt(price),total=common+own;
+  return `<b>${personalScopeMoney(total)}</b><small>${total>0?(own>0?'专属 '+personalScopeMoney(own)+' + 通用约 '+personalScopeMoney(common):price<10000?'按 '+price/1000+' 折换算':'使用通用额度'):'暂无额度'}</small>`;
  }
+ let personalCompactViews={home:'balance',models:'available',billing:'payment'};
+ const personalModelPages={selected:0,available:0};
+ const compactSections=(group,items)=>`<nav class="personal-compact-sections" aria-label="页面分区">${items.map(([key,text])=>`<button type="button" data-live="personal-compact-section" data-group="${group}" data-section="${key}" aria-pressed="${personalCompactViews[group]===key}">${text}</button>`).join('')}</nav>`;
  function personalModelCollection(models,selected){
-  if(!models.length)return `<p class="mm-empty">${selected?'点击下方「+ 加入」选择模型，或全选后生成 Key。':'全部模型都已加入。'}</p>`;
-  return `<table class="mm-table${employeeApi?'':' mm-scoped'}" data-nosort aria-label="${selected?'已选模型':'备选模型'}"><thead><tr><th>模型</th><th>能力</th><th>开放状态</th><th>输入 / 输出</th>${employeeApi?'':'<th>该模型额度</th>'}<th><span class="mm-sr-only">操作</span></th></tr></thead><tbody>${models.map(m=>{
+  if(!models.length)return `<p class="mm-empty">${selected?'在备选模型中加入模型，再为已选模型生成 Key。':'全部模型都已加入。'}</p>`;
+  const group=selected?'selected':'available';
+  const size=employeeApi?models.length:window.innerWidth<=700?2:window.innerHeight<800?4:6;
+  const pages=Math.ceil(models.length/size),page=Math.min(personalModelPages[group],pages-1);
+  personalModelPages[group]=page;
+  return `<table class="mm-table${employeeApi?'':' mm-scoped'}" data-nosort aria-label="${selected?'已选模型':'备选模型'}"><thead><tr><th>模型</th><th>能力</th><th>开放状态</th><th>输入 / 输出</th>${employeeApi?'':'<th>该模型额度</th>'}<th><span class="mm-sr-only">操作</span></th></tr></thead><tbody>${models.slice(page*size,(page+1)*size).map(m=>{
    const rate=personalBaseRate(m),access=personalModelAccess(m),tags=[m.capabilities?.input?.includes('image')?'图文':'文本',m.uses.includes('coding')?'编程':'推理'];
    return `<tr><td><a href="#market/${esc(m.id)}" title="了解 ${esc(m.name)}">${esc(m.name)}</a></td><td><div class="mm-tags">${tags.map(t=>`<span>${t}</span>`).join('')}</div></td><td class="mm-status">${access.action?'<i aria-hidden="true"></i>':''}${access.label}</td><td class="mm-price"><span>${personalPrice(rate.miss)}</span><em>/</em><span>${personalPrice(rate.output)}</span></td>${employeeApi?'':`<td class="mm-balance">${access.action?personalModelBalance(m.id):'<small>开放后可使用</small>'}</td>`}<td><div class="mm-actions">${access.action?`<button type="button" class="mm-use" data-live="personal-model-use" data-id="${esc(m.id)}" aria-label="一键接入 ${esc(m.name)}" title="为此模型生成独立 Key 并查看设置方法">${ico('key-round')}一键接入</button>`:'<span class="mm-wait">待开放</span>'}${selected?`<button type="button" class="mm-remove" data-live="personal-model-remove" data-id="${esc(m.id)}" aria-label="移除 ${esc(m.name)}" title="从清单移除，不会停用 Key">${ico('x')}</button>`:`<button type="button" class="mm-add" data-live="personal-model-add" data-id="${esc(m.id)}" aria-label="加入 ${esc(m.name)}">${ico('plus')}加入</button>`}</div></td></tr>`;
-  }).join('')}</tbody></table>`;
+  }).join('')}</tbody></table>${pages>1?`<nav class="pu-pages mm-pages" aria-label="${selected?'已选':'备选'}模型分页"><button type="button" data-live="personal-model-page" data-group="${group}" data-page="${page-1}" aria-label="上一页" ${page===0?'disabled':''}>${ico('chevron-left')}</button><span>${page+1} / ${pages}</span><button type="button" data-live="personal-model-page" data-group="${group}" data-page="${page+1}" aria-label="下一页" ${page===pages-1?'disabled':''}>${ico('chevron-right')}</button></nav>`:''}`;
  }
  function personalModelsContent(){
   const chosen=new Set(personalChosenModels()),catalog=personalCatalog(),selected=catalog.filter(m=>chosen.has(m.id)),available=catalog.filter(m=>!chosen.has(m.id)),callable=(paidCredit?.models||[]).filter(m=>chosen.has(m.id));
-  return `<section class="personal-models my-models" aria-labelledby="pm-title"><header class="mm-heading"><div><h1 id="pm-title">我的模型</h1><p class="mm-intro">Key 决定可调用的模型；额度按模型分别核对。</p></div><nav class="mm-head-actions" aria-label="模型与密钥"><a href="#market">模型广场${ico('arrow-up-right')}</a><a href="#personal/keys" data-live="personal-model-manage">管理 Key${ico('arrow-right')}</a></nav></header>
+  return `<section class="personal-models my-models" data-compact-section="${personalCompactViews.models}" aria-labelledby="pm-title"><header class="mm-heading"><div><h1 id="pm-title">我的模型</h1><p class="mm-intro">Key 决定可调用的模型；额度按模型分别核对。</p></div><nav class="mm-head-actions" aria-label="模型与密钥"><a href="#market">模型广场${ico('arrow-up-right')}</a><a href="#personal/keys" data-live="personal-model-manage">管理 Key${ico('arrow-right')}</a></nav></header>
+   ${employeeApi?'':compactSections('models',[['available','备选模型'],['selected','已选模型']])}
    <section class="mm-section mm-selected" aria-labelledby="mm-selected-title"><div class="mm-section-head"><div class="mm-selection-heading"><h2 id="mm-selected-title">已选模型 <span>${selected.length}</span></h2>${selected.length?`<span class="mm-selection-note">${callable.length} 个可用于 Key${selected.length>callable.length?` · ${selected.length-callable.length} 个待开放`:''}</span>`:''}</div><div class="mm-section-actions">${available.length?`<button type="button" data-live="personal-model-add-all">${ico('list-plus')}全选</button>`:''}<button type="button" data-live="personal-model-clear" ${selected.length?'':'disabled'}>${ico('list-x')}清除</button><button type="button" class="mm-generate" data-live="connect-selected" ${callable.length&&paidCredit?.enabled?'':'disabled'}>${ico('key-round')}为已选模型生成 Key</button></div></div>${personalModelCollection(selected,true)}</section>
-   ${available.length?`<section class="mm-section mm-available" aria-labelledby="mm-available-title"><div class="mm-section-head"><h2 id="mm-available-title">备选模型 <span>${available.length}</span></h2><span class="mm-selection-note">加入上方清单，或直接接入</span></div>${personalModelCollection(available,false)}</section>`:''}
+   ${(available.length||!employeeApi)?`<section class="mm-section mm-available" aria-labelledby="mm-available-title"><div class="mm-section-head"><h2 id="mm-available-title">备选模型 <span>${available.length}</span></h2><span class="mm-selection-note">加入清单，或直接接入</span></div>${personalModelCollection(available,false)}</section>`:''}
    <footer class="mm-foot"><span>官网价 · 元 / 百万 Token${employeeApi?'':'。先扣该模型专属包，再扣通用额度；结算占用与 Key 上限以调用时为准。'}</span><label>DeepSeek 时段<select data-personal-price-period aria-label="DeepSeek 价格时段"><option value="offpeak" ${personalPricePeriod==='offpeak'?'selected':''}>空闲</option><option value="peak" ${personalPricePeriod==='peak'?'selected':''}>高峰</option></select></label></footer>
   </section>`;
  }
@@ -545,8 +560,9 @@ function personalHomeContent(){
   const remaining=personalBilling?BigInt(personalBilling.list_credit_fen??personalBilling.cash_balance_fen??0)-BigInt(Math.ceil(Number(paidCredit?.held_fen??0))):null;
   const available=remaining===null?null:remaining>0n?remaining:0n;
   const tab=(name,label)=>`<button type="button" class="ph-link" data-live="personal-tab" data-tab="${name}">${label}${ico('arrow-right')}</button>`;
-  return `<section class="personal-home" aria-labelledby="ph-title">
+  return `<section class="personal-home" data-compact-section="${personalCompactViews.home}" aria-labelledby="ph-title">
     <h1 id="ph-title">概览</h1>
+    ${employeeApi?'':compactSections('home',[['balance','额度'],['connect','API 接入'],['trends','每日用量'],['activity','使用状态']])}
     <section class="ph-balance" aria-label="${employeeApi?'公司分配额度':'个人额度'}">
       <div class="ph-balance-main"><span>${employeeApi?'公司可用额度':'额度合计'}</span><strong>${available===null?'—':personalMoney(employeeApi?available:(personalBilling.list_credit_exact_fen??personalBilling.list_credit_fen))}</strong><p>${available===null?'额度暂未加载，请刷新重试。':employeeApi?'公司统一分配，调用从公司额度扣除':'含通用与模型专属额度，适用范围不同'}</p></div>
       ${employeeApi?'':`<div class="ph-balance-actions"><a class="ph-primary" href="#billing/personal">${personalBilling?.payments_enabled?'充值':'查看账单'}</a>${personalBilling?.payments_enabled?'<a class="ph-link" href="#billing/personal/usage">消费账单</a>':''}</div>`}
@@ -1323,9 +1339,9 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   if(o.status!=='pending'||o.expired){clearInterval(alipayTimer);alipayTimer=null;if(panelRedraw)panelRedraw();return;}
   if(manual){const st=host?.querySelector('[data-alipay-status]');if(st)st.textContent='还未收到付款结果。支付完成后通常几秒内到账。';}
  }
- const refundRoute='billing/personal/refunds', billingHistoryRoute='billing/personal/history';
+ const refundRoute='billing/personal/refunds', billingHistoryRoute='billing/personal/history', billingCodesRoute='billing/personal/codes';
  let focusRefundHeading=false;
- const personalBillingRoute=view=>['billing/personal','billing/personal/usage','billing/personal/invoices',refundRoute,billingHistoryRoute].includes(view);
+ const personalBillingRoute=view=>['billing/personal','billing/personal/usage','billing/personal/invoices',refundRoute,billingHistoryRoute,billingCodesRoute].includes(view);
  const refundableAmount=pack=>BigInt(pack.refundable_fen??pack.net_fen??0);
  const canRefundPack=pack=>!pack.refund_id&&!pack.refund_request_status&&!pack.refund_blocked&&refundableAmount(pack)>0n;
  const refundableTotal=packs=>packs.reduce((total,pack)=>canRefundPack(pack)?total+refundableAmount(pack):total,0n);
@@ -1385,9 +1401,10 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  }
 
  // Personal billing keeps money paid, spendable credit and settled usage distinct.
- let usagePageSize=20,usageFrom='',usageTo='';
+ let usageFrom='',usageTo='';
+ const billingRowsPerPage=()=>window.innerWidth<=700?2:window.innerHeight<760?3:window.innerHeight<1000?5:8;
  let billingView='recharge',billingRecordPage=0,billingInvoicePage=0,billingAmountDraft='100.00';
- const billingRoutesByView={recharge:'billing/personal',usage:'billing/personal/usage',history:billingHistoryRoute,refund:refundRoute,invoice:'billing/personal/invoices'};
+ const billingRoutesByView={recharge:'billing/personal',usage:'billing/personal/usage',history:billingHistoryRoute,codes:billingCodesRoute,refund:refundRoute,invoice:'billing/personal/invoices'};
  const billingQuotaMoney=value=>{
   const [whole='0',fraction='']=String(value??0).split('.'),cents=BigInt(whole),negative=cents<0n,abs=negative?-cents:cents;
   const tail=(String(abs%100n).padStart(2,'0')+fraction).slice(0,6).replace(/0+$/,'').padEnd(2,'0');
@@ -1415,12 +1432,23 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const ticket=generation;
   const data=await api('/api/billing/personal/model-packs?model='+encodeURIComponent(model.model_id)+'&page='+page);
   if(ticket!==generation)return;
-  dialog(esc(model.name)+'购买明细',`<div class="model-pack-details">${data.items.map(row=>`<section class="model-pack-order">
-   <strong>${billingTime(row.created_at)}</strong>
-   <span>实付 ${personalMoney(row.cash_fen)} · 赠送 ${personalMoney(String(BigInt(row.face_fen)-BigInt(row.cash_fen)))}</span>
-   <span>消费 ${personalMoney(row.used_face_fen)} · 已退实付 ${personalMoney(row.refunded_cash_fen)}</span>
-   </section>`).join('')||'<p>暂无购买记录。</p>'}<div class="model-pack-picker">
-   ${btn('返回模型余额','model-pack-balances',`type="button" data-page="${modelIndex}"`)}
+  const subtotal=data.subtotal;
+  const balanceTrack=row=>{
+   const face=Number(row.face_fen),remaining=Number(row.remaining_fen),paid=Number(row.paid_left_fen);
+   const width=value=>face>0?Math.min(100,Math.max(0,value/face*100)):0;
+   return `<div class="pb-estimate-track" aria-hidden="true"><span style="width:${width(remaining-paid)}%"></span><span style="width:${width(paid)}%"></span></div>`;
+  };
+  dialog(esc(model.name)+' · 购买明细',`<div class="model-pack-details">
+   ${subtotal?`<div class="model-pack-picker"><strong>模型小计</strong><small>${subtotal.purchases} 笔充值</small></div>
+   <dl class="model-pack-subtotal">${[['累计实付',subtotal.cash_fen],['官价到账',subtotal.face_fen],['官价已用',subtotal.used_face_fen],['官价剩余',subtotal.remaining_fen]].map(([label,value])=>`<div><dt>${label}</dt><dd>${personalMoney(value)}</dd></div>`).join('')}</dl>
+   ${balanceTrack(subtotal)}`:''}
+   ${data.items.map(row=>`<section class="model-pack-order">
+    <div class="model-pack-picker"><strong>${billingTime(row.created_at)}</strong><span>实付 ${personalMoney(row.cash_fen)} → 官价到账 ${personalMoney(row.face_fen)}</span></div>
+    ${balanceTrack(row)}
+    <span>官价已用 ${personalMoney(row.used_face_fen)} · 剩余 ${personalMoney(row.remaining_fen)}${Number(row.refunded_cash_fen)>0?' · 已退实付 '+personalMoney(row.refunded_cash_fen):''}</span>
+   </section>`).join('')||'<p>暂无购买记录。</p>'}
+   <p class="live-small"><i class="model-pack-key model-pack-gift"></i>赠送剩余　<i class="model-pack-key model-pack-paid"></i>实付剩余　<i class="model-pack-key"></i>已扣减额度</p>
+   <div class="model-pack-picker">${btn('返回模型余额','model-pack-balances',`type="button" data-page="${modelIndex}"`)}
    ${billingPager(page,data.has_more,'model-pack-orders').replace('<nav ',`<nav data-model-index="${modelIndex}" `)}</div></div>`);
  }
  function personalBalanceBar(data,{overview=false}={}){
@@ -1432,6 +1460,115 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const refund=split?.refundable_fen;
   return `<div class="pb-credit${overview?' ph-credit':''}"><div class="pb-credit-track" role="img" aria-label="实付剩余 ${personalMoney(String(paid))}，赠送剩余 ${personalMoney(String(gift))}"><span class="pb-credit-gift" style="width:${width(gift)}%"></span><span class="pb-credit-paid" style="width:${width(paid)}%"></span></div><div class="pb-credit-legend"><span><i class="pb-credit-paid"></i>实付 ${personalMoney(String(paid))}</span><span><i class="pb-credit-gift"></i>赠送 ${personalMoney(String(gift))}</span>${overview?`<span class="ph-credit-spent">累计实付消费 ${personalMoney(data.total_spent_fen)}</span>`:`<a href="#${refundRoute}">${refund==null?'查看可退金额':'当前可退 '+personalMoney(refund)} ${ico('arrow-right')}</a>`}</div></div>`;
  }
+ let rechargeEstimateTimer, rechargeEstimateVersion=0, rechargeEstimatePage=0, rechargeEstimate=null;
+ const personalPromoHelp=()=>cwInputCode?cwOfferHelp():'模型专属码到账后仅限对应模型。';
+ function initRechargeEstimate(container){
+  if(container.firstElementChild)return;
+  container.innerHTML=`<div class="pb-estimate-head"><h2>各模型可用官价额度</h2><p hidden>实付 <b>—</b> · 赠送 <b>—</b> · 到账 <b>—</b></p></div>
+   <div class="pb-estimate-track" aria-hidden="true" hidden><span></span><span></span></div>
+   <div class="pb-estimate-models" hidden></div>
+   <div class="pb-estimate-foot" hidden><p></p><nav aria-label="模型额度分页" hidden>
+    <button type="button" data-live="recharge-estimate-page">上一页</button><span></span><button type="button" data-live="recharge-estimate-page">下一页</button>
+   </nav></div>
+   <p class="pb-estimate-status" role="status" hidden></p>`;
+ }
+ function rechargeEstimateMessage(container,message){
+  const status=container.querySelector('.pb-estimate-status');
+  status.textContent=message;
+  status.hidden=!message;
+ }
+ function drawRechargeEstimate(container){
+  const quote=rechargeEstimate;
+  if(!quote)return;
+  const pack=quote.discount_snapshot?.model_pack;
+  const received=Number(quote.face_fen),paid=Number(quote.amount_fen),gift=received-paid;
+  const models=pack?[pack]:quote.models||[];
+  const size=3,pages=Math.max(1,Math.ceil(models.length/size));
+  rechargeEstimatePage=Math.min(rechargeEstimatePage,pages-1);
+  const visibleModels=models.slice(rechargeEstimatePage*size,(rechargeEstimatePage+1)*size);
+  const grid=container.querySelector('.pb-estimate-models');
+  const layout=JSON.stringify(visibleModels.map(({id,name,price_bps})=>[id,name,price_bps]));
+  if(grid.dataset.layout!==layout){
+   grid.innerHTML=visibleModels.map(model=>`<div class="pb-estimate-model"><span title="${esc(model.name)}">${esc(model.name)}</span><small>${model.price_bps===10000?'官价':model.price_bps/1000+' 折'}</small><strong></strong></div>`).join('');
+   grid.dataset.layout=layout;
+  }
+  grid.hidden=!visibleModels.length;
+  const setText=(element,value)=>{if(element.textContent!==value)element.textContent=value;};
+  grid.querySelectorAll('strong').forEach((element,index)=>{
+   const quota=pack?received:Math.round(received*10000/visibleModels[index].price_bps);
+   setText(element,(pack?'':'约 ')+personalMoney(quota));
+  });
+  setText(container.querySelector('h2'),pack?'模型专属额度':'各模型可用官价额度');
+  const totals=container.querySelector('.pb-estimate-head p');
+  totals.hidden=false;
+  totals.querySelectorAll('b').forEach((element,index)=>setText(element,personalMoney([paid,gift,received][index])));
+  const track=container.querySelector('.pb-estimate-track');
+  const ratio=gift/received;
+  if(track.dataset.giftRatio!==String(ratio)){
+   track.firstElementChild.style.width=(ratio*100)+'%';
+   track.lastElementChild.style.width=((1-ratio)*100)+'%';
+   track.dataset.giftRatio=String(ratio);
+  }
+  track.hidden=false;
+  const foot=container.querySelector('.pb-estimate-foot');
+  foot.hidden=false;
+  const note=pack?`仅限 ${pack.name} 使用，已按促销折扣换算。`:models.length?'各模型共用这笔到账余额，估算额度不可相加。':'当前没有已开放的可用模型。';
+  setText(foot.querySelector('p'),note+(quote.previewError?' '+quote.previewError+'，当前显示无促销码的试算。':''));
+  const nav=foot.querySelector('nav');
+  nav.hidden=pages<=1;
+  setText(nav.querySelector('span'),`${rechargeEstimatePage+1} / ${pages}`);
+  const [previous,next]=nav.querySelectorAll('button');
+  previous.dataset.page=rechargeEstimatePage-1;
+  next.dataset.page=rechargeEstimatePage+1;
+  previous.disabled=rechargeEstimatePage===0;
+  next.disabled=rechargeEstimatePage+1===pages;
+  rechargeEstimateMessage(container,'');
+  const help=host.querySelector('#cw-offer-help');
+  if(help){
+   const promo=host.querySelector('#pack-promo')?.value.trim();
+   setText(help,quote.previewError?'促销码未应用。':promo?(pack?'促销码已应用，仅限该模型。':'促销码已应用，可核对到账金额。'):personalPromoHelp());
+  }
+ }
+ function refreshRechargeEstimate(immediate=false){
+  clearTimeout(rechargeEstimateTimer);
+  const version=++rechargeEstimateVersion;
+  const container=host?.querySelector('#pb-recharge-estimate');
+  if(!container)return;
+  initRechargeEstimate(container);
+  const value=host.querySelector('#alipay-yuan').value.trim(),promo=host.querySelector('#pack-promo').value.trim();
+  const cash=/^\d{1,5}(?:\.\d{1,2})?$/.test(value)?Math.round(Number(value)*100):0;
+  const showUnavailable=message=>{
+   rechargeEstimate=null;
+   container.setAttribute('aria-busy','false');
+   container.querySelectorAll('.pb-estimate-head b,.pb-estimate-model strong').forEach(element=>{element.textContent='—';});
+   rechargeEstimateMessage(container,message);
+  };
+  if(cash<500||cash>5000000){showUnavailable('输入 ¥5–¥50,000 的实付金额后查看换算。');return;}
+  container.setAttribute('aria-busy','true');
+  rechargeEstimateMessage(container,container.querySelector('.pb-estimate-track').hidden?'正在换算…':'');
+  rechargeEstimateTimer=setTimeout(async()=>{
+   const active=()=>version===rechargeEstimateVersion&&container.isConnected;
+   const request=promo_code=>api('/api/billing/quote',{cash_fen:cash,promo_code,include_model_prices:true});
+   try{
+    let result;
+    try{result=await request(promo);}
+    catch(error){
+     if(!promo||![400,409].includes(error.status))throw error;
+     if(!active())return;
+     result={...await request(''),previewError:error.message};
+    }
+    if(active()){
+     if(container.dataset.promo!==promo)rechargeEstimatePage=0;
+     container.dataset.promo=promo;
+     rechargeEstimate=result;
+     drawRechargeEstimate(container);
+     container.setAttribute('aria-busy','false');
+    }
+   }catch(error){
+    if(active())showUnavailable(error.message);
+   }
+  },immediate?0:240);
+ }
  function personalRechargeCompact(data){
   const channels=(data.recharge?.channels||[]).filter(c=>PAY_CHANNELS[c]);
   if(!channels.length)return `<div class="pb-empty"><p>当前账户暂未开放在线充值。</p><a href="#support">联系支持 ${ico('arrow-up-right')}</a></div>`;
@@ -1440,23 +1577,90 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const intent=readModelIntent(),next=intent?.scope==='personal'?'#personal/connect/'+esc(intent.id):'#personal/keys';
   if(o?.status==='pending'&&!o.expired&&(o.qr_svg||o.pay_url))return alipayPanel('personal',channels);
   if(o?.status==='paid')return `<div class="pb-paid"><h2>${ico('check')} 充值成功</h2>${rechargeBreakdown(o)}<p>${o.discount?.model_pack?`额度已到账，仅限 ${esc(o.discount.model_pack.name)} 使用。`:'额度已到账，可继续配置模型和 Key。'}</p><div><a class="live-button primary" href="${next}">继续接入</a>${btn('继续充值','alipay-reset')}</div></div>`;
-  return `<div class="pb-checkout"><div class="pb-amount-entry"><label for="alipay-yuan">实付金额（元）</label><div class="recharge-amount"><span aria-hidden="true">¥</span><input id="alipay-yuan" inputmode="decimal" autocomplete="off" maxlength="8" aria-describedby="pb-amount-help" value="${esc(billingAmountDraft)}"></div><div class="alipay-presets recharge-presets" aria-label="常用充值金额">${[5000,10000,50000,100000].map(f=>`<button type="button" aria-pressed="${Number(billingAmountDraft)*100===f}" class="alipay-preset ${Number(billingAmountDraft)*100===f?'active':''}" data-live="alipay-amount" data-fen="${f}">¥${f/100}</button>`).join('')}</div><p id="pb-amount-help" class="pb-muted">实付 ¥5–¥50,000，下一步核对到账额度。</p><label class="pb-promo" for="pack-promo">促销码 <span>选填</span><input id="pack-promo" autocomplete="off" maxlength="40" placeholder="有促销码可在此填写" value="${esc(cwInputCode)}" aria-describedby="cw-offer-help"></label><p id="cw-offer-help" class="pb-muted" role="status">${esc(cwOfferHelp())}</p></div><div class="pb-pay-action"><span id="pb-channel-label">付款方式</span><div class="pb-payment-methods" role="group" aria-labelledby="pb-channel-label">${channels.map(c=>`<button type="button" class="pb-payment-method" data-live="pay-channel" data-channel="${c}" aria-label="${PAY_CHANNELS[c].name}" aria-pressed="${payChannel===c}">${c==='wechat_native'?'<img class="pb-wechat-logo" src="/assets/payments/wechat-pay.svg" alt="微信支付">':'<img class="pb-alipay-logo" src="/assets/payments/alipay.ico" alt="">支付宝'}<span class="pb-payment-check" aria-hidden="true">${payChannel===c?ico('check'):''}</span></button>`).join('')}</div><p class="pb-muted">实付金额 + 赠送额度 = 到账额度</p>${btn('核对金额，继续付款','alipay-create','type="button"','primary')}<p class="pb-payee">收款方：深圳市格洛可半导体有限公司</p><div id="live-form-message" role="status"></div></div></div>`;
+  return `<div class="pb-checkout"><div class="pb-amount-entry"><label for="alipay-yuan">实付金额（元）</label><div class="recharge-amount"><span aria-hidden="true">¥</span><input id="alipay-yuan" inputmode="decimal" autocomplete="off" maxlength="8" aria-describedby="pb-amount-help" value="${esc(billingAmountDraft)}"></div><div class="alipay-presets recharge-presets" aria-label="常用充值金额">${[5000,10000,50000,100000].map(f=>`<button type="button" aria-pressed="${Number(billingAmountDraft)*100===f}" class="alipay-preset ${Number(billingAmountDraft)*100===f?'active':''}" data-live="alipay-amount" data-fen="${f}">¥${f/100}</button>`).join('')}</div><p id="pb-amount-help" class="pb-muted">实付 ¥5–¥50,000，下一步核对到账额度。</p><label class="pb-promo" for="pack-promo">促销码 <span>选填</span><input id="pack-promo" autocomplete="off" maxlength="40" placeholder="有促销码可在此填写" value="${esc(cwInputCode)}" aria-describedby="cw-offer-help"></label><p id="cw-offer-help" class="pb-muted" role="status">${esc(personalPromoHelp())}</p></div><div class="pb-pay-action"><span id="pb-channel-label">付款方式</span><div class="pb-payment-methods" role="group" aria-labelledby="pb-channel-label">${channels.map(c=>`<button type="button" class="pb-payment-method" data-live="pay-channel" data-channel="${c}" aria-label="${PAY_CHANNELS[c].name}" aria-pressed="${payChannel===c}">${c==='wechat_native'?'<img class="pb-wechat-logo" src="/assets/payments/wechat-pay.svg" alt="微信支付">':'<img class="pb-alipay-logo" src="/assets/payments/alipay.ico" alt="">支付宝'}<span class="pb-payment-check" aria-hidden="true">${payChannel===c?ico('check'):''}</span></button>`).join('')}</div><p class="pb-muted">实付金额 + 赠送额度 = 到账额度</p>${btn('核对金额，继续付款','alipay-create','type="button"','primary')}<p class="pb-payee">收款方：深圳市格洛可半导体有限公司</p><div id="live-form-message" role="status"></div></div></div>`;
+ }
+ const billingTabs=[['recharge','充值'],['usage','消费账单'],['history','充值记录'],['codes','优惠码明细']];
+ let personalBillingNavigation=null;
+ function billingCodeActivity(state,activity){
+  if(!state.codes)return '<p class="pb-empty" role="status">正在读取优惠码…</p>';
+  if(!state.codes.length)return '<div class="pb-empty"><h2>还没有优惠码记录</h2><p>使用优惠码充值成功后，可在这里按码核对付款、使用和退款。</p><a href="#billing/personal">前往充值</a></div>';
+  const fields={paid:['实付金额','到账额度'],used:['实付消耗','额度消耗'],refund:['退款扣减','实际退回']};
+  const labels=fields[state.type];
+  const stats=activity?.totals;
+  const rows=activity?.items||[];
+  return `<section class="pb-code-activity" aria-label="按优惠码对账"><div class="pb-code-filters">
+   <label>优惠码<select data-code-filter="code">${state.codes.map(c=>`<option value="${esc(c.id)}" ${c.id===state.code?'selected':''}>${esc(c.code)}</option>`).join('')}</select></label>
+   <label>月份<input type="month" data-code-filter="month" value="${esc(state.month)}"></label>
+   <button type="button" class="live-button quiet" data-code-action="all">全部时间</button></div>
+   <dl class="pb-code-totals">${[['实付','paid_fen'],['已用额度','used_quota_fen'],['已退回','refund_received_fen']].map(([label,key])=>`<div><dt>${label}</dt><dd>${stats?esc(billingQuotaMoney(stats[key])):'—'}</dd></div>`).join('')}</dl>
+   <nav class="pb-code-types" aria-label="优惠码记录类型">${[['paid','付款明细'],['used','使用明细'],['refund','退款明细']].map(([key,label])=>`<button type="button" data-code-action="${key}" aria-pressed="${state.type===key}">${label}</button>`).join('')}</nav>
+   <div class="pb-code-records">${activity?.error?`<p role="alert">${esc(activity.error)}</p><button type="button" class="live-button quiet" data-code-action="retry">重新读取</button>`:!activity?'<p role="status">正在读取明细…</p>':rows.length?`<table class="pb-table pb-code-table" data-nosort><thead><tr><th>时间 / 订单</th><th>${labels[0]}</th><th>${labels[1]}</th></tr></thead><tbody>${rows.map(r=>`<tr><td><time>${billingTime(r.occurred_at)}</time><small>${esc(r.reference)}${r.model_id?' · '+esc(modelIntentNames[r.model_id]||r.model_id):''}</small></td><td>${esc(billingQuotaMoney(r.cash_fen))}</td><td>${esc(billingQuotaMoney(r.face_fen))}</td></tr>`).join('')}</tbody></table>`:'<p>所选期间暂无这类记录。</p>'}</div>
+   ${activity?.count>state.size?`<div class="pb-code-pages"><button type="button" data-code-action="previous" ${state.page===0?'disabled':''}>上一页</button><span>${state.page+1} / ${Math.ceil(activity.count/state.size)}</span><button type="button" data-code-action="next" ${(state.page+1)*state.size>=activity.count?'disabled':''}>下一页</button></div>`:''}</section>`;
  }
  async function personalBillingPage(ticket,data){
   billingView=Object.keys(billingRoutesByView).find(k=>billingRoutesByView[k]===current)||'recharge';
   const billingRecordCache={};billingRecordPage=0;billingInvoicePage=0;
-  let invoiceData=null,invoiceLoading=false;
+  let invoiceData=null,invoiceLoading=false,shell,codeListError,loadingCodes=false;
+  const codeState={code:'',month:new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date()),type:'paid',page:0,size:window.innerWidth<=700?2:3};
+  const codeCache=new Map();
   const valid=()=>ticket===generation&&panelRedraw===draw;
+  const codeQuery=()=>new URLSearchParams({month:codeState.month,type:codeState.type,page:codeState.page,size:codeState.size});
+  const activityKey=()=>codeState.code+'?'+codeQuery();
+  const updateCodes=()=>{
+   if(!valid()||billingView!=='codes')return;
+   const target=shell?.querySelector('#pb-codes');
+   if(!target)return;
+   const active=document.activeElement;
+   const filter=target.contains(active)?active.dataset.codeFilter:null,action=target.contains(active)?active.dataset.codeAction:null;
+   replacePanelContent(target,codeListError?`<p role="alert">${esc(codeListError)}</p><button type="button" class="live-button quiet" data-code-action="retry">重新读取</button>`:billingCodeActivity(codeState,codeCache.get(activityKey())));
+   if(!target.contains(active)){
+    if(filter)target.querySelector(`[data-code-filter="${filter}"]`)?.focus({preventScroll:true});
+    if(action)target.querySelector(`[data-code-action="${action}"]:not(:disabled)`)?.focus({preventScroll:true});
+   }
+  };
+  const loadCodes=()=>{
+   if(!codeState.codes){
+    if(loadingCodes||codeListError)return;
+    loadingCodes=true;
+    api('/api/code-activity/personal').then(({codes})=>{
+     codeState.codes=codes;codeState.code=codes[0]?.id||'';
+     loadCodes();
+    },error=>{codeListError=error.message;}).finally(()=>{loadingCodes=false;updateCodes();});
+    return;
+   }
+   if(!codeState.code)return;
+   const query=codeQuery(),key=activityKey();
+   if(codeCache.has(key))return;
+   codeCache.set(key,null);
+   api('/api/code-activity/customer/order/'+encodeURIComponent(codeState.code)+'?'+query).then(
+    value=>codeCache.set(key,value),error=>codeCache.set(key,{error:error.message})
+   ).finally(()=>{if(key===activityKey())updateCodes();});
+  };
+  const codeInteraction=event=>{
+   const control=event.type==='change'?event.target.closest('[data-code-filter]'):event.target.closest('[data-code-action]');
+   if(!control)return;
+   const filter=control.dataset.codeFilter,action=control.dataset.codeAction;
+   if(filter){codeState[filter]=control.value;codeState.page=0;}
+   else if(action==='retry'){codeListError=null;codeCache.delete(activityKey());}
+   else if(action==='all'){codeState.month='';codeState.page=0;}
+   else if(action==='previous'||action==='next')codeState.page+=action==='next'?1:-1;
+   else{codeState.type=action;codeState.page=0;}
+   loadCodes();updateCodes();
+   const selector=filter?`[data-code-filter="${filter}"]`:`[data-code-action="${action}"]`;
+   shell.querySelector(selector)?.focus({preventScroll:true});
+  };
   const draw=()=>{
-   const sub=['refund','invoice','invoice-history'].includes(billingView),kind=billingView==='history'?'recharge':billingView,cacheKey=kind+':'+billingRecordPage+':'+usagePageSize+':'+usageFrom+':'+usageTo;
+   const sub=['refund','invoice','invoice-history'].includes(billingView),kind=billingView==='history'?'recharge':billingView,pageSize=kind==='usage'||kind==='recharge'?billingRowsPerPage():20,cacheKey=kind+':'+billingRecordPage+':'+pageSize+':'+usageFrom+':'+usageTo;
+   const requestedView=billingView,requestedPage=billingRecordPage;
    let records=billingRecordCache[cacheKey];
    if(['usage','recharge','refund'].includes(kind)&&billingView!=='recharge'&&!records){
     records=billingRecordCache[cacheKey]={loading:true};
-    api(`/api/billing/personal/records?kind=${kind}&page=${billingRecordPage}&page_size=${usagePageSize}&from=${encodeURIComponent(usageFrom)}&to=${encodeURIComponent(usageTo)}`).then(r=>{billingRecordCache[cacheKey]=r;if(kind==='refund'&&valid())for(const p of r.items){data.packs=[...(data.packs||[]).filter(x=>x.id!==p.id),p];}},error=>{billingRecordCache[cacheKey]={failed:error.message};}).finally(()=>{if(valid())draw();});
+    api(`/api/billing/personal/records?kind=${kind}&page=${billingRecordPage}&page_size=${pageSize}&from=${encodeURIComponent(usageFrom)}&to=${encodeURIComponent(usageTo)}`).then(r=>{billingRecordCache[cacheKey]=r;if(kind==='refund'&&valid())for(const p of r.items){data.packs=[...(data.packs||[]).filter(x=>x.id!==p.id),p];}},error=>{billingRecordCache[cacheKey]={failed:error.message};}).finally(()=>{if(valid()&&billingView===requestedView&&billingRecordPage===requestedPage)draw();});
    }
    if(billingView.startsWith('invoice')&&!invoiceData&&!invoiceLoading){invoiceLoading=true;api('/api/billing/personal/invoices').then(r=>{invoiceData=r;},error=>{invoiceData={failed:error.message};}).finally(()=>{invoiceLoading=false;if(valid())draw();});}
    let body='',foot='';
    if(billingView==='recharge')body=personalRechargeCompact(data);
+   else if(billingView==='codes'){body='<div id="pb-codes"></div>';loadCodes();}
    else if(billingView.startsWith('invoice')){
     if(!invoiceData)body='<p class="pb-empty" role="status">正在读取发票…</p>';
     else if(invoiceData.failed)body=`<div class="pb-empty" role="alert"><p>${esc(invoiceData.failed)}</p>${btn('重新读取','billing-retry')}</div>`;
@@ -1478,16 +1682,46 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     body=rows.length?`<table class="pb-table${usage?' pb-usage-table':''}" data-nosort><thead><tr><th>${usage?'模型 / Key':'充值时间 / 方式'}</th><th>${usage?'扣减额度':'实付金额'}</th><th>${usage?'实付 / 赠送扣减':'赠送额度'}</th>${usage?'':'<th>到账额度</th>'}</tr></thead><tbody>${rows.map(r=>`<tr>${cell(usage?'模型 / Key':'充值时间 / 方式',usage?`<strong>${esc(r.model_name)}</strong><small title="${esc(r.key_label)} · ${esc(r.key_hint)}">${esc(r.key_label)} · ${esc(r.key_hint)}</small><time>${billingTime(r.created_at)}</time><small>${r.input_tokens==null?'Token 未记录':Number(r.input_tokens).toLocaleString()+' 输入 / '+Number(r.output_tokens||0).toLocaleString()+' 输出 Token'}</small>`:`<strong>${billingTime(r.paid_at||r.created_at)}</strong><small>${esc(refundChannelName(r))} · ${esc(r.model_name||'通用额度')}${r.refund_status==='succeeded'?' · 已退款':r.refund_id?' · 退款处理中':''}</small>`)}${usage?[['扣减额度',r.quota_fen],['实付 / 赠送扣减',r.cash_fen]].map(([label,value])=>cell(label,esc(billingQuotaMoney(value))+(label==='实付 / 赠送扣减'?`<small>赠送 ${r.gift_fen==null?'—':esc(billingQuotaMoney(r.gift_fen))}</small>`:''))).join(''):[['实付金额',r.cash_fen],['赠送额度',String(BigInt(r.face_fen)-BigInt(r.cash_fen))],['到账额度',r.face_fen]].map(([label,value])=>cell(label,personalMoney(value))).join('')}</tr>`).join('')}</tbody></table>`:`<div class="pb-empty"><h2>${usage?'还没有消费记录':'还没有充值记录'}</h2><p>${usage?'模型调用结算后，扣减额度与实付费用会显示在这里。':'完成充值后，可在这里核对每笔到账金额。'}</p></div>`;
     foot=`<span>${usage?'实付费用按分累计结算，赠送不计费。仅列已结算消费。':'记录充值时到账额度；当前剩余额度见上方余额。'} 时间为北京时间。</span>${billingPager(billingRecordPage,records?.has_more)}`;
    }
-   const filters=billingView==='usage'?`<div class="usage-filters" aria-label="消费明细筛选"><label>开始日期<input type="date" data-usage-from value="${esc(usageFrom)}"></label><label>结束日期<input type="date" data-usage-to value="${esc(usageTo)}"></label><label>每页<select data-usage-size aria-label="每页调用明细条数">${[20,50,100].map(n=>`<option value="${n}" ${usagePageSize===n?'selected':''}>${n} 条</option>`).join('')}</select></label><button type="button" class="live-button quiet" data-live="usage-filter">查询</button><button type="button" class="live-button quiet" data-live="usage-filter-clear">全部时间</button><button type="button" class="live-button primary" data-live="usage-export">导出 CSV</button><small>按北京时间筛选，包含结束当天；导出所选时间内全部已结算明细。</small></div>`:'';
+   const filters=billingView==='usage'?`<div class="usage-filters" aria-label="消费明细筛选"><label>开始日期<input type="date" data-usage-from value="${esc(usageFrom)}"></label><label>结束日期<input type="date" data-usage-to value="${esc(usageTo)}"></label><button type="button" class="live-button quiet" data-live="usage-filter">查询</button><button type="button" class="live-button quiet" data-live="usage-filter-clear">全部时间</button><button type="button" class="live-button primary" data-live="usage-export">导出 CSV</button><small>按北京时间筛选，包含结束当天；导出所选时间内全部已结算明细。</small></div>`:'';
    const balance=data.list_credit_exact_fen??data.list_credit_fen??data.cash_balance_fen??'0';
-   const header=`<header class="pb-heading"><h1>充值与账单</h1><nav aria-label="账单服务">${sub?'<a href="#billing/personal">'+ico('arrow-left')+' 返回充值</a>':'<a href="#'+refundRoute+'">退款</a><a href="#billing/personal/invoices">发票</a>'}</nav></header>`;
+   const header=`<header class="pb-heading"><h1>充值与账单</h1><nav aria-label="账单服务"><a href="#${refundRoute}">退款</a><a href="#billing/personal/invoices">发票</a></nav></header>`;
    const activeOrder=billingView==='recharge'&&alipayPay?.scope==='personal'&&['pending','paid'].includes(alipayPay.order?.status)&&!alipayPay.order?.expired;
-   const summary=sub||activeOrder?'':`<div class="pb-balance"><div><span>额度合计</span><strong>${personalMoney(balance)}</strong></div></div>${personalBalanceBar(data)}${personalScopedBalance(data,{compact:true})}${billingView==='recharge'?'<p class="pb-explainer">退款按原订单退可退实付，并收回对应赠送；额度合计不等于可退金额。</p>':'<div class="pb-balance-gap"></div>'}<nav class="pu-tabs pb-tabs" aria-label="充值与账单">${[['recharge','充值'],['usage','消费账单'],['history','充值记录']].map(([key,label])=>`<a href="#${billingRoutesByView[key]}" ${billingView===key?'aria-current="page"':''}>${label}</a>`).join('')}<a href="/code-activity.html?audience=personal" target="_blank" rel="noopener">优惠码明细 ↗</a></nav>`;
-   mount(panelPage(null,'billing',panelBody(`<section class="personal-api personal-billing${sub?' pb-detail':''}">${header}${summary}${filters}<div class="pb-content">${body}</div>${foot?`<footer class="pb-foot">${foot}</footer>`:''}</section>`)));
+   const summary=`<div class="pb-balance"><div><span>额度合计</span><strong>${personalMoney(balance)}</strong></div></div>${personalBalanceBar(data)}${personalScopedBalance(data,{compact:true})}<p class="pb-explainer">退款按原订单退可退实付，并收回对应赠送。</p>`;
+   const tabs=`<nav class="pu-tabs pb-tabs" aria-label="充值与账单">${billingTabs.map(([key,label])=>`<a href="#${billingRoutesByView[key]}" data-billing-tab="${key}">${label}</a>`).join('')}</nav>`;
+   if(!shell?.isConnected){
+    mount(panelPage(null,'billing',panelBody(`<section class="personal-api personal-billing pb-stable">${header}${tabs}<div class="pb-billing-grid"><aside class="pb-account-summary">${summary}</aside><div class="pb-view"></div></div></section>`)));
+    shell=host.querySelector('.personal-billing');
+    shell.addEventListener('click',codeInteraction);
+    shell.addEventListener('change',codeInteraction);
+   }
+   shell.classList.toggle('pb-detail',sub);
+   shell.dataset.billingView=billingView;
+   shell.dataset.compactSection=personalCompactViews.billing;
+   shell.querySelectorAll('[data-billing-tab]').forEach(tab=>{
+    if(tab.dataset.billingTab===billingView)tab.setAttribute('aria-current','page');
+    else tab.removeAttribute('aria-current');
+   });
+   const grid=shell.querySelector('.pb-billing-grid');
+   grid.classList.toggle('pb-recharge-workspace',billingView==='recharge'&&!activeOrder);
+   grid.classList.toggle('pb-billing-wide',sub||activeOrder);
+   grid.dataset.compactSection=personalCompactViews.billing;
+   const bodyPane=shell.querySelector('.pb-view');
+   const estimates=billingView==='recharge'&&!activeOrder&&(data.recharge?.channels||[]).some(c=>PAY_CHANNELS[c]);
+   replacePanelContent(bodyPane,`${billingView==='recharge'&&!activeOrder?compactSections('billing',[['payment','充值操作'],...(estimates?[['estimate','额度试算']]:[]),['balance','余额与账单']]):''}${filters}<div class="pb-content">${body}</div>${estimates?'<section id="pb-recharge-estimate" class="pb-estimate" aria-label="本次充值额度试算"></section>':''}${foot?`<footer class="pb-foot">${foot}</footer>`:''}`);
+   if(billingView==='codes')updateCodes();
+   if(billingView==='recharge')refreshRechargeEstimate(true);
    if(billingView==='refund'&&focusRefundHeading){host.querySelector('#refund-heading')?.focus();focusRefundHeading=false;}
    if(billingView==='recharge'&&alipayPay?.scope==='personal'&&!alipayTimer)alipayWatch();
   };
-  panelRedraw=draw;draw();
+  panelRedraw=draw;
+  personalBillingNavigation=view=>{
+   if(!valid()||!shell?.isConnected)return false;
+   billingView=Object.keys(billingRoutesByView).find(key=>billingRoutesByView[key]===view);
+   billingRecordPage=0;billingInvoicePage=0;
+   draw();
+   return true;
+  };
+  draw();
  }
 
  async function billingPage(ticket,earlyBilling){
@@ -1555,6 +1789,11 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  }
  async function route(view){
   focusRefundHeading=view===refundRoute&&current!==refundRoute;
+  if(document.body.classList.contains('identity-active')&&view!==current&&personalBillingRoute(view)&&personalBillingRoute(current)&&me?.user&&personalBillingNavigation){
+   const previous=current;current=view;
+   if(personalBillingNavigation(view))return;
+   current=previous;
+  }
   if(personalConnectIssued&&view!=='personal/connect/'+personalConnectIssued.modelId)personalConnectIssued=null;
   const previous=current,wasIdentityActive=document.body.classList.contains('identity-active');current=view;if(view==='security'&&previous!=='security')personalSettingsView='overview';authMode=['register','enterprise-register'].includes(view)?'register':'login';publicTicket++;const ticket=++generation;if(Date.now()-panelDataAt>60000){panelData={tickets:null,sessions:null};panelDataAt=Date.now();}panelRedraw=null;
   if(!host){host=document.createElement('div');host.id='identity-view';host.hidden=true;document.body.append(host);}
@@ -1646,7 +1885,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    else if(action==='usage-filter'||action==='usage-export'||action==='usage-filter-clear'){
     const from=action==='usage-filter-clear'?'':host.querySelector('[data-usage-from]')?.value||'',to=action==='usage-filter-clear'?'':host.querySelector('[data-usage-to]')?.value||'';
     if(from&&to&&from>to)throw Error('开始日期不能晚于结束日期。');
-    usageFrom=from;usageTo=to;usagePageSize=Number(host.querySelector('[data-usage-size]')?.value||20);billingRecordPage=0;panelRedraw?.();
+    usageFrom=from;usageTo=to;billingRecordPage=0;panelRedraw?.();
     if(action==='usage-export'){const a=document.createElement('a');a.href='/api/billing/personal/records/export?'+new URLSearchParams({from,to});a.download='semifly-usage.csv';document.body.append(a);a.click();a.remove();showToast('正在导出所选时间范围内的全部明细。');}
    }
    else if(action==='billing-record-page'){billingRecordPage=Math.max(0,Number(b.dataset.page));panelRedraw?.();}
@@ -1691,6 +1930,11 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
      <input type="hidden" name="amount_fen" value="${amount}">
      <input type="hidden" name="request_key" value="${crypto.randomUUID()}">`,'live-pack-refund',`确认退款 ${yuanText(amount)}`);
    }
+   else if(action==='recharge-estimate-page'){
+    rechargeEstimatePage=Number(b.dataset.page);
+    const container=host.querySelector('#pb-recharge-estimate');
+    if(container&&rechargeEstimate){drawRechargeEstimate(container);if(b.disabled)container.querySelector('button:not(:disabled)')?.focus({preventScroll:true});}
+   }
    else if(action==='model-pack-balances'){modelPackBalances(Number(b.dataset.page||0));}
    else if(action==='model-pack-orders'){await modelPackOrders(Number(b.dataset.modelIndex||b.closest('nav')?.dataset.modelIndex||0),Number(b.dataset.page||0));}
    else if(action==='recharge-cancel'){
@@ -1727,6 +1971,17 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    else if(action==='usage-refresh'){await loadPersonalUsage();}
    else if(action==='personal-family'){personalFamily=b.dataset.family;updatePersonalDashboard();}
    else if(action==='personal-model'){personalSelected=b.dataset.id;updatePersonalDashboard();}
+   else if(action==='personal-compact-section'){
+    const group=b.dataset.group,section=b.dataset.section;
+    personalCompactViews[group]=section;
+    b.closest('[data-compact-section]').dataset.compactSection=section;
+    b.parentElement.querySelectorAll('button').forEach(button=>button.setAttribute('aria-pressed',String(button===b)));
+   }
+   else if(action==='personal-model-page'){
+    personalModelPages[b.dataset.group]=Number(b.dataset.page);
+    updatePersonalDashboard();
+    host.querySelector(`[data-live="personal-model-page"][data-group="${b.dataset.group}"]:not(:disabled)`)?.focus({preventScroll:true});
+   }
    else if(action==='personal-model-add-all'||action==='personal-model-clear'){setAllPersonalModels(action==='personal-model-add-all');updatePersonalDashboard();showToast(action==='personal-model-add-all'?'已加入全部模型。':'已清除模型清单，已有 Key 不受影响。');}
    else if(action==='connect-model-remove'||action==='connect-model-restore'){if(personalConnectBusy||personalConnectIssued||personalConnectModelId()!=='all')return;savePersonalConnectDraft();const selected=personalUnifiedSelectedModels();personalUnifiedSelections.set(personalConnectDraftKey('all'),action==='connect-model-restore'?(paidCredit?.models||[]).map(m=>m.id):selected.filter(m=>m.id!==b.dataset.id).map(m=>m.id));updatePersonalDashboard();host?.querySelector('[data-live=connect-model-restore]')?.focus({preventScroll:true});}
    else if(action==='connect-selected'){if(!prepareSelectedModelKey()){showToast('请先加入至少一个已开放模型。');return;}personalConnectStep='key';chooseModelIntent('all','personal');location.hash='personal/connect/all';}
@@ -2079,8 +2334,8 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
 }
  document.addEventListener('input',event=>{if(event.target.closest('#live-ticket')&&!panelOrg&&['subject','body','category'].includes(event.target.name))supportDraft[event.target.name]=event.target.value;});
  document.addEventListener('change',event=>{if(event.target.closest('#live-ticket')&&!panelOrg&&event.target.name==='category')supportDraft.category=event.target.value;});
- document.addEventListener('input',event=>{if(event.target.id==='pack-promo'&&host?.querySelector('.personal-billing')){cwInputCode=event.target.value;cwLookupVersion++;cwOfferCode='';cwOfferModel=null;const help=host.querySelector('#cw-offer-help');if(help)help.textContent=cwOfferHelp();}});
- document.addEventListener('change',event=>{if(event.target.matches('[data-usage-size]'))host.querySelector('[data-live="usage-filter"]')?.click();if(event.target.matches('[data-billing-channel]'))payChannel=event.target.value;if(event.target.id==='pack-promo')lookupCWOffer(event.target.value);});
+ document.addEventListener('input',event=>{if(event.target.id==='pack-promo'&&host?.querySelector('.personal-billing')){cwInputCode=event.target.value;cwLookupVersion++;cwOfferCode='';cwOfferModel=null;const help=host.querySelector('#cw-offer-help');if(help)help.textContent=personalPromoHelp();refreshRechargeEstimate();}});
+ document.addEventListener('change',event=>{if(event.target.matches('[data-usage-size]'))host.querySelector('[data-live="usage-filter"]')?.click();if(event.target.matches('[data-billing-channel]'))payChannel=event.target.value;if(event.target.id==='pack-promo'&&!host?.querySelector('#pb-recharge-estimate'))lookupCWOffer(event.target.value);});
  if(cwInputCode)lookupCWOffer(cwInputCode);
  window.IdentityUI={refreshPublic,chooseModelIntent,customerSignedIn,handles:v=>handles(v)||v.startsWith('staff?'),route,cancel:()=>{personalConnectIssued=null;host?.querySelector('.personal-connect')?.replaceChildren();generation++;lastOrg=null;lastOrgBilling=null;opsPageCache.clear();document.body.classList.remove('identity-route-pending');}};
  function syncQuota(source){

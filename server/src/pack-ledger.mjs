@@ -54,28 +54,57 @@ export async function settlePaidCall(pool,callId,amount,usage,source,requestId,l
   const call=(await db.query('SELECT * FROM customer_calls WHERE id=$1 FOR UPDATE',[callId])).rows[0];
   if(!['pending','awaiting_bill'].includes(call.status))return;
   // Do not spend another in-flight call's reservation, even if the upstream exceeds its declared bound.
-  const available=await availableForModel(db,call.account_id,call.model_id,callId);
+  const walletPrice=call.price_snapshot?.shared_wallet_price_bps;
+  const available=await availableForModel(db,call.account_id,call.model_id,callId,walletPrice);
   const keyRemaining=(await db.query(`SELECT greatest(0,k.limit_yuan-coalesce((SELECT sum(coalesce(c.charged_yuan,CASE WHEN c.status IN ('pending','awaiting_bill') THEN c.hold_yuan END)) FROM customer_calls c WHERE c.key_id=k.id AND c.id<>$2),0))*100 AS n FROM customer_api_keys k WHERE k.id=$1`,[call.key_id,callId])).rows[0].n;
   let need=(await db.query('SELECT least($1::numeric*100,$2::numeric,$3::numeric) AS n',[amount,available,keyRemaining])).rows[0].n;
-  const charge=need;let cash=0n;
-  const packs=(await db.query('SELECT * FROM credit_packs WHERE account_id=$1 AND remaining_fen>0 AND refund_id IS NULL AND (model_id=$2 OR model_id IS NULL) ORDER BY model_id NULLS LAST,created_at,id FOR UPDATE',[call.account_id,call.model_id])).rows;
-  for(const pack of packs){
-   if(Number(need)<=0)break;
-   // New model packs split cumulative consumption by the purchase ratio. At cent
-   // boundaries keep refundable cash within the rounded remaining face, including
-   // after gift expiry or a partial refund. Legacy packs keep cash-first accounting.
-   const part=(await db.query(`UPDATE credit_packs SET remaining_fen=remaining_fen-least(remaining_fen,$2::numeric),consumed_cash_fen=least(cash_fen-refunded_cash_fen,
-    CASE WHEN model_id IS NULL THEN greatest(0,floor(face_fen-removed_face_fen-(remaining_fen-least(remaining_fen,$2::numeric))))
+  const charge=need;
+  let cash=0n;
+  const packs=(await db.query('SELECT id,model_id,consumed_cash_fen FROM credit_packs WHERE account_id=$1 AND remaining_fen>0 AND refund_id IS NULL AND (model_id=$2 OR model_id IS NULL) ORDER BY model_id NULLS LAST,created_at,id FOR UPDATE',[call.account_id,call.model_id])).rows;
+  const debitPack=async(pack,debit)=>{
+   if(Number(debit)<=0)return;
+   const part=(await db.query(`UPDATE credit_packs SET remaining_fen=remaining_fen-$2::numeric,
+    consumed_cash_fen=least(cash_fen-refunded_cash_fen,
+    CASE WHEN model_id IS NULL THEN greatest(0,floor(face_fen-removed_face_fen-(remaining_fen-$2::numeric)))
     ELSE greatest(consumed_cash_fen,
-     floor((face_fen-removed_face_fen-remaining_fen+least(remaining_fen,$2::numeric))*cash_fen/face_fen),
-     cash_fen-refunded_cash_fen-round(remaining_fen-least(remaining_fen,$2::numeric)))
-    END)::bigint WHERE id=$1 RETURNING $3::numeric-remaining_fen AS face,consumed_cash_fen-$4::bigint AS cash`,[pack.id,need,pack.remaining_fen,pack.consumed_cash_fen])).rows[0];
-   await db.query('INSERT INTO credit_consumptions(call_id,pack_id,face_fen,cash_fen,estimated_cost_fen) VALUES($1,$2,$3,$4,$3::numeric*$5::integer/10000)',[callId,pack.id,part.face,part.cash,pack.model_cost_bps]);
+     floor((face_fen-removed_face_fen-remaining_fen+$2::numeric)*cash_fen/face_fen),
+     cash_fen-refunded_cash_fen-round(remaining_fen-$2::numeric))
+    END)::bigint WHERE id=$1 RETURNING consumed_cash_fen-$3::bigint AS cash,model_cost_bps`,[pack.id,debit,pack.consumed_cash_fen])).rows[0];
+   await db.query('INSERT INTO credit_consumptions(call_id,pack_id,face_fen,cash_fen,estimated_cost_fen) VALUES($1,$2,$3,$4,$3::numeric*$5::integer/10000)',[callId,pack.id,debit,part.cash,part.model_cost_bps]);
    await consumeCW(db,pack.id,callId);
-   cash+=BigInt(part.cash);need=(await db.query('SELECT $1::numeric-$2::numeric AS n',[need,part.face])).rows[0].n;
+   cash+=BigInt(part.cash);
+  };
+  // Dedicated packs already hold official-price credit and retain their original purchase rules.
+  for(const pack of packs){
+   if(Number(need)<=0||walletPrice&&!pack.model_id)break;
+   const allocation=(await db.query('SELECT least(remaining_fen,$2::numeric) AS debit,greatest(0,$2::numeric-remaining_fen) AS needed FROM credit_packs WHERE id=$1',[pack.id,need])).rows[0];
+   await debitPack(pack,allocation.debit);
+   need=allocation.needed;
+  }
+  if(walletPrice&&Number(need)>0){
+   // Convert the unmatched official usage once. Allocate all paid balance before
+   // any gift, with older purchases first within each balance type.
+   const allocations=(await db.query(`WITH balances AS (
+    SELECT id,created_at,remaining_fen,consumed_cash_fen,
+     least(remaining_fen,greatest(0,cash_fen-refunded_cash_fen-(face_fen-removed_face_fen-remaining_fen))) AS paid
+    FROM credit_packs WHERE account_id=$1 AND model_id IS NULL AND remaining_fen>0 AND refund_id IS NULL
+   ), ordered AS (
+    SELECT *,remaining_fen-paid AS gift,coalesce(sum(paid) OVER earlier,0) AS earlier_paid,
+     coalesce(sum(remaining_fen-paid) OVER earlier,0) AS earlier_gift,sum(paid) OVER () AS total_paid,
+     round($2::numeric*$3::integer/10000,10) AS target
+    FROM balances WINDOW earlier AS (ORDER BY created_at,id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+   )
+   SELECT id,consumed_cash_fen,least(paid,greatest(0,target-earlier_paid))
+     +least(gift,greatest(0,target-total_paid-earlier_gift)) AS debit
+   FROM ordered ORDER BY created_at,id`,[call.account_id,need,walletPrice])).rows;
+   for(const pack of allocations)await debitPack(pack,pack.debit);
+   need='0';
   }
   if(Number(need)>0)throw Error('CREDIT_PACK_BALANCE_MISMATCH');
-  const account=(await db.query('UPDATE billing_accounts SET list_credit_fen=list_credit_fen-$2,cash_balance_fen=cash_balance_fen-$3,total_spent_fen=total_spent_fen+$3 WHERE id=$1 RETURNING cash_balance_fen',[call.account_id,charge,cash.toString()])).rows[0];
+  const account=(await db.query(`UPDATE billing_accounts SET
+   list_credit_fen=list_credit_fen-(SELECT coalesce(sum(face_fen),0) FROM credit_consumptions WHERE call_id=$3),
+   cash_balance_fen=cash_balance_fen-$2,total_spent_fen=total_spent_fen+$2
+   WHERE id=$1 RETURNING cash_balance_fen`,[call.account_id,cash.toString(),callId])).rows[0];
   if(cash>0n)await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'usage',$2,$3,'usage',$4)",[call.account_id,(-cash).toString(),account.cash_balance_fen,callId]);
   await db.query(`UPDATE customer_calls SET status='settled',actual_yuan=$2,charged_yuan=$3::numeric/100,settlement_source=$4,upstream_request_id=coalesce($5,upstream_request_id),input_tokens=$6,cached_input_tokens=$7,output_tokens=$8,latency_ms=coalesce($9,latency_ms),finished_at=coalesce(finished_at,now()),settled_at=now() WHERE id=$1`,[callId,amount,charge,source,requestId,usage?.input??null,usage?.cached??null,usage?.output??null,latency??null]);
  });
