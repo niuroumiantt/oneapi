@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 import { HttpError } from './core.mjs';
 import { OFFICIAL_MODELS } from './official-models.mjs';
 
+export const MODEL_COMMISSION_BPS = 1000;
+export const MODEL_COMMISSION_BASIS = 'consumed_cash_v1';
+
 const catalog = new Map(OFFICIAL_MODELS.map(({ id, name }) => [id, name]));
 export const modelPackName = id => catalog.get(id) || id;
 
@@ -10,7 +13,7 @@ export async function modelPackOffers(db, models) {
   'SELECT model_id,min_price_bps FROM model_pack_offers WHERE enabled AND model_id=ANY($1::text[]) ORDER BY model_id',
   [models.filter(id => catalog.has(id))],
  );
- return rows.map(row => ({ ...row, name: modelPackName(row.model_id) }));
+ return rows.map(row => ({ ...row, name: modelPackName(row.model_id), commission_bps: MODEL_COMMISSION_BPS }));
 }
 
 export async function modelPackOffer(db, modelId, models, price) {
@@ -22,6 +25,8 @@ export async function modelPackOffer(db, modelId, models, price) {
  if (!offer) throw new HttpError(409, '该模型的专属优惠已暂停');
  if (!Number.isSafeInteger(price) || price < offer.min_price_bps || price > 10000)
   throw new HttpError(409, '客户折扣低于该模型当前允许的最低价，或超过原价');
+ if (price * (10000 - MODEL_COMMISSION_BPS) < offer.cost_bps * 10000)
+  throw new HttpError(409, '该模型售价不足以覆盖采购成本与提成，请联系平台调整报价');
  return offer;
 }
 
@@ -37,7 +42,9 @@ export async function quoteModelPack(db, code, account, cash, models) {
   name: modelPackName(code.model_id),
   offer_id: offer.id,
   price_bps: code.model_price_bps,
-  settlement_bps: offer.settlement_bps,
+  cost_bps: offer.cost_bps,
+  commission_basis: MODEL_COMMISSION_BASIS,
+  commission_bps: MODEL_COMMISSION_BPS,
  };
  const confirmation = createHash('sha256').update(JSON.stringify([code.id, model, cash])).digest('hex');
  return {
@@ -46,7 +53,7 @@ export async function quoteModelPack(db, code, account, cash, models) {
    percent: code.model_price_bps / 100,
    promo_code: code.code, requested_cash_fen: cash,
    model_pack: model, model_pack_confirmation: confirmation,
-   cw: { code_id: code.id, partner_id: code.partner_id, is_self_code: false, rate_bps: 0 },
+   cw: { code_id: code.id, partner_id: code.partner_id, is_self_code: false, rate_bps: MODEL_COMMISSION_BPS, basis: MODEL_COMMISSION_BASIS },
   },
  };
 }
@@ -66,4 +73,11 @@ export async function availableForModel(db, accountId, modelId, excludeCallId = 
    - coalesce((SELECT sum(CASE WHEN h.model_id=$2 THEN h.fen ELSE greatest(0,h.fen-coalesce(b.fen,0)) END)
      FROM holds h LEFT JOIN balances b ON b.model_id=h.model_id),0))::text AS fen`,
  [accountId, modelId, excludeCallId])).rows[0].fen;
+}
+
+// Procurement estimates and legacy settlement prices are internal, never checkout data.
+export function publicDiscount(snapshot) {
+ if (!snapshot?.model_pack) return snapshot;
+ const {cost_bps,settlement_bps,...model}=snapshot.model_pack;
+ return {...snapshot,model_pack:model};
 }

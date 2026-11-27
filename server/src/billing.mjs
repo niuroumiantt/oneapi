@@ -71,7 +71,8 @@ export function billingRoutes(app,pool,requireCustomer,cfg,payments){
    const q=await refundQuote(pool,p.id);
    const giftExpiresAt=p.gift_expires_at?new Date(p.gift_expires_at).getTime():null;
    const giftExpired=giftExpiresAt!==null&&giftExpiresAt<now;
-   packViews.push({...p,model_name:p.model_id?modelPackName(p.model_id):null,net_fen:q.refundable_fen,red_fen:q.red_fen,refundable_fen:q.refundable_fen,non_refundable_fen:q.non_refundable_fen,retained_fen:q.retained_fen,refund_restrictions:q.restrictions,manual_only:q.manual_only,bonus_fen:giftExpired?'0':q.bonus_fen,fee_fen:'0',refund_blocked:q.blocked,gift_expires_at:p.gift_expires_at,gift_expired:giftExpired});
+   const {model_cost_bps,model_settlement_bps,...publicPack}=p;
+   packViews.push({...publicPack,model_name:p.model_id?modelPackName(p.model_id):null,net_fen:q.refundable_fen,red_fen:q.red_fen,refundable_fen:q.refundable_fen,non_refundable_fen:q.non_refundable_fen,retained_fen:q.retained_fen,refund_restrictions:q.restrictions,manual_only:q.manual_only,bonus_fen:giftExpired?'0':q.bonus_fen,fee_fen:'0',refund_blocked:q.blocked,gift_expires_at:p.gift_expires_at,gift_expired:giftExpired});
    if(!p.refund_id){
     const red=BigInt(q.red_fen),green=giftExpired?0n:BigInt(q.bonus_fen);
     redFen+=red;greenFen+=green;paidFen+=BigInt(p.cash_fen);faceFen+=BigInt(p.face_fen);

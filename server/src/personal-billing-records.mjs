@@ -32,6 +32,7 @@ export async function readPersonalBillingRecords(pool,owner,kind='usage',page='0
  `,[owner,size+1,offset]);
  const items=result.rows.slice(0,size);
  for(const item of items){
+  delete item.model_cost_bps;delete item.model_settlement_bps;
   if(item.model_id)item.model_name=findOfficialModel(item.model_id)?.name||item.model_id;
   if(kind==='refund'){
    const q=await refundQuote(pool,item.id),expired=item.gift_expires_at&&new Date(item.gift_expires_at)<new Date();

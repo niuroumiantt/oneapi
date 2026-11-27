@@ -5,10 +5,10 @@ import {HttpError,transaction} from './core.mjs';
 // All decimal arithmetic stays in PostgreSQL. Cash is recognised cumulatively per pack,
 // so repeated sub-cent calls neither disappear nor round up into overcharging.
 // Gift (green) credit expires 180 days after the recharge day; paid cash (red) never expires.
-// Owner decision 2026-11-24: consumption is always red-first, then green.
+// Legacy packs are cash-first. Model packs consume cash/gift proportionally.
 export const GIFT_TTL_DAYS = 180;
 export async function addPack(db,{accountId,sourceKind,sourceId,faceFen,cashFen,modelPack=null}){
- return (await db.query(`INSERT INTO credit_packs(account_id,source_kind,source_id,face_fen,cash_fen,remaining_fen,gift_expires_at,model_id,model_settlement_bps) VALUES($1,$2,$3,$4::bigint,$5,$4::numeric,now()+make_interval(days=>$6),$7,$8) ON CONFLICT(source_kind,source_id) DO NOTHING RETURNING id`,[accountId,sourceKind,sourceId,faceFen,cashFen,GIFT_TTL_DAYS,modelPack?.id??null,modelPack?.settlement_bps??null])).rows[0];
+ return (await db.query(`INSERT INTO credit_packs(account_id,source_kind,source_id,face_fen,cash_fen,remaining_fen,gift_expires_at,model_id,model_settlement_bps,model_cost_bps) VALUES($1,$2,$3,$4::bigint,$5,$4::numeric,now()+make_interval(days=>$6),$7,$8,$9) ON CONFLICT(source_kind,source_id) DO NOTHING RETURNING id`,[accountId,sourceKind,sourceId,faceFen,cashFen,GIFT_TTL_DAYS,modelPack?.id??null,modelPack?.settlement_bps??null,modelPack?.cost_bps??null])).rows[0];
 }
 export async function accountFor(db,userId,orgId,{create=false}={}){
  if(orgId){const m=(await db.query("SELECT role FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",[orgId,userId])).rows[0];if(!m||!['owner','admin','billing'].includes(m.role))throw new HttpError(403,'仅企业管理者可以操作企业付费额度');}
@@ -70,7 +70,7 @@ export async function settlePaidCall(pool,callId,amount,usage,source,requestId,l
      floor((face_fen-removed_face_fen-remaining_fen+least(remaining_fen,$2::numeric))*cash_fen/face_fen),
      cash_fen-refunded_cash_fen-round(remaining_fen-least(remaining_fen,$2::numeric)))
     END)::bigint WHERE id=$1 RETURNING $3::numeric-remaining_fen AS face,consumed_cash_fen-$4::bigint AS cash`,[pack.id,need,pack.remaining_fen,pack.consumed_cash_fen])).rows[0];
-   await db.query('INSERT INTO credit_consumptions(call_id,pack_id,face_fen,cash_fen) VALUES($1,$2,$3,$4)',[callId,pack.id,part.face,part.cash]);
+   await db.query('INSERT INTO credit_consumptions(call_id,pack_id,face_fen,cash_fen,estimated_cost_fen) VALUES($1,$2,$3,$4,$3::numeric*$5::integer/10000)',[callId,pack.id,part.face,part.cash,pack.model_cost_bps]);
    await consumeCW(db,pack.id,callId);
    cash+=BigInt(part.cash);need=(await db.query('SELECT $1::numeric-$2::numeric AS n',[need,part.face])).rows[0].n;
   }

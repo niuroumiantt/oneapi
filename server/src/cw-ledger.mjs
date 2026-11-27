@@ -22,12 +22,15 @@ export async function creditCW(db, order, pack) {
   if (!s || s.is_self_code) return;
   const model = order.discount_snapshot.model_pack;
   // Model orders reserve a ceiling internally, but the paid event earns nothing.
-  const expected = model
+  const fixedCash = s.basis === 'consumed_cash_v1';
+  const expected = fixedCash
+    ? BigInt(order.amount_fen) * BigInt(s.rate_bps) / 10000n
+    : model
     ? BigInt(order.face_fen) * BigInt(model.price_bps - model.settlement_bps) / 10000n
     : commissionFen(order.amount_fen, s.percent);
   await db.query(
-    `INSERT INTO cw_commissions(order_id,pack_id,partner_id,code_id,cash_fen,rate_bps,expected_fen)
- VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(order_id) DO NOTHING`,
+    `INSERT INTO cw_commissions(order_id,pack_id,partner_id,code_id,cash_fen,rate_bps,expected_fen,basis)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(order_id) DO NOTHING`,
     [
       order.id,
       pack.id,
@@ -36,11 +39,12 @@ export async function creditCW(db, order, pack) {
       order.amount_fen,
       s.rate_bps,
       expected.toString(),
+      fixedCash ? s.basis : 'legacy',
     ],
   );
   await db.query(
     `INSERT INTO cw_commission_events(order_id,event_key,kind,cash_fen,commission_fen,model_id,face_fen) VALUES($1,$2,'paid',$3,$4,$5,$6) ON CONFLICT(event_key) DO NOTHING`,
-    [order.id, 'paid:' + order.id, order.amount_fen, model?'0':expected.toString(), model?.id??null, model?order.face_fen:null],
+    [order.id, 'paid:' + order.id, order.amount_fen, (model||fixedCash)?'0':expected.toString(), model?.id??null, model?order.face_fen:null],
   );
 }
 // Cumulate before rounding, so many sub-cent API calls earn the same commission as one call.
@@ -61,7 +65,7 @@ export async function consumeCW(db, packId, callId) {
   if (!c) return;
   // Cumulative spread is monotone. Subtracting two independently rounded
   // amounts could claw back a cent already reported or paid in a previous month.
-  const earned = c.model_id ? BigInt(c.model_earned) : BigInt(c.consumed_cash_fen) * BigInt(c.rate_bps) / 10000n;
+  const earned = c.model_id && c.basis === 'legacy' ? BigInt(c.model_earned) : BigInt(c.consumed_cash_fen) * BigInt(c.rate_bps) / 10000n;
   const delta = earned - BigInt(c.unlocked_fen);
   const cash = BigInt(c.consumed_cash_fen) - BigInt(c.used_cash_fen);
   if (!c.model_id && cash <= 0n) return;

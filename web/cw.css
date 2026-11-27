@@ -645,3 +645,22 @@ body.cw-staff{height:auto;min-height:100dvh}.cw-staff .cw-app{display:block}.cw-
  .cw-personal .cv-vip-overview .cv-latest-statement p{margin:2px 0}
  .cw-personal #cw-content:has(.cv-vip-overview)>.cw-inline{margin-top:4px}
 }
+
+/* Keep the model selector and both rates together as the catalog grows. */
+.cw-form.cw-model-pricing {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  max-width: 560px;
+}
+.cw-model-pricing > label { margin: 0; }
+.cw-model-pricing > label:first-child,
+.cw-model-pricing > button { grid-column: 1 / -1; }
+.cw-model-pricing > button { justify-self: start; }
+
+@media (max-width: 700px) {
+  .cw-pricing-view #cw-description { display: none; }
+  .cw-pricing-view #cw-nav button { font-size: 12px; }
+  .cw-pricing-view #cw-content { padding: 12px; }
+  .cw-pricing-view .cw-model-pricing { margin-block: 8px 0; }
+}

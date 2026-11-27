@@ -1,4 +1,4 @@
-import { modelPackOffers, modelPackOffer, modelPackName } from './model-packs.mjs';
+import { modelPackOffers, modelPackOffer, modelPackName, MODEL_COMMISSION_BPS } from './model-packs.mjs';
 import { vipMetrics } from './vip-metrics.mjs';
 import { vipStatementRoutes, vipMonthlySummary } from './vip-statements.mjs';
 import { vipActivationProgress, qualifyingVipRecharge, rechargeFields, rechargeLedger, verifiedExceptionOrder } from './vip-recharges.mjs';
@@ -292,6 +292,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       totals,
       activity: await vipMetrics(pool,p.id,p.user_id),
       model_pack_required: Boolean(cfg.cw?.modelPacks),
+      model_commission_bps: MODEL_COMMISSION_BPS,
       model_pack_offers: p.status==='active'&&cfg.cw?.modelPacks ? await modelPackOffers(pool,saleModels) : [],
       monthly: await vipMonthlySummary(pool,p.id),
       codes,
@@ -348,7 +349,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
           `INSERT INTO cw_codes(partner_id,code,name,customer_price_percent,commission_bps,status,starts_at,ends_at,model_id,model_price_bps)
            VALUES($1,$2,$3,$4,$5,'active',statement_timestamp(),$6,$7,$8)
            RETURNING id,code,name,status,customer_price_percent,commission_bps,starts_at,ends_at,model_id,model_price_bps`,
-          [p.id, await uniqueCode(db), name, percent, modelId?0:commissionBps(percent), expiresAt, modelId,modelId?b.model_price_bps:null],
+          [p.id, await uniqueCode(db), name, percent, modelId?MODEL_COMMISSION_BPS:commissionBps(percent), expiresAt, modelId,modelId?b.model_price_bps:null],
         )
       ).rows[0];
       await audit(db, req.actor, 'cw.code_created', null, r.id, {
@@ -432,6 +433,37 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       return r;
     });
     res.status(201).json(payout);
+  });
+  // Internal pricing only. VIPs cannot read procurement costs or lower their floor.
+  app.get('/api/staff/cw/model-pack-offers', requireStaff, async (req,res) => {
+    admin(req);
+    const {rows} = await pool.query(`
+      SELECT o.id, m.model_id, o.min_price_bps, o.cost_bps
+      FROM unnest($1::text[]) AS m(model_id)
+      LEFT JOIN model_pack_offers o ON o.model_id=m.model_id AND o.enabled
+      ORDER BY m.model_id`, [[...new Set(saleModels)]]);
+    res.json({
+      commission_bps: MODEL_COMMISSION_BPS,
+      offers: rows.map(row => ({...row, name: modelPackName(row.model_id)})),
+    });
+  });
+  app.post('/api/staff/cw/model-pack-offers', requireStaff, async (req,res) => {
+    admin(req);
+    const b=req.body||{}, modelId=b.model_id;
+    if (!saleModels.includes(modelId)) throw new HttpError(400,'请选择已开放的模型');
+    const floor=integer(b.min_price_bps,1,10000,'最低客户折扣'), cost=integer(b.cost_bps,0,10000,'采购成本');
+    if (floor*(10000-MODEL_COMMISSION_BPS)<cost*10000) throw new HttpError(400,'最低售价须覆盖采购成本与 10% 提成');
+    const offer=await transaction(pool,async db=>{
+      await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',['model-pack-offer:'+modelId]);
+      const current=(await db.query('SELECT * FROM model_pack_offers WHERE model_id=$1 AND enabled FOR UPDATE',[modelId])).rows[0];
+      if(current?.min_price_bps===floor&&current.cost_bps===cost)return current;
+      await db.query('UPDATE model_pack_offers SET enabled=false WHERE model_id=$1 AND enabled',[modelId]);
+      // settlement_bps is retained only for schema compatibility with legacy releases.
+      const row=(await db.query('INSERT INTO model_pack_offers(model_id,min_price_bps,settlement_bps,cost_bps) VALUES($1,$2,$3,$3) RETURNING *',[modelId,floor,cost])).rows[0];
+      await audit(db,req.actor,'cw.model_offer_updated',null,row.id,{model_id:modelId,min_price_bps:floor,cost_bps:cost,previous_id:current?.id??null,commission_bps:MODEL_COMMISSION_BPS});
+      return row;
+    });
+    res.json({id:offer.id,model_id:modelId,min_price_bps:floor,cost_bps:cost,commission_bps:MODEL_COMMISSION_BPS});
   });
   app.get('/api/staff/cw', requireStaff, async (req, res) => {
     business(req);
