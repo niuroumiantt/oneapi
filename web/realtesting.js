@@ -42,7 +42,7 @@
 
   const findings = `<section class="rt-sec" id="findings"><h2><span>04</span>发现与处理</h2><div class="rt-findings">${(r.findings || []).map(f => `<article class="rt-finding ${f.kind}"><span class="rt-badge">${{ fixed: '已修复', ours_better: '我们更多', model_limit: '模型限制', watching: '持续监测' }[f.kind] || ''}</span><h3>${esc(f.title)}</h3><p>${esc(f.detail)}</p></article>`).join('')}</div></section>`;
   const monitor = `<section class="rt-sec" id="monitor"><h2><span>05</span>不是一次性的测试</h2><p>上线前测一次不够：上游会更新模型、调整参数。所以这些检查一直在跑：</p><ul class="rt-list"><li><b>每 30 分钟</b>自动检查每把供应商 Key：上游实际提供哪些模型、每个模型能否调用、是否遵守输出上限。</li><li>上游<b>新增</b>了我们已定价的模型，自动上线；新增了未定价的，提醒人工上线；<b>下架</b>或不可用，立即告警。</li><li>发现上游不遵守输出上限的模型，网关自动代为截断，直到上游修复。</li><li>功能对比可以随时重跑，每次结果都带时间记录。</li></ul></section>`;
-  return hero + `<nav class="rt-toc"><a href="#realtesting" data-rt-jump="logic">测试逻辑</a><a href="#realtesting" data-rt-jump="method">测试方法</a><a href="#realtesting" data-rt-jump="results">测试结果</a><a href="#realtesting" data-rt-jump="findings">发现与处理</a><a href="#realtesting" data-rt-jump="monitor">持续监测</a></nav>` + logic + method + results + findings + monitor + `<footer class="rt-foot">数据来自 ${date(r.run.finished_at)} 生产环境实测 · 发布于 ${time(r.published_at)} · 测试编号 ${esc(r.run.id.slice(0, 8))} · semifly.ai</footer>`;
+  return hero + `<nav class="rt-toc"><a href="#realtesting" data-rt-jump="overview">报告概览</a><a href="#realtesting" data-rt-jump="logic">测试逻辑</a><a href="#realtesting" data-rt-jump="method">测试方法</a><a href="#realtesting" data-rt-jump="results">测试结果</a><a href="#realtesting" data-rt-jump="findings">发现与处理</a><a href="#realtesting" data-rt-jump="monitor">持续监测</a></nav>` + logic + method + results + findings + monitor + `<footer class="rt-foot">数据来自 ${date(r.run.finished_at)} 生产环境实测 · 发布于 ${time(r.published_at)} · 测试编号 ${esc(r.run.id.slice(0, 8))} · semifly.ai</footer>`;
  }
 
  function render() {
@@ -52,13 +52,16 @@
   document.body.classList.add('realtesting-active'); host.hidden = false;
   window.IdentityUI?.cancel?.(); window.UniverseScene?.setActive?.(false);
   host.innerHTML = `${window.SiteHeader.render('docs',{tools:`<strong>实测报告</strong>${REPORT ? '<button type="button" class="rt-pdf" data-rt-print>打印 / 保存为 PDF</button>' : ''}`})}<main class="rt-main">${REPORT ? body(REPORT) : `<section class="rt-sec"><h1>${REPORT === false ? '实测报告整理中，稍后发布。' : '正在读取实测报告…'}</h1></section>`}</main>${window.SiteHeader.footer()}`;
+  if(REPORT){const main=host.querySelector('.rt-main');main.classList.add('rt-paged');showSection('overview');}
   window.IdentityUI?.refreshPublic();
   document.title = 'semifly.ai · 实测报告：我们的 API vs 官方 API';
   if (REPORT === null && !loading) loading = fetch('/api/public/realtesting').then(r => r.ok ? r.json() : false).catch(() => false).then(d => { REPORT = d; loading = null; if (!host.hidden) render(); });
  }
+ function showSection(id){const hero=host?.querySelector('.rt-hero');if(hero)hero.hidden=id!=='overview';host?.querySelectorAll('.rt-sec[id]').forEach(el=>el.hidden=el.id!==id);host?.querySelectorAll('[data-rt-jump]').forEach(el=>el.setAttribute('aria-current',el.dataset.rtJump===id?'page':'false'));const main=host?.querySelector('.rt-main');if(main)main.scrollTop=0;window.ScreenPages?.refresh();}
  function hide() { if (host) host.hidden = true; document.body.classList.remove('realtesting-active'); }
- document.addEventListener('click', e => { if (e.target.closest('[data-rt-print]')) { window.print(); return; } const j = e.target.closest('[data-rt-jump]'); if (!j) return; e.preventDefault(); document.getElementById(j.dataset.rtJump)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+ document.addEventListener('click', e => { if (e.target.closest('[data-rt-print]')) { window.print(); return; } const j = e.target.closest('[data-rt-jump]'); if (!j) return; e.preventDefault(); showSection(j.dataset.rtJump); });
  // Printing (or saving as PDF) shows the full test list too.
- addEventListener('beforeprint', () => host?.querySelectorAll('.rt-details').forEach(d => { d.open = true; }));
+ addEventListener('beforeprint', () => {host?.querySelectorAll('.rt-sec[id],.rt-hero').forEach(el=>el.hidden=false);host?.querySelectorAll('.rt-details').forEach(d => { d.open = true; });});
+ addEventListener('afterprint',()=>showSection('overview'));
  window.RealTestingUI = { handles, render, hide };
 })();

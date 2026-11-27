@@ -1,0 +1,8 @@
+{
+  "checked_at": "2026-11-27",
+  "usage": "Original vendor marks identify the models; no endorsement implied. Trademarks belong to their respective owners.",
+  "assets": [
+    {"file": "deepseek.svg", "source": "https://www.deepseek.com/", "extraction": "Official header inline SVG, currentColor set to brand blue #4d6bfe; paths unchanged"},
+    {"file": "zhipu.svg", "source": "https://cdn.bigmodel.cn/static/logo/dark.svg", "reference": "https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3", "extraction": "Original SVG without modification"}
+  ]
+}

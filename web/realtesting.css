@@ -1,5 +1,5 @@
 /* Public test report (#realtesting). Light, printable; the same page prints to the PDF. */
-body.realtesting-active>*:not(#realtesting-view):not(.toast):not(dialog):not(script){display:none!important}
+body.realtesting-active>*:not(#realtesting-view):not(.toast):not(dialog):not(script):not(.sp-controls){display:none!important}
 #realtesting-view{min-height:100vh;background:#f7f8fc;color:#1d2233;font-family:inherit}
 .rt-top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:16px;padding:10px 28px;border-bottom:1px solid #e6e8f0;background:#fffffff2;backdrop-filter:blur(6px)}
 .rt-brand img{display:block;height:24px}.rt-top-title{font-weight:700;font-size:15px;padding-left:14px;border-left:1px solid #e1e4ec}

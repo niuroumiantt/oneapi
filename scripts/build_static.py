@@ -56,14 +56,18 @@ def main():
     html = git('show', 'HEAD:web/index.html').decode()
     assets = {}
     asset_names = {}
-    for name in ('styles.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'navigation-data.js', 'identity.js', 'identity.css', 'personal-usage-charts.js', 'personal-usage-charts.css', 'home.css', 'landings.css', 'landings.js', 'brand.css', 'icons.js', 'model-catalog.js', 'model-explorer.js', 'model-explorer.css', 'app.js', 'welcome.js', 'table-sort.js', 'docs.js', 'docs.css', 'console.js', 'employee-api-context.js', 'employee-api-entry.js', 'console.css', 'realtesting.js', 'realtesting.css', 'select-menu.js', 'vip-notifications.js', 'site-header.js', 'site-header.css', 'personal-theme.css', 'personal-palettes.css', 'personal-theme.js', 'site-theme.css', 'cw.css', 'cw.js'):
+    for name in ('styles.css', 'welcome.css', 'market.css', 'universe.css', 'universe.js', 'navigation-data.js', 'identity.js', 'identity.css', 'personal-usage-charts.js', 'personal-usage-charts.css', 'home.css', 'landings.css', 'landings.js', 'brand.css', 'icons.js', 'model-catalog.js', 'model-background.js', 'model-explorer.js', 'model-explorer.css', 'model-showcase.css', 'app.js', 'welcome.js', 'table-sort.js', 'docs.js', 'docs.css', 'console.js', 'employee-api-context.js', 'employee-api-entry.js', 'console.css', 'realtesting.js', 'realtesting.css', 'select-menu.js', 'vip-notifications.js', 'screen-pages.css', 'screen-pages.js', 'site-header.js', 'site-header.css', 'personal-theme.css', 'personal-palettes.css', 'personal-theme.js', 'site-theme.css', 'cw.css', 'cw.js'):
         content = git('show', f'HEAD:web/{name}')
         if name == 'site-header.js':
+            for shared in ('screen-pages.css', 'screen-pages.js'):
+                content = content.replace(repr(shared).encode(), repr(asset_names[shared]).encode())
             content = content.replace(b"'vip-notifications.js'", repr(asset_names['vip-notifications.js']).encode())
         stem, extension = name.rsplit('.', 1)
         target = f'{stem}.{hashlib.sha256(content).hexdigest()[:12]}.{extension}'
         html = html.replace(f'"{name}"', f'"{target}"')
         assets[target] = content
+        if name in ('screen-pages.css', 'screen-pages.js'):
+            assets[name] = content  # protected staff frames use stable root URLs
         asset_names[name] = target
     assets['index.html'] = html.encode()
     compare_html = git('show', 'HEAD:web/compare.html').decode()
@@ -121,7 +125,7 @@ def main():
             content = html.encode()
         assets[name] = content
     # Official payment marks only; source notes and downloaded brand packs stay private.
-    for name in ('assets/payments/alipay.ico', 'assets/payments/wechat-pay.svg'):
+    for name in ('assets/payments/alipay.ico', 'assets/payments/wechat-pay.svg', 'assets/model-brands/deepseek.svg', 'assets/model-brands/zhipu.svg', 'assets/model-brands/SOURCES.json'):
         assets[name] = git('show', f'HEAD:web/{name}')
     # Explicit publication manifest: no arbitrary repository/runtime files.
     skill_files = json.loads(git('show', 'HEAD:prototypes/skills/public-files.json'))

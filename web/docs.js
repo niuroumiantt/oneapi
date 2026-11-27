@@ -224,10 +224,24 @@ ${note('工作台“模型 → 接入配置”里选择工具，会显示带截�
   const i = PAGES.indexOf(page), prev = PAGES[i - 1], next = PAGES[i + 1];
   host.innerHTML = `${window.SiteHeader.render('docs',{tools:'<strong>文档中心</strong><input class="doc-search" type="search" placeholder="搜索文档，例如 413、Token、Cursor" aria-label="搜索文档" data-doc-search>'})}
 <div class="doc-layout"><aside class="doc-nav" aria-label="文档目录">${nav}</aside><main class="doc-main"><p class="doc-crumb">${esc(page.group)}</p><h1>${esc(page.title)}</h1><div class="doc-body">${page.body()}</div><div class="doc-pager">${prev ? `<a href="#docs/${prev.id}">← ${esc(prev.title)}</a>` : '<span></span>'}${next ? `<a href="#docs/${next.id}">${esc(next.title)} →</a>` : ''}</div></main></div>${window.SiteHeader.footer()}`;
+  sectionize(page);
   window.IdentityUI?.refreshPublic();
   document.title = `${page.title} · semifly.ai 文档`;
   const target = anchor ? host.querySelector(`#err-${CSS.escape(anchor)}`) || host.querySelector(`#${CSS.escape(anchor)}`) : null;
   if (target) { target.closest('tr')?.classList.add('doc-hit');target.scrollIntoView({ block: 'center' }); } else host.querySelector('.doc-main')?.scrollTo({top:0});
+ }
+ function sectionize(page) {
+  const body=host.querySelector('.doc-body'), nodes=[...body.childNodes], sections=[]; let group=null;
+  for(const node of nodes){if(node.nodeType===1&&node.tagName==='H2'||!group){group=document.createElement('section');group.className='doc-chapter';group.dataset.title=node.nodeType===1&&node.tagName==='H2'?node.textContent:'概览';sections.push(group);}group.append(node);}
+  if(sections.length>1&&sections[0].dataset.title==='概览'){const intro=sections.shift();sections[0].prepend(...intro.childNodes);}
+  body.replaceChildren(...sections);
+  const nav=document.createElement('nav');nav.className='doc-chapters';nav.setAttribute('aria-label','文章章节');
+  nav.innerHTML='<label>本页内容 <select aria-label="选择文章章节">'+sections.map((el,i)=>`<option value="${i}">${esc(el.dataset.title)}</option>`).join('')+'</select></label><button type="button" data-chapter-step="-1">上一节</button><output></output><button type="button" data-chapter-step="1">下一节</button>';
+  body.before(nav);let current=0;
+  const show=i=>{current=Math.max(0,Math.min(sections.length-1,i));sections.forEach((el,n)=>el.hidden=n!==current);nav.querySelector('select').value=String(current);nav.querySelector('output').textContent=`${current+1} / ${sections.length}`;nav.querySelector('[data-chapter-step="-1"]').disabled=current===0;nav.querySelector('[data-chapter-step="1"]').disabled=current===sections.length-1;body.scrollTop=0;window.ScreenPages?.refresh();};
+  nav.addEventListener('click',e=>{const b=e.target.closest('[data-chapter-step]');if(b)show(current+Number(b.dataset.chapterStep));});nav.querySelector('select').addEventListener('change',e=>show(Number(e.target.value)));
+  for(const chapter of sections){const codes=[...chapter.querySelectorAll('.doc-code')];if(codes.length<2)continue;const tabs=document.createElement('nav');tabs.className='doc-code-tabs';tabs.setAttribute('aria-label','代码示例');tabs.innerHTML=codes.map((c,i)=>`<button type="button" data-code-tab="${i}" aria-pressed="${i===0}">${esc(c.querySelector('.doc-code-head span')?.textContent||'示例 '+(i+1))}</button>`).join('');codes[0].before(tabs);codes.forEach((c,i)=>c.hidden=i!==0);tabs.addEventListener('click',e=>{const b=e.target.closest('[data-code-tab]');if(!b)return;codes.forEach((c,i)=>c.hidden=i!==Number(b.dataset.codeTab));tabs.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));window.ScreenPages?.refresh();});}
+  const anchor=location.hash.split('/')[2];const match=anchor&&sections.findIndex(el=>el.querySelector('#err-'+CSS.escape(anchor))||el.querySelector('#'+CSS.escape(anchor)));show(match>=0?match:0);
  }
  function hide() { if (host) host.hidden = true;document.body.classList.remove('docs-active'); }
  document.addEventListener('click', e => {

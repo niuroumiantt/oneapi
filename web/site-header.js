@@ -4,6 +4,7 @@
  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const ico=n=>`<span data-icon="${n}"></span>`;
  const assetBase=new URL('.',document.currentScript.src);
+ for(const [tag,file] of [['link','screen-pages.css'],['script','screen-pages.js']]){const el=document.createElement(tag);if(tag==='link'){el.rel='stylesheet';el.href=new URL(file,assetBase);}else{el.src=new URL(file,assetBase);el.defer=true;}document.head.append(el);}
  const standalone=!!document.querySelector('[data-site-header="skills"],[data-site-header="compare"]');
  const root=(standalone||/\/(?:cw(?:-terms)?\.html|promotion\/vip\.html)$/.test(location.pathname))?new URL('index.html',assetBase).href:'';
  const skills=new URL(assetBase.pathname.endsWith('/web/')?'../prototypes/skills/':'skills/',assetBase).href;
