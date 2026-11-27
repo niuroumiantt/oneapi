@@ -2188,13 +2188,30 @@ td>.live-dot:first-child{margin-right:5px}
 
 .personal-console[data-workspace-scope="personal"] .my-models .mm-available .mm-actions {
   flex-wrap:nowrap;
-  gap:4px;
+  gap:10px;
 }
 .personal-console[data-workspace-scope="personal"] .my-models .mm-available .mm-actions button {
   flex-shrink:0;
+  border:1px solid transparent;
+  border-radius:6px;
   gap:4px;
   padding-inline:5px;
   font-size:11px;
+}
+.personal-console[data-workspace-scope="personal"] .my-models .mm-available .mm-actions .mm-use {
+  background:var(--personal-accent);
+  color:var(--personal-action-text);
+}
+.personal-console[data-workspace-scope="personal"] .my-models .mm-available .mm-actions .mm-use:hover {
+  background:var(--personal-accent-hover);
+}
+.personal-console[data-workspace-scope="personal"] .my-models .mm-available .mm-actions .mm-add {
+  border-color:var(--personal-line);
+  background:var(--personal-surface);
+  color:var(--personal-ink);
+}
+.personal-console[data-workspace-scope="personal"] .my-models .mm-available .mm-actions .mm-add:hover {
+  background:var(--personal-hover);
 }
 .personal-console[data-workspace-scope="personal"] .my-models .mm-available .mm-actions .ui-icon {
   display:block;
@@ -2202,9 +2219,7 @@ td>.live-dot:first-child{margin-right:5px}
   height:12px;
 }
 @media (min-width:701px) {
-  .personal-console[data-workspace-scope="personal"] .my-models .mm-available th:last-child { width:190px; }
-}
-@media (min-width:701px) {
+  .personal-console[data-workspace-scope="personal"] .my-models .mm-available th:last-child { width:200px; }
   .personal-console[data-workspace-scope="personal"] .my-models .mm-available th:first-child { width:auto; }
   .personal-console[data-workspace-scope="personal"] .my-models .mm-available th:nth-child(3) { width:66px; }
   .personal-console[data-workspace-scope="personal"] .my-models .mm-available th:nth-child(4) { width:92px; }
