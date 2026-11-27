@@ -62,10 +62,12 @@
  }
  let publicTicket=0;
  async function refreshPublic(){
-  const ticket=++publicTicket;let customer=null,employee=null;
-  try{customer=await api('/api/platform/me');}catch(e){if(e.status===401)try{employee=(await api('/api/staff/me')).staff;}catch{}}
+  const ticket=++publicTicket;
+  const customer=await api('/api/platform/me').catch(()=>null);
   if(ticket!==publicTicket||document.body.classList.contains('identity-active'))return;
-  document.querySelectorAll('[data-account-slot]').forEach(slot=>slot.innerHTML=accountMenu(customer?.user||employee,customer?'customer':'staff'));
+  document.querySelectorAll('[data-account-slot]').forEach(slot=>slot.innerHTML=accountMenu(customer?.user));
+  const label=document.getElementById('welcome-continue-label');
+  if(label)label.textContent=customer?.user?'打开工作台':'登录 / 注册';
  }
  function sameWorkspaceFrame(previous,next){
   const a=previous.querySelector('.workspace-compare-frame'),b=next.querySelector('.workspace-compare-frame');
@@ -180,8 +182,7 @@
    :registration?`已有账号？${textButton('去登录',phoneSignup&&phoneLoginAvailable?'sms':'login')}`
     :`新用户？${textButton('去注册','register')}`;
   mount(`<div class="live-auth-layout"><section class="live-auth-story"><h1>让灵感，<br>有个落脚的地方。</h1><p>选一个喜欢的模型，<br>把“如果可以”变成“已经做到”。</p><img src="pinapi-mark.svg" alt="" aria-hidden="true"><small>semifly.ai, It's your API.</small></section><section class="live-auth-card">
-   <h2>${recovery?'找回密码':registration?'创建账号':current==='personal/vip'?'登录 VIP 账户':'登录个人账户'}</h2>
-   ${!registration&&!recovery?window.SiteHeader.signInChoices(current==='personal/vip'?'vip':'personal'):''}
+   <h2>${recovery?'找回密码':registration?'创建账号':'登录'}</h2>
    ${recovery?'<p>重设链接会发送到你的注册邮箱。</p>':''}
    ${tabs}${form}
    ${help?`<div class="live-auth-help">${help}</div>`:''}
@@ -588,7 +589,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    if(personalTab==='usage')await loadPersonalUsage(false);if(ticket!==generation)return;
    mount(`<div data-personal-content>${personalDashboardContent()}</div>`);return;
   }
-  if(current!=='personal/vip'&&me?.upgrade?.status==='approved'&&me.upgrade.organization_id){location.hash='organization/'+me.upgrade.organization_id;return;}
+  if(current!=='personal/vip'&&me.upgrade?.status==='approved'&&customerOrganizations().some(org=>org.id===me.upgrade.organization_id)){location.hash='organization/'+me.upgrade.organization_id;return;}
   panelOrg=null;teamUsage=null;
   personalTab=current.startsWith('personal/')?current.split('/')[1]:'overview';
   if(!['overview','models','keys','usage','compare','connect','vip'].includes(personalTab))personalTab='overview';
@@ -944,23 +945,20 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  }
  const orgSections=['overview','budget','models','keys','compare','usage','people','support','settings'];
  const orgSection=section=>({budget:'usage'}[section]||(orgSections.includes(section)?section:'overview'));
- function surfaceSwitch(){
-  const b=me?.backoffice;if(!b?.business&&!b?.technical)return '';
-  return `<nav class="pc-surface" aria-label="切换面板"><a class="active" href="#workspace">${me?.organizations?.length?'企业管理工作台':'个人工作台'}</a>${b.business?'<a href="#console/business">商务后台</a>':''}${b.technical?'<a href="#console/technical">技术后台</a>':''}</nav>`;
- }
  const orgFreshMs=30000;
  async function fetchOrgCredit(orgId,manager){
   const [status,team]=await Promise.all([api('/api/employee-credit/status').catch(()=>({enabled:false})),manager?api('/api/employee-credit/team').catch(()=>null):null]);
   paidCredit=manager?await api('/api/customer-credit/status?org='+encodeURIComponent(orgId)).catch(()=>null):null;
   return {status,team:status.enabled&&status.organization_id===orgId?team:null};
  }
- function personalVisible(){const orgs=me.organizations||[];return !orgs.length||(me.upgrade?.status!=='approved'&&Boolean(me.personal_assets));}
+ const customerOrganizations=()=> (me.organizations||[]).filter(org=>!org.company_workspace);
+ function personalVisible(){return !customerOrganizations().length||(me.upgrade?.status!=='approved'&&Boolean(me.personal_assets));}
  function customerHeader(org=null){
   if(staffCompany())return window.SiteHeader.render('workspace',{className:'pc-topbar',account:accountMenu({...me.user,role:'platform_admin'},'staff'),tools:'<strong class="pc-product-title">公司员工管理</strong><a href="#console/owner/home">老板工作台</a>'});
-  const orgs=me.organizations||[],role=org?(customerRoles[lastOrg?.membership?.role]||'企业成员'):'个人账号',settings=org?`#organization/${esc(org.id)}/settings`:'#security';
+  const orgs=customerOrganizations(),role=org?(customerRoles[lastOrg?.membership?.role]||'企业成员'):me.user.vip?'VIP 会员':'个人账号',settings=org?`#organization/${esc(org.id)}/settings`:'#security';
   const spaces=[...(!org||personalVisible()?[{value:'personal',name:'个人工作区',current:!org}]:[]),...orgs.map(o=>({value:'organization/'+o.id,name:o.name,current:org?.id===o.id}))];
   const workspace=spaces.length>1?`<label class="pc-workspace">${ico('building-2')}<select data-workspace-select aria-label="当前工作空间">${spaces.map(s=>`<option value="${esc(s.value)}" ${s.current?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>`:org?`<span class="pc-workspace">${ico('building-2')}<span class="pc-workspace-name" title="${esc(org.name)}">${esc(org.name)}</span></span>`:'';
-  return window.SiteHeader.render('workspace',{className:'pc-topbar',account:accountMenu(me.user,'customer',settings),tools:`${surfaceSwitch()||'<strong class="pc-product-title">工作台</strong>'}<div class="pc-topbar-actions"><span class="pc-identity">${role}</span>${workspace}${purchaseEntry('header',true)}</div>`});
+  return window.SiteHeader.render('workspace',{className:'pc-topbar',account:accountMenu(me.user,'customer',settings),tools:`<strong class="pc-product-title">工作台</strong><div class="pc-topbar-actions"><span class="pc-identity">${role}</span>${workspace}${purchaseEntry('header',true)}</div>`});
  }
  const analytics={range:'24h',data:null,at:0,loading:false,cost:'bar',calls:'trend'};
  function loadAnalytics(force=false){
@@ -1137,7 +1135,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   <a class="live-button primary" href="${signIn}">${title} ${ico('arrow-right')}</a>
   <a class="live-button quiet" href="/api/staff/login?${login}">切换公司账号</a>
   ${next!=='owner'&&next!=='technical'?'<p class="live-small">如果是首次登录，请使用收到邀请的公司邮箱开通账号。</p><a class="live-button quiet" href="https://login.glocalstorage.cn/if/flow/oneapi-staff-activation/">首次开通员工账号</a>':''}
-  ${window.SiteHeader.signInChoices(next)}</section>`);
+  </section>`);
  }
  async function staffAccount(ticket){
   const info=await api('/api/staff/me');if(ticket!==generation)return;staff=info.staff;me=null;
@@ -1744,24 +1742,23 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   return section==='settings'?'staff-account':'console/business/'+(target||'apioverview');
  }
  function personalRedirect(view){
-  if(view==='upgrade'&&me.organizations?.length)return workspaceTarget('workspace');
+  if(view==='upgrade'&&customerOrganizations().length)return workspaceTarget('workspace');
   if(personalVisible()||view==='personal/vip')return '';
   const home=workspaceTarget('workspace'),manager=me.organizations.find(o=>home==='organization/'+o.id)?.is_manager;
-  if(home.startsWith('console/')){
-   const org=me.organizations.find(o=>companyWorkspaceTarget('organization/'+o.id)===home);
-   const section=personalBillingRoute(view)?'overview':view.startsWith('personal/connect/')?'models':view.split('/')[1]||(view==='support'?'support':view==='security'?'settings':'overview');
-   return org?companyWorkspaceTarget('organization/'+org.id+'/'+section):home;
-  }
   if(personalBillingRoute(view))return manager?'billing/'+home:home;
   if(view.startsWith('personal/connect/'))return home+'/models';
   return {personal:home,'personal/models':home+'/models','personal/keys':home+'/keys','personal/usage':home+'/usage','personal/compare':home+'/compare',support:home+'/support',security:home+'/settings'}[view]||'';
  }
- function workspaceTarget(view){
-  const orgs=me.organizations||[];if(view!=='enterprise'&&personalVisible()&&readModelIntent()?.scope==='personal')return 'personal/connect/'+readModelIntent().id;if(view==='enterprise'&&!orgs.length)return 'upgrade';
+ function workspaceTarget(view,entry=false){
+  const orgs=customerOrganizations();
+  const intent=readModelIntent();
+  if(view!=='enterprise'&&personalVisible()&&intent?.scope==='personal')return 'personal/connect/'+intent.id;
+  if(view==='enterprise'&&!orgs.length)return 'upgrade';
+  if(entry&&view!=='enterprise'&&me.user.vip)return 'personal/vip';
   let saved='';try{saved=localStorage.getItem(spaceKey)||'';}catch{}
   if(view!=='enterprise'&&saved==='personal'&&personalVisible())return 'personal';
   const org=orgs.find(o=>saved==='organization/'+o.id)||orgs[0];if(!org)return 'personal';
-  const route='organization/'+org.id;return companyWorkspaceTarget(route)||route;
+  return 'organization/'+org.id;
  }
  async function route(view){
   focusRefundHeading=view===refundRoute&&current!==refundRoute;
@@ -1812,7 +1809,8 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const earlyBilling=!me?.user&&(['personal','account'].includes(view)||personalBillingRoute(view))?api('/api/billing/personal').then(data=>({data}),error=>({error})):null;
   try{
    if(view==='reset-password'){me=null;staff=null;mount(hero('A FRESH START','重新出发，从这里开始。','重设密码后，其他登录会话会被撤销。')+`<section class="live-panel live-padding live-reset"><form id="live-reset-form" class="live-form">${passwordField('newPassword','新密码',true)}<div id="live-form-message" role="status">${resetToken?'':'没有有效的重设链接，请重新申请。'}</div><button class="live-button primary" ${resetToken?'':'disabled'} type="submit">保存新密码</button></form><a href="#workspace" class="live-button quiet">返回登录</a></section>`);return;}
-   if(view==='staff'||view.startsWith('staff?')){me=null;staff=null;staffLogin();return;}
+   if(view==='staff'){location.replace('/staff.html');return;}
+   if(view.startsWith('staff?')){me=null;staff=null;staffLogin();return;}
    if(view==='ops/verification'){location.hash='ops/supply';return;}
    if(view==='ops/models'){location.hash='ops/products';return;}
    if(view==='ops/supply'){try{await supplierLandingPage(ticket);}catch(e){if(ticket!==generation)return;if(e.status===401){staff=null;staffLogin();}else mount(hero('SUPPLY OPERATIONS','暂时无法打开供应管理台。','请检查员工岗位权限。')+note(e.message,true));}return;}
@@ -1833,7 +1831,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
      location.replace('/promotion/vip.html'+(vipParams.size?'?'+vipParams:''));
      return;
     }
-    location.replace('#'+(query.has('cw')?'billing/personal':workspaceTarget(view)));
+    location.replace('#'+(query.has('cw')?'billing/personal':workspaceTarget(view,true)));
     return;
    }
    const companyTarget=companyWorkspaceTarget(view);

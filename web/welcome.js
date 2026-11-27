@@ -17,12 +17,8 @@
       <div class="welcome-entry-inner">
 
         <h2 id="welcome-entry-title">进入工作台</h2>
-        <p class="welcome-entry-lead">选择你要使用的身份。</p>
-        <div class="welcome-personal-choice">
-          ${window.SiteHeader.signInChoices()}
-          <p>VIP 使用个人账户。公司老板和员工通过公司身份中心登录。</p>
-        </div>
-        <div class="welcome-explore"><span>还想先看看？</span><a href="#market">逛逛模型广场 <span data-icon="arrow-up-right"></span></a></div>
+        <a class="welcome-continue" id="welcome-continue" href="#workspace"><span id="welcome-continue-label">登录 / 注册</span><span class="welcome-continue-arrow" data-icon="arrow-right" aria-hidden="true"></span></a>
+        <div class="welcome-explore"><a href="#market">逛逛模型广场 <span data-icon="arrow-up-right" aria-hidden="true"></span></a></div>
       </div>
 
     </section>

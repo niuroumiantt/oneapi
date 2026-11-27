@@ -85,6 +85,7 @@ def main():
     for source, target in asset_names.items():
         employee_html = employee_html.replace(f'"/{source}"', f'"/{target}"')
     assets['employee-api.html'] = employee_html.encode()
+    assets['staff.html'] = git('show', 'HEAD:web/staff.html')
 
     for name in ('pinapi-mark.svg', 'pinapi-wordmark.svg', 'semifly-email-logo.png', 'universe-speed-knob.png', 'favicon.svg', 'semifly-wordmark.svg', 'semifly-lockup.svg', 'THIRD-PARTY-LICENSES.txt'):
         assets[name] = git('show', f'HEAD:web/{name}')

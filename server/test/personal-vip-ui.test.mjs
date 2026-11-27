@@ -69,3 +69,20 @@ test('creation receipt separates the management name from the customer payment c
  const h=harness();vm.runInContext("createdCode={id:'new',name:'我家大哥',code:'ABCDEFGH',customer_price_percent:65}",h.ctx);
  const html=await h.draw('code-created');assert.match(html,/我家大哥/);assert.match(html,/ABCDEFGH/);assert.match(html,/data-created-confirm/);assert.match(html,/付款前/);assert.match(html,/每月 1 日/);
 });
+
+test('common customer entry uses the verified VIP flag and keeps company identities outside the public workspace',()=>{
+ const organizationStart=identity.indexOf(' const customerOrganizations='), organizationEnd=identity.indexOf(' function customerHeader(',organizationStart);
+ const targetStart=identity.indexOf(' function workspaceTarget('), targetEnd=identity.indexOf(' async function route(',targetStart);
+ const orgs=[{id:'staff',company_workspace:'owner'}];
+ const context={me:{user:{vip:false},organizations:orgs},localStorage:{getItem:()=>'organization/staff'},spaceKey:'space',readModelIntent:()=>null};
+ const target=vm.runInNewContext(identity.slice(organizationStart,organizationEnd)+identity.slice(targetStart,targetEnd)+'workspaceTarget',context);
+ assert.equal(target('workspace',true),'personal');
+ context.me.user.vip=true;
+ assert.equal(target('workspace',true),'personal/vip');
+ context.readModelIntent=()=>({scope:'personal',id:'test-model'});
+ assert.equal(target('workspace',true),'personal/connect/test-model');
+ context.readModelIntent=()=>null;
+ context.me.user.vip=false;
+ orgs.push({id:'customer-org',role:'owner'});
+ assert.equal(target('workspace',true),'organization/customer-org');
+});
