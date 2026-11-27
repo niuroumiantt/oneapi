@@ -41,14 +41,20 @@ test('owner invites, approves, removes and readmits employees with conserved com
   assert.equal((await call(cp+'/organizations/'+randomUUID())).status,403);
  });
  assert.equal(Number((await call(cp+'/credit/team')).data.members.find(m=>m.user_id===owner).granted_yuan),0);
- const link=await call(op+'/join-links',{body:{}});assert.equal(link.status,201,JSON.stringify(link.data));
- const invitation=link.data.url.split('/#join/')[1];
+ const invite=async()=>{const result=await call(op+'/join-links',{body:{email:employee.toUpperCase()+'@EXAMPLE.TEST'}});assert.equal(result.status,201,JSON.stringify(result.data));return result;};
+ const link=await invite();let invitation=link.data.url.split('/#join/')[1];
+ assert.equal((await invite()).data.id,link.data.id);
+ const preview=await call('/api/platform/join-links/preview?token='+encodeURIComponent(invitation));
+ assert.equal(preview.data.addressed,true);
+ assert.ok(!JSON.stringify(preview.data).includes(employee+'@example.test'));
+ assert.equal((await call('/api/platform/join-requests',{user:outsider,body:{token:invitation}})).status,403);
  const join=()=>call('/api/platform/join-requests',{user:employee,body:{token:invitation}});
  assert.equal((await join()).status,202);
  let view=await call(op);const request=view.data.joinRequests[0].id;
  assert.equal((await call(op+'/join-requests/'+request+'/approve',{body:{}})).status,200);
  let member=(await call(op)).data.members.find(m=>m.user_id===employee);
  assert.equal(member.role,'member');
+ assert.equal((await call('/api/platform/join-links/preview?token='+encodeURIComponent(invitation))).status,400);
  const credit=await call('/api/staff/self-api/status',{user:employee});assert.equal(Number(credit.data.granted_yuan),0);
  assert.equal((await call(cp+'/credit/team/members/'+employee+'/quota',{body:{yuan:10}})).status,409);
  assert.equal((await call(cp+'/credit/team/pool',{body:{yuan:10}})).status,200);
@@ -65,6 +71,7 @@ test('owner invites, approves, removes and readmits employees with conserved com
   assert.equal(Number((await pool.query('SELECT granted_yuan FROM employee_credit_accounts WHERE user_id=$1',[employee])).rows[0].granted_yuan),5);
  });
  await t.test('readmission resets approval, preserves history and never revives the old key',async()=>{
+  const fresh=await invite();assert.notEqual(fresh.data.id,link.data.id);invitation=fresh.data.url.split('/#join/')[1];
   assert.equal((await join()).status,202);
   assert.equal((await join()).status,202);
   assert.equal((await call(op+'/join-requests/'+request+'/approve',{body:{}})).status,200);
