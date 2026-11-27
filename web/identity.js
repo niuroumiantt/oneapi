@@ -1937,7 +1937,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    else if(action==='connect-step'){savePersonalConnectDraft();personalConnectStep=b.dataset.step;updatePersonalDashboard();}
    else if(action==='personal-model-manage'){try{localStorage.removeItem(modelIntentKey);}catch{}location.hash='personal/keys';}
    else if(action==='personal-model-add'||action==='personal-model-remove'){if(setPersonalModelChoice(b.dataset.id,action==='personal-model-add')){updatePersonalDashboard();const selector=action==='personal-model-add'?'personal-model-use':'personal-model-add';host?.querySelector(`[data-live="${selector}"][data-id="${CSS.escape(b.dataset.id)}"]`)?.focus({preventScroll:true});}}
-   else if(action==='personal-model-use'){setPersonalModelChoice(b.dataset.id,true);if(chooseModelIntent(b.dataset.id,'personal')){personalSelected=b.dataset.id;personalConnectStep='key';location.hash='personal/connect/'+b.dataset.id;}}
+   else if(action==='personal-model-use'){if(employeeApi)setPersonalModelChoice(b.dataset.id,true);if(chooseModelIntent(b.dataset.id,'personal')){personalSelected=b.dataset.id;personalConnectStep='key';location.hash='personal/connect/'+b.dataset.id;}}
    else if(action==='api-config'){host?.querySelector('.api-connection')?.scrollIntoView({block:'start'});}
    else if(action==='clear-model-intent'){try{localStorage.removeItem(modelIntentKey);}catch{}updatePersonalDashboard();}
 
@@ -2088,7 +2088,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     const id=personalConnectModelId(),owner=me?.user?.id;personalConnectBusy=true;savePersonalConnectDraft();
     const result=await createPersonalModelKey(id,values.label,values.limit_yuan,id==='all'?personalUnifiedSelectedModels().map(m=>m.id):undefined);
     if(owner!==me?.user?.id)return;
-    personalConnectIssued={...result,owner,modelId:id};personalConnectBusy=false;if(id!=='all')setPersonalModelChoice(id,true);
+    personalConnectIssued={...result,owner,modelId:id};personalConnectBusy=false;if(employeeApi&&id!=='all')setPersonalModelChoice(id,true);
     try{localStorage.removeItem(modelIntentKey);}catch{}
     if(current!=='personal/connect/'+id)location.hash='personal/connect/'+id;else updatePersonalDashboard();
     const credit=await api('/api/customer-credit/status').catch(()=>null);
@@ -2176,7 +2176,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
      }
      throw err;
     }
-    if(!panelOrg){for(const id of result.key.model_ids)setPersonalModelChoice(id,true);try{localStorage.removeItem(modelIntentKey);}catch{}}
+    if(!panelOrg){try{localStorage.removeItem(modelIntentKey);}catch{}}
     dialog('Key 只显示一次',keyIssuedGuide({secret:result.secret,baseUrl:result.base_url,modelIds:result.key.model_ids,note:`本 Key 消费上限 ¥${Number(result.key.limit_yuan).toFixed(2)}。调用按官网价扣额度。`}));
     // Show the one-time secret even if refreshing the list fails.
     const credit=await api('/api/customer-credit/status'+scope).catch(()=>null);
