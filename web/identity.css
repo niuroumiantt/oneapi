@@ -2230,6 +2230,8 @@ td>.live-dot:first-child{margin-right:5px}
   border-top:1px solid var(--ph-line);
 }
 .pb-estimate :is(h2,p){margin:0}
+.pb-estimate [hidden]{display:none}
+.pb-estimate :is(.pb-estimate-head b,.pb-estimate-model strong){font-variant-numeric:tabular-nums}
 .pb-estimate h2{font-size:16px;font-weight:600}
 .pb-estimate>p,.pb-estimate-head p,.pb-estimate-foot{color:var(--ph-muted);font-size:12px}
 .pb-estimate-head,.pb-estimate-foot{display:flex;justify-content:space-between;align-items:baseline;gap:8px 16px;flex-wrap:wrap}
@@ -2287,3 +2289,62 @@ td>.live-dot:first-child{margin-right:5px}
 .model-pack-details .pb-estimate-track{margin:5px 0}
 .model-pack-key{display:inline-block;width:8px;height:8px;margin-right:4px;border-radius:2px;background:var(--ph-line,#dfe5ec)}
 .model-pack-gift{background:#3171b6}.model-pack-paid{background:#c64036}
+
+/* Billing navigation stays above the changing view. */
+.personal-billing.pb-stable .pb-heading{margin-bottom:8px}
+.pb-stable .pb-tabs{display:flex;gap:24px;margin-bottom:16px}
+.pb-stable .pb-tabs a{white-space:nowrap;padding-bottom:8px}
+.pb-view,.pb-account-summary{min-width:0}
+.pb-billing-wide>.pb-account-summary{display:none}
+.pb-code-filters,.pb-code-types,.pb-code-pages{display:flex;align-items:end;gap:8px 16px;flex-wrap:wrap}
+.pb-code-filters label{display:grid;gap:4px;color:var(--ph-muted);font-size:12px}
+.pb-code-filters select{max-width:230px}
+.pb-code-totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0 12px}
+.pb-code-totals dt{color:var(--ph-muted);font-size:12px}
+.pb-code-totals dd{margin:4px 0 0;font-size:clamp(16px,1.6vw,22px);font-weight:600}
+.pb-code-types{border-bottom:1px solid var(--ph-line)}
+.pb-code-types button,.pb-code-pages button{min-height:32px;padding:3px 0;color:var(--ph-muted);background:none;border:0;border-bottom:2px solid transparent;font:inherit;cursor:pointer}
+.pb-code-types button[aria-pressed=true]{color:var(--ph-ink);border-bottom-color:var(--ph-ink)}
+.pb-code-pages button:disabled{opacity:.45;cursor:default}
+.pb-code-records>p{margin:14px 0;color:var(--ph-muted)}
+.pb-code-table td{height:54px;padding-block:6px}
+.pb-code-pages{justify-content:flex-end;align-items:center;margin-top:6px}
+@media(min-width:1001px){
+ .personal-console[data-workspace-scope=personal] .pb-billing-grid:not(.pb-billing-wide){
+  display:grid;grid-template-columns:minmax(205px,1fr) minmax(0,2.4fr);align-items:start;gap:0 var(--workspace-gap)
+ }
+ .pb-billing-grid:not(.pb-billing-wide)>.pb-account-summary{
+  border-right:1px solid var(--ph-line);padding-right:clamp(14px,2vw,34px)
+ }
+ .pb-billing-grid.pb-recharge-workspace>.pb-view{display:contents}
+}
+@media(max-width:1000px){
+ .pb-billing-grid:not(.pb-recharge-workspace)>.pb-account-summary{display:none}
+}
+@media(max-width:700px){
+ .pb-stable .pb-tabs{display:grid;grid-template-columns:repeat(4,max-content);justify-content:space-between;gap:4px;margin-bottom:8px}
+ .pb-stable .pb-tabs a{font-size:12px;padding-bottom:4px;min-height:28px}
+ .pb-billing-grid.pb-recharge-workspace{display:flex;flex-direction:column}
+ .pb-billing-grid.pb-recharge-workspace>.pb-view{order:-1;width:100%}
+ .pb-billing-grid.pb-recharge-workspace>.pb-account-summary{width:100%}
+ .pb-code-filters,.pb-code-types{gap:6px 12px}
+ .pb-code-filters select{max-width:112px}
+ .pb-code-filters input{width:116px}
+ .pb-code-filters :is(select,input){padding:5px 6px;min-height:32px}
+ .pb-code-totals{margin:9px 0}
+ .pb-code-table tr{display:table-row}
+ .pb-code-table th,.pb-code-table td{display:table-cell;text-align:right;padding:5px 8px;font-size:11px;overflow-wrap:normal}
+ .pb-code-table th:first-child,.pb-code-table td:first-child{text-align:left;width:46%}
+ .pb-code-table thead{display:table-header-group}
+ .pb-code-table td::before{display:none}
+}
+
+@media(max-width:700px) and (min-height:810px){
+ .personal-billing.pb-stable .pb-heading{margin-bottom:4px}
+ .pb-stable .pb-tabs{margin-bottom:4px}
+ .personal-console[data-workspace-scope=personal] .pb-stable .personal-compact-sections{margin-bottom:4px}
+ .pb-stable .pb-amount-entry>.pb-muted{margin-block:4px}
+ .personal-billing.pb-stable .recharge-presets{margin-block:6px}
+ .pb-stable .pb-payee{margin-block:2px}
+ .pb-stable .pb-estimate{margin-top:6px;padding-top:6px}
+}
