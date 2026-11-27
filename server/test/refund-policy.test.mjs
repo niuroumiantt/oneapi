@@ -173,10 +173,10 @@ test('model code → confirmed payment → isolated metering → original-order 
   const reserve=(model,amount)=>backend.reserve({key:{account_id:buyer.account.id,key_id:keyId,owner_id:buyer.user,limit_yuan:'1000'},
    model:{id:model,rates:{},multiplier:1},route:{credentialId:null},hold:String(amount),origin:{client:'fixture'}});
   const examples=[
-   ['deepseek-flash',5000,5000,20,1000,4000,4000,200],
-   ['deepseek-flash',6500,6500,20,1300,5200,2800,500],
-   ['glm-5.3',7000,7000,30,2100,4900,2100,360],
-   ['glm-5.3-flash',8000,8000,40,3200,4800,1200,600],
+   ['deepseek-flash',5000,5000,20,1000,4000,4000,100],
+   ['deepseek-flash',6500,6500,20,1300,5200,2800,130],
+   ['glm-5.3',7000,7000,30,2100,4900,2100,210],
+   ['glm-5.3-flash',8000,8000,40,3200,4800,1200,320],
   ];
   const orders=[];
   for(const [model,rate,cash] of examples){
@@ -240,7 +240,7 @@ test('model code → confirmed payment → isolated metering → original-order 
   }
   const vipView=await api('/api/cw/me',undefined,{user:vip.user});
   assert.equal(vipView.status,200,JSON.stringify(vipView.data));
-  assert.deepEqual(vipView.data.activity.promotion,{paid_fen:'26500',used_fen:'7600',used_quota_fen:'11000',refunded_fen:'18900',commission_fen:'1660'});
+  assert.deepEqual(vipView.data.activity.promotion,{paid_fen:'26500',used_fen:'7600',used_quota_fen:'11000',refunded_fen:'18900',commission_fen:'760'});
   assert.equal(vipView.data.activity.personal.paid_fen,'0');
   const account=(await pool.query('SELECT cash_balance_fen,list_credit_fen,total_spent_fen FROM billing_accounts WHERE id=$1',[buyer.account.id])).rows[0];
   assert.deepEqual(account,{cash_balance_fen:'0',list_credit_fen:'0.0000000000',total_spent_fen:'7600'});
@@ -249,10 +249,90 @@ test('model code → confirmed payment → isolated metering → original-order 
   const {rows:[statement]}=await pool.query(`SELECT v.snapshot,substring(v.pdf for 4) AS header FROM cw_vip_statement_versions v
    JOIN cw_vip_statements s ON s.id=v.statement_id WHERE partner_id=$1 ORDER BY s.month DESC LIMIT 1`,[vip.partner]);
   assert.equal(statement.header.toString(),'%PDF');
-  assert.equal(statement.snapshot.totals.commission_fen,'1660');
+  assert.equal(statement.snapshot.totals.commission_fen,'760');
   assert.ok(statement.snapshot.entries.some(e=>e.model==='GLM-5.3'&&e.kind==='used'&&Number(e.face_fen)===3000));
   assert.ok(!JSON.stringify(statement.snapshot).includes(buyer.user));
   await migrate(pool,auth);
   assert.equal((await pool.query('SELECT consumed_cash_fen FROM credit_packs WHERE id=$1',[orders[0].packId])).rows[0].consumed_cash_fen,'1000');
  } finally {cfg.cw.modelPacks=false;refundMode='SUCCESS';}
+});
+
+test('platform floors, 35% cost snapshots and fixed 10% cash commission reconcile for every model',{skip},async()=>{
+ cfg.cw.modelPacks=true;
+ try {
+  const vip=await person({vip:true,state:'active'});
+  await pool.query("UPDATE cw_partners SET promotion_trial_until=now()+interval '7 days' WHERE id=$1",[vip.partner]);
+  const settings={model_id:'deepseek-flash',min_price_bps:5000,cost_bps:3500};
+  assert.equal((await api('/api/staff/cw/model-pack-offers',settings,{user:vip.user})).status,401);
+  assert.equal((await api('/api/staff/cw/model-pack-offers',settings,{staff:'sales'})).status,403);
+  assert.equal((await api('/api/staff/cw/model-pack-offers',{...settings,cost_bps:4600},{staff:'admin'})).status,400);
+  assert.equal((await api('/api/staff/cw/model-pack-offers',{...settings,model_id:'unknown'},{staff:'admin'})).status,400);
+  for(const model of cfg.customerPaid.models){
+   const setting=await api('/api/staff/cw/model-pack-offers',{...settings,model_id:model},{staff:'admin'});
+   assert.equal(setting.status,200,JSON.stringify(setting));
+   assert.equal((await api('/api/staff/cw/model-pack-offers',{...settings,model_id:model},{staff:'admin'})).data.id,setting.data.id);
+   assert.equal((await api('/api/cw/codes',{name:'under floor',model_id:model,model_price_bps:4999},{user:vip.user})).status,409);
+   const made=await api('/api/cw/codes',{name:model+' fixed ten',model_id:model,model_price_bps:5000,commission_bps:9999,cost_bps:0},{user:vip.user});
+   assert.equal(made.status,201);assert.equal(made.data.commission_bps,1000);
+   const buyer=await person();
+   const q=await api('/api/billing/quote',{cash_fen:5000,promo_code:made.data.code},{user:buyer.user});
+   assert.equal(q.status,200);assert.equal(q.data.face_fen,10000);
+   assert.equal(q.data.discount_snapshot.model_pack.cost_bps,undefined);
+   assert.equal(q.data.discount_snapshot.cw.rate_bps,1000);
+   assert.equal(q.data.discount_snapshot.cw.basis,'consumed_cash_v1');
+   const orderBody={cash_fen:5000,promo_code:made.data.code,expected_cash_fen:5000,expected_face_fen:10000,model_pack_confirmation:q.data.discount_snapshot.model_pack_confirmation,idempotency_key:randomUUID()};
+   // A new cost version invalidates the checkout confirmation, even with the same customer price.
+   await api('/api/staff/cw/model-pack-offers',{...settings,model_id:model,cost_bps:3600},{staff:'admin'});
+   assert.equal((await api('/api/billing/personal/wechat-orders',orderBody,{user:buyer.user})).status,409);
+   await api('/api/staff/cw/model-pack-offers',{...settings,model_id:model},{staff:'admin'});
+   const fresh=await api('/api/billing/quote',{cash_fen:5000,promo_code:made.data.code},{user:buyer.user});
+   orderBody.model_pack_confirmation=fresh.data.discount_snapshot.model_pack_confirmation;
+   const created=await api('/api/billing/personal/wechat-orders',orderBody,{user:buyer.user});assert.equal(created.status,201);
+   const order=(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[created.data.order.id])).rows[0];
+   await creditPaidOrder(pool,order.out_trade_no,{provider:'wechat_native',tradeNo:randomUUID(),totalFen:5000},'test-only');
+   const pack=(await pool.query('SELECT * FROM credit_packs WHERE source_id=$1',[order.id])).rows[0];
+   assert.equal(order.discount_snapshot.model_pack.cost_bps,3500);
+   assert.equal(pack.model_cost_bps,3500);
+   assert.equal(JSON.stringify(created.data).includes('cost_bps'),false);
+   assert.equal(JSON.stringify((await api('/api/billing/personal',undefined,{user:buyer.user})).data).includes('cost_bps'),false);
+   assert.equal(JSON.stringify((await api('/api/billing/personal/records?kind=recharge',undefined,{user:buyer.user})).data).includes('cost_bps'),false);
+   assert.equal((await pool.query('SELECT unlocked_fen FROM cw_commissions WHERE order_id=$1',[order.id])).rows[0].unlocked_fen,'0');
+   await api('/api/staff/cw/model-pack-offers',{...settings,model_id:model,min_price_bps:6000,cost_bps:4000},{staff:'admin'});
+   assert.equal((await api('/api/billing/quote',{cash_fen:5000,promo_code:made.data.code},{user:buyer.user})).status,409);
+   const key=(await pool.query("INSERT INTO customer_api_keys(account_id,owner_id,label,secret_hash,key_hint,model_ids,limit_yuan) VALUES($1,$2,'test',$3,'test',$4,1000) RETURNING id",[buyer.account.id,buyer.user,randomUUID(),[model]])).rows[0].id;
+   const call=(await pool.query("INSERT INTO customer_calls(account_id,key_id,owner_id,model_id,price_snapshot,status,hold_yuan) VALUES($1,$2,$3,$4,'{}','pending',40) RETURNING id",[buyer.account.id,key,buyer.user,model])).rows[0].id;
+   await settlePaidCall(pool,call,'40',{},'fixture',null,1);
+   const metrics=(await pool.query(`SELECT p.consumed_cash_fen,c.unlocked_fen,x.estimated_cost_fen FROM credit_packs p JOIN cw_commissions c ON c.pack_id=p.id JOIN credit_consumptions x ON x.pack_id=p.id WHERE p.id=$1`,[pack.id])).rows[0];
+   assert.equal(metrics.consumed_cash_fen,'2000');assert.equal(metrics.unlocked_fen,'200');assert.equal(Number(metrics.estimated_cost_fen),1400);
+   assert.equal(Number(metrics.consumed_cash_fen)-Number(metrics.unlocked_fen)-Number(metrics.estimated_cost_fen),400);
+   const refund=await selfRefund(buyer,pack,3000);assert.equal(refund.data.status,'succeeded');
+   const remaining=await refundQuote(pool,pack.id);assert.equal(Number(remaining.remaining_fen),0);assert.equal(remaining.refunded_cash_fen,'3000');
+   assert.equal((await pool.query('SELECT bonus_fen FROM payment_refunds WHERE id=$1',[refund.data.refund_id])).rows[0].bonus_fen,'3000.0000000000');
+   assert.equal((await pool.query('SELECT unlocked_fen FROM cw_commissions WHERE order_id=$1',[order.id])).rows[0].unlocked_fen,'200');
+  }
+  const view=(await api('/api/cw/me',undefined,{user:vip.user})).data;
+  assert.equal(JSON.stringify(view.model_pack_offers).includes('cost_bps'),false);
+  assert.equal(view.activity.promotion.used_fen,'6000');assert.equal(view.activity.promotion.commission_fen,'600');
+ }finally{cfg.cw.modelPacks=false;}
+});
+
+test('sub-cent calls, zero use, fully used and legacy spread orders retain exact lifetime outcomes',{skip},async()=>{
+ const vip=await person({vip:true,state:'active'});
+ const code=(await pool.query("INSERT INTO cw_codes(partner_id,code,name,customer_price_percent,commission_bps,status,ends_at,model_id,model_price_bps) VALUES($1,$2,'rounding',50,1000,'active',now()+interval '7 days','deepseek-flash',5000) RETURNING id",[vip.partner,'ABCDEFGH'])).rows[0];
+ const fixed={model_pack:{id:'deepseek-flash',price_bps:5000,cost_bps:3500,commission_basis:'consumed_cash_v1',commission_bps:1000},cw:{partner_id:vip.partner,code_id:code.id,is_self_code:false,rate_bps:1000,basis:'consumed_cash_v1'}};
+ // A minimum-size order is consumed through forty half-cent calls.
+ const small=await person(),a=await paid(small,500,1000,fixed);
+ for(let i=0;i<40;i++)await consume(small,'0.005');
+ const c=(await pool.query('SELECT unlocked_fen,used_cash_fen FROM cw_commissions WHERE order_id=$1',[a.order.id])).rows[0];
+ assert.deepEqual(c,{unlocked_fen:'1',used_cash_fen:'10'});
+ assert.equal((await refundQuote(pool,a.pack.id)).refundable_fen,'490');
+ const full=await person(),f=await paid(full,5000,10000,fixed);await consume(full,100);
+ assert.equal((await pool.query('SELECT unlocked_fen FROM cw_commissions WHERE order_id=$1',[f.order.id])).rows[0].unlocked_fen,'500');
+ const unused=await person(),u=await paid(unused,5000,10000,fixed);assert.equal((await selfRefund(unused,u.pack,5000)).data.status,'succeeded');
+ assert.equal((await pool.query('SELECT unlocked_fen FROM cw_commissions WHERE order_id=$1',[u.order.id])).rows[0].unlocked_fen,'0');
+ // An already purchased old spread snapshot keeps its original rule after migration.
+ const legacy=await person(),l=await paid(legacy,6500,10000,{model_pack:{id:'deepseek-flash',price_bps:6500,settlement_bps:4500},cw:{partner_id:vip.partner,code_id:code.id,is_self_code:false,rate_bps:0}});
+ await consume(legacy,40);await migrate(pool,auth);
+ assert.equal((await pool.query('SELECT unlocked_fen FROM cw_commissions WHERE order_id=$1',[l.order.id])).rows[0].unlocked_fen,'800');
+ assert.equal((await pool.query('SELECT unlocked_fen FROM cw_commissions WHERE order_id=$1',[f.order.id])).rows[0].unlocked_fen,'500');
 });

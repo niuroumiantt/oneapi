@@ -41,10 +41,10 @@ test('VIP status messages must come from the current same-origin VIP frame',()=>
  listener({...event,origin:'https://example.test',data:{type:'personal-vip-status',status:'confirmed'}});assert.equal(label.textContent,'VIP 申请进度');ctx.me={user:{id:'u2'}};assert.equal(vm.runInContext('personalVipLabel()',ctx),'去申请 VIP');
 });
 
-test('overview separates personal usage from customer performance without a commission formula',()=>{
+test('overview separates personal usage and states new model cash commission clearly',()=>{
  const h=harness('active',{data:{activity:{promotion:{paid_fen:380000,used_fen:160000,commission_fen:16000},personal:{paid_fen:10000,used_fen:2500}}}});
  h.ctx.monthly={unread:1,latest_statement:{month:'2026-10',totals:{commission_fen:16000}}};
- const html=vm.runInContext('monthlyOverview(monthly)',h.ctx);assert.match(html,/¥3800.00/);assert.match(html,/¥1600.00/);assert.match(html,/已记提成/);assert.match(html,/2026-10 月账单/);assert.match(html,/每月 1 日/);assert.doesNotMatch(html,/待解锁|预计佣金|10%/);
+ const html=vm.runInContext('monthlyOverview(monthly)',h.ctx);assert.match(html,/¥3800.00/);assert.match(html,/¥1600.00/);assert.match(html,/已记提成/);assert.match(html,/2026-10 月账单/);assert.match(html,/每月 1 日/);assert.doesNotMatch(html,/待解锁|预计佣金/);assert.match(html,/消费实付 × 10%/);
  vm.runInContext("vipMetricView='personal'",h.ctx);const own=vm.runInContext('monthlyOverview(monthly)',h.ctx);assert.match(own,/本人充值实付.*¥100.00/);assert.match(own,/本人实际消费.*¥25.00/);assert.doesNotMatch(own,/¥3800.00|已记提成/);
  vm.runInContext("vipMetricView='promotion'",h.ctx);assert.match(vm.runInContext('monthlyOverview({})',h.ctx),/首份账单将在下月 1 日生成/);
 });

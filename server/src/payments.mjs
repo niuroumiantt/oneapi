@@ -1,3 +1,4 @@
+import {publicDiscount} from './model-packs.mjs';
 import {queueVipRechargeNotice} from './vip-recharges.mjs';
 import {creditCW,refundCW} from './cw-ledger.mjs';
 import {syncWechatBill} from './wechat-bills.mjs';
@@ -30,7 +31,7 @@ function orderView(o){
  const live=o.status==='pending'&&o.qr_code&&new Date(o.expires_at)>new Date();
  // WeChat: render QR ourselves. Alipay page pay: browser opens the cashier URL (no local QR).
  const wechat=o.provider==='wechat_native';
- return {id:o.id,provider:o.provider,status:o.status,amount_fen:String(o.amount_fen),face_fen:String(o.face_fen),discount:o.discount_snapshot,expires_at:o.expires_at,paid_at:o.paid_at,expired:o.status==='pending'&&new Date(o.expires_at)<new Date(),
+ return {id:o.id,provider:o.provider,status:o.status,amount_fen:String(o.amount_fen),face_fen:String(o.face_fen),discount:publicDiscount(o.discount_snapshot),expires_at:o.expires_at,paid_at:o.paid_at,expired:o.status==='pending'&&new Date(o.expires_at)<new Date(),
   qr_svg:live&&wechat?qrSvg(o.qr_code):null,pay_url:live&&!wechat?o.qr_code:null};
 }
 
@@ -182,7 +183,8 @@ export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
  }
  app.post('/api/billing/quote',requireCustomer,async(req,res)=>{
   const account=await accountFor(pool,req.customer.id,req.body?.organization_id?id(req.body.organization_id):null,{create:true});
-  res.json(await transaction(pool,db=>quotePack(db,account,parseRechargeFen(req.body?.face_fen??req.body?.cash_fen),req.body?.promo_code,{cashFen:req.body?.cash_fen===undefined?null:parseRechargeFen(req.body.cash_fen),buyerId:req.customer.id,cwEnabled:!!cfg.cw?.enabled,models:cfg.cw?.modelPacks&&cfg.customerPaid?.enabled?cfg.customerPaid.models:[]})));
+  const quote=await transaction(pool,db=>quotePack(db,account,parseRechargeFen(req.body?.face_fen??req.body?.cash_fen),req.body?.promo_code,{cashFen:req.body?.cash_fen===undefined?null:parseRechargeFen(req.body.cash_fen),buyerId:req.customer.id,cwEnabled:!!cfg.cw?.enabled,models:cfg.cw?.modelPacks&&cfg.customerPaid?.enabled?cfg.customerPaid.models:[]}));
+  res.json({...quote,discount_snapshot:publicDiscount(quote.discount_snapshot)});
  });
  for(const provider of Object.keys(CHANNELS)){
   const path=CHANNELS[provider].path;
