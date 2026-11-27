@@ -8,7 +8,8 @@ const employeeReads = new Set([
  '/api/staff/me','/api/staff/customers','/api/staff/console','/api/staff/console.js',
  '/api/staff/select-menu.js','/api/staff/table-sort.js',
  '/api/staff/workspace/console','/api/staff/workspace/console.js','/api/staff/workspace/view','/api/staff/workspace/bridge.js','/api/staff/workspace/access',
- '/api/staff/business/dashboard','/api/staff/business/acquisition','/api/staff/business/direct-codes/:grant/qr',
+ '/api/staff/workspace/sales.js','/api/staff/workspace/sales.css',
+ '/api/staff/business/dashboard','/api/staff/business/sales','/api/staff/business/acquisition','/api/staff/business/direct-codes/:grant/qr',
  '/api/staff/business/customers','/api/staff/business/customers/:customer','/api/staff/business/support',
  '/api/staff/cw','/api/staff/cw/order-lookup','/api/staff/cw/:partner'
 ]);

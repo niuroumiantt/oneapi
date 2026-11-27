@@ -7,7 +7,7 @@
  };
  known.owner = [...known.business];
  known.business = ['apioverview','apimodels','apikeys','apiusage','apicompare','vipcodes','customeroverview','vipoverview','customerapplications','vipapplications','home','acquisition','direct','cw','customers','tickets','answers','approvals','promotions'];
- if(window.STAFF_SALES_PREVIEW)known.business.push('pending');
+ known.business.push('pending');
  const titles = { owner:'老板工作台', business: '员工工作台', technical: '技术后台' };
  const positions = { owner:'overview', business: 'home', technical: 'overview' }, frames = {};
  let host = null, access = null, accessPromise = null, current = null, supplier = '';

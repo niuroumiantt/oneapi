@@ -3,11 +3,20 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../private/workspace.js',import.meta.url),'utf8');
+const salesSource=readFileSync(new URL('../private/employee-sales.js',import.meta.url),'utf8');
 const settle=()=>new Promise(r=>setImmediate(r));
 function app(fetch,search='?surface=owner'){
  const nodes=new Map(),events={},domEvents={},location={search,hash:'#transfers',origin:'https://test.invalid'},parent={};
- const node=s=>{if(!nodes.has(s))nodes.set(s,{innerHTML:'',textContent:'',classList:{toggle(){}}});return nodes.get(s)};
- const context=vm.createContext({innerHeight:900,fetch,AbortSignal,URLSearchParams,location,parent,document:{body:node('body'),querySelector:node,addEventListener:(k,f)=>domEvents[k]=f},addEventListener:(k,f)=>events[k]=f});
+ const element=()=>({
+  html:'',child:null,textContent:'',classList:{toggle(){}},addEventListener(){},
+  get innerHTML(){return this.child?.innerHTML??this.html;},
+  set innerHTML(value){this.child=null;this.html=value;},
+  replaceChildren(child){this.child=child;}
+ });
+ const node=s=>{if(!nodes.has(s))nodes.set(s,element());return nodes.get(s)};
+ const context=vm.createContext({window:{},innerHeight:900,fetch,AbortSignal,URLSearchParams,location,parent,
+  document:{body:node('body'),createElement:element,querySelector:node,addEventListener:(k,f)=>domEvents[k]=f},addEventListener:(k,f)=>events[k]=f});
+ vm.runInContext(salesSource,context);
  vm.runInContext(source,context);return {nodes,events,domEvents,location,parent,html:()=>node('#content').innerHTML};
 }
 const summary={staff:{finance:true,technical:true,admin:true,role:'platform_admin'},counts:{}};
@@ -38,22 +47,28 @@ test('expired staff authentication does not expose cached transfer records',asyn
  let expired=false;const a=app(async p=>expired?{ok:false,status:401,json:async()=>({error:'请重新登录'})}:response(p.endsWith('?summary=1')?summary:record));
  await settle();expired=true;a.events.message({origin:a.location.origin,source:a.parent,data:{type:'workspace-navigate'}});await settle();assert.match(a.html(),/请重新登录/);assert.doesNotMatch(a.html(),/Verified bank receipt/);
 });
-test('employee home loads only summary and support, not company financial aggregates',async()=>{
+const employeeSummary={staff:{role:'operations',name:'同事',finance:false,admin:false},counts:{tickets:1,invoices_requested:8}};
+const sales={snapshotDay:'2026-11-27',periods:{today:[],month:[],all:[]},tasks:[],actionCount:0};
+test('employee home and queue load only employee sales, not company aggregates',async()=>{
  const paths=[];
- const a=app(async p=>{paths.push(p);return response(p.includes('dashboard')?{staff:{role:'support',name:'客服',finance:false},counts:{tickets:1,invoices_requested:8}}:p.endsWith('bank-transfers')?record:{tickets:[],answers:[]});},'');
- await settle();paths.length=0;a.location.hash='#home';a.events.hashchange();await settle();
- assert.match(a.html(),/待处理工单/);assert.doesNotMatch(a.html(),/发票申请待处理/);
- assert.deepEqual(paths,['/api/staff/business/support']);
+ const a=app(async p=>{paths.push(p);return response(p.includes('dashboard')?employeeSummary:sales);},'');
+ await settle();
+ for(const [page,label] of [['home','推广成果'],['pending','当前进度']]){
+  paths.length=0;a.location.hash='#'+page;a.events.hashchange();await settle();
+  assert.match(a.html(),new RegExp(label));assert.doesNotMatch(a.html(),/发票申请待处理/);
+  assert.deepEqual(paths,['/api/staff/business/sales']);
+ }
 });
-test('employee home distinguishes a failed support read from an empty queue',async()=>{
- const a=app(async p=>p.includes('dashboard')?response(summary):p.endsWith('bank-transfers')?response(record):{ok:false,status:503,json:async()=>({})});
+test('employee home distinguishes a failed sales read from an empty dashboard',async()=>{
+ const a=app(async p=>p.includes('dashboard')?response(employeeSummary):{ok:false,status:503,json:async()=>({})},'');
  await settle();a.location.hash='#home';a.events.hashchange();await settle();
- assert.match(a.html(),/503/);assert.doesNotMatch(a.html(),/目前没有未结工单/);
+ assert.match(a.html(),/503/);assert.doesNotMatch(a.html(),/本月销售收入|销售收入趋势/);
 });
-test('employee home never shows company tasks even with legacy finance flags and escapes content',async()=>{
- const a=app(async p=>response(p.includes('dashboard')?{staff:{role:'finance',finance:true,name:'财务'},counts:{tickets:2,bank_transfers_pending:1}}:p.endsWith('bank-transfers')?record:{tickets:[{id:'t1',subject:'<script>bad()</script>',name:'Example',status:'open',created_at:'2026-11-26',tier:'first_line'}]}),'');
- await settle();a.location.hash='#home';a.events.hashchange();await settle();
- assert.doesNotMatch(a.html(),/对公到账待复核|经营损益|上游供应商/);assert.match(a.html(),/客户推广/);
+test('employee queue never shows company tasks with legacy finance flags and escapes content',async()=>{
+ const task={id:'ticket:test',record_id:'test',kind:'request',subject:'<script>bad()</script>',customer:'Example',status:'action',submitted:'2026-11-26',next:'回复客户',destination:'ticket'};
+ const a=app(async p=>response(p.includes('dashboard')?{staff:{role:'finance',finance:true,name:'财务'},counts:{tickets:2,bank_transfers_pending:1}}:{...sales,actionCount:1,tasks:[task]}),'');
+ await settle();a.location.hash='#pending';a.events.hashchange();await settle();
+ assert.doesNotMatch(a.html(),/对公到账待复核|经营损益|上游供应商/);
  assert.match(a.html(),/&lt;script&gt;/);assert.doesNotMatch(a.html(),/<script>/);
 });
 
