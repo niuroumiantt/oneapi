@@ -378,3 +378,12 @@ html body.catalog-active{height:100dvh;overflow:hidden}
  #market-view .site-header .live-signin .ui-icon-wrap{display:inline-flex}
  #market-view .site-header .live-signin span:last-child{display:block;position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 }
+
+/* Give the gallery's reader the footer space on phones. */
+#market-view>.site-footer:not(:has(>.site-filing)),
+#market-view>.site-footer>:not(.site-filing){display:none}
+#market-view>.site-footer:has(>.site-filing){min-height:0;padding:4px 12px;border-top:0}
+#market-view>.site-footer>.site-filing{font-size:11px;line-height:1.4}
+@media(max-width:700px), (hover:none) and (pointer:coarse) and (max-height:600px){
+ #market-view>.site-footer:has(>.site-filing){display:none}
+}
