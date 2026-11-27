@@ -15,7 +15,7 @@ function requireBusiness(req) { if (!hasBusiness(req.staff)) throw new HttpError
 export function requireFinance(req) { if (!hasFinance(req.staff)) throw new HttpError(403, '需要财务权限'); }
 
 export const STAGES = ['new', 'following', 'key', 'risk', 'lost'];
-export const CATEGORIES = ['question', 'billing', 'invoice', 'bug', 'feedback'];
+export const CATEGORIES = ['question', 'billing', 'invoice', 'bug', 'feedback', 'complaint'];
 const METHODS = ['bank', 'alipay', 'wechat', 'card', 'other'];
 const TAX_NUMBER = /^[0-9A-Z]{15,20}$/;
 
@@ -601,10 +601,14 @@ export function businessConsoleRoutes(app, pool, requireStaff, cfg={}) {
  // ---- First-line support ----------------------------------------------------------------------
  app.get('/api/staff/business/support', requireStaff, async (req, res) => {
   requireBusiness(req);
+  const ticket=req.query.ticket===undefined?null:id(req.query.ticket);
+  const args=[isAdmin(req.staff),req.staff.subject,ticket];
+  const scope=`${ticketScope()} AND ($3::uuid IS NULL OR t.id=$3)`;
   const [tickets, replies, answers] = await Promise.all([
-   pool.query(`SELECT t.id,t.subject,t.body,t.status,t.category,t.tier,t.created_at,t.updated_at,u.name,u.email,c.id AS customer_id,c.code AS customer_code FROM support_tickets t JOIN "user" u ON u.id=t.user_id LEFT JOIN customers c ON c.user_id=t.user_id WHERE ${ticketScope()} ORDER BY t.status='closed',t.created_at DESC LIMIT 300`,[isAdmin(req.staff),req.staff.subject]),
-   pool.query(`SELECT r.ticket_id,r.body,r.created_at,m.name AS created_by_name FROM support_ticket_replies r LEFT JOIN staff_members m ON m.subject=r.created_by WHERE r.ticket_id IN (SELECT t.id FROM support_tickets t WHERE ${ticketScope()} ORDER BY t.status='closed',t.created_at DESC LIMIT 300) ORDER BY r.created_at`,[isAdmin(req.staff),req.staff.subject]),
+   pool.query(`SELECT t.id,t.subject,t.body,t.status,t.category,t.tier,t.created_at,t.updated_at,u.name,u.email,c.id AS customer_id,c.code AS customer_code FROM support_tickets t JOIN "user" u ON u.id=t.user_id LEFT JOIN customers c ON c.user_id=t.user_id WHERE ${scope} ORDER BY t.status='closed',t.created_at DESC LIMIT 300`,args),
+   pool.query(`SELECT r.ticket_id,r.body,r.created_at,m.name AS created_by_name FROM support_ticket_replies r LEFT JOIN staff_members m ON m.subject=r.created_by WHERE r.ticket_id IN (SELECT t.id FROM support_tickets t WHERE ${scope} ORDER BY t.status='closed',t.created_at DESC LIMIT 300) ORDER BY r.created_at`,args),
    pool.query('SELECT id,category,question,answer,published,use_count,updated_at FROM support_answers WHERE archived_at IS NULL ORDER BY use_count DESC,updated_at DESC LIMIT 300')]);
+  if(ticket&&!tickets.rowCount)throw new HttpError(404,'工单不存在');
   const thread = new Map();
   for (const r of replies.rows) { if (!thread.has(r.ticket_id)) thread.set(r.ticket_id, []); thread.get(r.ticket_id).push(r); }
   res.json({ tickets: tickets.rows.map(t => ({ ...t, replies: thread.get(t.id) || [] })), answers: answers.rows, categories: CATEGORIES });

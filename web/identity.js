@@ -829,7 +829,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   if(supportOwner!==me.user.id){supportOwner=me.user.id;supportDraft={category:'question',subject:'',body:''};supportDetail=null;supportPageNumber=0;}
   const tickets=Array.isArray(panelData.tickets)?panelData.tickets:null,answers=Array.isArray(panelData.answers)?panelData.answers:null;
   const view=pageView('support',[['new'],['list'],['faq']]),labels={open:'待处理',in_progress:'处理中',closed:'已关闭'};
-  const categories={question:'使用咨询',billing:'充值与扣费',invoice:'发票',bug:'故障',feedback:'意见反馈'};
+  const categories={question:'使用咨询',billing:'充值与扣费',invoice:'发票',bug:'故障',feedback:'意见反馈',complaint:'投诉'};
   const tabs=[['new','提交问题'],['list','我的工单'],['faq','常见问题']];
   const pager=(page,pages,action)=>pages>1?`<nav class="pu-pages" aria-label="支持分页"><button type="button" data-live="${action}" data-page="${page-1}" aria-label="上一页" ${page===0?'disabled':''}>${ico('chevron-left')}</button><span>${page+1} / ${pages}</span><button type="button" data-live="${action}" data-page="${page+1}" aria-label="下一页" ${page===pages-1?'disabled':''}>${ico('chevron-right')}</button></nav>`:'';
   let content;
@@ -848,7 +848,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  }
  function supportContent(){
   if(!panelOrg)return personalSupportContent();
-  const tickets=panelData.tickets,label={open:'待处理',in_progress:'处理中',closed:'已关闭'},answers=panelData.answers,categories={question:'使用咨询',billing:'充值与扣费',invoice:'发票',bug:'故障',feedback:'意见反馈'},views=[['new','提交工单'],['list',`我的工单${tickets?' · '+tickets.length:''}`],...(answers?.length?[['faq','常见问题']]:[])],view=pageView('support',views);
+  const tickets=panelData.tickets,label={open:'待处理',in_progress:'处理中',closed:'已关闭'},answers=panelData.answers,categories={question:'使用咨询',billing:'充值与扣费',invoice:'发票',bug:'故障',feedback:'意见反馈',complaint:'投诉'},views=[['new','提交工单'],['list',`我的工单${tickets?' · '+tickets.length:''}`],...(answers?.length?[['faq','常见问题']]:[])],view=pageView('support',views);
   const faq=answers?.length?`<div class="live-session-list">${answers.map(a=>`<article><b>${esc(a.question)}</b><small>${categories[a.category]||''}</small><p style="white-space:pre-wrap">${esc(a.answer)}</p></article>`).join('')}</div>`:'';
   const list=!tickets?panelLoading:tickets.length?`<div class="live-session-list">${tickets.map(t=>`<article><b>${esc(t.subject)} · ${label[t.status]||esc(t.status)}</b><small>${new Date(t.created_at).toLocaleString('zh-CN')}</small><p>${esc(t.body)}</p>${t.staff_note?`<p><b>回复：</b>${esc(t.staff_note)}</p>`:''}</article>`).join('')}</div>`:'<p class="personal-model-empty">还没有工单。</p>';
   const create=`<form id="live-ticket" class="live-form panel-form"><p class="live-small">描述现象、模型和时间，我们会在这里回复。请不要填写 API Key。</p><label>问题类型<select name="category">${Object.entries(categories).map(([key,label])=>`<option value="${key}">${label}</option>`).join('')}</select></label><label>标题<input name="subject" required maxlength="120"></label><label>问题描述<textarea name="body" required maxlength="4000" rows="5"></textarea></label><div id="live-form-message" role="status"></div><button class="live-button primary" type="submit">提交工单</button></form>`;

@@ -45,6 +45,12 @@ export function workspaceRoutes(app,pool,requireStaff,cfg){
  app.get('/api/staff/workspace/plan',requireStaff,(req,res)=>{requireBusiness(req);res.redirect(302,'/api/staff/console#'+(req.staff.role==='platform_admin'||req.staff.technical_access?'technical/servers':'business/overview'))});
  app.get('/api/staff/workspace/view',requireStaff,(req,res)=>{requireBusiness(req);res.sendFile(new URL('../private/workspace.html',import.meta.url).pathname,{dotfiles:'allow'})});
  app.get('/api/staff/workspace/console.js',requireStaff,(req,res)=>{requireBusiness(req);res.type('js').sendFile(new URL('../private/workspace.js',import.meta.url).pathname,{dotfiles:'allow'})});
+ for(const [name,type] of [['js','js'],['css','css']]){
+  app.get('/api/staff/workspace/sales.'+name,requireStaff,(req,res)=>{
+   requireBusiness(req);
+   res.type(type).sendFile(new URL('../private/employee-sales.'+name,import.meta.url).pathname,{dotfiles:'allow'});
+  });
+ }
  app.get('/api/staff/workspace/access',requireStaff,(req,res)=>res.json({business:hasBusiness(req.staff),owner:req.staff.status==='active'&&req.staff.role==='platform_admin',technical:req.staff.status==='active'&&req.staff.role==='platform_admin',finance:req.staff.status==='active'&&req.staff.role==='platform_admin'}));
  app.put('/api/staff/members/:subject/technical-access',requireStaff,async(req,res)=>{
   if(req.staff.role!=='platform_admin'||req.staff.status!=='active')throw new HttpError(403,'仅平台管理员可分配技术权限');
