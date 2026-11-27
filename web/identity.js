@@ -200,10 +200,10 @@
   }
   return query.size?'?'+query:'';
  };
- let cwOfferCode='',cwOfferKind='',cwInputCode=new URLSearchParams(location.search).get('cw')||'';
- const cwOfferHelp=()=>cwOfferCode
+ let cwOfferModel=null,cwOfferCode='',cwOfferKind='',cwInputCode=new URLSearchParams(location.search).get('cw')||'';
+ const cwOfferHelp=()=>cwOfferModel?`模型优惠包 · ${cwOfferModel.name} · ${cwOfferModel.discount} 折，仅限该模型使用。`:cwOfferCode
   ? (cwOfferKind==='direct'?'已识别员工直营折扣码。请填写实付金额，付款前核对到账额度。':cwOfferKind==='task'?'已填入专属 VIP 付款码。请填写实付金额，付款前核对到账额度。':'已识别 VIP 推广码，请填写实付金额。')
-  : '填写实付金额，使用折扣码后请在付款前核对到账额度。';
+  : (cwInputCode?'优惠码尚未确认，请在下一步核对适用模型与金额。':'通用充值适用于账号已开放模型；购买模型优惠包，请填写对应促销码。');
 
  let alipayPay=null,alipayTimer=null,alipayFen=10000,payChannel='alipay_f2f',rechargeReview=null;
   const PAY_CHANNELS={alipay_f2f:{name:'支付宝',path:'alipay',chip:'支付宝电脑网站支付'},wechat_native:{name:'微信支付',path:'wechat',chip:'微信支付 Native'}};
@@ -245,19 +245,34 @@
   personalModelChoices.set(key,ids);if(key)try{localStorage.setItem(key,JSON.stringify(ids));}catch{}
   if(!selected)try{localStorage.removeItem(modelIntentKey);}catch{}
  }
+
+ // Scope is independent of Key permissions. Values stay decimal until display.
+ function personalScopeRows(data){return data?.credit_scopes??null;}
+ function personalScopeAmount(row){const units=v=>{const [a,b='']=String(v||0).split('.');return BigInt(a)*10000000000n+BigInt(b.padEnd(10,'0').slice(0,10));};return units(row?.paid_fen)+units(row?.gift_fen);}
+ const personalScopeMoney=units=>personalMoney(String(units/10000000000n));
+ function personalScopedBalance(data,{compact=false}={}){
+  const rows=personalScopeRows(data);if(!rows)return '<p class="scope-note">额度范围暂未加载，请刷新后查看。</p>';
+  const common=rows.find(r=>!r.model_id),special=rows.filter(r=>r.model_id&&personalScopeAmount(r)>0);
+  return `<div class="scope-summary${compact?' scope-compact':''}" aria-label="额度适用范围"><div class="scope-common"><span>通用额度</span><b>${personalScopeMoney(personalScopeAmount(common))}</b><small>适用于账号已开放模型</small></div><div class="scope-special"><span>模型专属额度</span><b>${personalScopeMoney(special.reduce((n,r)=>n+personalScopeAmount(r),0n))}</b><small>仅供对应模型使用</small></div>${special.length?`<details class="scope-details"><summary>查看 ${special.length} 个模型的额度</summary><ul>${special.map(r=>`<li><span>${esc(r.name)}</span><b>${personalScopeMoney(personalScopeAmount(r))}</b><small>实付 ${personalMoney(r.paid_fen)} · 赠送 ${personalMoney(r.gift_fen)}${r.next_gift_expires_at?' · 最近赠送到期 '+new Date(r.next_gift_expires_at).toLocaleDateString('zh-CN'):''}</small></li>`).join('')}</ul>${btn('按购买批次查看','model-pack-balances','type="button"','quiet')}</details>`:''}</div>`;
+ }
+ function personalModelBalance(id){
+  const rows=personalScopeRows(personalBilling);if(!rows)return '<span class="scope-note">暂未加载</span>';
+  const common=personalScopeAmount(rows.find(r=>!r.model_id)),own=personalScopeAmount(rows.find(r=>r.model_id===id)),total=common+own;
+  return `<b>${personalScopeMoney(total)}</b><small>${total>0?(own>0?'专属 '+personalScopeMoney(own)+' + 通用 '+personalScopeMoney(common):'使用通用额度'):'暂无额度'}</small>`;
+ }
  function personalModelCollection(models,selected){
   if(!models.length)return `<p class="mm-empty">${selected?'点击下方「+ 加入」选择模型，或全选后生成 Key。':'全部模型都已加入。'}</p>`;
-  return `<table class="mm-table" data-nosort aria-label="${selected?'已选模型':'备选模型'}"><thead><tr><th>模型</th><th>能力</th><th>状态</th><th>输入 / 输出</th><th><span class="mm-sr-only">操作</span></th></tr></thead><tbody>${models.map(m=>{
+  return `<table class="mm-table${employeeApi?'':' mm-scoped'}" data-nosort aria-label="${selected?'已选模型':'备选模型'}"><thead><tr><th>模型</th><th>能力</th><th>开放状态</th><th>输入 / 输出</th>${employeeApi?'':'<th>该模型额度</th>'}<th><span class="mm-sr-only">操作</span></th></tr></thead><tbody>${models.map(m=>{
    const rate=personalBaseRate(m),access=personalModelAccess(m),tags=[m.capabilities?.input?.includes('image')?'图文':'文本',m.uses.includes('coding')?'编程':'推理'];
-   return `<tr><td><a href="#market/${esc(m.id)}" title="了解 ${esc(m.name)}">${esc(m.name)}</a></td><td><div class="mm-tags">${tags.map(t=>`<span>${t}</span>`).join('')}</div></td><td class="mm-status">${access.action?'<i aria-hidden="true"></i>':''}${access.label}</td><td class="mm-price"><span>${personalPrice(rate.miss)}</span><em>/</em><span>${personalPrice(rate.output)}</span></td><td><div class="mm-actions">${access.action?`<button type="button" class="mm-use" data-live="personal-model-use" data-id="${esc(m.id)}" aria-label="一键接入 ${esc(m.name)}" title="为此模型生成独立 Key 并查看设置方法">${ico('key-round')}一键接入</button>`:'<span class="mm-wait">待开放</span>'}${selected?`<button type="button" class="mm-remove" data-live="personal-model-remove" data-id="${esc(m.id)}" aria-label="移除 ${esc(m.name)}" title="从清单移除，不会停用 Key">${ico('x')}</button>`:`<button type="button" class="mm-add" data-live="personal-model-add" data-id="${esc(m.id)}" aria-label="加入 ${esc(m.name)}">${ico('plus')}加入</button>`}</div></td></tr>`;
+   return `<tr><td><a href="#market/${esc(m.id)}" title="了解 ${esc(m.name)}">${esc(m.name)}</a></td><td><div class="mm-tags">${tags.map(t=>`<span>${t}</span>`).join('')}</div></td><td class="mm-status">${access.action?'<i aria-hidden="true"></i>':''}${access.label}</td><td class="mm-price"><span>${personalPrice(rate.miss)}</span><em>/</em><span>${personalPrice(rate.output)}</span></td>${employeeApi?'':`<td class="mm-balance">${access.action?personalModelBalance(m.id):'<small>开放后可使用</small>'}</td>`}<td><div class="mm-actions">${access.action?`<button type="button" class="mm-use" data-live="personal-model-use" data-id="${esc(m.id)}" aria-label="一键接入 ${esc(m.name)}" title="为此模型生成独立 Key 并查看设置方法">${ico('key-round')}一键接入</button>`:'<span class="mm-wait">待开放</span>'}${selected?`<button type="button" class="mm-remove" data-live="personal-model-remove" data-id="${esc(m.id)}" aria-label="移除 ${esc(m.name)}" title="从清单移除，不会停用 Key">${ico('x')}</button>`:`<button type="button" class="mm-add" data-live="personal-model-add" data-id="${esc(m.id)}" aria-label="加入 ${esc(m.name)}">${ico('plus')}加入</button>`}</div></td></tr>`;
   }).join('')}</tbody></table>`;
  }
  function personalModelsContent(){
   const chosen=new Set(personalChosenModels()),catalog=personalCatalog(),selected=catalog.filter(m=>chosen.has(m.id)),available=catalog.filter(m=>!chosen.has(m.id)),callable=(paidCredit?.models||[]).filter(m=>chosen.has(m.id));
-  return `<section class="personal-models my-models" aria-labelledby="pm-title"><header class="mm-heading"><div><h1 id="pm-title">我的模型</h1><p class="mm-intro">选好模型，生成一把共用 Key；单个模型也可直接接入。</p></div><nav class="mm-head-actions" aria-label="模型与密钥"><a href="#market">模型广场${ico('arrow-up-right')}</a><a href="#personal/keys" data-live="personal-model-manage">管理 Key${ico('arrow-right')}</a></nav></header>
+  return `<section class="personal-models my-models" aria-labelledby="pm-title"><header class="mm-heading"><div><h1 id="pm-title">我的模型</h1><p class="mm-intro">Key 决定可调用的模型；额度按模型分别核对。</p></div><nav class="mm-head-actions" aria-label="模型与密钥"><a href="#market">模型广场${ico('arrow-up-right')}</a><a href="#personal/keys" data-live="personal-model-manage">管理 Key${ico('arrow-right')}</a></nav></header>
    <section class="mm-section mm-selected" aria-labelledby="mm-selected-title"><div class="mm-section-head"><div class="mm-selection-heading"><h2 id="mm-selected-title">已选模型 <span>${selected.length}</span></h2>${selected.length?`<span class="mm-selection-note">${callable.length} 个可用于 Key${selected.length>callable.length?` · ${selected.length-callable.length} 个待开放`:''}</span>`:''}</div><div class="mm-section-actions">${available.length?`<button type="button" data-live="personal-model-add-all">${ico('list-plus')}全选</button>`:''}<button type="button" data-live="personal-model-clear" ${selected.length?'':'disabled'}>${ico('list-x')}清除</button><button type="button" class="mm-generate" data-live="connect-selected" ${callable.length&&paidCredit?.enabled?'':'disabled'}>${ico('key-round')}为已选模型生成 Key</button></div></div>${personalModelCollection(selected,true)}</section>
    ${available.length?`<section class="mm-section mm-available" aria-labelledby="mm-available-title"><div class="mm-section-head"><h2 id="mm-available-title">备选模型 <span>${available.length}</span></h2><span class="mm-selection-note">加入上方清单，或直接接入</span></div>${personalModelCollection(available,false)}</section>`:''}
-   <footer class="mm-foot"><span>官网价 · 元 / 百万 Token</span><label>DeepSeek 时段<select data-personal-price-period aria-label="DeepSeek 价格时段"><option value="offpeak" ${personalPricePeriod==='offpeak'?'selected':''}>空闲</option><option value="peak" ${personalPricePeriod==='peak'?'selected':''}>高峰</option></select></label></footer>
+   <footer class="mm-foot"><span>官网价 · 元 / 百万 Token${employeeApi?'':'。先扣该模型专属包，再扣通用额度；结算占用与 Key 上限以调用时为准。'}</span><label>DeepSeek 时段<select data-personal-price-period aria-label="DeepSeek 价格时段"><option value="offpeak" ${personalPricePeriod==='offpeak'?'selected':''}>空闲</option><option value="peak" ${personalPricePeriod==='peak'?'selected':''}>高峰</option></select></label></footer>
   </section>`;
  }
  // Green: answering. Red: failing or not connected. Amber: not measured yet or paused.
@@ -533,12 +548,13 @@ function personalHomeContent(){
   return `<section class="personal-home" aria-labelledby="ph-title">
     <h1 id="ph-title">概览</h1>
     <section class="ph-balance" aria-label="${employeeApi?'公司分配额度':'个人额度'}">
-      <div class="ph-balance-main"><span>${employeeApi?'公司可用额度':'可用官价额度'}</span><strong>${available===null?'—':personalMoney(available)}</strong><p>${available===null?'额度暂未加载，请刷新重试。':employeeApi?'公司统一分配，调用从公司额度扣除':'按模型官网价计费'}</p></div>
-      ${employeeApi?'':`<div class="ph-balance-actions"><a class="ph-primary" href="#billing/personal">${personalBilling?.payments_enabled?'充值':'查看账单'}</a>${personalBilling?.payments_enabled?'<a class="ph-link" href="#billing/personal/usage">消费账单</a>':''}${personalBilling?.model_balances?.length?btn('模型明细','model-pack-balances','type="button"','quiet'):''}</div>`}
+      <div class="ph-balance-main"><span>${employeeApi?'公司可用额度':'额度合计'}</span><strong>${available===null?'—':personalMoney(employeeApi?available:(personalBilling.list_credit_exact_fen??personalBilling.list_credit_fen))}</strong><p>${available===null?'额度暂未加载，请刷新重试。':employeeApi?'公司统一分配，调用从公司额度扣除':'含通用与模型专属额度，适用范围不同'}</p></div>
+      ${employeeApi?'':`<div class="ph-balance-actions"><a class="ph-primary" href="#billing/personal">${personalBilling?.payments_enabled?'充值':'查看账单'}</a>${personalBilling?.payments_enabled?'<a class="ph-link" href="#billing/personal/usage">消费账单</a>':''}</div>`}
       ${employeeApi?`<div class="ph-spent"><span>累计消费</span><b>${personalBilling?personalMoney(personalBilling.total_spent_fen):'—'}</b></div>`:personalBilling?personalBalanceBar(personalBilling,{overview:true}):'<div class="ph-spent"><span>累计消费</span><b>—</b></div>'}
+      ${employeeApi?'':personalScopedBalance(personalBilling,{compact:true})}
     </section>
     <section class="ph-connect" aria-labelledby="ph-connect-title"><div class="ph-section-head"><h2 id="ph-connect-title">API 接入</h2><a class="ph-link" href="#docs">接入文档${ico('arrow-up-right')}</a></div>
-      ${base?`<div class="ph-endpoint"><span>API 地址</span><code>${esc(base)}</code><button type="button" class="ph-copy" data-live="copy-text" data-text="${esc(base)}" aria-label="复制 API 地址">${ico('copy')}<span>复制</span></button></div><div class="ph-key-row"><span>${keys.length?`${keys.length} 枚有效密钥`:'创建密钥，开始第一次调用'}</span>${tab('keys',keys.length?'管理密钥':'创建密钥')}</div>`:`<p class="ph-unavailable">${employeeApi?'公司尚未分配 API 额度，请联系老板开通。':'个人 API 调用暂未开放。'}</p>`}
+      ${base?`<div class="ph-endpoint"><span>API 地址</span><code>${esc(base)}</code><button type="button" class="ph-copy" data-live="copy-text" data-text="${esc(base)}" aria-label="复制 API 地址">${ico('copy')}<span>复制</span></button></div><div class="ph-key-row"><span>${keys.length?`${keys.length} 枚有效密钥`:'创建密钥，开始第一次调用'}</span>${employeeApi?tab('keys',keys.length?'管理密钥':'创建密钥'):`<div class="ph-key-actions"><a class="ph-primary" href="#personal/connect/all" data-live="connect-unified">${ico('key-round')}生成 Key</a>${keys.length?tab('keys','管理密钥'):''}</div>`}</div>`:`<p class="ph-unavailable">${employeeApi?'公司尚未分配 API 额度，请联系老板开通。':'个人 API 调用暂未开放。'}</p>`}
     </section>
   </section>`;
 }
@@ -724,7 +740,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const model=unified?(allowed.find(m=>m.id===personalUnifiedConfigModel)||allowed[0]):personalCatalog().find(m=>m.id===id);
   if(!unified&&!model)return '<section class="personal-api personal-connect"><a href="#personal/models">返回我的模型</a><h1>没有找到这个模型</h1></section>';
   const title=unified?'通用 Key':model.name+' 模型专属 Key';
-  const access=unified?{action:p?.enabled&&p.models?.length?'paid-create':null,label:'暂未开放'}:personalModelAccess(model),paid=access.action==='paid-create',keys=(p?.keys||[]).filter(k=>!k.revoked_at),available=BigInt(p?.unallocated_fen||0),balance=wholeFen(p?.list_credit_fen||0);
+  const access=unified?{action:p?.enabled&&p.models?.length?'paid-create':null,label:'暂未开放'}:personalModelAccess(model),paid=access.action==='paid-create',keys=(p?.keys||[]).filter(k=>!k.revoked_at),available=wholeFen(p?.unallocated_fen||0),balance=wholeFen(p?.list_credit_fen||0);
   const draft=personalConnectDrafts.get(personalConnectDraftKey(id))||{label:unified?'通用 Key':model.name,limit:(Number(available>1000n?1000n:available)/100).toFixed(2)};
   const scope=unified?`<div class="mc-scope"><div class="mc-scope-heading"><span>${issued?'可调用模型':'包含模型'} · ${allowed.length}</span>${!issued&&allowed.length<(p?.models||[]).length?`<button type="button" data-live="connect-model-restore" ${personalConnectBusy?'disabled':''}>恢复全部</button>`:''}</div><ul class="mc-model-list">${allowed.map(m=>`<li><span>${esc(m.name)}</span>${issued?'':`<button type="button" data-live="connect-model-remove" data-id="${esc(m.id)}" aria-label="从通用 Key 移除 ${esc(m.name)}" title="移除此模型" ${personalConnectBusy?'disabled':''}>${ico('x')}</button>`}</li>`).join('')}</ul>${allowed.length?'':'<p class="mc-selection-empty">至少保留一个模型，请恢复全部后重新选择。</p>'}</div>`:'';
   let keyContent='';
@@ -747,7 +763,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   if(wholeFen(credit.list_credit_fen||0)<=0n)throw Error(employeeApi?'公司可用额度不足，请联系老板调整额度。':'请先充值账户额度。');
   if((credit.keys||[]).filter(k=>!k.revoked_at).length>=5)throw Error('已达 5 把有效 Key 上限，请先管理已有 Key。');
   const match=String(limit).match(/^(\d{1,6})(?:\.(\d{1,2}))?$/),fen=match?BigInt(match[1])*100n+BigInt((match[2]||'').padEnd(2,'0')):0n;
-  if(fen<=0n||fen>BigInt(credit.unallocated_fen||0))throw Error('消费上限须大于零，且不超过当前可分配额度。');
+  if(fen<=0n||fen>wholeFen(credit.unallocated_fen||0))throw Error('消费上限须大于零，且不超过当前可分配额度。');
   return api('/api/customer-credit/keys',{label,models,limit_yuan:String(limit)});
  }
  function personalRechargeNext(data){
@@ -769,7 +785,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    return `<div class="ak-usage ${full?'is-full':pct>=80?'is-near':''}"><div class="ak-usage-label"><span>已用 <b>¥${used.toFixed(2)}</b> / 上限 ¥${limit.toFixed(2)}</span>${full?'<small>已达上限</small>':''}</div><div class="ak-usage-track" role="progressbar" aria-label="${esc(k.label)}额度使用" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct.toFixed(2)}" aria-valuetext="${text}"><span style="width:${pct}%"></span></div></div>`;
   };
   const rows=keys.map(k=>`<tr><td><strong>${esc(k.label)}</strong>${(k.model_ids||[]).length>1?'<span class="ak-kind">多模型</span>':''}<small>•••• ${esc(k.key_hint)}</small></td><td class="ak-model" data-label="对应模型">${(k.model_ids||[]).map(id=>`<span>${esc(models.find(m=>m.id===id)?.name||id)}</span>`).join('')}</td><td class="ak-budget" data-label="额度使用">${usageMeter(k)}</td><td><div class="api-row-actions"><button type="button" data-live="paid-limit" data-id="${esc(k.id)}" data-label="${esc(k.label)}" data-limit="${esc(k.limit_yuan)}">调整上限</button><button type="button" data-live="paid-revoke" data-id="${esc(k.id)}">停用</button></div></td></tr>`).join('');
-  return `<section class="personal-api api-key-manager" aria-labelledby="api-title"><div class="api-page-head"><div><h1 id="api-title">API 密钥</h1><p>通用 Key 调用多个模型，专属 Key 只调用一个模型。</p></div><nav class="api-create-actions" aria-label="创建密钥"><a href="#personal/models">模型专属 Key</a><a class="pm-primary" href="#personal/connect/all" data-live="connect-unified">${ico('key-round')}创建通用 Key</a></nav></div><div class="api-balance-line"><span>${employeeApi?'公司可用额度':'账户额度'} <b>${personalMoney(p.list_credit_fen)}</b></span>${employeeApi?'<span>所有 Key 共用公司额度</span>':`<span>可分配额度 <b>${personalMoney(p.unallocated_fen)}</b></span><a href="#billing/personal">充值</a>`}</div>${keys.length?`<div class="api-table-wrap"><table data-nosort><thead><tr><th>密钥</th><th>对应模型</th><th>额度使用</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="api-empty"><h2>还没有 API Key</h2><p>创建通用 Key 调用全部已开放模型，或从「我的模型」创建专属 Key。</p></div>'}<p class="api-caption">${keys.length} / 5 把有效 Key。${employeeApi?'额度由公司分配；可在此调整单个 Key 上限。':'充值后如需提高 Key 的消费上限，请在这里调整。'}</p></section>`;
+  return `<section class="personal-api api-key-manager" aria-labelledby="api-title"><div class="api-page-head"><div><h1 id="api-title">API 密钥</h1><p>通用 Key 可调用多个模型，专属 Key 只调用一个模型；模型专属余额不会因创建 Key 变成通用余额。</p></div><nav class="api-create-actions" aria-label="创建密钥"><a href="#personal/models">生成模型专属 Key</a><a class="pm-primary" href="#personal/connect/all" data-live="connect-unified">${ico('key-round')}创建通用 Key</a></nav></div><div class="api-balance-line"><span>${employeeApi?'公司可用额度':'额度合计'} <b>${personalMoney(p.list_credit_fen)}</b></span>${employeeApi?'<span>所有 Key 共用公司额度</span>':`<span>可分配额度 <b>${personalMoney(p.unallocated_fen)}</b></span><a href="#billing/personal">充值</a>`}</div>${keys.length?`<div class="api-table-wrap"><table data-nosort><thead><tr><th>密钥</th><th>对应模型</th><th>额度使用</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="api-empty"><h2>还没有 API Key</h2><p>创建通用 Key 调用全部已开放模型，或从「我的模型」创建专属 Key。</p></div>'}<p class="api-caption">${keys.length} / 5 把有效 Key。${employeeApi?'额度由公司分配；可在此调整单个 Key 上限。':'充值后如需提高 Key 的消费上限，请在这里调整。'}</p></section>`;
  }
  function paidKeyPanel(){
   const p=paidCredit;
@@ -1369,6 +1385,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  }
 
  // Personal billing keeps money paid, spendable credit and settled usage distinct.
+ let usagePageSize=20,usageFrom='',usageTo='';
  let billingView='recharge',billingRecordPage=0,billingInvoicePage=0,billingAmountDraft='100.00';
  const billingRoutesByView={recharge:'billing/personal',usage:'billing/personal/usage',history:billingHistoryRoute,refund:refundRoute,invoice:'billing/personal/invoices'};
  const billingQuotaMoney=value=>{
@@ -1413,7 +1430,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const max=split?BigInt(split.max_face_fen||split.face_fen||'0'):total,scale=max>total?max:total;
   const width=v=>scale>0n?Number(v*10000n/scale)/100:0;
   const refund=split?.refundable_fen;
-  return `<div class="pb-credit${overview?' ph-credit':''}"><div class="pb-credit-track" role="img" aria-label="实付剩余 ${personalMoney(String(paid))}，赠送剩余 ${personalMoney(String(gift))}"><span class="pb-credit-gift" style="width:${width(gift)}%"></span><span class="pb-credit-paid" style="width:${width(paid)}%"></span></div><div class="pb-credit-legend"><span><i class="pb-credit-paid"></i>实付 ${personalMoney(String(paid))}</span><span><i class="pb-credit-gift"></i>赠送 ${personalMoney(String(gift))}</span>${overview?`<span class="ph-credit-spent">累计消费 ${personalMoney(data.total_spent_fen)}</span>`:`<a href="#${refundRoute}">${refund==null?'查看可退金额':'当前可退 '+personalMoney(refund)} ${ico('arrow-right')}</a>`}</div></div>`;
+  return `<div class="pb-credit${overview?' ph-credit':''}"><div class="pb-credit-track" role="img" aria-label="实付剩余 ${personalMoney(String(paid))}，赠送剩余 ${personalMoney(String(gift))}"><span class="pb-credit-gift" style="width:${width(gift)}%"></span><span class="pb-credit-paid" style="width:${width(paid)}%"></span></div><div class="pb-credit-legend"><span><i class="pb-credit-paid"></i>实付 ${personalMoney(String(paid))}</span><span><i class="pb-credit-gift"></i>赠送 ${personalMoney(String(gift))}</span>${overview?`<span class="ph-credit-spent">累计实付消费 ${personalMoney(data.total_spent_fen)}</span>`:`<a href="#${refundRoute}">${refund==null?'查看可退金额':'当前可退 '+personalMoney(refund)} ${ico('arrow-right')}</a>`}</div></div>`;
  }
  function personalRechargeCompact(data){
   const channels=(data.recharge?.channels||[]).filter(c=>PAY_CHANNELS[c]);
@@ -1423,7 +1440,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const intent=readModelIntent(),next=intent?.scope==='personal'?'#personal/connect/'+esc(intent.id):'#personal/keys';
   if(o?.status==='pending'&&!o.expired&&(o.qr_svg||o.pay_url))return alipayPanel('personal',channels);
   if(o?.status==='paid')return `<div class="pb-paid"><h2>${ico('check')} 充值成功</h2>${rechargeBreakdown(o)}<p>${o.discount?.model_pack?`额度已到账，仅限 ${esc(o.discount.model_pack.name)} 使用。`:'额度已到账，可继续配置模型和 Key。'}</p><div><a class="live-button primary" href="${next}">继续接入</a>${btn('继续充值','alipay-reset')}</div></div>`;
-  return `<div class="pb-checkout"><div class="pb-amount-entry"><label for="alipay-yuan">充值金额（元）</label><div class="recharge-amount"><span aria-hidden="true">¥</span><input id="alipay-yuan" inputmode="decimal" autocomplete="off" maxlength="8" aria-describedby="pb-amount-help" value="${esc(billingAmountDraft)}"></div><div class="alipay-presets recharge-presets" aria-label="常用充值金额">${[5000,10000,50000,100000].map(f=>`<button type="button" aria-pressed="${Number(billingAmountDraft)*100===f}" class="alipay-preset ${Number(billingAmountDraft)*100===f?'active':''}" data-live="alipay-amount" data-fen="${f}">¥${f/100}</button>`).join('')}</div><p id="pb-amount-help" class="pb-muted">实付 ¥5–¥50,000，下一步核对到账额度。</p><label class="pb-promo" for="pack-promo">促销码 <span>选填</span><input id="pack-promo" autocomplete="off" maxlength="40" placeholder="有促销码可在此填写" value="${esc(cwInputCode)}"></label></div><div class="pb-pay-action"><span id="pb-channel-label">付款方式</span><div class="pb-payment-methods" role="group" aria-labelledby="pb-channel-label">${channels.map(c=>`<button type="button" class="pb-payment-method" data-live="pay-channel" data-channel="${c}" aria-label="${PAY_CHANNELS[c].name}" aria-pressed="${payChannel===c}">${c==='wechat_native'?'<img class="pb-wechat-logo" src="/assets/payments/wechat-pay.svg" alt="微信支付">':'<img class="pb-alipay-logo" src="/assets/payments/alipay.ico" alt="">支付宝'}<span class="pb-payment-check" aria-hidden="true">${payChannel===c?ico('check'):''}</span></button>`).join('')}</div><p class="pb-muted">实付金额 + 赠送额度 = 到账额度</p>${btn('核对金额，继续付款','alipay-create','type="button"','primary')}<p class="pb-payee">收款方：深圳市格洛可半导体有限公司</p><div id="live-form-message" role="status"></div></div></div>`;
+  return `<div class="pb-checkout"><div class="pb-amount-entry"><label for="alipay-yuan">实付金额（元）</label><div class="recharge-amount"><span aria-hidden="true">¥</span><input id="alipay-yuan" inputmode="decimal" autocomplete="off" maxlength="8" aria-describedby="pb-amount-help" value="${esc(billingAmountDraft)}"></div><div class="alipay-presets recharge-presets" aria-label="常用充值金额">${[5000,10000,50000,100000].map(f=>`<button type="button" aria-pressed="${Number(billingAmountDraft)*100===f}" class="alipay-preset ${Number(billingAmountDraft)*100===f?'active':''}" data-live="alipay-amount" data-fen="${f}">¥${f/100}</button>`).join('')}</div><p id="pb-amount-help" class="pb-muted">实付 ¥5–¥50,000，下一步核对到账额度。</p><label class="pb-promo" for="pack-promo">促销码 <span>选填</span><input id="pack-promo" autocomplete="off" maxlength="40" placeholder="有促销码可在此填写" value="${esc(cwInputCode)}" aria-describedby="cw-offer-help"></label><p id="cw-offer-help" class="pb-muted" role="status">${esc(cwOfferHelp())}</p></div><div class="pb-pay-action"><span id="pb-channel-label">付款方式</span><div class="pb-payment-methods" role="group" aria-labelledby="pb-channel-label">${channels.map(c=>`<button type="button" class="pb-payment-method" data-live="pay-channel" data-channel="${c}" aria-label="${PAY_CHANNELS[c].name}" aria-pressed="${payChannel===c}">${c==='wechat_native'?'<img class="pb-wechat-logo" src="/assets/payments/wechat-pay.svg" alt="微信支付">':'<img class="pb-alipay-logo" src="/assets/payments/alipay.ico" alt="">支付宝'}<span class="pb-payment-check" aria-hidden="true">${payChannel===c?ico('check'):''}</span></button>`).join('')}</div><p class="pb-muted">实付金额 + 赠送额度 = 到账额度</p>${btn('核对金额，继续付款','alipay-create','type="button"','primary')}<p class="pb-payee">收款方：深圳市格洛可半导体有限公司</p><div id="live-form-message" role="status"></div></div></div>`;
  }
  async function personalBillingPage(ticket,data){
   billingView=Object.keys(billingRoutesByView).find(k=>billingRoutesByView[k]===current)||'recharge';
@@ -1431,11 +1448,11 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   let invoiceData=null,invoiceLoading=false;
   const valid=()=>ticket===generation&&panelRedraw===draw;
   const draw=()=>{
-   const sub=['refund','invoice','invoice-history'].includes(billingView),kind=billingView==='history'?'recharge':billingView,cacheKey=kind+':'+billingRecordPage;
+   const sub=['refund','invoice','invoice-history'].includes(billingView),kind=billingView==='history'?'recharge':billingView,cacheKey=kind+':'+billingRecordPage+':'+usagePageSize+':'+usageFrom+':'+usageTo;
    let records=billingRecordCache[cacheKey];
    if(['usage','recharge','refund'].includes(kind)&&billingView!=='recharge'&&!records){
     records=billingRecordCache[cacheKey]={loading:true};
-    api(`/api/billing/personal/records?kind=${kind}&page=${billingRecordPage}`).then(r=>{billingRecordCache[cacheKey]=r;if(kind==='refund'&&valid())for(const p of r.items){data.packs=[...(data.packs||[]).filter(x=>x.id!==p.id),p];}},error=>{billingRecordCache[cacheKey]={failed:error.message};}).finally(()=>{if(valid())draw();});
+    api(`/api/billing/personal/records?kind=${kind}&page=${billingRecordPage}&page_size=${usagePageSize}&from=${encodeURIComponent(usageFrom)}&to=${encodeURIComponent(usageTo)}`).then(r=>{billingRecordCache[cacheKey]=r;if(kind==='refund'&&valid())for(const p of r.items){data.packs=[...(data.packs||[]).filter(x=>x.id!==p.id),p];}},error=>{billingRecordCache[cacheKey]={failed:error.message};}).finally(()=>{if(valid())draw();});
    }
    if(billingView.startsWith('invoice')&&!invoiceData&&!invoiceLoading){invoiceLoading=true;api('/api/billing/personal/invoices').then(r=>{invoiceData=r;},error=>{invoiceData={failed:error.message};}).finally(()=>{invoiceLoading=false;if(valid())draw();});}
    let body='',foot='';
@@ -1458,14 +1475,15 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    }else{
     const usage=billingView==='usage',rows=records?.items||[];
     const cell=(label,value)=>`<td data-label="${label}">${value}</td>`;
-    body=rows.length?`<table class="pb-table${usage?' pb-usage-table':''}" data-nosort><thead><tr><th>${usage?'模型 / Key':'充值时间 / 方式'}</th><th>${usage?'扣减额度':'实付金额'}</th><th>${usage?'实付费用':'赠送额度'}</th>${usage?'':'<th>到账额度</th>'}</tr></thead><tbody>${rows.map(r=>`<tr>${cell(usage?'模型 / Key':'充值时间 / 方式',usage?`<strong>${esc(r.model_name)}</strong><small title="${esc(r.key_label)} · ${esc(r.key_hint)}">${esc(r.key_label)} · ${esc(r.key_hint)}</small><time>${billingTime(r.created_at)}</time>`:`<strong>${billingTime(r.paid_at||r.created_at)}</strong><small>${esc(refundChannelName(r))}${r.refund_status==='succeeded'?' · 已退款':r.refund_id?' · 退款处理中':''}</small>`)}${usage?[['扣减额度',r.quota_fen],['实付费用',r.cash_fen]].map(([label,value])=>cell(label,esc(billingQuotaMoney(value)))).join(''):[['实付金额',r.cash_fen],['赠送额度',String(BigInt(r.face_fen)-BigInt(r.cash_fen))],['到账额度',r.face_fen]].map(([label,value])=>cell(label,personalMoney(value))).join('')}</tr>`).join('')}</tbody></table>`:`<div class="pb-empty"><h2>${usage?'还没有消费记录':'还没有充值记录'}</h2><p>${usage?'模型调用结算后，扣减额度与实付费用会显示在这里。':'完成充值后，可在这里核对每笔到账金额。'}</p></div>`;
+    body=rows.length?`<table class="pb-table${usage?' pb-usage-table':''}" data-nosort><thead><tr><th>${usage?'模型 / Key':'充值时间 / 方式'}</th><th>${usage?'扣减额度':'实付金额'}</th><th>${usage?'实付 / 赠送扣减':'赠送额度'}</th>${usage?'':'<th>到账额度</th>'}</tr></thead><tbody>${rows.map(r=>`<tr>${cell(usage?'模型 / Key':'充值时间 / 方式',usage?`<strong>${esc(r.model_name)}</strong><small title="${esc(r.key_label)} · ${esc(r.key_hint)}">${esc(r.key_label)} · ${esc(r.key_hint)}</small><time>${billingTime(r.created_at)}</time><small>${r.input_tokens==null?'Token 未记录':Number(r.input_tokens).toLocaleString()+' 输入 / '+Number(r.output_tokens||0).toLocaleString()+' 输出 Token'}</small>`:`<strong>${billingTime(r.paid_at||r.created_at)}</strong><small>${esc(refundChannelName(r))} · ${esc(r.model_name||'通用额度')}${r.refund_status==='succeeded'?' · 已退款':r.refund_id?' · 退款处理中':''}</small>`)}${usage?[['扣减额度',r.quota_fen],['实付 / 赠送扣减',r.cash_fen]].map(([label,value])=>cell(label,esc(billingQuotaMoney(value))+(label==='实付 / 赠送扣减'?`<small>赠送 ${r.gift_fen==null?'—':esc(billingQuotaMoney(r.gift_fen))}</small>`:''))).join(''):[['实付金额',r.cash_fen],['赠送额度',String(BigInt(r.face_fen)-BigInt(r.cash_fen))],['到账额度',r.face_fen]].map(([label,value])=>cell(label,personalMoney(value))).join('')}</tr>`).join('')}</tbody></table>`:`<div class="pb-empty"><h2>${usage?'还没有消费记录':'还没有充值记录'}</h2><p>${usage?'模型调用结算后，扣减额度与实付费用会显示在这里。':'完成充值后，可在这里核对每笔到账金额。'}</p></div>`;
     foot=`<span>${usage?'实付费用按分累计结算，赠送不计费。仅列已结算消费。':'记录充值时到账额度；当前剩余额度见上方余额。'} 时间为北京时间。</span>${billingPager(billingRecordPage,records?.has_more)}`;
    }
+   const filters=billingView==='usage'?`<div class="usage-filters" aria-label="消费明细筛选"><label>开始日期<input type="date" data-usage-from value="${esc(usageFrom)}"></label><label>结束日期<input type="date" data-usage-to value="${esc(usageTo)}"></label><label>每页<select data-usage-size aria-label="每页调用明细条数">${[20,50,100].map(n=>`<option value="${n}" ${usagePageSize===n?'selected':''}>${n} 条</option>`).join('')}</select></label><button type="button" class="live-button quiet" data-live="usage-filter">查询</button><button type="button" class="live-button quiet" data-live="usage-filter-clear">全部时间</button><button type="button" class="live-button primary" data-live="usage-export">导出 CSV</button><small>按北京时间筛选，包含结束当天；导出所选时间内全部已结算明细。</small></div>`:'';
    const balance=data.list_credit_exact_fen??data.list_credit_fen??data.cash_balance_fen??'0';
    const header=`<header class="pb-heading"><h1>充值与账单</h1><nav aria-label="账单服务">${sub?'<a href="#billing/personal">'+ico('arrow-left')+' 返回充值</a>':'<a href="#'+refundRoute+'">退款</a><a href="#billing/personal/invoices">发票</a>'}</nav></header>`;
    const activeOrder=billingView==='recharge'&&alipayPay?.scope==='personal'&&['pending','paid'].includes(alipayPay.order?.status)&&!alipayPay.order?.expired;
-   const summary=sub||activeOrder?'':`<div class="pb-balance"><div><span>额度余额</span><strong>${personalMoney(balance)}</strong></div></div>${personalBalanceBar(data)}${billingView==='recharge'?'<p class="pb-explainer">退款退可退实付，收回对应赠送。</p>':'<div class="pb-balance-gap"></div>'}<nav class="pu-tabs pb-tabs" aria-label="充值与账单">${[['recharge','充值'],['usage','消费账单'],['history','充值记录']].map(([key,label])=>`<a href="#${billingRoutesByView[key]}" ${billingView===key?'aria-current="page"':''}>${label}</a>`).join('')}<a href="/code-activity.html?audience=personal" target="_blank" rel="noopener">优惠码明细 ↗</a></nav>`;
-   mount(panelPage(null,'billing',panelBody(`<section class="personal-api personal-billing${sub?' pb-detail':''}">${header}${summary}<div class="pb-content">${body}</div>${foot?`<footer class="pb-foot">${foot}</footer>`:''}</section>`)));
+   const summary=sub||activeOrder?'':`<div class="pb-balance"><div><span>额度合计</span><strong>${personalMoney(balance)}</strong></div></div>${personalBalanceBar(data)}${personalScopedBalance(data,{compact:true})}${billingView==='recharge'?'<p class="pb-explainer">退款按原订单退可退实付，并收回对应赠送；额度合计不等于可退金额。</p>':'<div class="pb-balance-gap"></div>'}<nav class="pu-tabs pb-tabs" aria-label="充值与账单">${[['recharge','充值'],['usage','消费账单'],['history','充值记录']].map(([key,label])=>`<a href="#${billingRoutesByView[key]}" ${billingView===key?'aria-current="page"':''}>${label}</a>`).join('')}<a href="/code-activity.html?audience=personal" target="_blank" rel="noopener">优惠码明细 ↗</a></nav>`;
+   mount(panelPage(null,'billing',panelBody(`<section class="personal-api personal-billing${sub?' pb-detail':''}">${header}${summary}${filters}<div class="pb-content">${body}</div>${foot?`<footer class="pb-foot">${foot}</footer>`:''}</section>`)));
    if(billingView==='refund'&&focusRefundHeading){host.querySelector('#refund-heading')?.focus();focusRefundHeading=false;}
    if(billingView==='recharge'&&alipayPay?.scope==='personal'&&!alipayTimer)alipayWatch();
   };
@@ -1625,6 +1643,12 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const b=e.target.closest('[data-live]');if(!b)return;const action=b.dataset.live;let message=host?.querySelector('#live-form-message');b.disabled=true;
   try{
    if(action==='personal-tab'){if(!panelOrg&&['overview','models','keys','usage','compare'].includes(b.dataset.tab)){const target=b.dataset.tab==='overview'?'personal':'personal/'+b.dataset.tab;if(target&&current!==target){location.hash=target;return;}}personalTab=b.dataset.tab;if(host?.querySelector('.personal-console')&&!panelRedraw&&current!=='upgrade')updatePersonalDashboard();else location.hash='personal';}
+   else if(action==='usage-filter'||action==='usage-export'||action==='usage-filter-clear'){
+    const from=action==='usage-filter-clear'?'':host.querySelector('[data-usage-from]')?.value||'',to=action==='usage-filter-clear'?'':host.querySelector('[data-usage-to]')?.value||'';
+    if(from&&to&&from>to)throw Error('开始日期不能晚于结束日期。');
+    usageFrom=from;usageTo=to;usagePageSize=Number(host.querySelector('[data-usage-size]')?.value||20);billingRecordPage=0;panelRedraw?.();
+    if(action==='usage-export'){const a=document.createElement('a');a.href='/api/billing/personal/records/export?'+new URLSearchParams({from,to});a.download='semifly-usage.csv';document.body.append(a);a.click();a.remove();showToast('正在导出所选时间范围内的全部明细。');}
+   }
    else if(action==='billing-record-page'){billingRecordPage=Math.max(0,Number(b.dataset.page));panelRedraw?.();}
    else if(action==='billing-invoice-page'){billingInvoicePage=Math.max(0,Number(b.dataset.page));panelRedraw?.();}
    else if(action==='billing-subview'){billingView=b.dataset.billingView;panelRedraw?.();}
@@ -1650,7 +1674,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     if(ticket!==generation)return;
     paidCredit=credit;
     if(!panelOrg&&wholeFen(credit.list_credit_fen||0)<=0n){location.hash='billing/personal';return;}
-    if(!panelOrg&&BigInt(credit.unallocated_fen||0)<=0n){showToast('额度已分配给现有 Key，请调整消费上限或充值。');personalTab='keys';updatePersonalDashboard();return;}
+    if(!panelOrg&&wholeFen(credit.unallocated_fen||0)<=0n){showToast('额度已分配给现有 Key，请调整消费上限或充值。');personalTab='keys';updatePersonalDashboard();return;}
     paidKeyCreateForm(credit);
    }
    else if(action==='paid-revoke'){await api('/api/customer-credit/keys/'+b.dataset.id+'/revoke'+paidScope(),{});paidCredit=await api('/api/customer-credit/status'+paidScope());if(panelRedraw)panelRedraw();else updatePersonalDashboard();}
@@ -1686,7 +1710,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     if(ticket!==generation)return;
     rechargeReview={scope,orgId,channel,cashFen,promo,quote,ticket};
     dialog('核对充值金额',`<form class="live-form" id="live-recharge-confirm">
-      <p class="live-small">付款方式 · ${PAY_CHANNELS[channel].name}</p>${rechargeBreakdown(quote)}${quote.discount_snapshot?.model_pack?`<p class="live-small">仅限 ${esc(quote.discount_snapshot.model_pack.name)} 使用，实付和赠送按购买比例扣减。</p>`:''}
+      <p class="live-small">付款方式 · ${PAY_CHANNELS[channel].name}</p>${rechargeBreakdown(quote)}${quote.discount_snapshot?.model_pack?`<p class="live-small">模型优惠包 · ${esc(quote.discount_snapshot.model_pack.name)} · ${Number(quote.discount_snapshot.model_pack.price_bps)/1000} 折。仅限此模型，实付和赠送按购买比例扣减。</p>`:'<p class="live-small">通用额度 · 适用于账号已开放模型。</p>'}<p class="live-small">赠送额度到账后 180 天有效；实付额度不设有效期。退款按本订单规则退剩余可退实付，收回对应未用赠送。</p>
       ${quote.discount_snapshot?.refund_policy?.non_refundable?`<label class="refund-terms"><input type="checkbox" name="accept_refund_terms" required><span>我已阅读并同意：${esc(quote.discount_snapshot.refund_policy.reason)}</span></label>`:''}
       <div id="live-dialog-message" role="status"></div>
       <div class="recharge-confirm-actions">
@@ -2042,12 +2066,12 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  window.addEventListener('focus',()=>{if(!document.body.classList.contains('identity-active'))refreshPublic();});
  let cwLookupVersion=0;
  async function lookupCWOffer(value){
-  cwInputCode=value.trim();const version=++cwLookupVersion;cwOfferCode='';cwOfferKind='';
+  cwInputCode=value.trim();const version=++cwLookupVersion;cwOfferCode='';cwOfferKind='';cwOfferModel=null;
   try{
    const r=cwInputCode?await fetch('/api/cw/offers/'+encodeURIComponent(cwInputCode),{credentials:'same-origin'}):null;
    const offer=r?.ok?await r.json():null;
    if(version!==cwLookupVersion)return;
-   if(offer){cwOfferCode=cwInputCode;cwOfferKind=offer.kind||'';}
+   if(offer){cwOfferCode=cwInputCode;cwOfferKind=offer.kind||'';if(offer.model_id)cwOfferModel={name:offer.model_name||(window.SemiflyModels||[]).find(m=>m.id===offer.model_id)?.name||offer.model_id,discount:Number(offer.model_price_bps)/1000};}
   }catch{}
   if(version!==cwLookupVersion)return;
   const help=document.querySelector('#cw-offer-help');
@@ -2055,8 +2079,8 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
 }
  document.addEventListener('input',event=>{if(event.target.closest('#live-ticket')&&!panelOrg&&['subject','body','category'].includes(event.target.name))supportDraft[event.target.name]=event.target.value;});
  document.addEventListener('change',event=>{if(event.target.closest('#live-ticket')&&!panelOrg&&event.target.name==='category')supportDraft.category=event.target.value;});
- document.addEventListener('input',event=>{if(event.target.id==='pack-promo'&&host?.querySelector('.personal-billing'))cwInputCode=event.target.value;});
- document.addEventListener('change',event=>{if(event.target.matches('[data-billing-channel]'))payChannel=event.target.value;if(event.target.id==='pack-promo')lookupCWOffer(event.target.value);});
+ document.addEventListener('input',event=>{if(event.target.id==='pack-promo'&&host?.querySelector('.personal-billing')){cwInputCode=event.target.value;cwLookupVersion++;cwOfferCode='';cwOfferModel=null;const help=host.querySelector('#cw-offer-help');if(help)help.textContent=cwOfferHelp();}});
+ document.addEventListener('change',event=>{if(event.target.matches('[data-usage-size]'))host.querySelector('[data-live="usage-filter"]')?.click();if(event.target.matches('[data-billing-channel]'))payChannel=event.target.value;if(event.target.id==='pack-promo')lookupCWOffer(event.target.value);});
  if(cwInputCode)lookupCWOffer(cwInputCode);
  window.IdentityUI={refreshPublic,chooseModelIntent,customerSignedIn,handles:v=>handles(v)||v.startsWith('staff?'),route,cancel:()=>{personalConnectIssued=null;host?.querySelector('.personal-connect')?.replaceChildren();generation++;lastOrg=null;lastOrgBilling=null;opsPageCache.clear();document.body.classList.remove('identity-route-pending');}};
  function syncQuota(source){

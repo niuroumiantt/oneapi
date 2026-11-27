@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {fromNodeHeaders} from 'better-auth/node';
 import {createApp} from '../../server/src/app.mjs';
 import {migrate} from '../../server/src/migrate.mjs';
-import {config,HttpError} from '../../server/src/core.mjs';
+import {config,HttpError,vault} from '../../server/src/core.mjs';
 import {paymentRoutes,creditPaidOrder} from '../../server/src/payments.mjs';
 import {settlePaidCall} from '../../server/src/pack-ledger.mjs';
 import {OFFICIAL_MODELS} from '../../server/src/official-models.mjs';
@@ -96,6 +96,19 @@ app.post('/local-consume',express.urlencoded({extended:false}),customer,async(re
  await pool.query('UPDATE customer_api_keys SET revoked_at=now() WHERE id=$1',[key.id]);
  res.redirect('/local-lab');
 });
+if(process.env.LOCAL_PREVIEW_SCOPES==='true'){
+ // Exercise actual key issuance against local fixture routes. No inference egress.
+ process.env.SUPPLIER_LAB_SECRET='local-preview-vault-only-not-a-production-secret';
+ let supplier=(await pool.query("SELECT id FROM supplier_lab_suppliers WHERE name='Personal scopes local fixture'")).rows[0];
+ if(!supplier){
+  supplier=(await pool.query("INSERT INTO supplier_lab_suppliers(name,kind,created_by) VALUES('Personal scopes local fixture','supplier','preview-staff') RETURNING id")).rows[0];
+  const credential=(await pool.query("INSERT INTO supplier_lab_credentials(supplier_id,label,base_url,credential_ciphertext,credential_fingerprint,created_by) VALUES($1,'Local fixture','https://kerapi.cn/v1',$2,'personal-scopes-local','preview-staff') RETURNING id",[supplier.id,vault(process.env.SUPPLIER_LAB_SECRET).seal({key:'local-fixture-never-used'})])).rows[0];
+  for(const model of OFFICIAL_MODELS.filter(m=>cfg.customerPaid.models.includes(m.id)&&m.upstream==='kerapi')){
+   await pool.query("INSERT INTO supplier_lab_endpoints(label,kind,base_url,model_id,credential_fingerprint,created_by,supplier_id,credential_id) VALUES('Local fixture','supplier','https://kerapi.cn/v1',$1,'personal-scopes-local','preview-staff',$2,$3)",[model.upstreamModel,supplier.id,credential.id]);
+  }
+ }
+ app.use('/v1',(req,res)=>res.status(503).json({error:'本地预览不连接真实模型；请使用 local-lab 模拟调用。'}));
+}
 app.use(service.app);
 app.use((e,req,res,next)=>res.status(e.status||500).json({error:e.message}));
 app.listen(port,'127.0.0.1',()=>console.log(origin));
