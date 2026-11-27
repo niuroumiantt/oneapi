@@ -23,6 +23,17 @@ function disabled(account,entries,scope,totalRecharged,channels=[]){
  };
 }
 
+// Aggregate all batches with decimal precision, excluding frozen refunds and expired gifts.
+export async function readCreditScopes(pool,accountId){
+ return (await pool.query(`SELECT model_id,
+   sum(greatest(0,cash_fen-consumed_cash_fen-refunded_cash_fen))::text paid_fen,
+   sum(CASE WHEN gift_expires_at IS NULL OR gift_expires_at>=now()
+    THEN greatest(0,remaining_fen-greatest(0,cash_fen-consumed_cash_fen-refunded_cash_fen)) ELSE 0 END)::text gift_fen,
+   min(gift_expires_at) FILTER (WHERE gift_expires_at>=now() AND remaining_fen>greatest(0,cash_fen-consumed_cash_fen-refunded_cash_fen)) AS next_gift_expires_at
+   FROM credit_packs WHERE account_id=$1 AND refund_id IS NULL
+   GROUP BY model_id ORDER BY model_id NULLS FIRST`,[accountId])).rows.map(row=>({...row,name:row.model_id?modelPackName(row.model_id):'通用额度'}));
+}
+
 export function billingRoutes(app,pool,requireCustomer,cfg,payments){
  personalBillingRecordRoutes(app,pool,requireCustomer);
  app.get('/api/billing/personal/model-packs',requireCustomer,async(req,res)=>{
@@ -96,9 +107,10 @@ export function billingRoutes(app,pool,requireCustomer,cfg,payments){
    sum(CASE WHEN refund_id IS NULL AND (gift_expires_at IS NULL OR gift_expires_at>=now())
      THEN greatest(0,round(remaining_fen)-(cash_fen-consumed_cash_fen-refunded_cash_fen)) ELSE 0 END)::text gift_fen
    FROM credit_packs WHERE account_id=$1 AND model_id IS NOT NULL GROUP BY model_id ORDER BY model_id`,[account.id])).rows.map(row=>({...row,name:modelPackName(row.model_id)})):[];
+  const creditScopes=scope==='personal'&&account?await readCreditScopes(pool,account.id):[];
   const summary=disabled(account,entries.rows,scope,totalRecharged.rows[0].total_recharged_fen,channels);
   summary.recharge.channel_status=Object.fromEntries([['alipay_f2f',cfg.alipay],['wechat_native',cfg.wechat]].map(([key,config])=>[key,channels.includes(key)?'available':config?.enabled?'restricted':'unavailable']));
-  res.json({...summary,packs:packViews,model_balances:modelBalances,credit_split:creditSplit,usage_by_model:usage,...(bankTransfer?{bank_transfer:bankTransfer}:{})});
+  res.json({...summary,packs:packViews,model_balances:modelBalances,credit_scopes:creditScopes,credit_split:creditSplit,usage_by_model:usage,...(bankTransfer?{bank_transfer:bankTransfer}:{})});
  }
  app.get('/api/billing/personal',requireCustomer,async(req,res)=>{
   const account=(await pool.query('SELECT id,cash_balance_fen,list_credit_fen,total_spent_fen FROM billing_accounts WHERE owner_id=$1',[req.customer.id])).rows[0];

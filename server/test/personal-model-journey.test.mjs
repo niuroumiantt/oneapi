@@ -127,7 +127,7 @@ test('key manager renders decimal-fen production balances without a BigInt excep
  const context=vm.createContext({employeeApi:null,paidCredit:{models:catalog,keys:[key],list_credit_fen:'0.0000000000',unallocated_fen:'0'},ico:()=>'',esc});
  vm.runInContext(section(' const wholeFen=', ' const employeeCatalog='),context);
  vm.runInContext(section(' function personalApiContent(){',' function paidKeyPanel(){'),context);
- assert.match(vm.runInContext('personalApiContent()',context),/账户额度 <b>¥0.00<\/b>/);
+ assert.match(vm.runInContext('personalApiContent()',context),/额度合计 <b>¥0.00<\/b>/);
  for(const [value,want] of [['10000.0000000000','¥100.00'],['9999.9999999999','¥99.99'],['900719925474099312.1234567890','¥9007199254740993.12'],['-123.456','-¥1.23']]){
   assert.equal(vm.runInContext(`personalMoney(${JSON.stringify(value)})`,context),want);
  }
@@ -156,4 +156,17 @@ test('selected collection scopes a new shared key to only chosen open models',as
  chosen=[open[1].id];me.user.id='other-owner';assert.equal(vm.runInContext('prepareSelectedModelKey()',context),true);
  assert.deepEqual(Array.from(vm.runInContext('personalUnifiedSelectedModels().map(m=>m.id)',context)),[open[1].id]);
  me.user.id='selected-owner';assert.deepEqual(Array.from(vm.runInContext('personalUnifiedSelectedModels().map(m=>m.id)',context)),[open[0].id,open[2].id]);
+});
+
+
+test('model key form accepts decimal-fen API values and still renders generation',()=>{
+ const context=vm.createContext({employeeApi:null,me:{user:{id:'u'}},personalConnectIssued:null,personalConnectModelId:()=> 'deepseek-flash',personalCatalog:()=>catalog,personalModelAccess:()=>({action:'paid-create'}),personalConnectDrafts:new Map(),personalConnectDraftKey:id=>id,personalConnectStep:'key',personalConnectBusy:false,personalConnectConfig:()=>'',wholeFen,esc,ico:()=>'',personalMoney:n=>String(n),paidCredit:{enabled:true,models:catalog,keys:[],list_credit_fen:'14000.0000000000',unallocated_fen:'14000.0000000000'}});
+ const html=vm.runInContext(section(' function personalConnectContent(){',' async function createPersonalModelKey(')+'personalConnectContent()',context);
+ assert.match(html,/id="live-model-key"/);assert.match(html,/生成专属 Key/);assert.match(html,/value="10.00"/);
+});
+test('decimal unallocated credit permits issuing a reviewed key without rounding up',async()=>{
+ let posts=0;const context=vm.createContext({employeeApi:null,wholeFen,personalCatalog:()=>catalog,api:async(_,body)=>{if(body){posts++;return {secret:'fixture'};}return {enabled:true,models:catalog,keys:[],list_credit_fen:'1000.9999999999',unallocated_fen:'1000.9999999999'};}});
+ vm.runInContext(section(' async function createPersonalModelKey(', ' function personalRechargeNext('),context);
+ await vm.runInContext("createPersonalModelKey('deepseek-flash','decimal','10.00')",context);
+ await assert.rejects(vm.runInContext("createPersonalModelKey('deepseek-flash','decimal','10.01')",context));assert.equal(posts,1);
 });
