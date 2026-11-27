@@ -1,3 +1,4 @@
+import {modelPackName} from './model-packs.mjs';
 import {transferNotices} from './bank-transfers.mjs';
 import {personalBillingRecordRoutes} from './personal-billing-records.mjs';
 import {refundQuote} from './pack-ledger.mjs';
@@ -24,6 +25,20 @@ function disabled(account,entries,scope,totalRecharged,channels=[]){
 
 export function billingRoutes(app,pool,requireCustomer,cfg,payments){
  personalBillingRecordRoutes(app,pool,requireCustomer);
+ app.get('/api/billing/personal/model-packs',requireCustomer,async(req,res)=>{
+  const offset=Number(req.query.page??0);
+  const model=typeof req.query.model==='string'?req.query.model:null;
+  if(!Number.isSafeInteger(offset)||offset<0||offset>100000)throw new HttpError(400,'分页格式不正确');
+  const values=[req.customer.id,model,offset*3];
+  const {rows}=await pool.query(`SELECT p.id,p.model_id,p.created_at,p.face_fen,p.cash_fen,p.consumed_cash_fen,p.refunded_cash_fen,
+   p.remaining_fen, greatest(0,p.cash_fen-p.consumed_cash_fen-p.refunded_cash_fen) paid_left_fen,
+   greatest(0,round(p.remaining_fen)-(p.cash_fen-p.consumed_cash_fen-p.refunded_cash_fen)) gift_left_fen,
+   round(p.face_fen-p.removed_face_fen-p.remaining_fen)::text used_face_fen
+   FROM credit_packs p JOIN billing_accounts a ON a.id=p.account_id
+   WHERE a.owner_id=$1 AND a.organization_id IS NULL AND p.model_id=$2
+   ORDER BY p.created_at DESC,p.id DESC LIMIT 4 OFFSET $3`,values);
+  res.json({items:rows.slice(0,3),has_more:rows.length>3});
+ });
  async function view(account,scope,res,bankTransfer,channels=[]){
   const [entries,totalRecharged]=account?await Promise.all([
    pool.query('SELECT id,kind,amount_fen,balance_after_fen,reference_id,created_at FROM billing_ledger WHERE account_id=$1 ORDER BY id DESC LIMIT 50',[account.id]),
@@ -56,7 +71,7 @@ export function billingRoutes(app,pool,requireCustomer,cfg,payments){
    const q=await refundQuote(pool,p.id);
    const giftExpiresAt=p.gift_expires_at?new Date(p.gift_expires_at).getTime():null;
    const giftExpired=giftExpiresAt!==null&&giftExpiresAt<now;
-   packViews.push({...p,net_fen:q.refundable_fen,red_fen:q.red_fen,refundable_fen:q.refundable_fen,non_refundable_fen:q.non_refundable_fen,retained_fen:q.retained_fen,refund_restrictions:q.restrictions,manual_only:q.manual_only,bonus_fen:giftExpired?'0':q.bonus_fen,fee_fen:'0',refund_blocked:q.blocked,gift_expires_at:p.gift_expires_at,gift_expired:giftExpired});
+   packViews.push({...p,model_name:p.model_id?modelPackName(p.model_id):null,net_fen:q.refundable_fen,red_fen:q.red_fen,refundable_fen:q.refundable_fen,non_refundable_fen:q.non_refundable_fen,retained_fen:q.retained_fen,refund_restrictions:q.restrictions,manual_only:q.manual_only,bonus_fen:giftExpired?'0':q.bonus_fen,fee_fen:'0',refund_blocked:q.blocked,gift_expires_at:p.gift_expires_at,gift_expired:giftExpired});
    if(!p.refund_id){
     const red=BigInt(q.red_fen),green=giftExpired?0n:BigInt(q.bonus_fen);
     redFen+=red;greenFen+=green;paidFen+=BigInt(p.cash_fen);faceFen+=BigInt(p.face_fen);
@@ -75,9 +90,14 @@ export function billingRoutes(app,pool,requireCustomer,cfg,payments){
    max_face_fen:String(faceFen)
   };
   const usage=account?(await pool.query(`SELECT model_id,count(*)::int AS calls,coalesce(sum(input_tokens),0) AS input_tokens,coalesce(sum(output_tokens),0) AS output_tokens,coalesce(sum(charged_yuan),0) AS charged_yuan FROM customer_calls WHERE account_id=$1 GROUP BY model_id`,[account.id])).rows:[];
+  const modelBalances=scope==='personal'&&account?(await pool.query(`SELECT model_id,
+   sum(CASE WHEN refund_id IS NULL THEN cash_fen-consumed_cash_fen-refunded_cash_fen ELSE 0 END)::text paid_fen,
+   sum(CASE WHEN refund_id IS NULL AND (gift_expires_at IS NULL OR gift_expires_at>=now())
+     THEN greatest(0,round(remaining_fen)-(cash_fen-consumed_cash_fen-refunded_cash_fen)) ELSE 0 END)::text gift_fen
+   FROM credit_packs WHERE account_id=$1 AND model_id IS NOT NULL GROUP BY model_id ORDER BY model_id`,[account.id])).rows.map(row=>({...row,name:modelPackName(row.model_id)})):[];
   const summary=disabled(account,entries.rows,scope,totalRecharged.rows[0].total_recharged_fen,channels);
   summary.recharge.channel_status=Object.fromEntries([['alipay_f2f',cfg.alipay],['wechat_native',cfg.wechat]].map(([key,config])=>[key,channels.includes(key)?'available':config?.enabled?'restricted':'unavailable']));
-  res.json({...summary,packs:packViews,credit_split:creditSplit,usage_by_model:usage,...(bankTransfer?{bank_transfer:bankTransfer}:{})});
+  res.json({...summary,packs:packViews,model_balances:modelBalances,credit_split:creditSplit,usage_by_model:usage,...(bankTransfer?{bank_transfer:bankTransfer}:{})});
  }
  app.get('/api/billing/personal',requireCustomer,async(req,res)=>{
   const account=(await pool.query('SELECT id,cash_balance_fen,list_credit_fen,total_spent_fen FROM billing_accounts WHERE owner_id=$1',[req.customer.id])).rows[0];

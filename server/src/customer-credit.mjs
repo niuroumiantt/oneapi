@@ -1,3 +1,4 @@
+import {availableForModel} from './model-packs.mjs';
 import {performance} from 'node:perf_hooks';
 import {HttpError,hash,id,text,token,transaction,audit} from './core.mjs';
 import {employeeRoutes,holdYuan,officialFromLog,usageFrom} from './employee-credit.mjs';
@@ -22,10 +23,11 @@ export function paidBackend(pool,cfg){return {
  async reserve({key,model,route,hold,origin}){
   return transaction(pool,async db=>{
    const a=(await db.query('SELECT * FROM billing_accounts WHERE id=$1 FOR UPDATE',[key.account_id])).rows[0];
-   const n=(await db.query(`SELECT coalesce(sum(hold_yuan)*100,0) AS held,count(*) FILTER(WHERE status='pending')::int AS active FROM customer_calls WHERE account_id=$1 AND status IN ('pending','awaiting_bill')`,[a.id])).rows[0];
+   const n=(await db.query(`SELECT count(*) FILTER(WHERE status='pending')::int AS active FROM customer_calls WHERE account_id=$1 AND status IN ('pending','awaiting_bill')`,[a.id])).rows[0];
    if(n.active>=10)throw new HttpError(429,'当前付费账户同时最多 10 个请求','concurrency_limit_exceeded');
-   const enough=(await db.query('SELECT $1::numeric-$2::numeric >= $3::numeric*100 AS ok',[a.list_credit_fen,n.held,hold])).rows[0].ok;
-   if(!enough)throw new HttpError(402,'可用官价额度不足，请购买额度包或调小 max_tokens');
+   const available=await availableForModel(db,a.id,model.id);
+   const enough=(await db.query('SELECT $1::numeric >= $2::numeric*100 AS ok',[available,hold])).rows[0].ok;
+   if(!enough)throw new HttpError(402,'该模型可用额度不足，请充值或调小 max_tokens');
    const spent=(await db.query("SELECT coalesce(sum(coalesce(charged_yuan,CASE WHEN status IN ('pending','awaiting_bill') THEN hold_yuan END)),0) AS n FROM customer_calls WHERE key_id=$1",[key.key_id])).rows[0].n;
    if(!(await db.query('SELECT $1::numeric+$2::numeric <= $3::numeric AS ok',[spent,hold,key.limit_yuan])).rows[0].ok)throw new HttpError(402,'这把 Key 的消费上限不足','key_limit_reached');
    return (await db.query(`INSERT INTO customer_calls(account_id,key_id,owner_id,model_id,credential_id,price_snapshot,status,hold_yuan,client,gateway_instance) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9) RETURNING id`,[a.id,key.key_id,key.owner_id,model.id,route.credentialId,{...model.rates,multiplier:model.multiplier},hold,origin.client,GATEWAY_INSTANCE])).rows[0].id;

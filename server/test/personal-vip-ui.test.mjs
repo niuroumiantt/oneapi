@@ -62,7 +62,7 @@ test('contracts distinguish unavailable signing, real pending tasks and archived
 
 test('promotion list uses scoped totals, hides self codes and keeps three independent metrics',async()=>{
  const h=harness('active',{data:{activity:{promotion:{paid_fen:10000,used_fen:3000,commission_fen:750},codes:[{code_id:'promo',paid_fen:10000,used_fen:3000,commission_fen:750}]},codes:[{id:'promo',code:'PROMO',name:'活动',paid_fen:99999},{id:'self',code:'SELF',is_self_code:true,paid_fen:90000}]}});
- const html=await h.draw('codes');assert.match(html,/客户实付.*¥100.00/);assert.match(html,/实际消费.*¥30.00/);assert.match(html,/已记提成.*¥7.50/);assert.doesNotMatch(html,/¥999.99|SELF|width:|未消费/);
+ const html=await h.draw('codes');assert.match(html,/客户实付.*¥100.00/);assert.match(html,/消费额度.*¥30.00/);assert.match(html,/已记提成.*¥7.50/);assert.doesNotMatch(html,/¥999.99|SELF|width:|未消费/);
  const empty=vm.runInContext('promotionMoneyStrip({})',h.ctx);assert.doesNotMatch(empty,/NaN|Infinity/);
 });
 test('creation receipt separates the management name from the customer payment code',async()=>{

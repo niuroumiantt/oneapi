@@ -32,7 +32,7 @@ export async function readPersonalBillingRecords(pool,owner,kind='usage',page='0
  `,[owner,size+1,offset]);
  const items=result.rows.slice(0,size);
  for(const item of items){
-  if(kind==='usage')item.model_name=findOfficialModel(item.model_id)?.name||item.model_id;
+  if(item.model_id)item.model_name=findOfficialModel(item.model_id)?.name||item.model_id;
   if(kind==='refund'){
    const q=await refundQuote(pool,item.id),expired=item.gift_expires_at&&new Date(item.gift_expires_at)<new Date();
    Object.assign(item,{net_fen:q.refundable_fen,red_fen:q.red_fen,refundable_fen:q.refundable_fen,non_refundable_fen:q.non_refundable_fen,retained_fen:q.retained_fen,refund_restrictions:q.restrictions,manual_only:q.manual_only,bonus_fen:expired?'0':q.bonus_fen,fee_fen:'0',refund_blocked:q.blocked});
