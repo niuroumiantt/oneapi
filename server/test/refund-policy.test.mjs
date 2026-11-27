@@ -4,6 +4,8 @@ import {randomUUID} from 'node:crypto';
 import pg from 'pg';
 import express from 'express';
 import {createApp} from '../src/app.mjs';
+import {paidBackend} from '../src/customer-credit.mjs';
+import {generateNextVipStatement} from '../src/vip-statements.mjs';
 import {config,HttpError} from '../src/core.mjs';
 import {migrate} from '../src/migrate.mjs';
 import {businessConsoleRoutes,customerBusinessRoutes,requireFinance} from '../src/business-console.mjs';
@@ -16,8 +18,8 @@ const url=process.env.TEST_REFUND_POLICY_DATABASE_URL,skip=!url;
 let pool,server,origin,cfg,auth;let refundMode='SUCCESS',refundCalls=0;
 before(async()=>{
  if(skip)return;assert.match(new URL(url).pathname,/_test$/);
- pool=new pg.Pool({connectionString:url});cfg=config({DATABASE_URL:url,APP_ORIGIN:'http://127.0.0.1:4180',BETTER_AUTH_SECRET:'policy-fixture-secret-12345678901234567890',CW_ENABLED:'true'});
- auth=createApp(pool,cfg,{sendMail:async()=>({}),verify:async()=>true}).auth;await migrate(pool,auth);await pool.query('TRUNCATE "user",staff_members CASCADE');
+ pool=new pg.Pool({connectionString:url});cfg=config({DATABASE_URL:url,APP_ORIGIN:'http://127.0.0.1:4180',BETTER_AUTH_SECRET:'policy-fixture-secret-12345678901234567890',CW_ENABLED:'true',CUSTOMER_PAID_ENABLED:'true',CUSTOMER_PAID_MODELS:'deepseek-flash,glm-5.3,glm-5.3-flash'});
+ auth=createApp(pool,cfg,{sendMail:async()=>({}),verify:async()=>true}).auth;await migrate(pool,auth);await pool.query('TRUNCATE "user",staff_members,model_pack_offers CASCADE');
  for(const [subject,role]of [['admin','platform_admin'],['sales','operations'],['finance','finance']])await pool.query('INSERT INTO staff_members(subject,email,name,role,status) VALUES($1,$2,$1,$3,\'active\')',[subject,subject+'@test.invalid',role]);
  const app=express();app.use(express.json());
  const customer=(req,res,next)=>{if(!req.headers['x-user'])throw new HttpError(401,'login');req.customer={id:req.headers['x-user'],email:req.headers['x-user']+'@test.invalid'};req.actor={kind:'customer',id:req.customer.id};next();};
@@ -154,4 +156,103 @@ test('gift expiry cannot turn into cash consumption, and closed tickets cannot a
  const t=await ticket(w);await pool.query("UPDATE support_tickets SET status='closed' WHERE id=$1",[t]);
  assert.equal((await api('/api/staff/payments/orders/'+p.order.id+'/refunds',{reason:'closed ticket',policy_ticket_id:t,expected_amount_fen:18000,idempotency_key:randomUUID()},{staff:'admin'})).status,409);
  assert.equal((await selfRefund(w,p.pack,9999)).status,409,'stale confirmed amount cannot refund');
+});
+
+test('model code → confirmed payment → isolated metering → original-order refund → monthly statement',{skip},async()=>{
+ cfg.cw.modelPacks=true;
+ try {
+  const vip=await person({vip:true,state:'active'}),buyer=await person(),buyer2=await person();
+  await pool.query("UPDATE cw_partners SET promotion_trial_until=now()+interval '7 days' WHERE id=$1",[vip.partner]);
+  await pool.query(`INSERT INTO model_pack_offers(model_id,min_price_bps,settlement_bps)
+   VALUES ('deepseek-flash',5000,4000),('glm-5.3',7000,5800),('glm-5.3-flash',8000,6500)`);
+  assert.equal((await api('/api/cw/codes',{name:'Missing model'},{user:vip.user})).status,400);
+  assert.equal((await api('/api/cw/codes',{name:'Below floor',model_id:'glm-5.3',model_price_bps:6999},{user:vip.user})).status,409);
+  const backend=paidBackend(pool,cfg);
+  const {id:keyId}= (await pool.query(`INSERT INTO customer_api_keys(account_id,owner_id,label,secret_hash,key_hint,model_ids,limit_yuan)
+   VALUES($1,$2,'test',$3,'test',$4,1000) RETURNING id`,[buyer.account.id,buyer.user,randomUUID(),cfg.customerPaid.models])).rows[0];
+  const reserve=(model,amount)=>backend.reserve({key:{account_id:buyer.account.id,key_id:keyId,owner_id:buyer.user,limit_yuan:'1000'},
+   model:{id:model,rates:{},multiplier:1},route:{credentialId:null},hold:String(amount),origin:{client:'fixture'}});
+  const examples=[
+   ['deepseek-flash',5000,5000,20,1000,4000,4000,200],
+   ['deepseek-flash',6500,6500,20,1300,5200,2800,500],
+   ['glm-5.3',7000,7000,30,2100,4900,2100,360],
+   ['glm-5.3-flash',8000,8000,40,3200,4800,1200,600],
+  ];
+  const orders=[];
+  for(const [model,rate,cash] of examples){
+   const made=await api('/api/cw/codes',{name:model+' '+rate,model_id:model,model_price_bps:rate},{user:vip.user});
+   assert.equal(made.status,201,JSON.stringify(made.data));
+   const promo_code=made.data.code;
+   const quote=await api('/api/billing/quote',{cash_fen:cash,promo_code},{user:buyer.user});
+   assert.equal(quote.status,200,JSON.stringify(quote.data));
+   assert.equal(quote.data.face_fen,10000);
+   assert.equal(quote.data.discount_snapshot.model_pack.id,model);
+   assert.equal((await api('/api/billing/quote',{cash_fen:cash,promo_code},{user:vip.user})).status,400);
+   const request={cash_fen:cash,promo_code,expected_cash_fen:cash,expected_face_fen:10000,idempotency_key:randomUUID()};
+   assert.equal((await api('/api/billing/personal/wechat-orders',request,{user:buyer.user})).status,409);
+   request.model_pack_confirmation=quote.data.discount_snapshot.model_pack_confirmation;
+   const checkout=await api('/api/billing/personal/wechat-orders',request,{user:buyer.user});
+   assert.equal(checkout.status,201,JSON.stringify(checkout.data));
+   const order=(await pool.query('SELECT * FROM payment_orders WHERE id=$1',[checkout.data.order.id])).rows[0];
+   assert.equal((await api('/api/billing/personal/wechat-orders',request,{user:buyer.user})).data.order.id,order.id);
+   const receipt={provider:'wechat_native',tradeNo:randomUUID(),totalFen:cash};
+   const results=await Promise.all(Array.from({length:2},()=>creditPaidOrder(pool,order.out_trade_no,receipt,'local-fixture')));
+   assert.equal(results.filter(x=>x.credited).length,1);
+   const {id:packId}=(await pool.query("SELECT id FROM credit_packs WHERE source_kind='payment' AND source_id=$1",[order.id])).rows[0];
+   assert.equal((await pool.query('SELECT unlocked_fen FROM cw_commissions WHERE order_id=$1',[order.id])).rows[0].unlocked_fen,'0');
+   orders.push({order,packId});
+  }
+  const foreign=(await api('/api/billing/personal/model-packs?model=deepseek-flash',undefined,{user:buyer2.user})).data;
+  assert.deepEqual(foreign.items,[]);
+  await assert.rejects(reserve('deepseek-v4-pro',1),{status:402});
+  const held=await reserve('glm-5.3',90);
+  await assert.rejects(reserve('glm-5.3',11),{status:402});
+  await pool.query("UPDATE customer_calls SET status='failed' WHERE id=$1",[held]);
+  // A model policy change after payment must not reprice this order.
+  await pool.query("UPDATE model_pack_offers SET enabled=false WHERE model_id='deepseek-flash'");
+  await pool.query("INSERT INTO model_pack_offers(model_id,min_price_bps,settlement_bps) VALUES('deepseek-flash',6000,5500)");
+  for(let i=0;i<examples.length;i++){
+   const [model,,cash,used,spent,refund,gift,commission]=examples[i],{order,packId}=orders[i];
+   const call=await reserve(model,used);
+   await Promise.all([1,2].map(()=>settlePaidCall(pool,call,String(used),{input:1,output:1},'fixture',null,1)));
+   let quote=await refundQuote(pool,packId);
+   assert.deepEqual([quote.consumed_cash_fen,quote.refundable_fen,quote.bonus_fen],[String(spent),String(refund),String(gift)]);
+   if(i===0){
+    await migrate(pool,auth);
+    assert.equal((await refundQuote(pool,packId)).consumed_cash_fen,String(spent));
+   }
+   assert.equal((await selfRefund(buyer2,{id:packId},refund)).status,404);
+   if(i===0){
+    refundMode='REJECTED';
+    const failure=await selfRefund(buyer,{id:packId},refund);
+    refundMode='SUCCESS';
+    assert.equal(failure.data.status,'failed',JSON.stringify(failure.data));
+    quote=await refundQuote(pool,packId);
+    assert.equal(quote.refundable_fen,String(refund));
+   }
+   const refundKey=randomUUID();
+   const result=await selfRefund(buyer,{id:packId},refund,refundKey);
+   assert.equal(result.data.status,'succeeded',JSON.stringify(result.data));
+   assert.equal((await selfRefund(buyer,{id:packId},refund,refundKey)).data.refund_id,result.data.refund_id);
+   assert.deepEqual((await pool.query('SELECT used_cash_fen,unlocked_fen,expected_fen FROM cw_commissions WHERE order_id=$1',[order.id])).rows[0],
+    {used_cash_fen:String(spent),unlocked_fen:String(commission),expected_fen:String(commission)});
+   assert.equal((await pool.query('SELECT refunded_fen FROM payment_orders WHERE id=$1',[order.id])).rows[0].refunded_fen,String(cash-spent));
+  }
+  const vipView=await api('/api/cw/me',undefined,{user:vip.user});
+  assert.equal(vipView.status,200,JSON.stringify(vipView.data));
+  assert.deepEqual(vipView.data.activity.promotion,{paid_fen:'26500',used_fen:'7600',used_quota_fen:'11000',refunded_fen:'18900',commission_fen:'1660'});
+  assert.equal(vipView.data.activity.personal.paid_fen,'0');
+  const account=(await pool.query('SELECT cash_balance_fen,list_credit_fen,total_spent_fen FROM billing_accounts WHERE id=$1',[buyer.account.id])).rows[0];
+  assert.deepEqual(account,{cash_balance_fen:'0',list_credit_fen:'0.0000000000',total_spent_fen:'7600'});
+  const now=new Date((await pool.query("SELECT date_trunc('month',now())+interval '1 month 2 days' AS ts")).rows[0].ts);
+  while(await generateNextVipStatement(pool,{now})){}
+  const {rows:[statement]}=await pool.query(`SELECT v.snapshot,substring(v.pdf for 4) AS header FROM cw_vip_statement_versions v
+   JOIN cw_vip_statements s ON s.id=v.statement_id WHERE partner_id=$1 ORDER BY s.month DESC LIMIT 1`,[vip.partner]);
+  assert.equal(statement.header.toString(),'%PDF');
+  assert.equal(statement.snapshot.totals.commission_fen,'1660');
+  assert.ok(statement.snapshot.entries.some(e=>e.model==='GLM-5.3'&&e.kind==='used'&&Number(e.face_fen)===3000));
+  assert.ok(!JSON.stringify(statement.snapshot).includes(buyer.user));
+  await migrate(pool,auth);
+  assert.equal((await pool.query('SELECT consumed_cash_fen FROM credit_packs WHERE id=$1',[orders[0].packId])).rows[0].consumed_cash_fen,'1000');
+ } finally {cfg.cw.modelPacks=false;refundMode='SUCCESS';}
 });

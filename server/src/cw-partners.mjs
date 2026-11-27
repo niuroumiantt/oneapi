@@ -1,3 +1,4 @@
+import { modelPackOffers, modelPackOffer, modelPackName } from './model-packs.mjs';
 import { vipMetrics } from './vip-metrics.mjs';
 import { vipStatementRoutes, vipMonthlySummary } from './vip-statements.mjs';
 import { vipActivationProgress, qualifyingVipRecharge, rechargeFields, rechargeLedger, verifiedExceptionOrder } from './vip-recharges.mjs';
@@ -145,7 +146,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     if (task) return res.json({ ...task, kind: 'task' });
     const r = (
       await pool.query(
-        `SELECT c.code,c.customer_price_percent FROM cw_codes c JOIN cw_partners p ON p.id=c.partner_id WHERE c.code=$1 AND c.status='active' AND p.status='active' AND c.starts_at<=now() AND c.ends_at>now() AND ${promotionEligible('c.is_self_code')}`,
+        `SELECT c.code,c.customer_price_percent,c.model_id,c.model_price_bps FROM cw_codes c JOIN cw_partners p ON p.id=c.partner_id WHERE c.code=$1 AND c.status='active' AND p.status='active' AND c.starts_at<=now() AND c.ends_at>now() AND ${promotionEligible('c.is_self_code')}`,
         [code],
       )
     ).rows[0];
@@ -242,7 +243,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       SELECT c.code_id,sum(e.cash_fen) refunded_fen FROM cw_commissions c
       JOIN cw_commission_events e ON e.order_id=c.order_id AND e.kind='refund'
       WHERE c.partner_id=$1 GROUP BY c.code_id
-    ) SELECT k.id,k.code,k.name,k.status,k.customer_price_percent,k.commission_bps,k.is_self_code,k.starts_at,k.ends_at,
+    ) SELECT k.id,k.code,k.name,k.status,k.customer_price_percent,k.commission_bps,k.is_self_code,k.starts_at,k.ends_at,k.model_id,k.model_price_bps,
       coalesce(e.paid_fen,0)::text paid_fen,coalesce(e.used_fen,0)::text used_fen,
       coalesce(e.expected_fen,0)::text expected_fen,coalesce(e.unlocked_fen,0)::text unlocked_fen,
       coalesce(a.available_fen,0)::text available_fen,coalesce(r.payout_pending_fen,0)::text payout_pending_fen,
@@ -251,6 +252,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     FROM cw_codes k LEFT JOIN earnings e ON e.code_id=k.id LEFT JOIN ready a ON a.code_id=k.id
       LEFT JOIN reserved r ON r.code_id=k.id LEFT JOIN refunds f ON f.code_id=k.id LEFT JOIN monthly m ON m.code_id=k.id
     WHERE k.partner_id=$1 ORDER BY k.is_self_code DESC,k.created_at`, [p.id])).rows;
+    for (const code of codes) if (code.model_id) code.model_name = modelPackName(code.model_id);
     const totals = Object.fromEntries(
       ['paid_fen','used_fen','expected_fen','unlocked_fen','available_fen','payout_pending_fen','paid_out_fen','refunded_fen']
         .map(key => [key, codes.reduce((sum, code) => sum + BigInt(code[key]), 0n).toString()]),
@@ -289,6 +291,8 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       partner: publicPartner(p),
       totals,
       activity: await vipMetrics(pool,p.id,p.user_id),
+      model_pack_required: Boolean(cfg.cw?.modelPacks),
+      model_pack_offers: p.status==='active'&&cfg.cw?.modelPacks ? await modelPackOffers(pool,saleModels) : [],
       monthly: await vipMonthlySummary(pool,p.id),
       codes,
       contracts,
@@ -313,10 +317,16 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
     ).rows;
     res.json({ events: rows.slice(0, 50), has_more: rows.length > 50 });
   });
+  const saleModels = cfg.customerPaid?.enabled ? cfg.customerPaid.models : [];
   app.post('/api/cw/codes', requireCustomer, enabled, async (req, res) => {
     const b = req.body || {},
-      name = text(b.name, '推广码名称', 60),
-      percent = integer(b.customer_price_percent ?? 50, 50, 100, '客户价格比例');
+      name = text(b.name, '推广码名称', 60);
+    const modelId = b.model_id ?? null;
+    if (cfg.cw.modelPacks && !modelId) throw new HttpError(400,'请为促销码选择一个模型');
+    if (modelId && !cfg.cw.modelPacks) throw new HttpError(409,'模型促销暂未开放');
+    // Preserve the legacy percent column for old readers. Model sale math uses basis points.
+    const percent = modelId ? Math.max(50,Math.ceil(b.model_price_bps/100)) :
+      integer(b.customer_price_percent ?? 50, 50, 100, '客户价格比例');
     const c = await transaction(pool, async (db) => {
       const p = await partner(db, req.customer.id, true);
       if (p.status !== 'active') throw new HttpError(403, '请先开通正式 VIP');
@@ -332,12 +342,13 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
         50
       )
         throw new HttpError(409, '每名 VIP 最多 50 个推广码，停用码也保留在记录中');
+      if (modelId) await modelPackOffer(db,modelId,saleModels,b.model_price_bps);
       const r = (
         await db.query(
-          `INSERT INTO cw_codes(partner_id,code,name,customer_price_percent,commission_bps,status,starts_at,ends_at)
-           VALUES($1,$2,$3,$4,$5,'active',statement_timestamp(),$6)
-           RETURNING id,code,name,status,customer_price_percent,commission_bps,starts_at,ends_at`,
-          [p.id, await uniqueCode(db), name, percent, commissionBps(percent), expiresAt],
+          `INSERT INTO cw_codes(partner_id,code,name,customer_price_percent,commission_bps,status,starts_at,ends_at,model_id,model_price_bps)
+           VALUES($1,$2,$3,$4,$5,'active',statement_timestamp(),$6,$7,$8)
+           RETURNING id,code,name,status,customer_price_percent,commission_bps,starts_at,ends_at,model_id,model_price_bps`,
+          [p.id, await uniqueCode(db), name, percent, modelId?0:commissionBps(percent), expiresAt, modelId,modelId?b.model_price_bps:null],
         )
       ).rows[0];
       await audit(db, req.actor, 'cw.code_created', null, r.id, {
@@ -345,7 +356,7 @@ export function cwRoutes(app, pool, requireCustomer, requireStaff, cfg, mail) {
       });
       return r;
     });
-    res.status(201).json(c);
+    res.status(201).json({ ...c, model_name: c.model_id ? modelPackName(c.model_id) : null });
   });
   app.get('/api/cw/codes/:code/qr', requireCustomer, enabled, async (req, res) => {
     const p = await partner(pool, req.customer.id),
@@ -962,7 +973,7 @@ const ref=(await db.query('SELECT e.order_id,o.account_id FROM vip_activation_ex
           ).rowCount
         )
           throw new HttpError(409, '请先完成合同与身份核验，或由管理员开通推广试用');
-        const percent = integer(b.customer_price_percent, 50, 100, '价格比例'),
+        const percent = c.model_id ? c.customer_price_percent : integer(b.customer_price_percent, 50, 100, '价格比例'),
           start = new Date(b.starts_at),
           end = new Date(b.ends_at);
         if (
@@ -976,7 +987,7 @@ const ref=(await db.query('SELECT e.order_id,o.account_id FROM vip_activation_ex
           throw new HttpError(409, '此码与历史活动冲突，请联系管理员');
         await db.query(
           'UPDATE cw_codes SET status=$2,customer_price_percent=$3,commission_bps=$4,starts_at=$5,ends_at=$6,approved_by=$7 WHERE id=$1',
-          [cid, state, percent, commissionBps(percent), start, end, req.staff.subject],
+          [cid, state, percent, c.model_id?0:commissionBps(percent), start, end, req.staff.subject],
         );
       } else await db.query('UPDATE cw_codes SET status=$2 WHERE id=$1', [cid, state]);
       await audit(db, req.actor, 'cw.code_reviewed', null, cid, {

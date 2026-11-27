@@ -16,4 +16,4 @@ COMMENT ON COLUMN payment_refunds.bonus_fen IS 'Gift (green) credit forfeited wh
 -- Refunded packs are left untouched: their cash split is historical fact.
 UPDATE credit_packs
 SET consumed_cash_fen = LEAST(cash_fen-coalesce((to_jsonb(credit_packs)->>'refunded_cash_fen')::bigint,0), greatest(0,floor(face_fen-coalesce((to_jsonb(credit_packs)->>'removed_face_fen')::numeric,0)-remaining_fen)))::bigint
-WHERE refund_id IS NULL;
+WHERE refund_id IS NULL AND to_jsonb(credit_packs)->>'model_id' IS NULL;

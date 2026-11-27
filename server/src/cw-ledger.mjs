@@ -1,3 +1,4 @@
+import { quoteModelPack } from './model-packs.mjs';
 import { HttpError } from './core.mjs';
 // VIP base cost is 40% of list price; a VIP's commission is whatever they sell above that.
 // commission_bps = (customer_price_percent - 40) * 100. Sell at 50% -> 10%, at 80% -> 40%.
@@ -19,6 +20,11 @@ export const normalizedCode = (value) =>
 export async function creditCW(db, order, pack) {
   const s = order.discount_snapshot?.cw;
   if (!s || s.is_self_code) return;
+  const model = order.discount_snapshot.model_pack;
+  // Model orders reserve a ceiling internally, but the paid event earns nothing.
+  const expected = model
+    ? BigInt(order.face_fen) * BigInt(model.price_bps - model.settlement_bps) / 10000n
+    : commissionFen(order.amount_fen, s.percent);
   await db.query(
     `INSERT INTO cw_commissions(order_id,pack_id,partner_id,code_id,cash_fen,rate_bps,expected_fen)
  VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(order_id) DO NOTHING`,
@@ -29,35 +35,44 @@ export async function creditCW(db, order, pack) {
       s.code_id,
       order.amount_fen,
       s.rate_bps,
-      commissionFen(order.amount_fen, s.percent).toString(),
+      expected.toString(),
     ],
   );
   await db.query(
-    `INSERT INTO cw_commission_events(order_id,event_key,kind,cash_fen,commission_fen) VALUES($1,$2,'paid',$3,$4) ON CONFLICT(event_key) DO NOTHING`,
-    [order.id, 'paid:' + order.id, order.amount_fen, commissionFen(order.amount_fen, s.percent).toString()],
+    `INSERT INTO cw_commission_events(order_id,event_key,kind,cash_fen,commission_fen,model_id,face_fen) VALUES($1,$2,'paid',$3,$4,$5,$6) ON CONFLICT(event_key) DO NOTHING`,
+    [order.id, 'paid:' + order.id, order.amount_fen, model?'0':expected.toString(), model?.id??null, model?order.face_fen:null],
   );
 }
 // Cumulate before rounding, so many sub-cent API calls earn the same commission as one call.
 export async function consumeCW(db, packId, callId) {
   const c = (
     await db.query(
-      'SELECT c.*,p.consumed_cash_fen FROM cw_commissions c JOIN credit_packs p ON p.id=c.pack_id WHERE c.pack_id=$1 FOR UPDATE OF c',
-      [packId],
+      `SELECT c.*,p.consumed_cash_fen,p.model_id,
+       x.face_fen AS call_face,
+       least(p.consumed_cash_fen,floor((p.face_fen-p.removed_face_fen-p.remaining_fen)*
+        ((o.discount_snapshot->'model_pack'->>'price_bps')::integer-p.model_settlement_bps)/10000))::bigint AS model_earned
+       FROM cw_commissions c JOIN credit_packs p ON p.id=c.pack_id
+       JOIN payment_orders o ON o.id=c.order_id
+       JOIN credit_consumptions x ON x.pack_id=p.id AND x.call_id=$2
+       WHERE c.pack_id=$1 FOR UPDATE OF c`,
+      [packId,callId],
     )
   ).rows[0];
   if (!c) return;
-  const rate = BigInt(c.rate_bps),
-    delta = (BigInt(c.consumed_cash_fen) * rate) / 10000n - BigInt(c.unlocked_fen),
-    cash = BigInt(c.consumed_cash_fen) - BigInt(c.used_cash_fen);
-  if (cash <= 0n) return;
+  // Cumulative spread is monotone. Subtracting two independently rounded
+  // amounts could claw back a cent already reported or paid in a previous month.
+  const earned = c.model_id ? BigInt(c.model_earned) : BigInt(c.consumed_cash_fen) * BigInt(c.rate_bps) / 10000n;
+  const delta = earned - BigInt(c.unlocked_fen);
+  const cash = BigInt(c.consumed_cash_fen) - BigInt(c.used_cash_fen);
+  if (!c.model_id && cash <= 0n) return;
   await db.query(
-    `INSERT INTO cw_commission_events(order_id,event_key,kind,cash_fen,commission_fen,occurred_at) VALUES($1,$2,'used',$3,$4,(SELECT created_at FROM customer_calls WHERE id=$5))`,
-    [c.order_id, 'used:' + callId + ':' + packId, cash.toString(), delta.toString(), callId],
+    `INSERT INTO cw_commission_events(order_id,event_key,kind,cash_fen,commission_fen,occurred_at,model_id,face_fen) VALUES($1,$2,'used',$3,$4,(SELECT created_at FROM customer_calls WHERE id=$5),$6,$7)`,
+    [c.order_id, 'used:' + callId + ':' + packId, cash.toString(), delta.toString(), callId,c.model_id,c.model_id?c.call_face:null],
   );
   await db.query('UPDATE cw_commissions SET used_cash_fen=$2,unlocked_fen=$3 WHERE order_id=$1', [
     c.order_id,
     c.consumed_cash_fen,
-    ((BigInt(c.consumed_cash_fen) * rate) / 10000n).toString(),
+    earned.toString(),
   ]);
 }
 // Each successful partial refund cancels only its unused-cash commission, once.
@@ -66,6 +81,17 @@ export async function refundCW(db, refund) {
     .rows[0];
   if (!c) return;
   if ((await db.query('SELECT 1 FROM cw_commission_events WHERE event_key=$1',['refund:' + refund.id])).rowCount) return;
+  const pack = (await db.query('SELECT model_id FROM credit_packs WHERE id=$1',[c.pack_id])).rows[0];
+  if (pack?.model_id) {
+    await db.query(
+      `INSERT INTO cw_commission_events(order_id,event_key,kind,cash_fen,commission_fen,model_id,face_fen)
+       VALUES($1,$2,'refund',$3,0,$4,$5::numeric-$6::numeric) ON CONFLICT(event_key) DO NOTHING`,
+      [c.order_id,'refund:'+refund.id,refund.amount_fen,pack.model_id,refund.face_fen,refund.retained_fen],
+    );
+    if (Number(refund.retained_fen) === 0)
+      await db.query('UPDATE cw_commissions SET expected_fen=unlocked_fen WHERE order_id=$1',[c.order_id]);
+    return;
+  }
   const previous=(await db.query("SELECT coalesce(sum(cash_fen),0)::text cash FROM cw_commission_events WHERE order_id=$1 AND kind='refund'",[refund.order_id])).rows[0];
   const net=BigInt(c.cash_fen)-BigInt(previous.cash)-BigInt(refund.gross_fen || refund.amount_fen);
   const expected=(net*BigInt(c.rate_bps))/10000n;
@@ -83,7 +109,7 @@ export async function quoteCW(
   account,
   faceFen,
   promo,
-  { cashFen = null, buyerId = null, cwEnabled = false } = {},
+  { cashFen = null, buyerId = null, cwEnabled = false, models = [] } = {},
 ) {
   const code = normalizedCode(promo);
   if (!code) return null;
@@ -160,6 +186,7 @@ export async function quoteCW(
     ).rowCount
   )
     throw new HttpError(400, '不能使用自己的推广码购买额度');
+  if (c.model_id) return quoteModelPack(db,c,account,cashFen,models);
   const percent = c.customer_price_percent;
   const face =
     cashFen === null ? faceFen : Number((BigInt(cashFen) * 100n) / BigInt(percent));

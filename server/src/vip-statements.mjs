@@ -1,3 +1,4 @@
+import { modelPackName } from './model-packs.mjs';
 import { createHash } from 'node:crypto';
 import { transaction, HttpError, id } from './core.mjs';
 import { renderVipStatementPDF } from './vip-statement-pdf.mjs';
@@ -9,11 +10,13 @@ export function statementSnapshot(partner,month,revision,rows,now=new Date()){
  const totals=zero(),codes=new Map();
  const entries=rows.map(e=>{
   if(!codes.has(e.code))codes.set(e.code,{code:e.code,...zero()});
-  const c=codes.get(e.code),key={paid:'paid_fen',used:'used_fen',refund:'refunded_fen'}[e.kind];
+  const c=codes.get(e.code);
+  if(e.model_id)c.model=modelPackName(e.model_id);
+  const key={paid:'paid_fen',used:'used_fen',refund:'refunded_fen'}[e.kind];
   if(!key)throw Error('Unknown commission event');
   for(const target of [totals,c]){target[key]=(BigInt(target[key])+BigInt(e.cash_fen)).toString();if(e.kind==='used')target.commission_fen=(BigInt(target.commission_fen)+BigInt(e.commission_fen)).toString();}
   // Explicit allowlist: raw order/customer IDs and customer details never enter the archive.
-  return {time:beijingTime(e.occurred_at),code:e.code,reference:createHash('sha256').update(month+':'+e.public_reference).digest('hex').slice(0,10).toUpperCase(),kind:e.kind,cash_fen:String(e.cash_fen),commission_fen:e.kind==='used'?String(e.commission_fen):'0'};
+  return {time:beijingTime(e.occurred_at),code:e.code,reference:createHash('sha256').update(month+':'+e.public_reference).digest('hex').slice(0,10).toUpperCase(),kind:e.kind,...(e.model_id?{model:modelPackName(e.model_id),face_fen:String(e.face_fen)}:{}),cash_fen:String(e.cash_fen),commission_fen:e.kind==='used'?String(e.commission_fen):'0'};
  });
  return {version:1,number:partner.public_code+'-'+month,month,revision,vip_code:partner.public_code,generated_at:now.toISOString(),totals,codes:[...codes.values()].sort((a,b)=>a.code.localeCompare(b.code)),entries};
 }
@@ -39,7 +42,7 @@ export async function generateNextVipStatement(pool,{now=new Date(),renderPDF=re
    AND NOT EXISTS(SELECT 1 FROM cw_vip_statement_events se WHERE se.statement_id=s.id AND se.event_id=e.id)
   ) ORDER BY m.month,m.partner_id LIMIT 1`,[now])).rows[0];
   if(!candidate)return false;
-  const rows=(await db.query(`SELECT e.id,e.kind,e.occurred_at,e.cash_fen::text,e.commission_fen::text,k.code,c.public_reference
+  const rows=(await db.query(`SELECT e.id,e.kind,e.occurred_at,e.cash_fen::text,e.commission_fen::text,k.code,c.public_reference,e.model_id,e.face_fen::text
    FROM cw_commissions c JOIN cw_commission_events e ON e.order_id=c.order_id JOIN cw_codes k ON k.id=c.code_id
    WHERE c.partner_id=$1 AND e.occurred_at >= ($2||'-01')::timestamp AT TIME ZONE 'Asia/Shanghai'
    AND e.occurred_at < (($2||'-01')::timestamp+interval '1 month') AT TIME ZONE 'Asia/Shanghai'

@@ -11,11 +11,11 @@ export async function codeActivity(db,scope,q){
  const {month,type,page,size}=activityQuery(q);
  // Only scoped order IDs enter this CTE. No customer identifiers or API secrets are selected.
  const cte=`WITH orders AS (SELECT o.* FROM payment_orders o WHERE o.status='paid' AND ${scope.where}), events AS (
- SELECT 'paid:'||o.id AS event_id,o.id AS order_id,'paid' AS kind,o.paid_at AS occurred_at,o.amount_fen::numeric AS cash_fen,o.face_fen::numeric AS face_fen,0::bigint AS commission_fen,NULL::text AS model_id FROM orders o
+ SELECT 'paid:'||o.id AS event_id,o.id AS order_id,'paid' AS kind,o.paid_at AS occurred_at,o.amount_fen::numeric AS cash_fen,o.face_fen::numeric AS face_fen,0::bigint AS commission_fen,o.discount_snapshot->'model_pack'->>'id' AS model_id FROM orders o
  UNION ALL SELECT 'used:'||c.call_id||':'||p.id,o.id,'used',a.created_at,c.cash_fen,c.face_fen,coalesce(e.commission_fen,0),a.model_id FROM orders o
  JOIN credit_packs p ON p.source_kind='payment' AND p.source_id=o.id JOIN credit_consumptions c ON c.pack_id=p.id JOIN customer_calls a ON a.id=c.call_id
  LEFT JOIN cw_commission_events e ON e.event_key='used:'||c.call_id||':'||p.id
- UNION ALL SELECT 'refund:'||r.id,o.id,'refund',r.completed_at,coalesce(r.gross_fen,r.amount_fen),r.amount_fen,0,NULL FROM orders o JOIN payment_refunds r ON r.order_id=o.id AND r.status='succeeded'
+ UNION ALL SELECT 'refund:'||r.id,o.id,'refund',r.completed_at,coalesce(r.gross_fen,r.amount_fen),r.amount_fen,0,o.discount_snapshot->'model_pack'->>'id' FROM orders o JOIN payment_refunds r ON r.order_id=o.id AND r.status='succeeded'
  ), ranged AS(SELECT * FROM events WHERE ($2='' OR (occurred_at >= ($2||'-01')::timestamp AT TIME ZONE 'Asia/Shanghai' AND occurred_at < (($2||'-01')::timestamp+interval '1 month') AT TIME ZONE 'Asia/Shanghai')))`;
  const result=(await db.query(cte+` SELECT jsonb_build_object(
  'paid_fen',coalesce(sum(cash_fen) FILTER(WHERE kind='paid'),0)::text,

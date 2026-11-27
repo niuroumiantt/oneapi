@@ -188,13 +188,23 @@
   const personalGuideTabs=['intro','process','terms'];
   let vipStatementItems=[],vipStatementHistory=null,activityCode=null,createdCode=null;
   let vipMetricView='promotion';
+  const codeDiscount = code => code.model_price_bps == null ? discount(code.customer_price_percent) : (code.model_price_bps / 1000) + ' 折';
+  function modelCodeForm() {
+    const offers = data.model_pack_offers || [];
+    if (!offers.length) return '<p>暂时没有可推广的模型。</p>';
+    const options = offers.map(o => `<option value="${esc(o.model_id)}" data-floor="${o.min_price_bps}">${esc(o.name)}</option>`).join('');
+    return form('code', field('name','促销码名称','text','maxlength="60"') +
+      `<label>适用模型<select name="model_id" required>${options}</select></label>` +
+      field('model_discount','客户折扣（折）','number',`min="${offers[0].min_price_bps / 1000}" max="10" step="0.001" value="${offers[0].min_price_bps / 1000}" required`),
+      '生成促销码');
+  }
   function promotionMoneyStrip(k,global=false){
-    return `<div class="cv-metric-row${global?' cv-metric-total':''}"><div><span>客户实付</span><strong>${money(k.paid_fen)}</strong></div><div><span>实际消费</span><strong>${money(k.used_fen)}</strong></div><div class="cv-earned"><span>已记提成</span><strong>${money(k.commission_fen??k.unlocked_fen)}</strong></div></div>`;
+    return `<div class="cv-metric-row${global?' cv-metric-total':''}"><div><span>客户实付</span><strong>${money(k.paid_fen)}</strong>${Number(k.refunded_fen)>0?`<small>已退 ${money(k.refunded_fen)}</small>`:""}</div><div><span>消费额度</span><strong>${money(k.used_quota_fen??k.used_fen)}</strong></div><div class="cv-earned"><span>已记提成</span><strong>${money(k.commission_fen??k.unlocked_fen)}</strong></div></div>`;
   }
   function monthlyOverview(monthly={}){
     const own=vipMetricView==='personal',latest=monthly.latest_statement,metrics=data.activity?.[own?'personal':'promotion']||{};
     const selfCodes=[...(data.codes||[]).filter(k=>k.is_self_code).map(k=>({...k,kind:'cw'})),...(data.task_code_history||data.task_codes||[]).map(k=>({...k,kind:'task'}))];
-    return `<section class="cv-vip-overview"><div class="cv-view-tabs" role="tablist" aria-label="统计视角"><button role="tab" data-metric-view="promotion" aria-selected="${!own}">推广业绩</button><button role="tab" data-metric-view="personal" aria-selected="${own}">本人使用</button><small>累计</small></div>${own?`<div class="cv-metric-row cv-metric-total"><div><span>本人充值实付</span><strong>${money(metrics.paid_fen)}</strong></div><div><span>本人实际消费</span><strong>${money(metrics.used_fen)}</strong></div><div class="cv-personal-links"><a target="_parent" href="/#billing/personal">充值与账单 ↗</a><a target="_parent" href="/#personal/usage">查看用量 ↗</a></div></div>`:promotionMoneyStrip(metrics,true)}<p class="cv-detail-note">${own?'仅统计本人个人账户；实际消费不含赠送额度，本人充值与使用不计入推广业绩。':'仅统计其他客户使用推广码后的实付与消费。已记提成沿用订单现有规则，以月账单为准。'}</p>${own?`<div class="cv-self-codes">${selfCodes.length?`<label>本人付款码 <select id="cv-self-code">${selfCodes.map(k=>`<option value="${esc(k.id)}" data-kind="${k.kind}">${esc(k.code)} · ${discount(k.customer_price_percent)}</option>`).join('')}</select></label><button data-self-activity>收支明细</button>`:''}</div>`:`<div class="cv-latest-statement"><div><strong>${latest?esc(latest.month)+' 月账单':'月账单'}</strong><p>${latest?'本期提成（税前） '+money(latest.totals?.commission_fen):'首份账单将在下月 1 日生成。'}</p></div><button data-tab="inbox">查看收件箱${monthly.unread?' · '+Number(monthly.unread)+' 未读':''}</button></div><p class="cv-detail-note">每月 1 日，上月账单 PDF 自动送达收件箱，包含各推广码的脱敏金额明细。</p>`}</section>`;
+    return `<section class="cv-vip-overview"><div class="cv-view-tabs" role="tablist" aria-label="统计视角"><button role="tab" data-metric-view="promotion" aria-selected="${!own}">推广业绩</button><button role="tab" data-metric-view="personal" aria-selected="${own}">本人使用</button><small>累计</small></div>${own?`<div class="cv-metric-row cv-metric-total"><div><span>本人充值实付</span><strong>${money(metrics.paid_fen)}</strong></div><div><span>本人实际消费</span><strong>${money(metrics.used_fen)}</strong></div><div class="cv-personal-links"><a target="_parent" href="/#billing/personal">充值与账单 ↗</a><a target="_parent" href="/#personal/usage">查看用量 ↗</a></div></div>`:promotionMoneyStrip(metrics,true)}<p class="cv-detail-note">${own?'仅统计本人个人账户；实际消费不含赠送额度，本人充值与使用不计入推广业绩。':'仅统计推广客户，提成以月账单为准。'}</p>${own?`<div class="cv-self-codes">${selfCodes.length?`<label>本人付款码 <select id="cv-self-code">${selfCodes.map(k=>`<option value="${esc(k.id)}" data-kind="${k.kind}">${esc(k.code)} · ${discount(k.customer_price_percent)}</option>`).join('')}</select></label><button data-self-activity>收支明细</button>`:''}</div>`:`<div class="cv-latest-statement"><div><strong>${latest?esc(latest.month)+' 月账单':'月账单'}</strong><p>${latest?'本期提成（税前） '+money(latest.totals?.commission_fen):'首份账单将在下月 1 日生成。'}</p></div><button data-tab="inbox">查看收件箱${monthly.unread?' · '+Number(monthly.unread)+' 未读':''}</button></div><p class="cv-detail-note">每月 1 日收到上月脱敏账单。</p>`}</section>`;
   }
   const personalSigningLabels={available:'可申请线上签约',requested:'等待准备合同',creating:'合同准备中',draft:'合同待公司确认',starting:'签约发起中',pending_both:'待双方签署',pending_person:'待本人实名签署',pending_company:'待公司盖章',archiving:'已签署，归档核验中',verified:'签署与实名已核验',rejected:'已拒签',expired:'已过期',canceled:'已撤销',voided:'已作废',review:'签署记录待核对'};
   function personalSigningStatus(job){return job?(job.mode==='sandbox'?'内部试签 · ':'')+(personalSigningLabels[job.status]||'状态待核对'):'暂未开放';}
@@ -265,17 +275,17 @@
     if(tab==='code-activity'&&activityCode){c.innerHTML=`<iframe class="cv-code-activity" title="推广码收支明细" src="/code-activity.html?kind=${activityCode.kind}&amp;code=${encodeURIComponent(activityCode.id)}"></iframe>`;return;}
     if(tab==='code-created'&&createdCode){
       const k=createdCode;
-      c.innerHTML=`<section class="cv-code-created" aria-labelledby="created-heading"><h2 id="created-heading" tabindex="-1">促销码已生成</h2><p>您已生成「<strong>${esc(k.name)}</strong>」促销码，客户享 <strong>${discount(k.customer_price_percent)}</strong>。</p><div class="cv-created-code"><span>客户付款时输入</span><strong>${esc(k.code)}</strong><button data-copy="${esc(k.code)}" data-copy-label="促销码">复制促销码</button></div><p>请告知客户：在付款前，将上方促销码填入充值页的「促销码」输入框。客户实际使用后，您将获得相应提成。</p><p class="cv-detail-note">名称便于您管理；客户付款时应输入上方促销码。提成以每月 1 日送达的上月账单为准。</p><button class="cw-primary" data-created-confirm>确认，查看促销码</button></section>`;
+      c.innerHTML=`<section class="cv-code-created" aria-labelledby="created-heading"><h2 id="created-heading" tabindex="-1">促销码已生成</h2><p>您已生成「<strong>${esc(k.name)}</strong>」促销码，客户享 <strong>${codeDiscount(k)}</strong>${k.model_name?`，仅限 ${esc(k.model_name)}`:""}。</p><div class="cv-created-code"><span>客户付款时输入</span><strong>${esc(k.code)}</strong><button data-copy="${esc(k.code)}" data-copy-label="促销码">复制促销码</button></div><p>请告知客户：在付款前，将上方促销码填入充值页的「促销码」输入框。客户实际使用后，您将获得相应提成。</p><p class="cv-detail-note">名称便于您管理；客户付款时应输入上方促销码。提成以每月 1 日送达的上月账单为准。</p><button class="cw-primary" data-created-confirm>确认，查看促销码</button></section>`;
       document.querySelector('#created-heading')?.focus();return;
     }
     if(tab==='codes'){
-      const referralCodes=codes.filter(k=>!k.is_self_code).map(k=>({...k,...(data.activity?(data.activity.codes.find(m=>m.code_id===k.id)||{paid_fen:0,used_fen:0,commission_fen:0}):{})}));
+      const referralCodes=codes.filter(k=>!k.is_self_code).map(k=>({...k,...(data.activity?(data.activity.codes.find(m=>m.code_id===k.id)||{paid_fen:0,used_fen:0,used_quota_fen:0,commission_fen:0}):{})}));
       const ordered=[...referralCodes].reverse().sort((a,b)=>Number(b.id===createdCode?.id)-Number(a.id===createdCode?.id)||Number(Boolean(a.is_self_code))-Number(Boolean(b.is_self_code)));
       const totals=data.activity?.promotion||Object.fromEntries(['paid_fen','used_fen','refunded_fen','unlocked_fen'].map(key=>[key,codes.filter(k=>!k.is_self_code).reduce((sum,k)=>sum+Number(k[key]||0),0)]));
-      const rows=ordered.map(k=>{const status=promotionStatus(k,true,verified,trial);return `<tr class="${k.id===createdCode?.id?'cv-created-row':''}"><td><b class="cv-code-name" title="${esc(k.name||k.code)}">${esc(k.name||k.code)}</b><small>${esc(k.code)} · ${discount(k.customer_price_percent)}</small><small>${esc(status)}${k.id===createdCode?.id?' · 刚刚生成':''}</small></td><td>${k.is_self_code?'<span class="cv-detail-note">自用码，不计推广收益。付款与消费见收支明细。</span>':promotionMoneyStrip(k)}</td><td><button data-code-activity="${esc(k.id)}">收支明细</button>${status==='已生效'?`<button data-copy="${esc(k.code)}" data-copy-label="促销码">复制码</button><button data-copy="${esc(location.origin+payLink(k.code))}">复制链接</button><a target="_blank" rel="noopener" href="/api/cw/codes/${encodeURIComponent(k.id)}/qr">二维码 ↗</a>`:''}</td></tr>`;});
-      c.innerHTML=`<div class="cv-code-list"><div class="cv-line"><h2>促销码 <small>${codes.length} / 50</small></h2>${eligible&&codes.length<50?go('new-code','生成促销码'):''}</div>${promotionMoneyStrip(totals,true)}<p class="cv-detail-note">累计推广业绩，不含本人充值与使用；实际消费不含赠送额度，已记提成以月账单为准。</p>${!eligible?'<p>完成合同与实名核验后，可生成促销码。</p>':''}${personalList(['促销码 / 状态','推广业绩（累计）','操作'],rows,false,innerWidth<700||innerHeight<550?1:innerHeight<740?2:3)}</div>`;return;
+      const rows=ordered.map(k=>{const status=promotionStatus(k,true,verified,trial);return `<tr class="${k.id===createdCode?.id?'cv-created-row':''}"><td><b class="cv-code-name" title="${esc(k.name||k.code)}">${esc(k.name||k.code)}</b><small>${esc(k.code)} · ${codeDiscount(k)}${k.model_name?` · ${esc(k.model_name)}`:""}</small><small>${esc(status)}${k.id===createdCode?.id?' · 刚刚生成':''}</small></td><td>${k.is_self_code?'<span class="cv-detail-note">自用码，不计推广收益。付款与消费见收支明细。</span>':promotionMoneyStrip(k)}</td><td><button data-code-activity="${esc(k.id)}">收支明细</button>${status==='已生效'?`<button data-copy="${esc(k.code)}" data-copy-label="促销码">复制码</button><button data-copy="${esc(location.origin+payLink(k.code))}">复制链接</button><a target="_blank" rel="noopener" href="/api/cw/codes/${encodeURIComponent(k.id)}/qr">二维码 ↗</a>`:''}</td></tr>`;});
+      c.innerHTML=`<div class="cv-code-list"><div class="cv-line"><h2>促销码 <small>${codes.length} / 50</small></h2>${eligible&&codes.length<50?go('new-code','生成促销码'):''}</div>${promotionMoneyStrip(totals,true)}<p class="cv-detail-note">仅统计客户推广订单，提成以月账单为准。</p>${!eligible?'<p>完成合同与实名核验后，可生成促销码。</p>':''}${personalList(['促销码 / 状态','推广业绩（累计）','操作'],rows,false,innerWidth<700||innerHeight<550?1:innerHeight<740?2:3)}</div>`;return;
     }
-    if(tab==='new-code'){c.innerHTML='<h2>生成推广码</h2><p>符合推广条件后，生成即生效，无需逐个审批。客户实际消费后，按订单对应规则计提，月结确认后可提现。</p>'+(eligible&&codes.length<50?form('code',field('name','推广码名称','text','maxlength="60"')+field('customer_price_percent','客户价格比例（50 表示五折）','number','min="50" max="100" value="50"'),'生成并启用'):'<p>当前未具备生成条件。</p>')+go('codes','返回推广码');return;}
+    if(tab==='new-code'){c.innerHTML='<h2>生成推广码</h2><p>生成即生效。每个模型码仅用于所选模型，提成按实际消费计入月账单。</p>'+(eligible&&codes.length<50?data.model_pack_required?modelCodeForm():form('code',field('name','推广码名称','text','maxlength="60"')+field('customer_price_percent','客户价格比例（50 表示五折）','number','min="50" max="100" value="50"'),'生成并启用'):'<p>当前未具备生成条件。</p>')+go('codes','返回推广码');return;}
     if(tab==='inbox'){
       c.innerHTML='<p role="status">正在读取月账单…</p>';
       try{
@@ -376,7 +386,7 @@
             <td>${money(k.paid_fen)}</td><td>${money(k.used_fen)}</td><td>${money(k.expected_fen)} / ${money(k.unlocked_fen)} / ${money(k.available_fen)}</td>
             <td>${status === '已生效' ? `<button data-copy="${esc(location.origin + payLink(k.code))}">复制推广链接</button><details><summary>推广二维码</summary><img class="cw-qr" src="/api/cw/codes/${k.id}/qr" alt="推广码 ${esc(k.code)} 的二维码" loading="lazy"></details>` : '—'}</td></tr>`;
         }).join(''))}
-        ${eligible && data.codes.length < 50 ? `<details><summary>生成推广码</summary>${form('code',
+        ${eligible && data.codes.length < 50 ? `<details><summary>生成推广码</summary>${data.model_pack_required?modelCodeForm():form('code',
           field('name', '推广码名称', 'text', 'maxlength="60"') +
           field('customer_price_percent', '客户价格比例（50 表示五折）', 'number', 'min="50" max="100" value="50"'),
           '生成并启用')}</details>` : ''}`;
@@ -776,6 +786,14 @@
       }
     }
   });
+  addEventListener('change', event => {
+    const select = event.target;
+    if (select.name !== 'model_id' || !select.form?.elements.model_discount) return;
+    const floor = Number(select.selectedOptions[0]?.dataset.floor) / 1000;
+    const price = select.form.elements.model_discount;
+    price.min = String(floor);
+    price.value = String(floor);
+  });
   document.addEventListener('submit', async (e) => {
     const f = e.target.closest('[data-action]');
     if (!f) return;
@@ -823,7 +841,9 @@
       }
       if (action === 'code') {
         path = '/api/cw/codes';
-        body = { ...b, customer_price_percent: Number(b.customer_price_percent) };
+        body = b.model_id
+          ? { name:b.name, model_id:b.model_id, model_price_bps:Math.round(Number(b.model_discount)*1000) }
+          : { ...b, customer_price_percent:Number(b.customer_price_percent) };
       }
       if (action === 'bank') {
         path = '/api/cw/bank';

@@ -2044,3 +2044,8 @@ td>.live-dot:first-child{margin-right:5px}
  .my-models .mm-foot select{min-height:30px;height:30px;padding-block:2px}
  .my-models .mm-empty{padding:0;font-size:12px}
 }
+
+.model-pack-picker{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.model-pack-order{display:grid;gap:3px;padding:7px 0;border-bottom:1px solid var(--personal-line,#dfe5ec);font-size:13px}
+.model-pack-details .pb-credit-track{margin-block:8px}
+.ph-credit-legend [data-live="model-pack-balances"]{padding:0;min-height:24px;font-size:inherit}

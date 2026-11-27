@@ -534,7 +534,7 @@ function personalHomeContent(){
     <h1 id="ph-title">概览</h1>
     <section class="ph-balance" aria-label="${employeeApi?'公司分配额度':'个人额度'}">
       <div class="ph-balance-main"><span>${employeeApi?'公司可用额度':'可用官价额度'}</span><strong>${available===null?'—':personalMoney(available)}</strong><p>${available===null?'额度暂未加载，请刷新重试。':employeeApi?'公司统一分配，调用从公司额度扣除':'按模型官网价计费'}</p></div>
-      ${employeeApi?'':`<div class="ph-balance-actions"><a class="ph-primary" href="#billing/personal">${personalBilling?.payments_enabled?'充值':'查看账单'}</a>${personalBilling?.payments_enabled?'<a class="ph-link" href="#billing/personal/usage">消费账单</a>':''}</div>`}
+      ${employeeApi?'':`<div class="ph-balance-actions"><a class="ph-primary" href="#billing/personal">${personalBilling?.payments_enabled?'充值':'查看账单'}</a>${personalBilling?.payments_enabled?'<a class="ph-link" href="#billing/personal/usage">消费账单</a>':''}${personalBilling?.model_balances?.length?btn('模型明细','model-pack-balances','type="button"','quiet'):''}</div>`}
       ${employeeApi?`<div class="ph-spent"><span>累计消费</span><b>${personalBilling?personalMoney(personalBilling.total_spent_fen):'—'}</b></div>`:personalBilling?personalBalanceBar(personalBilling,{overview:true}):'<div class="ph-spent"><span>累计消费</span><b>—</b></div>'}
     </section>
     <section class="ph-connect" aria-labelledby="ph-connect-title"><div class="ph-section-head"><h2 id="ph-connect-title">API 接入</h2><a class="ph-link" href="#docs">接入文档${ico('arrow-up-right')}</a></div>
@@ -1257,8 +1257,8 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const o=alipayPay?.scope===scopeKey?alipayPay.order:null,ch=PAY_CHANNELS[o?.status==='pending'&&!o.expired&&o.provider?o.provider:payChannel],wechat=ch.path==='wechat';
   if(o?.status==='pending'&&!o.expired&&(o.qr_svg||o.pay_url)){
    const body=o.qr_svg
-    ?`<div class="alipay-qr" aria-label="${ch.name}付款码">${o.qr_svg}</div><div class="alipay-pay-info"><span class="billing-chip">${ch.name} · 待付款</span>${rechargeBreakdown(o)}<p>请用手机微信扫码付款。付款码 ${new Date(o.expires_at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})} 前有效。</p><p class="billing-pay-status" role="status" data-alipay-status>正在等待付款，支付后这里会自动更新，请勿重复付款。</p>${btn('我已付款，刷新状态','alipay-refresh','','')} ${btn('换个金额','alipay-reset','','')}</div>`
-    :`<div class="alipay-pay-info"><span class="billing-chip">${ch.name} · 待付款</span>${rechargeBreakdown(o)}<p>已打开支付宝收银台。用支付宝扫码或登录付款；付完后回到本页，状态会自动更新。链接 ${new Date(o.expires_at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})} 前有效。</p><p class="billing-pay-status" role="status" data-alipay-status>正在等待付款，请勿重复付款。</p><p><a class="live-button primary" href="${esc(o.pay_url)}" target="_blank" rel="noopener">再次打开支付宝收银台</a></p>${btn('我已付款，刷新状态','alipay-refresh','','')} ${btn('换个金额','alipay-reset','','')}</div>`;
+    ?`<div class="alipay-qr" aria-label="${ch.name}付款码">${o.qr_svg}</div><div class="alipay-pay-info"><span class="billing-chip">${ch.name} · 待付款</span>${rechargeBreakdown(o)}${o.discount?.model_pack?`<p>仅限 ${esc(o.discount.model_pack.name)} 使用</p>`:""}<p>请用手机微信扫码付款。付款码 ${new Date(o.expires_at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})} 前有效。</p><p class="billing-pay-status" role="status" data-alipay-status>正在等待付款，支付后这里会自动更新，请勿重复付款。</p>${btn('我已付款，刷新状态','alipay-refresh','','')} ${btn('换个金额','alipay-reset','','')}</div>`
+    :`<div class="alipay-pay-info"><span class="billing-chip">${ch.name} · 待付款</span>${rechargeBreakdown(o)}${o.discount?.model_pack?`<p>仅限 ${esc(o.discount.model_pack.name)} 使用</p>`:""}<p>已打开支付宝收银台。用支付宝扫码或登录付款；付完后回到本页，状态会自动更新。链接 ${new Date(o.expires_at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})} 前有效。</p><p class="billing-pay-status" role="status" data-alipay-status>正在等待付款，请勿重复付款。</p><p><a class="live-button primary" href="${esc(o.pay_url)}" target="_blank" rel="noopener">再次打开支付宝收银台</a></p>${btn('我已付款，刷新状态','alipay-refresh','','')} ${btn('换个金额','alipay-reset','','')}</div>`;
    return `<div class="alipay-pay" id="alipay-pay">${wechat?'':alipayLogo}${body}</div>`;
   }
   const done=o?.status==='paid'?`<section class="alipay-result ok" aria-label="充值成功"><p role="status">充值成功</p>${rechargeBreakdown(o)}${o.paid_at?`<time datetime="${esc(o.paid_at)}">${billingTime(o.paid_at)}（北京时间）</time>`:''}</section>`:o?`<p class="alipay-result" role="status">上一笔付款订单已失效。可以在资金记录查看到账情况。</p>`:'';
@@ -1330,7 +1330,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    const amountText=pending||refunded||requested?`${status} ${yuanText(pack.refund_amount_fen??amount)}`:available?`可退 ${yuanText(amount)}`:'暂不可退';
    const details=pending||requested?'请稍后刷新进度。':refunded?'款项请在原付款账户查看。':available?(BigInt(pack.bonus_fen||0)>0n?`退款后收回赠送额度 ${yuanText(pack.bonus_fen)}`:'退款后关闭可退部分。'):esc(status);
    return `<li class="refund-order">
-    <div><strong>${refundChannelName(pack)}</strong><time datetime="${esc(pack.paid_at||pack.created_at)}">${refundDate(pack)}</time><span>实付 ${yuanText(pack.cash_fen)}</span></div>
+    <div><strong>${refundChannelName(pack)}${pack.model_name?' · '+esc(pack.model_name):''}</strong><time datetime="${esc(pack.paid_at||pack.created_at)}">${refundDate(pack)}</time><span>实付 ${yuanText(pack.cash_fen)}</span></div>
     <div><strong>${amountText}</strong><span>${details}</span></div>
     ${available?btn('查看并退款','pack-refund',`type="button" data-id="${esc(pack.id)}" aria-label="查看并退款 ${yuanText(amount)}，${refundDate(pack)}"`):''}
     ${pack.manual_only?`<p class="refund-policy-note">不可自助退 ${yuanText(pack.non_refundable_fen)}：${(pack.refund_restrictions||[]).map(x=>esc(x.label)).join('、')}。仍可消费。<a href="#support">提交工单</a></p>`:''}
@@ -1357,6 +1357,34 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   return `${negative?'-':''}¥${abs/100n}.${tail}`;
  };
  const billingPager=(page,more,action='billing-record-page')=>page||more?`<nav class="pu-pages" aria-label="账单分页"><button type="button" data-live="${action}" data-page="${page-1}" aria-label="上一页" ${page===0?'disabled':''}>${ico('chevron-left')}</button><span>第 ${page+1} 页</span><button type="button" data-live="${action}" data-page="${page+1}" aria-label="下一页" ${more?'':'disabled'}>${ico('chevron-right')}</button></nav>`:'';
+ function modelPackBalances(modelIndex=0){
+  const models=personalBilling?.model_balances||[];
+  const model=models[modelIndex];
+  if(!model)return;
+  const paid=BigInt(model.paid_fen),gift=BigInt(model.gift_fen),sum=paid+gift;
+  const width=value=>sum?Number(value*10000n/sum)/100:0;
+  dialog('模型余额',`<div class="model-pack-details">
+   <div class="model-pack-picker"><strong>${esc(model.name)}</strong>${billingPager(modelIndex,modelIndex+1<models.length,'model-pack-balances')}</div>
+   <dl class="refund-confirm"><div><dt>剩余额度</dt><dd>${personalMoney(sum.toString())}</dd></div><div><dt>实付 / 赠送</dt><dd>${personalMoney(model.paid_fen)} / ${personalMoney(model.gift_fen)}</dd></div></dl>
+   <div class="pb-credit-track" aria-hidden="true"><span class="pb-credit-gift" style="width:${width(gift)}%"></span><span class="pb-credit-paid" style="width:${width(paid)}%"></span></div>
+   <p class="live-small">仅限此模型使用，按购买批次的比例扣减。</p>
+   ${btn('购买明细','model-pack-orders',`type="button" data-model-index="${modelIndex}"`)}
+  </div>`);
+ }
+ async function modelPackOrders(modelIndex,page){
+  const model=personalBilling?.model_balances?.[modelIndex];
+  if(!model)return;
+  const ticket=generation;
+  const data=await api('/api/billing/personal/model-packs?model='+encodeURIComponent(model.model_id)+'&page='+page);
+  if(ticket!==generation)return;
+  dialog(esc(model.name)+'购买明细',`<div class="model-pack-details">${data.items.map(row=>`<section class="model-pack-order">
+   <strong>${billingTime(row.created_at)}</strong>
+   <span>实付 ${personalMoney(row.cash_fen)} · 赠送 ${personalMoney(String(BigInt(row.face_fen)-BigInt(row.cash_fen)))}</span>
+   <span>消费 ${personalMoney(row.used_face_fen)} · 已退实付 ${personalMoney(row.refunded_cash_fen)}</span>
+   </section>`).join('')||'<p>暂无购买记录。</p>'}<div class="model-pack-picker">
+   ${btn('返回模型余额','model-pack-balances',`type="button" data-page="${modelIndex}"`)}
+   ${billingPager(page,data.has_more,'model-pack-orders').replace('<nav ',`<nav data-model-index="${modelIndex}" `)}</div></div>`);
+ }
  function personalBalanceBar(data,{overview=false}={}){
   const split=data.credit_split;
   const paid=BigInt(split?.red_fen??data.cash_balance_fen??'0'),balance=wholeFen(data.list_credit_exact_fen??data.list_credit_fen??'0');
@@ -1373,7 +1401,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const o=alipayPay?.scope==='personal'?alipayPay.order:null;
   const intent=readModelIntent(),next=intent?.scope==='personal'?'#personal/connect/'+esc(intent.id):'#personal/keys';
   if(o?.status==='pending'&&!o.expired&&(o.qr_svg||o.pay_url))return alipayPanel('personal',channels);
-  if(o?.status==='paid')return `<div class="pb-paid"><h2>${ico('check')} 充值成功</h2>${rechargeBreakdown(o)}<p>额度已到账，可继续配置模型和 Key。</p><div><a class="live-button primary" href="${next}">继续接入</a>${btn('继续充值','alipay-reset')}</div></div>`;
+  if(o?.status==='paid')return `<div class="pb-paid"><h2>${ico('check')} 充值成功</h2>${rechargeBreakdown(o)}<p>${o.discount?.model_pack?`额度已到账，仅限 ${esc(o.discount.model_pack.name)} 使用。`:'额度已到账，可继续配置模型和 Key。'}</p><div><a class="live-button primary" href="${next}">继续接入</a>${btn('继续充值','alipay-reset')}</div></div>`;
   return `<div class="pb-checkout"><div class="pb-amount-entry"><label for="alipay-yuan">充值金额（元）</label><div class="recharge-amount"><span aria-hidden="true">¥</span><input id="alipay-yuan" inputmode="decimal" autocomplete="off" maxlength="8" aria-describedby="pb-amount-help" value="${esc(billingAmountDraft)}"></div><div class="alipay-presets recharge-presets" aria-label="常用充值金额">${[5000,10000,50000,100000].map(f=>`<button type="button" aria-pressed="${Number(billingAmountDraft)*100===f}" class="alipay-preset ${Number(billingAmountDraft)*100===f?'active':''}" data-live="alipay-amount" data-fen="${f}">¥${f/100}</button>`).join('')}</div><p id="pb-amount-help" class="pb-muted">实付 ¥5–¥50,000，下一步核对到账额度。</p><label class="pb-promo" for="pack-promo">促销码 <span>选填</span><input id="pack-promo" autocomplete="off" maxlength="40" placeholder="有促销码可在此填写" value="${esc(cwInputCode)}"></label></div><div class="pb-pay-action"><span id="pb-channel-label">付款方式</span><div class="pb-payment-methods" role="group" aria-labelledby="pb-channel-label">${channels.map(c=>`<button type="button" class="pb-payment-method" data-live="pay-channel" data-channel="${c}" aria-label="${PAY_CHANNELS[c].name}" aria-pressed="${payChannel===c}">${c==='wechat_native'?'<img class="pb-wechat-logo" src="/assets/payments/wechat-pay.svg" alt="微信支付">':'<img class="pb-alipay-logo" src="/assets/payments/alipay.ico" alt="">支付宝'}<span class="pb-payment-check" aria-hidden="true">${payChannel===c?ico('check'):''}</span></button>`).join('')}</div><p class="pb-muted">实付金额 + 赠送额度 = 到账额度</p>${btn('核对金额，继续付款','alipay-create','type="button"','primary')}<p class="pb-payee">收款方：深圳市格洛可半导体有限公司</p><div id="live-form-message" role="status"></div></div></div>`;
  }
  async function personalBillingPage(ticket,data){
@@ -1415,7 +1443,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    const balance=data.list_credit_exact_fen??data.list_credit_fen??data.cash_balance_fen??'0';
    const header=`<header class="pb-heading"><h1>充值与账单</h1><nav aria-label="账单服务">${sub?'<a href="#billing/personal">'+ico('arrow-left')+' 返回充值</a>':'<a href="#'+refundRoute+'">退款</a><a href="#billing/personal/invoices">发票</a>'}</nav></header>`;
    const activeOrder=billingView==='recharge'&&alipayPay?.scope==='personal'&&['pending','paid'].includes(alipayPay.order?.status)&&!alipayPay.order?.expired;
-   const summary=sub||activeOrder?'':`<div class="pb-balance"><div><span>额度余额</span><strong>${personalMoney(balance)}</strong></div></div>${personalBalanceBar(data)}${billingView==='recharge'?'<p class="pb-explainer">先用实付，再用赠送；退款退可退实付，收回对应赠送。</p>':'<div class="pb-balance-gap"></div>'}<nav class="pu-tabs pb-tabs" aria-label="充值与账单">${[['recharge','充值'],['usage','消费账单'],['history','充值记录']].map(([key,label])=>`<a href="#${billingRoutesByView[key]}" ${billingView===key?'aria-current="page"':''}>${label}</a>`).join('')}<a href="/code-activity.html?audience=personal" target="_blank" rel="noopener">优惠码明细 ↗</a></nav>`;
+   const summary=sub||activeOrder?'':`<div class="pb-balance"><div><span>额度余额</span><strong>${personalMoney(balance)}</strong></div></div>${personalBalanceBar(data)}${billingView==='recharge'?'<p class="pb-explainer">退款退可退实付，收回对应赠送。</p>':'<div class="pb-balance-gap"></div>'}<nav class="pu-tabs pb-tabs" aria-label="充值与账单">${[['recharge','充值'],['usage','消费账单'],['history','充值记录']].map(([key,label])=>`<a href="#${billingRoutesByView[key]}" ${billingView===key?'aria-current="page"':''}>${label}</a>`).join('')}<a href="/code-activity.html?audience=personal" target="_blank" rel="noopener">优惠码明细 ↗</a></nav>`;
    mount(panelPage(null,'billing',panelBody(`<section class="personal-api personal-billing${sub?' pb-detail':''}">${header}${summary}<div class="pb-content">${body}</div>${foot?`<footer class="pb-foot">${foot}</footer>`:''}</section>`)));
    if(billingView==='refund'&&focusRefundHeading){host.querySelector('#refund-heading')?.focus();focusRefundHeading=false;}
    if(billingView==='recharge'&&alipayPay?.scope==='personal'&&!alipayTimer)alipayWatch();
@@ -1612,12 +1640,14 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     if(current!==refundRoute||!pack||!canRefundPack(pack))return;
     const amount=refundableAmount(pack),bonus=BigInt(pack.bonus_fen||0);
     form('确认退款',`<dl class="refund-confirm"><div><dt>预计退回</dt><dd><strong>${yuanText(amount)}</strong></dd></div><div><dt>退款方式</dt><dd>原路退回 · ${refundChannelName(pack)}</dd></div><div><dt>手续费</dt><dd>¥0.00</dd></div></dl>
-     <p>${bonus>0n?`本订单的赠送额度 ${yuanText(bonus)} 将收回。`:''}申请后这笔额度包暂时冻结；成功后保留的不可退实付可继续消费，渠道拒绝则恢复全部冻结额度。</p>
+     <p>${pack.model_name?`此订单仅限 ${esc(pack.model_name)}。`:""}${bonus>0n?`本订单的赠送额度 ${yuanText(bonus)} 将收回。`:''}申请后这笔额度包暂时冻结；成功后保留的不可退实付可继续消费，渠道拒绝则恢复全部冻结额度。</p>
      <label>退款原因<input name="reason" required maxlength="200"></label>
      <input type="hidden" name="pack_id" value="${esc(pack.id)}">
      <input type="hidden" name="amount_fen" value="${amount}">
      <input type="hidden" name="request_key" value="${crypto.randomUUID()}">`,'live-pack-refund',`确认退款 ${yuanText(amount)}`);
    }
+   else if(action==='model-pack-balances'){modelPackBalances(Number(b.dataset.page||0));}
+   else if(action==='model-pack-orders'){await modelPackOrders(Number(b.dataset.modelIndex||b.closest('nav')?.dataset.modelIndex||0),Number(b.dataset.page||0));}
    else if(action==='recharge-cancel'){
     rechargeReview=null;
     document.querySelector('#config-dialog').close();
@@ -1635,7 +1665,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     if(ticket!==generation)return;
     rechargeReview={scope,orgId,channel,cashFen,promo,quote,ticket};
     dialog('核对充值金额',`<form class="live-form" id="live-recharge-confirm">
-      <p class="live-small">付款方式 · ${PAY_CHANNELS[channel].name}</p>${rechargeBreakdown(quote)}
+      <p class="live-small">付款方式 · ${PAY_CHANNELS[channel].name}</p>${rechargeBreakdown(quote)}${quote.discount_snapshot?.model_pack?`<p class="live-small">仅限 ${esc(quote.discount_snapshot.model_pack.name)} 使用，实付和赠送按购买比例扣减。</p>`:''}
       ${quote.discount_snapshot?.refund_policy?.non_refundable?`<label class="refund-terms"><input type="checkbox" name="accept_refund_terms" required><span>我已阅读并同意：${esc(quote.discount_snapshot.refund_policy.reason)}</span></label>`:''}
       <div id="live-dialog-message" role="status"></div>
       <div class="recharge-confirm-actions">
@@ -1828,11 +1858,11 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     const review=rechargeReview;
     if(!review||review.ticket!==generation)throw Error('请返回充值页重新核对金额。');
     const {scope,orgId,channel,cashFen,promo,quote}=review;
-    const same=alipayPay?.pendingKey&&alipayPay.pendingFen===cashFen&&alipayPay.scope===scope&&alipayPay.pendingChannel===channel&&alipayPay.pendingPromo===promo&&alipayPay.pendingQuotedFace===quote.face_fen&&alipayPay.pendingQuotedCash===quote.amount_fen;
+    const same=alipayPay?.pendingKey&&alipayPay.pendingFen===cashFen&&alipayPay.scope===scope&&alipayPay.pendingChannel===channel&&alipayPay.pendingPromo===promo&&alipayPay.pendingQuotedFace===quote.face_fen&&alipayPay.pendingQuotedCash===quote.amount_fen&&alipayPay.pendingModelConfirmation===quote.discount_snapshot?.model_pack_confirmation;
     const key=same?alipayPay.pendingKey:crypto.randomUUID();
-    alipayPay={scope,pendingKey:key,pendingFen:cashFen,pendingChannel:channel,pendingPromo:promo,pendingQuotedFace:quote.face_fen,pendingQuotedCash:quote.amount_fen,order:alipayPay?.scope===scope?alipayPay.order:null};
+    alipayPay={scope,pendingKey:key,pendingFen:cashFen,pendingChannel:channel,pendingPromo:promo,pendingQuotedFace:quote.face_fen,pendingQuotedCash:quote.amount_fen,pendingModelConfirmation:quote.discount_snapshot?.model_pack_confirmation,order:alipayPay?.scope===scope?alipayPay.order:null};
     const base=orgId?'/api/billing/organizations/'+encodeURIComponent(orgId):'/api/billing/personal';
-    const result=await api(base+'/'+PAY_CHANNELS[channel].path+'-orders',{cash_fen:cashFen,promo_code:promo,expected_cash_fen:quote.amount_fen,expected_face_fen:quote.face_fen,accepted_refund_policy:values.accept_refund_terms?quote.discount_snapshot?.refund_policy_key:undefined,idempotency_key:key});
+    const result=await api(base+'/'+PAY_CHANNELS[channel].path+'-orders',{cash_fen:cashFen,promo_code:promo,expected_cash_fen:quote.amount_fen,expected_face_fen:quote.face_fen,model_pack_confirmation:quote.discount_snapshot?.model_pack_confirmation,accepted_refund_policy:values.accept_refund_terms?quote.discount_snapshot?.refund_policy_key:undefined,idempotency_key:key});
     alipayPay={scope,order:result.order};
     if(review!==rechargeReview||review.ticket!==generation)return;
     rechargeReview=null;

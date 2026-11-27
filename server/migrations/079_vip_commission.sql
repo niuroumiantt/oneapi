@@ -34,4 +34,4 @@ ALTER TABLE cw_commissions ADD CONSTRAINT cw_commissions_rate_bps_check
   CHECK(rate_bps BETWEEN 0 AND 6000);
 
 -- Recompute existing codes' commission to the new formula (percent - 40).
-UPDATE cw_codes SET commission_bps = GREATEST(0, (customer_price_percent - 40) * 100);
+UPDATE cw_codes SET commission_bps = GREATEST(0, (customer_price_percent - 40) * 100) WHERE to_jsonb(cw_codes)->>'model_id' IS NULL;
