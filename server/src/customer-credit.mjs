@@ -73,7 +73,7 @@ export function customerCreditRoutes(app,pool,cfg,requireCustomer){
   const calls=(await pool.query('SELECT id,model_id,status,charged_yuan,input_tokens,cached_input_tokens,output_tokens,latency_ms,error_code,created_at FROM customer_calls WHERE account_id=$1 ORDER BY created_at DESC LIMIT 100',[a.id])).rows;
   const held=(await pool.query("SELECT coalesce(sum(hold_yuan)*100,0) AS n FROM customer_calls WHERE account_id=$1 AND status IN ('pending','awaiting_bill')",[a.id])).rows[0].n;
   const allocation=await paidKeyAllocation(pool,a.id);
-  res.json({enabled:paidEnabled(cfg),account_id:a.id,base_url:cfg.origin+'/v1',models:customerUsagePrices(routes,cfg),keys,calls,list_credit_fen:allocation.list_credit_fen,held_fen:held,unallocated_fen:allocation.unallocated_fen});
+  res.json({enabled:paidEnabled(cfg),account_id:a.id,base_url:cfg.origin+'/v1',models:customerUsagePrices(routes,cfg),configured_model_ids:cfg.customerPaid?.models??[],keys,calls,list_credit_fen:allocation.list_credit_fen,held_fen:held,unallocated_fen:allocation.unallocated_fen});
  });
  app.post('/api/customer-credit/keys',requireCustomer,async(req,res)=>{
   if(!paidEnabled(cfg))throw new HttpError(503,'客户付费调用尚未开放');

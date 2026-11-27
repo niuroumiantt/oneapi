@@ -213,7 +213,12 @@
  const wholeFen=value=>BigInt(String(value).split('.')[0]);
  const personalMoney=value=>{if(value===null||value===undefined)return '—';const cents=wholeFen(value),absolute=cents<0n?-cents:cents;return `${cents<0n?'-':''}¥${absolute/100n}.${String(absolute%100n).padStart(2,'0')}`;};
  const employeeCatalog=()=>(employeeCredit.models||[]).map(m=>{const base={hit:Number(m.cached_yuan),miss:Number(m.input_yuan),output:Number(m.output_yuan)},peak={hit:base.hit*m.peak_multiplier,miss:base.miss*m.peak_multiplier,output:base.output*m.peak_multiplier};return {id:m.id,family:m.family,name:m.name,subtitle:m.tags.join('、'),tags:m.capability_tags||m.tags,uses:m.uses,upstreamId:m.id,price:m.peak_multiplier>1?{kind:'timed',offpeak:base,peak}:{kind:'standard',standard:base}};});
- const personalCatalog=()=>employeeApi||creditActive()?employeeCatalog():((window.SemiflyModels||[]).filter(m=>['deepseek','glm'].includes(m.family)));
+ function personalCatalog(){
+  if(employeeApi||creditActive())return employeeCatalog();
+  const configured=paidCredit?.configured_model_ids;
+  const catalog=window.SemiflyModels||[];
+  return configured?.length?catalog.filter(model=>configured.includes(model.id)):catalog.filter(model=>['deepseek','glm'].includes(model.family));
+ }
  const personalBaseRate=m=>m.price?.kind==='timed'?m.price[personalPricePeriod]:m.price?.standard;
  const personalDiscount=value=>window.SemiflyPrice?.discountedRate(value)||'待发布';
  const personalPrice=value=>employeeApi||creditActive()?'¥'+Number(value):personalDiscount(value);
