@@ -103,13 +103,8 @@
 /* Make the two customer paths unmistakable while keeping personal signup primary. */
 .universe-active .welcome-entry-inner{max-width:354px}
 .universe-active .welcome-entry-lead{margin-top:6px}
-.welcome-personal-choice{margin-top:18px;padding:16px;border:1px solid #efc7bc;border-radius:16px;background:#fff7f1;box-shadow:0 8px 24px #ce675b0d}
 .welcome-choice-kicker{display:inline-flex;align-items:center;gap:7px;color:#b83b2f;font-size:var(--ui-small,13px);font-weight:700;letter-spacing:.2px}
 .welcome-choice-kicker i{width:7px;height:7px;border-radius:50%;background:#E43C2F}
-.welcome-personal-choice h3{margin:9px 0 5px;color:#1C2541;font-size:16px;line-height:1.4}
-.welcome-personal-choice>p:not(.welcome-preview-note){color:#626070;font-size:var(--ui-small,13px);line-height:1.6;margin:0}
-.welcome-personal-choice .welcome-continue{margin-top:13px;box-shadow:none}
-.welcome-personal-choice .welcome-preview-note{margin:10px 0 0;justify-content:flex-start}
 .welcome-enterprise-choice{margin-top:12px;padding:13px 15px;border:1px solid #dde2ea;border-radius:15px;background:#ffffffc7}
 .welcome-enterprise-heading{display:flex;align-items:center;gap:10px}
 .welcome-enterprise-heading>.ui-icon-wrap{display:grid;place-items:center;width:29px;height:29px;border-radius:9px;background:#ecf1f8;color:#29476d;flex:none}
@@ -122,7 +117,11 @@
 .welcome-enterprise-guide a:hover{border-color:#90a8c8;background:#f1f5fa;color:#1C2541}
 .welcome-enterprise-guide a .ui-icon{width:12px;height:12px}
 .universe-active .welcome-explore{margin-top:11px;padding-top:0}
-@media(min-width:900px) and (max-height:680px){.welcome-personal-choice{margin-top:10px;padding:12px}.welcome-personal-choice h3{font-size:14px;margin:6px 0 3px}.welcome-personal-choice .welcome-continue{margin-top:9px;min-height:40px}.welcome-enterprise-choice{margin-top:9px;padding:10px 12px}.welcome-enterprise-guide{margin-top:7px}.universe-active .welcome-entry-inner{padding:17px 19px}.universe-active .welcome-explore{margin-top:8px}}
-@media(max-width:899px){.universe-active .welcome-entry-inner{max-width:410px}.welcome-personal-choice{margin-top:16px}.welcome-enterprise-guide{align-items:stretch}}
+@media(min-width:900px) and (max-height:680px){.welcome-enterprise-choice{margin-top:9px;padding:10px 12px}.welcome-enterprise-guide{margin-top:7px}.universe-active .welcome-entry-inner{padding:17px 19px}.universe-active .welcome-explore{margin-top:8px}}
+@media(max-width:899px){.universe-active .welcome-entry-inner{max-width:410px}.welcome-enterprise-guide{align-items:stretch}}
 
 .welcome-form p,.welcome-preview-note{color:#626070}
+
+#login-view .site-account > .live-signin{display:none}
+.welcome-entry-inner > .welcome-continue{margin-top:20px}
+.welcome-entry-inner .welcome-explore{justify-content:flex-start}

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="icon" href="/pinapi-mark.svg">
+  <title>Semifly 公司工作台</title>
+  <style>
+    :root{color:#202436;background:#f6f7f9;font:16px/1.55 system-ui,sans-serif}
+    *{box-sizing:border-box}
+    body{margin:0;padding:clamp(24px,7vw,72px) 24px}
+    main{max-width:420px;margin:0 auto;padding:clamp(20px,5vw,32px);background:#fff;border:1px solid #d7dbe3;border-radius:14px}
+    img{display:block;width:155px;height:auto}
+    h1{margin:24px 0 8px;font-size:clamp(1.45rem,5vw,1.85rem);line-height:1.2}
+    p{margin:0 0 20px;color:#545b6d}
+    a{color:inherit;text-underline-offset:4px}
+    a:focus-visible{outline:2px solid #a61712;outline-offset:4px}
+    .login{display:flex;justify-content:center;align-items:center;min-height:46px;padding:8px 16px;background:#242735;color:#fff;border-radius:8px;text-decoration:none;font-weight:650}
+    .login:hover{background:#363b51}
+    .options{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:16px}
+    .options a{display:inline-flex;align-items:center;min-height:44px;font-size:.875rem}
+  </style>
+</head>
+<body>
+  <main aria-labelledby="staff-title">
+    <img src="/pinapi-wordmark.svg" alt="Semifly" width="168" height="44">
+    <h1 id="staff-title">公司工作台</h1>
+    <p>通过公司身份中心登录。</p>
+    <a class="login" href="/api/staff/login">公司账号登录</a>
+    <nav class="options" aria-label="公司账号帮助">
+      <a href="/api/staff/login?relogin=1">切换公司账号</a>
+      <a href="https://login.glocalstorage.cn/if/flow/oneapi-staff-activation/">首次开通员工账号</a>
+    </nav>
+  </main>
+</body>
+</html>
