@@ -207,8 +207,7 @@
 
  let alipayPay=null,alipayTimer=null,alipayFen=10000,payChannel='alipay_f2f',rechargeReview=null;
   const PAY_CHANNELS={alipay_f2f:{name:'支付宝',path:'alipay',chip:'支付宝电脑网站支付'},wechat_native:{name:'微信支付',path:'wechat',chip:'微信支付 Native'}};
- let directPicked=new Set(),directIssued=null,panelOrg=null,teamUsage=null,personalBilling=null,personalPilot=null,employeeCredit=null,employeeIssuedKey=null,employeeKeyModel=null,agentToolId='workbuddy',personalTab='overview',personalFamily='all',personalUse='all',personalSearch='',personalSelected='deepseek-flash',personalPricePeriod='offpeak';
- let personalPaneShare=62,personalPaneDrag=null;try{const saved=Number(localStorage.getItem('semifly.personal-pane-share'));if(saved>=39&&saved<=72)personalPaneShare=saved;}catch{}
+ let panelOrg=null,teamUsage=null,personalBilling=null,personalPilot=null,employeeCredit=null,agentToolId='workbuddy',personalTab='overview',personalSelected='deepseek-flash',personalPricePeriod='offpeak';
  // API balances are decimal fen; trim sub-fen digits only for whole-fen display/checks.
  const wholeFen=value=>BigInt(String(value).split('.')[0]);
  const personalMoney=value=>{if(value===null||value===undefined)return '—';const cents=wholeFen(value),absolute=cents<0n?-cents:cents;return `${cents<0n?'-':''}¥${absolute/100n}.${String(absolute%100n).padStart(2,'0')}`;};
@@ -305,11 +304,6 @@
   const fresh=age>=0&&age<=24*60*60*1000;
   return {latency:`${Math.round(ms)} ms`,status:fresh?'最近成功':'需复测',tone:fresh?'live':'stale',time:new Date(call.created_at).toLocaleString('zh-CN')};
  }
- function personalCatalogRows(){
-  const query=personalSearch.trim().toLowerCase();
-  const list=personalCatalog().filter(m=>(personalFamily==='all'||m.family===personalFamily)&&(personalUse==='all'||m.uses.includes(personalUse))&&(!query||`${m.name} ${m.subtitle} ${m.tags.join(' ')}`.toLowerCase().includes(query)));
-  return {count:list.length,html:list.length?list.map(m=>{const measurement=personalModelMeasurement(m.id);return `<tr class="${personalSelected===m.id?'selected':''}" data-live="personal-model" data-id="${esc(m.id)}">${creditActive()?`<td class="col-pick"><input type="checkbox" data-live="pick-model" data-id="${esc(m.id)}" aria-label="勾选 ${esc(m.name)}" ${directPicked.has(m.id)?'checked':''}></td>`:''}<td><span class="personal-model-name"><i class="${m.family}"></i><span><b>${esc(m.name)}</b><small>${esc(m.upstreamId)}</small></span></span></td><td class="col-status" data-sort="${/^\d/.test(measurement.latency)?parseInt(measurement.latency,10):''}" title="${esc(measurement.time?`实测于 ${measurement.time} · 平台到上游的响应耗时`:'尚无实测结果')}"><span class="model-light ${modelLight(measurement)}" aria-hidden="true"></span><span class="model-state"><b class="personal-status ${measurement.tone}">${measurement.status}</b><small>${measurement.latency}</small></span></td><td class="col-cap">${esc(m.tags.slice(0,2).join('、'))}</td><td class="personal-rate">${personalPrice(personalBaseRate(m).miss)}</td><td class="personal-rate">${personalPrice(personalBaseRate(m).output)}</td><td class="col-act"><button type="button" data-live="personal-model" data-id="${esc(m.id)}" aria-label="查看 ${esc(m.name)}">查看</button></td></tr>`}).join(''):`<tr><td colspan="${creditActive()?7:6}" class="personal-model-empty">没有匹配的型号，请调整筛选条件。</td></tr>`};
- }
  function personalRecent(){
   const pilot=personalPilot?.enabled?(personalPilot.recent_calls||[]).slice(0,8):[];
   const entries=(personalBilling?.entries||[]).filter(e=>e.kind==='usage'&&e.model_name&&e.input_tokens!=null&&e.output_tokens!=null).slice(0,5);
@@ -377,7 +371,6 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
  const agentToolHint=()=>agentTool().unsupported||agentTool().steps.slice(0,2).join(' ');
  const agentToolTitle=()=>{const t=agentTool();return t.unsupported?`${t.name} 暂不支持接入：`:t.id==='other'?'在自建 Agent 或其他兼容工具中使用此 API 的方法：':t.id==='api'?'不用 Agent，直接调用此 API 的方法：':`在 ${t.name} 智能体中使用此 API 的方法：`;};
  const labelEm=(...labels)=>(Math.max(...labels.map(t=>[...String(t||'')].reduce((n,c)=>n+(/[\u2e80-\uffff]/.test(c)?1:.56),0)))+.8).toFixed(1);
- const agentStepTitle=m=>{const t=agentTool(),n=`<b>${esc(m.name)}</b>`;return t.unsupported?`<b>${esc(t.name)}</b> 暂不支持接入 ${n}`:t.id==='api'?`不用 Agent，直接调用 ${n} 的方法`:t.id==='other'?`在自建 Agent / 兼容工具中接入 ${n} 的方法`:`在 <b>${esc(t.name)}</b> 中接入 ${n} 的方法`;};
  // 工作台各页固定在一屏内，内容多时用这组标签切换视角。
  const pageViews={};
  const pageView=(group,items)=>items.some(([key])=>key===pageViews[group])?pageViews[group]:items[0][0];
@@ -390,39 +383,6 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
   return {items,pager:pages>1?`<div class="pc-pager" data-pager="${group}" data-page="${page}" data-size="${size}">${turn('上一页',page-1,page<=1)}<span>第 ${page} / ${pages} 页 · 共 ${items.length} 条</span>${turn('下一页',page+1,page>=pages)}</div>`:''};
  }
  const tabbedPage=(group,items,body)=>`<section class="pc-tab-page">${pageTabs(group,items)}<div class="pc-tab-body">${body}</div></section>`;
- const employeeKeyModelId=c=>c.model_ids.includes(employeeKeyModel)?employeeKeyModel:c.model_ids[0];
- const keyAgentCopy=(value,label)=>`<button type="button" class="key-agent-copy" data-live="key-guide-copy" data-copy="${esc(value)}" data-toast="${esc(label)} 已复制。" aria-label="复制 ${esc(label)}">复制</button>`;
- const keyAgentRow=(index,label,value,copyValue)=>`<div class="key-agent-row"><span class="key-agent-index">${index}</span><small>${label}</small>${value}${copyValue?keyAgentCopy(copyValue,label):'<span></span>'}</div>`;
- // 右侧固定列出 Agent 需要的三项信息；完整 Key 只保存在当前页面内存，刷新后不再显示。
- function employeeKeyPanel(c){
-  const tool=agentTool(),model=employeeKeyModelId(c),issued=employeeIssuedKey,active=(c.keys||[]).find(k=>!k.revoked_at);
-  const picked=(c.models||[]).find(m=>m.id===model)||{name:model||'所选模型'};
-  const head=`<header class="kg-step3-head"><span class="pc-step-no">3</span><h4>${agentStepTitle(picked)}</h4></header>`;
-  if(tool.unsupported)return `<section class="kg-step3 pc-step-blocked" data-key-agent-panel>${head}<p class="pc-step-warn">${esc(tool.unsupported)}</p></section>`;
-  const keyField=issued?`<code class="is-secret">${esc(issued.secret)}</code>`:active?`<code class="is-muted">sf_emp_…${esc(active.key_hint)}</code>`:'<code class="is-muted">生成后显示在这里</code>';
-  const all=[`${tool.base}: ${c.base_url}`,`${tool.key}: ${issued?issued.secret:'（填入你保存的 Key）'}`,`${tool.model}: ${model||'暂无可用模型'}`].join('\n');
-  const hint=issued?'<p class="key-agent-warning">这把 Key 只显示这一次，刷新或离开后无法再查看，请现在保存。</p>':'';
-  const gen=`<form id="live-employee-create" class="kg-gen"><input name="label" required maxlength="50" aria-label="用途名称" placeholder="用途名称，例如：我的 ${esc(tool.id==='api'||tool.id==='other'?'Agent':tool.name)}"><button class="personal-key-button personal-key-button-active" type="submit">${ico('command')} ${issued||active?'再生成一把':'生成 API Key'}</button><div role="status"></div></form>`;
-  const key=issued?.secret||'YOUR_API_KEY',guides=[['steps','操作步骤'],...(tool.snippet&&model?[['file','配置文件']]:[]),...(tool.examples&&model?[['curl','curl'],['python','Python'],['node','Node']]:[]),['limits','使用限制']],guide=pageView('agent-guide',guides);
-  const code=value=>`<pre class="key-agent-snippet">${esc(value)}</pre>`;
-  const guideBody=guide==='file'?code(tool.snippet(c.base_url,key,model))+keyAgentCopy(tool.snippet(c.base_url,key,model),'配置文件'):guide==='curl'?code(curlExample(c.base_url,model,key)):guide==='python'?code(pythonExample(c.base_url,model,key)):guide==='node'?code(nodeExample(c.base_url,model,key)):guide==='limits'?`${tool.note?`<p class="live-small">${esc(tool.note)}</p>`:''}<p class="live-small">${esc(employeeKeyNote(c))}</p><p class="live-small">公司额度按模型官网价扣除，DeepSeek 工作日高峰时段为 2 倍。</p>`:`<ol class="pc-howto">${tool.steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol>`;
-  return `<section class="kg-step3" data-key-agent-panel>${head}<div class="kg-step3-grid"><div class="kg-guide">${pageTabs('agent-guide',guides)}<div class="key-agent-guide">${guideBody}</div></div><div class="kg-values">${gen}<div class="key-agent-rows" style="--kv-label:${labelEm(tool.base,tool.key,tool.model)}">${keyAgentRow(1,esc(tool.base),`<code>${esc(c.base_url)}</code>`,c.base_url)}${keyAgentRow(2,esc(tool.key),keyField,issued?.secret)}${keyAgentRow(3,esc(tool.model),`<code>${esc(model||'暂无可用模型')}</code>`,model)}</div>${hint}<button type="button" class="key-agent-copy-all" data-live="key-guide-copy" data-copy="${esc(all)}" data-toast="配置已复制。">复制全部</button></div></div></section>`;
- }
- function employeeCreditKeys(){
-  const c=employeeCredit,keys=c.keys||[],calls=c.recent_calls||[],callPage=pagedRows('employee-calls',calls);
-  const state={pending:'进行中',awaiting_bill:'结算中',settled:'已结算',failed:'失败 · 未扣'};
-  const rows=callPage.items.map(x=>`<tr><td>${new Date(x.created_at).toLocaleString('zh-CN')}</td><td>${esc(x.client||'未记录')}</td><td>${esc(x.model_id)}<small>${esc(x.key_label)}</small></td><td>${x.input_tokens??'—'} / ${x.cached_input_tokens??'—'} / ${x.output_tokens??'—'}</td><td>${x.status==='settled'?employeeYuan(x.charged_yuan):x.status==='failed'?'¥0':'预留 '+employeeYuan(x.hold_yuan)}</td><td>${esc(state[x.status]||x.status)}</td></tr>`).join('');
-  // Generating a key is one framed step with two ways to do it; owning keys and their history is "my usage".
-  // Managers have that under 用量 → 我的用量; other employees keep it here, under the box.
-  const manager=Boolean(lastOrg?.permissions?.manager&&lastOrg?.organization?.id),genViews=[['setup','① 为指定 Agent 生成 Key'],['direct','② 为多个模型生成 Key']],genView=pageView('employee-gen',genViews);
-  const views=[['keys',`我的 Key · ${keys.filter(k=>!k.revoked_at).length}`],['calls',`调用历史 · ${calls.length}`]],view=pageView('employee-keys',views);
-  const setup=`<div class="kg-flow"><div class="kg-pick"><label class="kg-step"><span class="pc-step-no">1</span><span class="kg-step-body"><small>您选择的模型</small><select data-employee-key-model${c.model_ids.length?'':' disabled'}>${c.model_ids.length?(c.models||[]).map(m=>`<option value="${esc(m.id)}"${m.id===employeeKeyModelId(c)?' selected':''}>${esc(m.name)}</option>`).join(''):'<option>暂无可用模型</option>'}</select></span></label><span class="kg-arrow" aria-hidden="true">→</span><label class="kg-step"><span class="pc-step-no">2</span><span class="kg-step-body"><small>您正在使用的 Agent 工具：请选择</small>${agentToolSelect()}</span></label></div>${employeeKeyPanel(c)}<p class="live-small kg-foot">一把 Key 可调用全部模型，第 1 步只决定填进工具的模型名。最多保留 ${c.key_limit} 枚有效 Key，离开公司企业空间后自动失效。</p>${c.summaries_enabled?`<p class="summary-notice">${ico('circle-alert')} 本公司已开启调用摘要：每次调用会保存你最后一条提问的前 ${c.summary_chars||60} 个字，密钥、邮箱、手机号、证件号等会自动隐去，保存 30 天，仅企业管理者可见。不会保存完整对话。</p>`:''}</div>`;
-  const list=keyTable(keys,{action:'employee-revoke'});
-  const table=`<div class="personal-table-wrap"><table><thead><tr><th>时间</th><th>来源</th><th>模型 / Key</th><th>输入 / 缓存 / 输出</th><th>金额</th><th>状态</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="personal-model-empty">尚无调用记录。</td></tr>'}</tbody></table></div>${callPage.pager}`;
-  const box=`<section class="keygen-box"><header><h3>一键生成 Key</h3><p>接 WorkBuddy、Cursor 等工具选 <b>①</b>；自己写脚本或程序选 <b>②</b>。</p></header>${tabbedPage('employee-gen',genViews,genView==='direct'?directKeyPanel(c):setup)}</section>`;
-  const mine=manager?`<p class="keygen-mine">${ico('chart-no-axes-combined')} 我的 ${keys.filter(k=>!k.revoked_at).length} 把 Key 和最近 ${calls.length} 次调用，在 <button type="button" class="link" data-live="go-my-usage">用量 → 我的用量</button> 查看和管理。</p>`:tabbedPage('employee-keys',views,view==='calls'?table:list);
-  return purchaseEntry('keys')+box+mine;
- }
  function warmOrg(orgId){
   setTimeout(()=>{
    if(lastOrg?.organization?.id!==orgId)return;
@@ -460,22 +420,6 @@ const pythonExample=(baseUrl,model,key)=>`from openai import OpenAI\n\nclient = 
  // Average per minute over the last 24 hours, the same definition KerAPI uses.
  const perMinute=(value,minutes=1440)=>{const v=Number(value||0)/minutes;return v===0?'0':v<0.01?'<0.01':v<10?v.toFixed(2):Math.round(v).toLocaleString('zh-CN');};
  const loadCell=x=>`<td class="load-cell" data-sort="${Number(x.calls_24h||0)}" title="最近 24 小时：${Number(x.calls_24h||0)} 次调用，${Number(x.tokens_24h||0).toLocaleString('zh-CN')} Token；峰值为最忙的一分钟"><b>${perMinute(x.calls_24h)}</b> / ${perMinute(x.tokens_24h)}<small>峰值 ${Number(x.peak_rpm||0)} 次/分</small></td>`;
- function directKeyPanel(c){
-  const models=c.models||[],count=[...directPicked].filter(id=>models.some(m=>m.id===id)).length,issued=directIssued;
-  const rows=models.map(m=>{const x=personalModelMeasurement(m.id);return `<label class="direct-model ${directPicked.has(m.id)?'on':''}"><input type="checkbox" data-direct-model value="${esc(m.id)}" ${directPicked.has(m.id)?'checked':''}><span class="model-light ${modelLight(x)}" aria-hidden="true"></span><span class="direct-model-name"><b>${esc(m.name)}</b><small>${esc(m.id)}</small></span><span class="direct-model-price">¥${Number(m.input_yuan)} / ¥${Number(m.output_yuan)}<small>输入 / 输出 每百万</small></span></label>`;}).join('')||'<p class="personal-model-empty">暂无可用模型。</p>';
-  const form=`<div class="direct-key-form"><div class="direct-head"><div><h3>勾选这把 Key 能调用的模型</h3><p class="live-small">适合自己写脚本、命令行或程序直接调用。生成的 Key 只能调用勾选的模型；接入 WorkBuddy、Cursor 等工具请用“为 Agent 生成 Key”。</p></div><div class="direct-quick"><button type="button" data-live="direct-all">全选</button><button type="button" data-live="direct-none">清空</button></div></div><div class="direct-models">${rows}</div>`
-   +`<form id="live-direct-create" class="direct-create"><label>用途名称<input name="label" required maxlength="50" placeholder="例如：命令行脚本"></label><label>消费上限（元）<input name="limit_yuan" inputmode="decimal" placeholder="不填则不限"></label><button type="submit" class="personal-key-button personal-key-button-active" data-direct-submit ${count?'':'disabled'}>${ico('command')} 生成 API Key · ${count} 个模型</button><div role="status"></div></form><p class="live-small">每人最多 ${c.key_limit} 枚有效 Key。Key 的费用从你的公司额度扣除；设置上限后，这把 Key 用到上限就会停止。</p></div>`;
-  const env=issued?`export SEMIFLY_API_KEY="${issued.secret}"\nexport SEMIFLY_BASE_URL="${c.base_url}"`:'';
-  const sample=issued?curlExample(c.base_url,issued.models[0],'$SEMIFLY_API_KEY'):'';
-  const result=issued?`<aside class="direct-result"><h3>${esc(issued.label)} · 已生成</h3><p class="key-agent-warning">完整 Key 只显示这一次，离开页面后无法再查看，请现在保存。</p>${keyAgentRow(1,'API Key',`<code class="is-secret">${esc(issued.secret)}</code>`,issued.secret)}${keyAgentRow(2,'接口地址',`<code>${esc(c.base_url)}</code>`,c.base_url)}${keyAgentRow(3,'可用模型',`<code>${esc(issued.models.join(', '))}</code>`,issued.models.join(', '))}${issued.limit?`<p class="live-small">消费上限 ¥${esc(issued.limit)}</p>`:''}<h4>放进命令行</h4><pre class="key-agent-snippet">${esc(env)}</pre>${keyAgentCopy(env,'环境变量')}<h4>调用示例</h4><pre class="key-agent-snippet">${esc(sample)}</pre>${keyAgentCopy(sample,'curl 示例')}<p class="live-small">更多示例和错误码见 <a href="#docs/quickstart">文档中心</a>。</p></aside>`
-   :'';
-  return `<div class="direct-key${issued?'':' is-solo'}">${form}${result}</div>`;
- }
- function keyTable(keys,{owner=false,action}={}){
-  if(!keys.length)return '<p class="personal-model-empty">尚未生成 Key。</p>';
-  return `<div class="personal-table-wrap"><table class="key-usage-table"><thead><tr><th>Key</th>${owner?'<th>员工</th>':''}<th>创建时间</th><th>已接通</th><th>可用模型</th><th>调用</th><th>Token</th><th>金额</th><th title="最近 24 小时平均每分钟请求数 / Token 数">RPM / TPM<br><small>24 小时平均</small></th><th>最近来源</th><th>状态</th><th></th></tr></thead><tbody>${keys.map(k=>`<tr><td><b>${esc(k.label)}</b><small>尾号 ${esc(k.key_hint)}</small></td>${owner?`<td>${esc(k.name)}</td>`:''}<td class="mono">${msTime(k.created_at)}</td><td data-sort="${(k.revoked_at?Date.parse(k.revoked_at):Date.now())-Date.parse(k.created_at)}">${k.revoked_at?`${connectedFor(k.created_at,k.revoked_at)} · 已停用`:`${connectedFor(k.created_at)} · 至今`}</td><td class="scope-cell" title="${esc(k.model_ids?k.model_ids.join('、'):'可调用全部已开放模型')}">${k.model_ids?`${k.model_ids.length} 个模型`:'全部模型'}${k.limit_yuan?`<small>上限 ¥${Number(k.limit_yuan)} · 已用 ${yuan2(k.used_yuan)}</small>`:''}</td><td>${Number(k.calls||0).toLocaleString('zh-CN')}</td><td>${Number(k.tokens||0).toLocaleString('zh-CN')}</td><td>${employeeYuan(k.yuan||0)}</td>${loadCell(k)}<td>${esc(k.last_client||'—')}</td><td>${k.revoked_at?'<span class="live-pill muted">已停用</span>':isLive(k.last_call_at,k.active_calls)?liveDot(true):'<span class="live-pill">可调用</span>'}</td><td>${k.revoked_at?'':`<button type="button" data-live="${action==='team-key-revoke'?'team-key-manage':'employee-key-manage'}" data-id="${esc(k.id)}">管理</button> <button type="button" data-live="${action}" data-id="${esc(k.id)}">停用</button>`}</td></tr>`).join('')}</tbody></table></div>`;
- }
- let memberTimer=null;
  function memberDetailBody(userId,d){
   const p=lastOrg?.members.find(x=>x.user_id===userId)||{},u=teamUsage?.members.find(x=>x.user_id===userId),index=lastOrg?.members.findIndex(x=>x.user_id===userId)??-1;
   const name=p.name||u?.name||'员工',on=(p.status||u?.status)==='active',fact=(k,v)=>`<div><span>${k}</span><b>${v}</b></div>`,when=v=>v?msTime(v):'—';
@@ -603,15 +547,9 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   if(personalTab==='models'&&!panelOrg)return personalModelsContent();
   if(personalTab==='connect'&&!panelOrg)return personalConnectContent();
   if(personalTab==='keys'&&!panelOrg&&(employeeApi||paidCredit?.enabled))return personalApiContent();
-  const selected=personalCatalog().find(m=>m.id===personalSelected)||personalCatalog()[0];
-  if(personalTab==='models'){
-   const rows=personalCatalogRows(),rates=selected?personalBaseRate(selected):null,pilotSelected=Boolean(!panelOrg&&personalPilot?.enabled&&personalPilot.model_ids?.includes(selected?.id)),employeeSelected=Boolean(creditActive()&&employeeCredit.model_ids?.includes(selected?.id)),paidSelected=Boolean(!creditActive()&&paidCredit?.enabled&&paidCredit.models?.some(m=>m.id===selected?.id));
-   const buyHead=!panelOrg&&!creditActive()?`<section class="personal-buy-strip"><div><strong>开始选购</strong><p>${personalBilling?.credit_split&&BigInt(personalBilling.credit_split.remaining_fen||0)?'你已有可用额度，选择模型后即可生成 Key 开始调用。':'还没有额度。选择模型后充值下单，即可生成 Key 开始调用。'}</p></div>${personalBilling?.payments_enabled?`<a class="overview-primary" href="#billing/personal">${ico('server')} 去充值下单</a>`:`<button class="live-button primary" type="button" data-live="personal-tab" data-tab="billing">查看充值</button>`}</section>`:'';
-   return `<div class="personal-console-grid" style="--personal-model-share:${personalPaneShare}%"><section class="personal-model-panel">${buyHead}<div class="personal-section-title"><h2>模型目录</h2>${creditActive()?healthBar():''}<label class="personal-price-period">官网价 · ¥/百万 Token <select data-personal-price-period aria-label="DeepSeek 价格时段"><option value="offpeak" ${personalPricePeriod==='offpeak'?'selected':''}>空闲</option><option value="peak" ${personalPricePeriod==='peak'?'selected':''}>高峰</option></select></label></div><div class="personal-model-tools"><div class="personal-family" aria-label="按品牌筛选">${[['all','全部'],['deepseek','DeepSeek'],['glm','GLM']].map(([key,label])=>`<button type="button" data-live="personal-family" data-family="${key}" aria-pressed="${personalFamily===key}" class="${personalFamily===key?'active':''}">${label}</button>`).join('')}</div><label class="personal-use-filter">能力：<select data-personal-use aria-label="按能力筛选"><option value="all" ${personalUse==='all'?'selected':''}>全部能力</option><option value="writing" ${personalUse==='writing'?'selected':''}>对话写作</option><option value="reasoning" ${personalUse==='reasoning'?'selected':''}>深度推理</option><option value="coding" ${personalUse==='coding'?'selected':''}>编程</option><option value="vision" ${personalUse==='vision'?'selected':''}>视觉理解</option></select></label><label class="personal-model-search">${ico('search')}<input data-personal-search aria-label="搜索模型" placeholder="搜索模型名称…" value="${esc(personalSearch)}"></label></div><div class="personal-table-wrap"><table><thead><tr>${creditActive()?'<th class="col-pick" title="勾选后可直接生成限定这些模型的 Key"></th>':''}<th>模型</th><th class="col-status">状态<br><small>实测延迟</small></th><th class="col-cap">能力</th><th>输入价<br><small>未命中 · ¥/百万 Token</small></th><th>输出价<br><small>¥/百万 Token</small></th><th class="col-act">操作</th></tr></thead><tbody data-personal-rows>${rows.html}</tbody></table></div>${creditActive()&&directPicked.size?`<div class="pick-bar"><span>已勾选 <b>${directPicked.size}</b> 个模型</span><button type="button" class="pick-go" data-live="pick-generate">${ico('command')} 用这些模型生成 Key</button><button type="button" data-live="pick-clear">清空</button></div>`:''}<p class="personal-model-caption">${rows.count} 款公开型号 · DeepSeek 当前显示${personalPricePeriod==='peak'?'高峰':'空闲'}时段价，缓存价及完整规则见<a href="#market">完整价格</a>。${creditActive()||paidCredit?.enabled?'额度可用于账号已开放的模型。':'未开放型号暂不可调用。'}${creditActive()?'状态为平台每 10 分钟实测一次的结果，延迟是最短请求的响应时间。':'绿灯 = 本账号近 24 小时调用成功，不代表长期稳定。'}读取数据不耗 Token。${personalPilot?.enabled?`<button type="button" class="personal-evidence-refresh" data-live="pilot-refresh">刷新实测</button>`:''}</p></section><div class="personal-pane-handle" role="separator" tabindex="0" aria-label="调整模型目录和接入配置宽度" aria-orientation="vertical" aria-valuemin="39" aria-valuemax="72" aria-valuenow="${personalPaneShare}"><span></span></div><aside class="personal-connect-panel"><div class="personal-section-title"><h2>接入配置</h2><span class="pc-connect-status">${ico('clock')} ${employeeSelected?'可调用':paidSelected?'按用量付费':pilotSelected?'限量测试可用':'等待开放调用'}</span></div>${selected?`<ol class="pc-steps"><li class="pc-step"><span class="pc-step-no">1</span><div class="pc-step-body"><p class="pc-step-label">您选择的模型</p><div class="personal-selected-model"><i class="${selected.family}"></i><div><b>${esc(selected.name)}</b><small>${esc(selected.tags.slice(0,2).join('、'))}</small></div></div><p class="pc-step-sub">在左侧模型目录中点选可更换</p></div></li><li class="pc-step"><span class="pc-step-no">2</span><div class="pc-step-body"><p class="pc-step-label">您正在使用的 Agent 工具：请选择</p>${agentToolSelect()}</div></li><li class="pc-step${agentTool().unsupported?' pc-step-blocked':''}"><span class="pc-step-no">3</span><div class="pc-step-body"><p class="pc-step-label pc-step-label-strong">${agentStepTitle(selected)}</p>${agentTool().unsupported?`<p class="pc-step-warn">${esc(agentTool().unsupported)}</p>`:`<ol class="pc-howto">${agentTool().steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol><div class="pc-access-values" style="--kv-label:${labelEm(agentTool().base,agentTool().model,agentTool().key)}"><div><span>${esc(agentTool().base||'Base URL')}</span><code>${employeeSelected?esc(employeeCredit.base_url):paidSelected?esc(paidCredit.base_url):pilotSelected?esc(personalPilot.base_url):'待接入'}</code></div><div><span>${esc(agentTool().model||'模型名称')}</span><code>${esc(selected.upstreamId)}</code></div><div><span>${esc(agentTool().key||'API Key')}</span><code>${employeeSelected||paidSelected||pilotSelected?'到密钥页创建':'尚未生成'}</code></div></div>${employeeSelected?`<button class="personal-key-button personal-key-button-active" type="button" data-live="employee-open-keys">${ico('command')} 生成我的 API Key</button>`:paidSelected?`<button class="personal-key-button personal-key-button-active" type="button" data-live="paid-create">${ico('command')} 创建 ${esc(selected.name)} API Key</button>`:pilotSelected?`<button class="personal-key-button personal-key-button-active" type="button" data-live="pilot-open-keys">${ico('command')} 创建 ${esc(selected.name)} 测试 Key</button>`:`<button class="personal-key-button" type="button" disabled>${ico('settings')} 创建平台 Key 与配置 · 待开放</button>`}`}</div></li></ol><div class="pc-config-fields pc-price-fields"><div><span>输入价</span><strong>${personalPrice(rates.miss)} / 1M</strong></div><div><span>缓存命中</span><strong>${personalPrice(rates.hit)} / 1M</strong></div><div><span>输出价</span><strong>${personalPrice(rates.output)} / 1M</strong></div></div><p class="personal-connect-note">官网价；${selected.price.kind==='timed'?`DeepSeek 此处为${personalPricePeriod==='peak'?'高峰':'空闲'}时段价。`:'智谱此处为标准 API 价。'}${employeeSelected?'调用从公司额度扣除。':paidSelected?'调用按官网价扣除当前账户额度。':pilotSelected?'当前是限量真实测试，不扣客户余额。':'供应、收款和计量验收后开放。'}</p>${employeeSelected||paidSelected?purchaseEntry('models'):''}`:'<p class="personal-model-empty">模型目录暂不可读。</p>'}</aside></div>`;
-  }
+  if(personalTab==='models')return `<section class="personal-state-panel"><h2>模型与价格</h2><p>在模型广场查看已发布的模型、能力和价格。</p><a class="live-button primary" href="#market">查看模型广场</a></section>`;
   if(personalTab==='keys'){
    if(!creditActive()&&paidCredit)return paidKeyPanel();
-   if(creditActive())return employeeCreditKeys();
    if(panelOrg)return `<section class="personal-state-panel"><span class="live-eyebrow">API KEYS / 密钥</span><h2>公司额度还没有开通</h2><p>这个企业开通公司额度后，员工可以在这里生成自己的 Key，调用费用从公司额度扣除。</p></section>`;
    if(!personalPilot?.enabled)return `<section class="personal-state-panel personal-keys-guide"><span class="live-eyebrow">API KEYS / 密钥</span><h2>个人 API Key 即将开放</h2><p>模型调用正在做最后的供应、计费和付款验收。开放后，你可以在这里生成 Key，接入 Cursor、Claude Code 等工具。</p><div class="keys-guide-grid"><article><b>${ico('layers')} 现在可以</b><p><a href="#market">在模型广场看模型和价格</a>，或<a href="#support">提交工单</a>告诉我们你想用的模型。</p></article><article><b>${ico('building-2')} 如果你是企业员工</b><p>请公司管理者发邀请链接。加入后用公司额度生成 Key，不需要个人充值。</p></article><article><b>${ico('command')} 开放之后</b><p>先充值，再回到这里生成 Key，按实际用量扣费。</p></article></div></section>`;
    const keys=personalPilot.keys||[];
@@ -625,7 +563,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  }
  function replacePanelContent(target,html){
   if(target.innerHTML===html)return;
-  const selectors=['.pc-stage','.personal-table-wrap','.personal-connect-panel','[data-personal-content]'];
+  const selectors=['.pc-stage','.personal-table-wrap','[data-personal-content]'];
   const saved=selectors.flatMap(selector=>[...(target.matches(selector)?[target]:target.querySelectorAll(selector))].map((el,index)=>({selector,index,top:el.scrollTop,left:el.scrollLeft})));
   const top=target.scrollTop,left=target.scrollLeft;
   target.innerHTML=html;
@@ -786,12 +724,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const intent=readModelIntent(),model=intent?.scope==='personal'?(intent.id==='all'?{id:'all',name:'通用 Key'}:(window.SemiflyModels||[]).find(m=>m.id===intent.id)):null,ready=BigInt(data.list_credit_fen??data.cash_balance_fen??0)>0n;
   return `<aside class="api-next"><div><strong>${ready?'额度已可用，继续接入':'充值后，继续配置 API Key'}</strong><p>${model?`已记住 ${esc(model.name)}。`:''}充值进入个人账户，可用于账户已开放的模型。</p></div><a href="${model?'#personal/connect/'+esc(model.id):'#personal/keys'}">${ready?'继续配置 API Key':'返回 API 配置'}${ico('arrow-right')}</a></aside>`;
  }
- function personalApiConnection(model){
-  const p=paidCredit,copy=(label,value)=>`<div class="pm-config-row"><span>${label}</span><code>${esc(value)}</code><button type="button" data-live="copy-text" data-text="${esc(value)}" aria-label="复制${label}">${ico('copy')}</button></div>`;
-  const tool=agentTool(),steps=(tool.steps||[]).map(step=>step.replaceAll('下面三项','API 地址、模型 ID 和密钥').replaceAll('下面的模型名称','此模型的 ID').replace('在“curl / Python / Node”页','在接入文档中'));
-  const snippet=tool.snippet?tool.snippet(p.base_url,'你的 API Key',model.id):'';
-  return `<section class="api-connection" id="api-connection"><div class="api-section-head"><h2>接入配置</h2><a href="#docs">完整文档${ico('arrow-up-right')}</a></div><label class="api-model-picker">调用模型<select data-api-model aria-label="选择调用模型">${p.models.map(m=>`<option value="${esc(m.id)}" ${m.id===model.id?'selected':''}>${esc(m.name)}</option>`).join('')}</select></label><div class="pm-config">${copy('API 地址',p.base_url)}${copy('模型 ID',model.id)}</div><p class="api-caption">使用允许此模型的 Key。完整密钥仅在创建时显示，请填入你保存的密钥。</p><details class="pm-guide" ${personalModelGuideOpen?'open':''}><summary>在 Agent 工具中配置</summary><label>选择工具${agentToolSelect()}</label>${tool.unsupported?`<p class="pm-note">${esc(tool.unsupported)}</p>`:`<ol>${steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol>${snippet?`<pre><code>${esc(snippet)}</code></pre><button type="button" class="pm-expand" data-live="copy-text" data-text="${esc(snippet)}">复制配置</button>`:''}`}</details></section>`;
- }
+
  function personalApiContent(){
   const p=paidCredit,keys=(p.keys||[]).filter(k=>!k.revoked_at),models=p.models||[];
   const usageMeter=k=>{
@@ -1026,7 +959,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const orgs=me.organizations||[],role=org?(customerRoles[lastOrg?.membership?.role]||'企业成员'):'个人账号',settings=org?`#organization/${esc(org.id)}/settings`:'#security';
   const spaces=[...(!org||personalVisible()?[{value:'personal',name:'个人工作区',current:!org}]:[]),...orgs.map(o=>({value:'organization/'+o.id,name:o.name,current:org?.id===o.id}))];
   const workspace=spaces.length>1?`<label class="pc-workspace">${ico('building-2')}<select data-workspace-select aria-label="当前工作空间">${spaces.map(s=>`<option value="${esc(s.value)}" ${s.current?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>`:org?`<span class="pc-workspace">${ico('building-2')}<span class="pc-workspace-name" title="${esc(org.name)}">${esc(org.name)}</span></span>`:'';
-  return window.SiteHeader.render('workspace',{className:'pc-topbar',account:accountMenu(me.user,'customer',settings),tools:`${surfaceSwitch()||'<strong class="pc-product-title">工作台</strong>'}<div class="pc-topbar-actions"><span class="pc-identity">${role}</span>${workspace}${purchaseEntry('header',true)}<label class="pc-global-search">${ico('search')}<input data-personal-search aria-label="搜索模型" placeholder="搜索模型，回车查看" value="${esc(personalSearch)}"></label></div>`});
+  return window.SiteHeader.render('workspace',{className:'pc-topbar',account:accountMenu(me.user,'customer',settings),tools:`${surfaceSwitch()||'<strong class="pc-product-title">工作台</strong>'}<div class="pc-topbar-actions"><span class="pc-identity">${role}</span>${workspace}${purchaseEntry('header',true)}</div>`});
  }
  const analytics={range:'24h',data:null,at:0,loading:false,cost:'bar',calls:'trend'};
  function loadAnalytics(force=false){
@@ -1773,10 +1706,32 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  }
  const spaceKey='semifly.workspace.v1';
  // 登录后的唯一落点：优先上次选择的空间，否则进入所属企业，没有企业才是个人空间。
+ function companyWorkspaceTarget(view,organizations=me?.organizations||[]){
+  const match=/^(?:billing\/)?organization\/([^/]+)(?:\/([^/]+))?$/.exec(view);
+  if(!match)return '';
+  const [,id,section]=match;
+  const role=organizations.find(org=>org.id===id)?.company_workspace;
+  if(!role)return '';
+  if(role==='owner'){
+   if(section==='people')return 'staff-team';
+   if(section==='usage')return 'staff-team/usage';
+   if(section==='settings')return 'staff-account';
+   if(section==='models')return 'console/technical/models';
+   if(view.startsWith('billing/'))return 'console/owner/payments';
+   return 'console/owner/overview';
+  }
+  const target=new Map([['models','apimodels'],['keys','apikeys'],['usage','apiusage'],['compare','apicompare'],['support','tickets']]).get(section);
+  return section==='settings'?'staff-account':'console/business/'+(target||'apioverview');
+ }
  function personalRedirect(view){
   if(view==='upgrade'&&me.organizations?.length)return workspaceTarget('workspace');
-  if(personalVisible())return '';
+  if(personalVisible()||view==='personal/vip')return '';
   const home=workspaceTarget('workspace'),manager=me.organizations.find(o=>home==='organization/'+o.id)?.is_manager;
+  if(home.startsWith('console/')){
+   const org=me.organizations.find(o=>companyWorkspaceTarget('organization/'+o.id)===home);
+   const section=personalBillingRoute(view)?'overview':view.startsWith('personal/connect/')?'models':view.split('/')[1]||(view==='support'?'support':view==='security'?'settings':'overview');
+   return org?companyWorkspaceTarget('organization/'+org.id+'/'+section):home;
+  }
   if(personalBillingRoute(view))return manager?'billing/'+home:home;
   if(view.startsWith('personal/connect/'))return home+'/models';
   return {personal:home,'personal/models':home+'/models','personal/keys':home+'/keys','personal/usage':home+'/usage','personal/compare':home+'/compare',support:home+'/support',security:home+'/settings'}[view]||'';
@@ -1785,7 +1740,8 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const orgs=me.organizations||[];if(view!=='enterprise'&&personalVisible()&&readModelIntent()?.scope==='personal')return 'personal/connect/'+readModelIntent().id;if(view==='enterprise'&&!orgs.length)return 'upgrade';
   let saved='';try{saved=localStorage.getItem(spaceKey)||'';}catch{}
   if(view!=='enterprise'&&saved==='personal'&&personalVisible())return 'personal';
-  const org=orgs.find(o=>saved==='organization/'+o.id)||orgs[0];return org?'organization/'+org.id:'personal';
+  const org=orgs.find(o=>saved==='organization/'+o.id)||orgs[0];if(!org)return 'personal';
+  const route='organization/'+org.id;return companyWorkspaceTarget(route)||route;
  }
  async function route(view){
   focusRefundHeading=view===refundRoute&&current!==refundRoute;
@@ -1858,6 +1814,8 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     location.replace('#'+(query.has('cw')?'billing/personal':workspaceTarget(view)));
     return;
    }
+   const companyTarget=companyWorkspaceTarget(view);
+   if(companyTarget){location.replace('#'+companyTarget);return;}
    const personalTarget=personalRedirect(view);if(personalTarget){location.replace('#'+personalTarget);return;}
    if(personalBillingRoute(view)||view.startsWith('billing/organization/'))await billingPage(ticket,earlyBilling);
    else if(view==='demo/personal'||view.startsWith('demo/organization/'))await demoPage(ticket);
@@ -1866,17 +1824,6 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    else if(view==='security')securityPage();else await account(ticket,earlyBilling);
   }catch(e){if(ticket!==generation)return;if(e.status===401){me=null;authForm();}else mount(hero('YOUR WORKSPACE','暂时无法打开这个空间。','请核对账号及企业权限。')+note(e.message,true)+'<a class="live-button" href="#workspace">返回工作台</a>');}
  }
- function setPersonalPaneShare(grid,share){
-  const width=grid.getBoundingClientRect().width;
-  const lower=Math.max(39,Math.ceil(390/width*100)),upper=Math.min(72,Math.floor((width-330)/width*100));
-  personalPaneShare=Math.max(lower,Math.min(upper,Math.round(share)));
-  grid.style.setProperty('--personal-model-share',personalPaneShare+'%');
-  grid.querySelector('.personal-pane-handle')?.setAttribute('aria-valuenow',String(personalPaneShare));
- }
- document.addEventListener('pointerdown',e=>{const handle=e.target.closest('.personal-pane-handle');if(!handle||matchMedia('(max-width:850px)').matches)return;personalPaneDrag=handle.parentElement;document.body.style.userSelect='none';e.preventDefault();});
- document.addEventListener('pointermove',e=>{if(!personalPaneDrag)return;const rect=personalPaneDrag.getBoundingClientRect();setPersonalPaneShare(personalPaneDrag,(e.clientX-rect.left)/rect.width*100);});
- document.addEventListener('pointerup',()=>{if(!personalPaneDrag)return;personalPaneDrag=null;document.body.style.userSelect='';try{localStorage.setItem('semifly.personal-pane-share',String(personalPaneShare));}catch{}});
- document.addEventListener('keydown',e=>{const handle=e.target.closest('.personal-pane-handle');if(!handle||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();setPersonalPaneShare(handle.parentElement,e.key==='Home'?39:e.key==='End'?72:personalPaneShare+(e.key==='ArrowLeft'?-3:3));try{localStorage.setItem('semifly.personal-pane-share',String(personalPaneShare));}catch{}});
  document.addEventListener('change',e=>{if(e.target.matches('[data-personal-price-period]')){personalPricePeriod=e.target.value==='peak'?'peak':'offpeak';updatePersonalDashboard();}});
  document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-live]');if(!b)return;const action=b.dataset.live;let message=host?.querySelector('#live-form-message');b.disabled=true;
@@ -1905,7 +1852,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
      const target={refund:refundRoute,history:billingHistoryRoute}[b.dataset.pageView]||'billing/personal';
      if(current!==target){location.hash=target;return;}
     }
-    const panel=host?.querySelector('[data-key-agent-panel]');if(b.dataset.group==='agent-guide'&&panel&&employeeCredit)panel.outerHTML=employeeKeyPanel(employeeCredit);else if(panelRedraw)panelRedraw();else if(panelOrg&&lastOrg)organizationV2(lastOrg);else updatePersonalDashboard();}
+    if(panelRedraw)panelRedraw();else if(panelOrg&&lastOrg)organizationV2(lastOrg);else updatePersonalDashboard();}
    else if(action==='pay-channel'){if(host?.querySelector('.personal-billing'))billingAmountDraft=host.querySelector('#alipay-yuan')?.value??billingAmountDraft;cwInputCode=host.querySelector('#pack-promo')?.value??cwInputCode;payChannel=b.dataset.channel;if(panelRedraw)panelRedraw();}
    else if(action==='alipay-amount'){alipayFen=Number(b.dataset.fen);const input=host.querySelector('#alipay-yuan');if(input){input.value=(alipayFen/100).toFixed(2);input.dispatchEvent(new Event('input',{bubbles:true}));}}
    else if(action==='paid-create'){
@@ -1969,8 +1916,6 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    else if(action==='usage-page'){personalUsagePage=Math.max(0,Number(b.dataset.page)||0);if(personalUsageView==='calls')loadPersonalCalls();else updatePersonalDashboard();}
    else if(action==='usage-calls-retry'){loadPersonalCalls();}
    else if(action==='usage-refresh'){await loadPersonalUsage();}
-   else if(action==='personal-family'){personalFamily=b.dataset.family;updatePersonalDashboard();}
-   else if(action==='personal-model'){personalSelected=b.dataset.id;updatePersonalDashboard();}
    else if(action==='personal-compact-section'){
     const group=b.dataset.group,section=b.dataset.section;
     personalCompactViews[group]=section;
@@ -1996,7 +1941,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    else if(action==='clear-model-intent'){try{localStorage.removeItem(modelIntentKey);}catch{}updatePersonalDashboard();}
 
    else if(action==='pilot-open-keys'){personalTab='keys';updatePersonalDashboard();}
-   else if(action==='pilot-refresh'){personalPilot=await api('/api/pilot/status');const rows=host?.querySelector('[data-personal-rows]');if(personalTab==='models'&&rows)rows.innerHTML=personalCatalogRows().html;if(personalTab==='usage')updatePersonalDashboard();showToast('实测数据已刷新；没有向模型发送请求。');}
+   else if(action==='pilot-refresh'){personalPilot=await api('/api/pilot/status');if(['models','usage'].includes(personalTab))updatePersonalDashboard();showToast('实测数据已刷新；没有向模型发送请求。');}
    else if(action==='pilot-create'){form('创建平台测试 Key',`<label>用途名称<input name="label" required maxlength="50" placeholder="例如：我的 Agent"></label><label>调用模型<select name="model_id" required>${personalPilot.model_ids.map(id=>`<option value="${esc(id)}" ${id===personalSelected?'selected':''}>${esc(modelIntentNames[id]||id)}</option>`).join('')}</select></label><label><input type="checkbox" name="confirm_model" value="yes" required> 我确认这枚 Key 只能调用我选择的型号；两款模型共用每天 10 次测试额度。</label><p class="live-small">Key 只显示一次，请立即保存。正式付费 Key 还须由付款方确认可用模型和预算上限。</p>`,'live-pilot-create','生成测试 Key');}
    else if(action==='employee-open-keys'){if(panelOrg)location.hash='organization/'+panelOrg.organization.id+'/keys';else{personalTab='keys';updatePersonalDashboard();}}
    else if(action==='company-pool-add'){form('增加公司 API 预算','<label>新增预算（元）<input name="yuan" type="number" min="0.01" max="100000" step="0.01" required></label><p class="live-small">这会增加公司允许员工消耗的 API 预算，不是充值或现金退款。</p>','live-company-pool','增加预算');}
@@ -2012,7 +1957,6 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    else if(action==='team-key-revoke'){if(confirm('停用后这枚 Key 将不能再调用，确定停用吗？')){await api('/api/employee-credit/team/keys/'+encodeURIComponent(b.dataset.id)+'/revoke',{});const open=document.querySelector('#config-dialog');if(open?.open)open.close();await refreshOrganizationBilling(lastOrg.organization.id,generation);showToast('Key 已停用。');}}
    else if(action==='employee-revoke'){if(confirm('停用后这枚 Key 将不能再调用，确定停用吗？')){await api('/api/employee-credit/keys/'+encodeURIComponent(b.dataset.id)+'/revoke',{});if(employeeIssuedKey?.id===b.dataset.id)employeeIssuedKey=null;employeeCredit=await api('/api/employee-credit/status');updatePersonalDashboard();showToast('Key 已停用。');}}
    else if(action==='pilot-copy'){await navigator.clipboard.writeText(document.querySelector('#pilot-secret')?.textContent||'');showToast('Key 已复制。');}
-   else if(action==='go-my-usage'){pageViews['team-usage']='mine';location.hash='organization/'+lastOrg.organization.id+'/usage';}
    else if(action==='key-guide-copy'){await navigator.clipboard.writeText(b.dataset.copy);showToast(b.dataset.toast||'Key、地址、模型和示例已复制。');}
    else if(action==='pilot-revoke'){if(confirm('停用后这枚 Key 将不能再调用，确定停用吗？')){await api('/api/pilot/keys/'+encodeURIComponent(b.dataset.id)+'/revoke',{});personalPilot=await api('/api/pilot/status');updatePersonalDashboard();showToast('测试 Key 已停用。');}}
    else if(action==='auth-mode'){
@@ -2077,11 +2021,6 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    else if(action==='revoke-join-link'){await api(`/api/platform/organizations/${lastOrg.organization.id}/join-links/${b.dataset.id}/revoke`,{});await route(current);}
    else if(action==='approve-request'||action==='reject-request'){await api(`/api/platform/organizations/${lastOrg.organization.id}/join-requests/${b.dataset.id}/${action==='approve-request'?'approve':'reject'}`,{});await route(current);}
    else if(action==='member-detail'){openMemberDetail(b.dataset.user);}
-   else if(action==='pick-model'){directPicked.has(b.dataset.id)?directPicked.delete(b.dataset.id):directPicked.add(b.dataset.id);redrawKeysOrModels();}
-   else if(action==='pick-clear'){directPicked.clear();redrawKeysOrModels();}
-   else if(action==='pick-generate'){pageViews['employee-keys']='direct';directIssued=null;if(panelOrg&&lastOrg)location.hash='organization/'+lastOrg.organization.id+'/keys';else{personalTab='keys';updatePersonalDashboard();}}
-   else if(action==='direct-all'){(employeeCredit?.models||[]).forEach(m=>directPicked.add(m.id));redrawKeysOrModels();}
-   else if(action==='direct-none'){directPicked.clear();redrawKeysOrModels();}
    else if(action==='health-refresh'){modelHealthLoading=true;if(panelOrg&&lastOrg)organizationV2(lastOrg);try{const r=await api('/api/employee-credit/model-health/refresh',{});modelHealth=new Map(r.models.map(m=>[m.model_id,m]));modelHealthAt=Date.parse(r.checked_at)||Date.now();modelHealthTried=Date.now();showToast(r.throttled?`刚刚已实测过，${r.retry_after_seconds} 秒后可再次实测。`:'已完成实测。');}finally{modelHealthLoading=false;if(panelOrg&&lastOrg)organizationV2(lastOrg);}}
    else if(action==='analytics-range'){analytics.range=b.dataset.range;loadAnalytics(true);organizationV2(lastOrg);}
    else if(action==='analytics-view'){analytics[b.dataset.anGroup]=b.dataset.anView;organizationV2(lastOrg);}
@@ -2215,18 +2154,6 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    else if(formId==='live-team-key-limits'){await api('/api/employee-credit/team/keys/'+encodeURIComponent(values.key)+'/limits',{max_concurrent:values.max_concurrent,per_minute:values.per_minute});document.querySelector('#config-dialog').close();await refreshOrganizationBilling(lastOrg.organization.id,generation);showToast('限流已更新。');}
    else if(formId==='live-company-pool'){await api('/api/employee-credit/team/pool',{yuan:values.yuan});document.querySelector('#config-dialog').close();await route(current);showToast('公司预算已增加。');}
    else if(formId==='live-team-quota'){await api('/api/employee-credit/team/members/'+encodeURIComponent(values.user)+'/quota',{yuan:values.yuan});document.querySelector('#config-dialog').close();await refreshOrganizationBilling(lastOrg.organization.id,generation);showToast('额度已更新。');}
-   else if(formId==='live-direct-create'){
-    const models=[...directPicked].filter(id=>(employeeCredit?.models||[]).some(m=>m.id===id));if(!models.length)throw Error('请至少勾选一个模型。');
-    const result=await api('/api/employee-credit/keys',{label:values.label,models,limit_yuan:values.limit_yuan?.trim()||null});
-    directIssued={secret:result.secret,label:result.key.label,models,limit:values.limit_yuan?.trim()||''};
-    employeeCredit=await api('/api/employee-credit/status').catch(()=>employeeCredit);redrawKeysOrModels();showToast('Key 已生成，请在第 3 步复制保存。');
-   }
-   else if(formId==='live-employee-create'){
-    const result=await api('/api/employee-credit/keys',{label:values.label});
-    employeeIssuedKey={id:result.key.id,secret:result.secret};
-    employeeCredit=await api('/api/employee-credit/status').catch(()=>employeeCredit);updatePersonalDashboard();
-    host?.querySelector('[data-key-agent-panel]')?.scrollIntoView({block:'nearest'});showToast('Key 已生成，请在第 3 步复制保存。');
-   }
    else if(formId==='live-pilot-create'){
     const result=await api('/api/pilot/keys',{label:values.label,model_id:values.model_id,confirm_model:values.confirm_model==='yes'});
     document.querySelector('#config-dialog').close();
@@ -2310,12 +2237,9 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  });
  document.addEventListener('change',e=>{if(!e.target.matches('[data-usage-period]')||!['month','week','all'].includes(e.target.value))return;personalUsagePeriod=e.target.value;personalUsagePage=0;loadPersonalUsage();});
  document.addEventListener('input',e=>{if(e.target.closest('#live-model-key'))savePersonalConnectDraft();});
- document.addEventListener('input',e=>{if(!e.target.matches('[data-personal-search]'))return;personalSearch=e.target.value;host?.querySelectorAll('[data-personal-search]').forEach(input=>{if(input!==e.target)input.value=personalSearch;});const rows=personalCatalogRows();const body=host?.querySelector('[data-personal-rows]');if(body)body.innerHTML=rows.html;const count=host?.querySelector('[data-model-count]');if(count)count.textContent=rows.count+' 个模型';});
- document.addEventListener('change',e=>{if(!e.target.matches('[data-agent-tool]'))return;savePersonalConnectDraft();agentToolId=e.target.value;personalModelGuideOpen=Boolean(e.target.closest('.pm-guide')?.open);const panel=host?.querySelector('[data-key-agent-panel]');if(panel&&employeeCredit)panel.outerHTML=employeeKeyPanel(employeeCredit);else updatePersonalDashboard();});
+ document.addEventListener('change',e=>{if(!e.target.matches('[data-agent-tool]'))return;savePersonalConnectDraft();agentToolId=e.target.value;personalModelGuideOpen=Boolean(e.target.closest('.pm-guide')?.open);updatePersonalDashboard();});
  document.addEventListener('change',e=>{if(!e.target.matches('[data-unified-config-model]'))return;savePersonalConnectDraft();personalUnifiedConfigModel=e.target.value;updatePersonalDashboard();});
  document.addEventListener('change',e=>{if(!e.target.matches('[data-api-model]'))return;personalSelected=e.target.value;chooseModelIntent(personalSelected,'personal');updatePersonalDashboard();});
- document.addEventListener('change',e=>{if(!e.target.matches('[data-employee-key-model]'))return;employeeKeyModel=e.target.value;const panel=host?.querySelector('[data-key-agent-panel]');if(panel&&employeeCredit)panel.outerHTML=employeeKeyPanel(employeeCredit);});
- document.addEventListener('change',e=>{if(!e.target.matches('[data-personal-use]'))return;personalUse=e.target.value;updatePersonalDashboard();});
  document.addEventListener('click',e=>{document.querySelectorAll('.account-menu[open]').forEach(menu=>{if(!menu.contains(e.target)||e.target.closest('a'))menu.open=false;});});
  document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.account-menu[open]').forEach(menu=>{menu.open=false;menu.querySelector('summary').focus();});});
  window.addEventListener('focus',()=>{if(!document.body.classList.contains('identity-active'))refreshPublic();});
@@ -2344,11 +2268,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const used=Number(range.dataset.used),total=Number(number.value);if(share)share.textContent=used>0&&total>0?`已用占新额度 ${Math.min(100,used/total*100).toFixed(1)}%`:'尚未使用';
  }
  document.addEventListener('input',e=>{if(e.target.matches?.('[data-quota-range],[data-quota-number]'))syncQuota(e.target);});
- function redrawKeysOrModels(){if(panelOrg&&lastOrg)organizationV2(lastOrg);else updatePersonalDashboard();}
- // Ticking a model only updates the button, so typed label and limit stay put.
- document.addEventListener('change',e=>{if(!e.target.matches?.('[data-direct-model]'))return;e.target.checked?directPicked.add(e.target.value):directPicked.delete(e.target.value);e.target.closest('.direct-model')?.classList.toggle('on',e.target.checked);const n=[...document.querySelectorAll('[data-direct-model]:checked')].length,btn=document.querySelector('[data-direct-submit]');if(btn){btn.disabled=!n;btn.innerHTML=`${ico('command')} 生成 API Key · ${n} 个模型`;}});
  // A new sort order starts again from page 1.
  document.addEventListener('table-sorted',e=>{const key=e.detail.group+':page';if((pageViews[key]||1)===1)return;pageViews[key]=1;if(panelRedraw)panelRedraw();else if(panelOrg&&lastOrg)organizationV2(lastOrg);else updatePersonalDashboard();});
  document.addEventListener('change',e=>{if(!e.target.matches('[data-workspace-select]'))return;try{localStorage.setItem(spaceKey,e.target.value);}catch{}location.hash=e.target.value;});
- document.addEventListener('keydown',e=>{if(e.key!=='Enter'||!e.target.closest?.('.pc-global-search')||host?.querySelector('[data-personal-rows]'))return;if(panelOrg&&lastOrg)location.hash='organization/'+lastOrg.organization.id+'/models';else{personalTab='models';if(panelRedraw)location.hash='personal';else updatePersonalDashboard();}});
 })();

@@ -38,12 +38,17 @@ http.createServer(async(req,res)=>{
  const json=(data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(data));};
  const html=body=>{res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});res.end(body);};
  try{
- if(p==='/'){const chosen=url.searchParams.get('identity')==='owner'?'platform_admin':'operations';res.setHeader('Set-Cookie',`previewRole=${chosen}; Path=/; HttpOnly; SameSite=Strict`);return html(rootHtml);}
+ if(p==='/'){const chosen=url.searchParams.get('identity')==='owner'?'platform_admin':'operations';res.setHeader('Set-Cookie',`previewRole=${chosen}; Path=/; HttpOnly; SameSite=Strict`);return html(url.searchParams.get('entry')==='legacy'?await readFile(path.join(root,'web/index.html'),'utf8'):rootHtml);}
  if(['/compare.html','/employee-api.html'].includes(p))return html(await readFile(path.join(root,'web',p.slice(1)),'utf8'));
  if(p==='/promotion/vip.html')return html('<!doctype html><meta charset="utf-8"><style>body{font:15px/1.8 system-ui;padding:32px;color:#343d50}h2{font-size:22px}</style><h2>VIP 招募与客户档案</h2><p>本地评审保留此业务入口；本轮未接入 VIP 独立工作台的数据与操作。</p><p>可返回左侧“商务概览”查看业务结构。</p>');
  if(url.searchParams.get('surface')==='owner'&&!finance)return json({error:'老板工作台需要独立的老板身份'},403);
  if(privateFiles[p]){res.setHeader('Content-Type',(mime[path.extname(privateFiles[p])]||'text/plain')+'; charset=utf-8');return res.end(await readFile(path.join(root,'server/private',privateFiles[p])));}
  if(/^\/[a-z0-9-]+\.(js|css|svg|png|webp)$/.test(p)){res.setHeader('Content-Type',mime[path.extname(p)]);return res.end(await readFile(path.join(root,'web',p.slice(1))));}
+ if(p==='/api/platform/me')return json({
+  user:{id:'local-demo-employee',name:staff.name},
+  organizations:[{id:'local-demo-company',name:'本地示例公司',role:finance?'owner':'member',company_workspace:finance?'owner':'employee'}],
+  personal_assets:false,backoffice:{business:true,technical:finance},
+ });
  const api=p.replace('/api/staff/','');
  const myCustomers=finance?customers:customers.filter(c=>c.owner_subject==='demo');
  const myTickets=tickets.filter(t=>myCustomers.some(c=>c.id===t.customer_id));

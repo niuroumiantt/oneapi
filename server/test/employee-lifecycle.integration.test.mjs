@@ -35,6 +35,10 @@ test('owner invites, approves, removes and readmits employees with conserved com
  server=await new Promise(r=>{const s=app.listen(0,'127.0.0.1',()=>r(s));});const base='http://127.0.0.1:'+server.address().port;
  const call=async(path,{body,method=body?'POST':'GET',user=owner}={})=>{const res=await fetch(base+path,{method,headers:{'Content-Type':'application/json','x-user':user},body:body?JSON.stringify(body):undefined});return {status:res.status,data:await res.json()};};
  const cp='/api/staff/company',op=cp+'/organizations/'+org;
+ const mePath='/api/platform/me';
+ assert.equal((await call(mePath)).data.organizations[0].company_workspace,'owner');
+ assert.deepEqual((await call(mePath,{user:employee})).data.organizations,[]);
+
  await t.test('ordinary staff cannot read or mutate owner routes, including a forged org',async()=>{
   for(const path of [cp+'/me',op,cp+'/credit/team',cp+'/credit/team/analytics'])assert.equal((await call(path,{user:employee})).status,403);
   assert.equal((await call(cp+'/credit/team/pool',{user:employee,body:{yuan:100}})).status,403);
@@ -59,6 +63,7 @@ test('owner invites, approves, removes and readmits employees with conserved com
  assert.equal((await call(cp+'/credit/team/members/'+employee+'/quota',{body:{yuan:10}})).status,409);
  assert.equal((await call(cp+'/credit/team/pool',{body:{yuan:10}})).status,200);
  assert.equal((await call(cp+'/credit/team/members/'+employee+'/quota',{body:{yuan:10}})).status,200);
+ assert.equal((await call(mePath,{user:employee})).data.organizations[0].company_workspace,'employee');
  const key=await call('/api/staff/self-api/keys',{user:employee,body:{label:'Lifecycle key'}});assert.equal(key.status,201,JSON.stringify(key.data));
  await pool.query('UPDATE employee_credit_accounts SET spent_yuan=2 WHERE user_id=$1',[employee]);
  const pending=(await pool.query("INSERT INTO employee_calls(key_id,owner_id,model_id,status,hold_yuan) VALUES($1,$2,'deepseek-v4-pro','awaiting_bill',3) RETURNING id",[key.data.key.id,employee])).rows[0].id;

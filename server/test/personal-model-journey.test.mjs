@@ -55,7 +55,7 @@ test('creation preselects the chosen model, or the saved selection for direct pe
 });
 test('recharge preserves chosen model context and offers a return route before and after funding',()=>{
  const context=vm.createContext({employeeApi:null,readModelIntent:()=>intent,window:{SemiflyModels:catalog},esc,ico:()=>''});
- vm.runInContext(section(' function personalRechargeNext(data){',' function personalApiConnection('),context);
+ vm.runInContext(section(' function personalRechargeNext(data){',' function personalApiContent('),context);
  for(const balance of ['0','10000']){const html=vm.runInContext(`personalRechargeNext({list_credit_fen:'${balance}'})`,context);assert.match(html,/已记住 DeepSeek Flash/);assert.match(html,/#personal\/connect\/deepseek-flash/);assert.match(html,balance==='0'?/返回 API 配置/:/继续配置 API Key/);}
 });
 test('my models remembers additions and removals per account without modifying key permissions',()=>{
@@ -93,7 +93,7 @@ test('universal key refuses issuance when no models are open',async()=>{
 test('universal selection survives recharge without changing enterprise model intent',()=>{
  let stored=null;
  const context=vm.createContext({employeeApi:null,window:{SemiflyModels:catalog},localStorage:{getItem:()=>stored,setItem:(_,v)=>stored=v},esc,ico:()=>''});
- vm.runInContext("const modelIntentKey='test';"+section(' function readModelIntent(){',' function modelIntentNote(')+section(' function personalRechargeNext(data){',' function personalApiConnection('),context);
+ vm.runInContext("const modelIntentKey='test';"+section(' function readModelIntent(){',' function modelIntentNote(')+section(' function personalRechargeNext(data){',' function personalApiContent('),context);
  assert.equal(vm.runInContext("chooseModelIntent('all','personal')",context),true);
  assert.match(vm.runInContext("personalRechargeNext({list_credit_fen:'0'})",context),/#personal\/connect\/all/);
  assert.equal(vm.runInContext("chooseModelIntent('all','enterprise')",context),false);
