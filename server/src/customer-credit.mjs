@@ -9,8 +9,14 @@ import {fenToYuan,yuanToFen} from './alipay.mjs';
 const pattern=/^Bearer (sf_paid_[A-Za-z0-9_-]{43})$/;
 export const paidEnabled=cfg=>Boolean(cfg.customerPaid?.enabled&&cfg.customerPaid?.models?.length&&process.env.SUPPLIER_LAB_SECRET);
 export const paidRoutes=async(pool,cfg)=>{const [routes,blocked]=await Promise.all([employeeRoutes(pool,cfg),guardedModels(pool)]);return routes.filter(r=>cfg.customerPaid?.models?.includes(r.model.id)&&!blocked.has(r.model.id)&&!blocked.has(r.model.upstreamModel));};
-export function customerUsagePrices(routes,cfg){
- return routes.map(({model})=>({id:model.id,name:model.name,price_bps:cfg.customerPaid.usagePrices?.[model.id]??10000})).sort((a,b)=>a.price_bps-b.price_bps);
+function customerCatalogModelIds(cfg,personal){
+ const models=cfg.customerPaid?.models||[];
+ const catalog=cfg.customerPaid?.personalCatalogModels;
+ return personal&&catalog?models.filter(id=>catalog.includes(id)):models;
+}
+export function customerUsagePrices(routes,cfg,{personal=false}={}){
+ const visible=customerCatalogModelIds(cfg,personal);
+ return routes.filter(({model})=>visible.includes(model.id)).map(({model})=>({id:model.id,name:model.name,price_bps:cfg.customerPaid.usagePrices?.[model.id]??10000})).sort((a,b)=>a.price_bps-b.price_bps);
 }
 export function paidBackend(pool,cfg){return {
  matches:req=>pattern.test(req.get('authorization')||''),table:'customer_calls',routes:()=>paidRoutes(pool,cfg),
@@ -73,7 +79,9 @@ export function customerCreditRoutes(app,pool,cfg,requireCustomer){
   const calls=(await pool.query('SELECT id,model_id,status,charged_yuan,input_tokens,cached_input_tokens,output_tokens,latency_ms,error_code,created_at FROM customer_calls WHERE account_id=$1 ORDER BY created_at DESC LIMIT 100',[a.id])).rows;
   const held=(await pool.query("SELECT coalesce(sum(hold_yuan)*100,0) AS n FROM customer_calls WHERE account_id=$1 AND status IN ('pending','awaiting_bill')",[a.id])).rows[0].n;
   const allocation=await paidKeyAllocation(pool,a.id);
-  res.json({enabled:paidEnabled(cfg),account_id:a.id,base_url:cfg.origin+'/v1',models:customerUsagePrices(routes,cfg),configured_model_ids:cfg.customerPaid?.models??[],keys,calls,list_credit_fen:allocation.list_credit_fen,held_fen:held,unallocated_fen:allocation.unallocated_fen});
+  const personal=!a.organization_id;
+  const configured=cfg.customerPaid?.models?.length?customerCatalogModelIds(cfg,personal):undefined;
+  res.json({enabled:paidEnabled(cfg),account_id:a.id,base_url:cfg.origin+'/v1',models:customerUsagePrices(routes,cfg,{personal}),configured_model_ids:configured,keys,calls,list_credit_fen:allocation.list_credit_fen,held_fen:held,unallocated_fen:allocation.unallocated_fen});
  });
  app.post('/api/customer-credit/keys',requireCustomer,async(req,res)=>{
   if(!paidEnabled(cfg))throw new HttpError(503,'客户付费调用尚未开放');
