@@ -1,3 +1,4 @@
+import {availableForModel} from './model-packs.mjs';
 import {createHash} from 'node:crypto';
 import {quoteCW,consumeCW} from './cw-ledger.mjs';
 import {HttpError,transaction} from './core.mjs';
@@ -6,8 +7,8 @@ import {HttpError,transaction} from './core.mjs';
 // Gift (green) credit expires 180 days after the recharge day; paid cash (red) never expires.
 // Owner decision 2026-11-24: consumption is always red-first, then green.
 export const GIFT_TTL_DAYS = 180;
-export async function addPack(db,{accountId,sourceKind,sourceId,faceFen,cashFen}){
- return (await db.query(`INSERT INTO credit_packs(account_id,source_kind,source_id,face_fen,cash_fen,remaining_fen,gift_expires_at) VALUES($1,$2,$3,$4::bigint,$5,$4::numeric,now()+make_interval(days=>$6)) ON CONFLICT(source_kind,source_id) DO NOTHING RETURNING id`,[accountId,sourceKind,sourceId,faceFen,cashFen,GIFT_TTL_DAYS])).rows[0];
+export async function addPack(db,{accountId,sourceKind,sourceId,faceFen,cashFen,modelPack=null}){
+ return (await db.query(`INSERT INTO credit_packs(account_id,source_kind,source_id,face_fen,cash_fen,remaining_fen,gift_expires_at,model_id,model_settlement_bps) VALUES($1,$2,$3,$4::bigint,$5,$4::numeric,now()+make_interval(days=>$6),$7,$8) ON CONFLICT(source_kind,source_id) DO NOTHING RETURNING id`,[accountId,sourceKind,sourceId,faceFen,cashFen,GIFT_TTL_DAYS,modelPack?.id??null,modelPack?.settlement_bps??null])).rows[0];
 }
 export async function accountFor(db,userId,orgId,{create=false}={}){
  if(orgId){const m=(await db.query("SELECT role FROM memberships WHERE organization_id=$1 AND user_id=$2 AND status='active'",[orgId,userId])).rows[0];if(!m||!['owner','admin','billing'].includes(m.role))throw new HttpError(403,'仅企业管理者可以操作企业付费额度');}
@@ -53,17 +54,22 @@ export async function settlePaidCall(pool,callId,amount,usage,source,requestId,l
   const call=(await db.query('SELECT * FROM customer_calls WHERE id=$1 FOR UPDATE',[callId])).rows[0];
   if(!['pending','awaiting_bill'].includes(call.status))return;
   // Do not spend another in-flight call's reservation, even if the upstream exceeds its declared bound.
-  const available=(await db.query(`SELECT greatest(0,list_credit_fen-coalesce((SELECT sum(hold_yuan)*100 FROM customer_calls WHERE account_id=$1 AND id<>$2 AND status IN ('pending','awaiting_bill')),0)) AS n FROM billing_accounts WHERE id=$1`,[call.account_id,callId])).rows[0].n;
+  const available=await availableForModel(db,call.account_id,call.model_id,callId);
   const keyRemaining=(await db.query(`SELECT greatest(0,k.limit_yuan-coalesce((SELECT sum(coalesce(c.charged_yuan,CASE WHEN c.status IN ('pending','awaiting_bill') THEN c.hold_yuan END)) FROM customer_calls c WHERE c.key_id=k.id AND c.id<>$2),0))*100 AS n FROM customer_api_keys k WHERE k.id=$1`,[call.key_id,callId])).rows[0].n;
   let need=(await db.query('SELECT least($1::numeric*100,$2::numeric,$3::numeric) AS n',[amount,available,keyRemaining])).rows[0].n;
   const charge=need;let cash=0n;
-  const packs=(await db.query('SELECT * FROM credit_packs WHERE account_id=$1 AND remaining_fen>0 AND refund_id IS NULL ORDER BY created_at,id FOR UPDATE',[call.account_id])).rows;
+  const packs=(await db.query('SELECT * FROM credit_packs WHERE account_id=$1 AND remaining_fen>0 AND refund_id IS NULL AND (model_id=$2 OR model_id IS NULL) ORDER BY model_id NULLS LAST,created_at,id FOR UPDATE',[call.account_id,call.model_id])).rows;
   for(const pack of packs){
    if(Number(need)<=0)break;
-   // Red-first: spend the customer's own cash (red) before the gifted credit (green).
-   // consumed_cash_fen is cumulative official-price consumption capped at cash paid, so
-   // repeated sub-cent calls neither vanish nor over-charge. Green = remaining - red left.
-   const part=(await db.query(`UPDATE credit_packs SET remaining_fen=remaining_fen-least(remaining_fen,$2::numeric),consumed_cash_fen=least(cash_fen-refunded_cash_fen,greatest(0,floor(face_fen-removed_face_fen-(remaining_fen-least(remaining_fen,$2::numeric)))))::bigint WHERE id=$1 RETURNING $3::numeric-remaining_fen AS face,consumed_cash_fen-$4::bigint AS cash`,[pack.id,need,pack.remaining_fen,pack.consumed_cash_fen])).rows[0];
+   // New model packs split cumulative consumption by the purchase ratio. At cent
+   // boundaries keep refundable cash within the rounded remaining face, including
+   // after gift expiry or a partial refund. Legacy packs keep cash-first accounting.
+   const part=(await db.query(`UPDATE credit_packs SET remaining_fen=remaining_fen-least(remaining_fen,$2::numeric),consumed_cash_fen=least(cash_fen-refunded_cash_fen,
+    CASE WHEN model_id IS NULL THEN greatest(0,floor(face_fen-removed_face_fen-(remaining_fen-least(remaining_fen,$2::numeric))))
+    ELSE greatest(consumed_cash_fen,
+     floor((face_fen-removed_face_fen-remaining_fen+least(remaining_fen,$2::numeric))*cash_fen/face_fen),
+     cash_fen-refunded_cash_fen-round(remaining_fen-least(remaining_fen,$2::numeric)))
+    END)::bigint WHERE id=$1 RETURNING $3::numeric-remaining_fen AS face,consumed_cash_fen-$4::bigint AS cash`,[pack.id,need,pack.remaining_fen,pack.consumed_cash_fen])).rows[0];
    await db.query('INSERT INTO credit_consumptions(call_id,pack_id,face_fen,cash_fen) VALUES($1,$2,$3,$4)',[callId,pack.id,part.face,part.cash]);
    await consumeCW(db,pack.id,callId);
    cash+=BigInt(part.cash);need=(await db.query('SELECT $1::numeric-$2::numeric AS n',[need,part.face])).rows[0].n;
@@ -84,6 +90,8 @@ export async function expirePackGifts(pool){
  for(const {account_id} of accounts)await transaction(pool,async db=>{
   // Same lock order as consumption and refunds; an overlapping cleanup is harmless.
   await db.query('SELECT id FROM billing_accounts WHERE id=$1 FOR UPDATE',[account_id]);
+  // Keep existing reservations funded until their calls settle.
+  if ((await db.query("SELECT 1 FROM customer_calls WHERE account_id=$1 AND status IN ('pending','awaiting_bill') LIMIT 1",[account_id])).rowCount) return;
   const expired=(await db.query(`SELECT id,greatest(0,remaining_fen-greatest(0,cash_fen-consumed_cash_fen-refunded_cash_fen))::text AS gift FROM credit_packs WHERE account_id=$1 AND gift_expires_at<now() AND remaining_fen>0 AND refund_id IS NULL ORDER BY id FOR UPDATE`,[account_id])).rows;
   for(const p of expired){
    if(Number(p.gift)<=0)continue;

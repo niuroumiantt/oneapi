@@ -48,7 +48,7 @@ export async function creditPaidOrder(pool,outTradeNoValue,{provider,tradeNo,tot
   // The signed payment must match locked cash; credit the independently locked face value.
   const account=(await db.query('UPDATE billing_accounts SET cash_balance_fen=cash_balance_fen+$2,list_credit_fen=list_credit_fen+$3 WHERE id=$1 RETURNING cash_balance_fen,list_credit_fen,organization_id',[o.account_id,o.amount_fen,o.face_fen])).rows[0];
   await db.query("INSERT INTO billing_ledger(account_id,kind,amount_fen,balance_after_fen,reference_kind,reference_id) VALUES($1,'recharge',$2,$3,'payment',$4)",[o.account_id,o.amount_fen,account.cash_balance_fen,o.id]);
-  const pack=await addPack(db,{accountId:o.account_id,sourceKind:'payment',sourceId:o.id,faceFen:o.face_fen,cashFen:o.amount_fen});
+  const pack=await addPack(db,{accountId:o.account_id,sourceKind:'payment',sourceId:o.id,faceFen:o.face_fen,cashFen:o.amount_fen,modelPack:o.discount_snapshot?.model_pack});
   await creditCW(db,o,pack);
   // Discount-code recharge alone does NOT grant formal VIP. Sales verifies the payment, then
   // activates via POST /api/staff/cw/:partner/activate.
@@ -159,11 +159,13 @@ export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
   const saved=await transaction(pool,async db=>{
    await db.query('SELECT id FROM billing_accounts WHERE id=$1 FOR UPDATE',[account.id]);
    const existing=(await db.query('SELECT * FROM payment_orders WHERE created_by=$1 AND idempotency_key=$2',[req.customer.id,key])).rows[0];
-   if(existing){if((req.body?.expected_face_fen!==undefined&&Number(req.body.expected_face_fen)!==Number(existing.face_fen))||(req.body?.expected_cash_fen!==undefined&&Number(req.body.expected_cash_fen)!==Number(existing.amount_fen))||(cashInput===null)!==(existing.discount_snapshot.requested_cash_fen===undefined)||existing.account_id!==account.id||(cashInput===null?Number(existing.face_fen)!==face:Number(existing.discount_snapshot.requested_cash_fen)!==cashInput)||existing.provider!==provider||String(existing.discount_snapshot.requested_code||'')!==String(req.body?.promo_code||'').trim().toUpperCase())throw new HttpError(409,'订单信息已变化，请重新下单');return {order:existing,created:false};}
-   const quote=await quotePack(db,account,face,req.body?.promo_code,{cashFen:cashInput,buyerId:req.customer.id,cwEnabled:!!cfg.cw?.enabled});
+   if(existing){if((existing.discount_snapshot.model_pack_confirmation??null)!==(req.body?.model_pack_confirmation??null)||(req.body?.expected_face_fen!==undefined&&Number(req.body.expected_face_fen)!==Number(existing.face_fen))||(req.body?.expected_cash_fen!==undefined&&Number(req.body.expected_cash_fen)!==Number(existing.amount_fen))||(cashInput===null)!==(existing.discount_snapshot.requested_cash_fen===undefined)||existing.account_id!==account.id||(cashInput===null?Number(existing.face_fen)!==face:Number(existing.discount_snapshot.requested_cash_fen)!==cashInput)||existing.provider!==provider||String(existing.discount_snapshot.requested_code||'')!==String(req.body?.promo_code||'').trim().toUpperCase())throw new HttpError(409,'订单信息已变化，请重新下单');return {order:existing,created:false};}
+   const quote=await quotePack(db,account,face,req.body?.promo_code,{cashFen:cashInput,buyerId:req.customer.id,cwEnabled:!!cfg.cw?.enabled,models:cfg.cw?.modelPacks&&cfg.customerPaid?.enabled?cfg.customerPaid.models:[]});
    if(req.body?.expected_cash_fen!==undefined&&Number(req.body.expected_cash_fen)!==quote.amount_fen)throw new HttpError(409,'优惠已变化，请重新查看实付金额');
    if(req.body?.expected_face_fen!==undefined&&Number(req.body.expected_face_fen)!==quote.face_fen)throw new HttpError(409,'到账额度已变化，请重新确认');
    if(cashInput!==null&&req.body?.expected_face_fen===undefined)throw new HttpError(400,'请先确认本次到账额度');
+   if(quote.discount_snapshot.model_pack_confirmation&&(quote.discount_snapshot.model_pack_confirmation!==req.body?.model_pack_confirmation||req.body?.expected_cash_fen===undefined))
+    throw new HttpError(409,'模型或报价已变化，请重新核对后付款');
    if(quote.discount_snapshot.refund_policy?.non_refundable && req.body?.accepted_refund_policy!==quote.discount_snapshot.refund_policy_key)throw new HttpError(409,'请先阅读并确认本次优惠的不可自助退款约定；规则变化后需要重新确认');
    quote.discount_snapshot.refund_policy_accepted_at=quote.discount_snapshot.refund_policy?.non_refundable?new Date().toISOString():null;
    quote.discount_snapshot.requested_code=String(req.body?.promo_code||'').trim().toUpperCase();
@@ -180,7 +182,7 @@ export function paymentRoutes(app,pool,requireCustomer,cfg,clients){
  }
  app.post('/api/billing/quote',requireCustomer,async(req,res)=>{
   const account=await accountFor(pool,req.customer.id,req.body?.organization_id?id(req.body.organization_id):null,{create:true});
-  res.json(await transaction(pool,db=>quotePack(db,account,parseRechargeFen(req.body?.face_fen??req.body?.cash_fen),req.body?.promo_code,{cashFen:req.body?.cash_fen===undefined?null:parseRechargeFen(req.body.cash_fen),buyerId:req.customer.id,cwEnabled:!!cfg.cw?.enabled})));
+  res.json(await transaction(pool,db=>quotePack(db,account,parseRechargeFen(req.body?.face_fen??req.body?.cash_fen),req.body?.promo_code,{cashFen:req.body?.cash_fen===undefined?null:parseRechargeFen(req.body.cash_fen),buyerId:req.customer.id,cwEnabled:!!cfg.cw?.enabled,models:cfg.cw?.modelPacks&&cfg.customerPaid?.enabled?cfg.customerPaid.models:[]})));
  });
  for(const provider of Object.keys(CHANNELS)){
   const path=CHANNELS[provider].path;
@@ -319,12 +321,12 @@ export async function finishRefund(pool,refundId,{outcome,code},source){
 // Freezes the pack, books the refund and closes the pack (the whole green gift is forfeited).
 // Must run inside a transaction that has already locked the order.
 // Returns the new refund id; a definitive channel rejection later releases the hold in finishRefund.
-async function createPackRefund(db,{order,packId,reason,requestedBy,key,expectedAmount,policyTicketId=null}){
+export async function createPackRefund(db,{order,packId,reason,requestedBy,key,expectedAmount,policyTicketId=null}){
  // Hold the same account lock used by metering before checking the confirmed amount.
  const acct=(await db.query('SELECT id,organization_id FROM billing_accounts WHERE id=$1 FOR UPDATE',[order.account_id])).rows[0];
  const q=await refundQuote(db,packId,{override:Boolean(policyTicketId)});
  if(q.blocked)throw new HttpError(409,q.blocked);
- if(q.account_id!==order.account_id)throw new HttpError(409,'额度包与订单不属于同一账户');
+ if(q.account_id!==order.account_id||q.source_kind!=='payment'||q.source_id!==order.id)throw new HttpError(409,'额度包与订单不属于同一账户');
  const amount=Number(q.refundable_fen);
  if(expectedAmount!==undefined&&expectedAmount!==amount)
   throw new HttpError(409,'可退金额已变化，请关闭此窗口，刷新退款页后重新确认');

@@ -33,10 +33,10 @@ export async function renderVipStatementPDF(s){
  paragraph('提成按每笔订单约定比例计算，以本月实际消费记录为准。充值产生的预计收益不计入本月提成；退款取消未使用额度对应的预计收益。');
  if(s.revision>1)paragraph('本账单为修订版，包含延迟结算记录，请以最新版本为准；历史版本保留在收件箱。');
  heading('各推广码汇总');
- table(['推广码','实付（元）','实际消费（元）','退款（元）','税前提成（元）'],[111,102,102,102,102],s.codes.map(k=>[k.code,...['paid_fen','used_fen','refunded_fen','commission_fen'].map(key=>statementMoney(k[key]))]));
+ table(['推广码','实付（元）','实际消费（元）','退款（元）','税前提成（元）'],[111,102,102,102,102],s.codes.map(k=>[k.model?k.code+'\n'+k.model:k.code,...['paid_fen','used_fen','refunded_fen','commission_fen'].map(key=>statementMoney(k[key]))]));
  heading('脱敏交易明细');
  if(!s.entries.length)paragraph('本月没有推广交易。');
- else table(['时间（北京）','推广码','匿名交易编号','类型','金额（元）','提成（元）'],[99,88,92,64,88,88],s.entries.map(e=>[e.time,e.code,e.reference,{paid:'实付充值',used:'实际消费',refund:'退款'}[e.kind],statementMoney(e.cash_fen),e.kind==='used'?statementMoney(e.commission_fen):'-']));
+ else table(['时间（北京）','推广码','匿名交易编号','类型','金额（元）','提成（元）'],[99,88,92,64,88,88],s.entries.map(e=>[e.time,e.code,e.reference,{paid:'实付充值',used:'实际消费',refund:'退款'}[e.kind],(e.face_fen!=null&&e.kind==='used'?statementMoney(e.cash_fen)+' 实付\n'+statementMoney(String(Math.round(Number(e.face_fen))))+' 额度':statementMoney(e.cash_fen)),e.kind==='used'?statementMoney(e.commission_fen):'-']));
  paragraph('隐私说明：账单不包含客户姓名、手机号、邮箱、支付账号、API Key 或调用内容。匿名编号仅供核对交易。');
  paragraph('账单提成为税前金额，提现到账以结算单为准。疑问请在工作台联系支持，并提供账期及匿名交易编号。');
  const pages=doc.bufferedPageRange();for(let i=0;i<pages.count;i++){doc.switchToPage(i);text(`生成：${new Date(s.generated_at).toLocaleString('sv-SE',{timeZone:'Asia/Shanghai',hour12:false})}（北京时间）`,38,785,360,8,muted);text(`${s.number} · ${i+1} / ${pages.count}`,390,785,167,8,muted,'right');}
