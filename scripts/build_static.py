@@ -125,7 +125,7 @@ def main():
             content = html.encode()
         assets[name] = content
     # Official payment marks only; source notes and downloaded brand packs stay private.
-    for name in ('assets/payments/alipay.ico', 'assets/payments/wechat-pay.svg'):
+    for name in ('assets/payments/alipay.ico', 'assets/payments/wechat-pay.svg', 'assets/model-brands/deepseek.svg', 'assets/model-brands/zhipu.svg', 'assets/model-brands/SOURCES.json'):
         assets[name] = git('show', f'HEAD:web/{name}')
     # Explicit publication manifest: no arbitrary repository/runtime files.
     skill_files = json.loads(git('show', 'HEAD:prototypes/skills/public-files.json'))
