@@ -17,7 +17,7 @@
   host = document.createElement('div');
   host.id = 'console-view';
   host.hidden = true;
-  host.innerHTML = `${window.SiteHeader.render('workspace',{className:'cs-top',account:'<a class="live-signin" href="#staff-account">账户与权限</a>',tools:`<nav class="cs-tabs" role="tablist" aria-label="切换面板"><a href="#workspace" role="tab" aria-selected="false">个人与企业空间</a><a href="#console/business" data-console-tab="business" role="tab" aria-selected="false" hidden>员工工作台</a><a href="#console/owner" data-console-tab="owner" role="tab" aria-selected="false" hidden>老板工作台</a><a href="#console/technical" data-console-tab="technical" role="tab" aria-selected="false" hidden>技术后台</a></nav><span class="cs-live" role="status">正在验证员工权限…</span>`})}<main class="cs-panes"><div class="cs-message" role="status">正在打开后台…</div></main>${window.SiteHeader.footer()}`;
+  host.innerHTML = `${window.SiteHeader.render('workspace',{className:'cs-top',account:'<a class="live-signin" href="#staff-account">账户与权限</a>',tools:`<nav class="cs-tabs" role="tablist" aria-label="切换面板"><a href="#workspace" role="tab" aria-selected="false">个人与企业空间</a><a href="#console/business" data-console-tab="business" role="tab" aria-selected="false" hidden>员工工作台</a><a href="#console/owner" data-console-tab="owner" role="tab" aria-selected="false" hidden>老板工作台</a><a href="#console/technical" data-console-tab="technical" role="tab" aria-selected="false" hidden>技术后台</a></nav><a href="#staff-team" data-owner-team hidden>员工管理</a><span class="cs-live" role="status">正在验证员工权限…</span>`})}<main class="cs-panes"><div class="cs-message" role="status">正在打开后台…</div></main>${window.SiteHeader.footer()}`;
   document.body.append(host);
  }
  const panes = () => host.querySelector('.cs-panes'), message = () => host.querySelector('.cs-message'), live = text => { host.querySelector('.cs-live').textContent = text; };
@@ -55,6 +55,7 @@
   current = workspace;
   host.classList.toggle('technical', workspace === 'technical');
   host.classList.toggle('owner-workspace',workspace==='owner');
+  host.querySelector('[data-owner-team]').hidden=workspace!=='owner'||!access.owner;
   for (const tab of host.querySelectorAll('[data-console-tab]')) {
    tab.hidden = !access[tab.dataset.consoleTab];
    tab.setAttribute('aria-selected', String(tab.dataset.consoleTab === workspace));
