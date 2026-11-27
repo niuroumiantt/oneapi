@@ -13,14 +13,15 @@ const OWNER_NAV = [
  ['订单与资金', [['payments','收款与退款'], ['transfers','对公入账'], ['invoices','发票'], ['payables','上游付款']], 'finance'],
  ['经营分析', [['overview','经营概况'], ['pnl','经营损益']], 'finance']
 ];
+const ownerSurface = new URLSearchParams(location.search||'').get('surface')==='owner';
+const salesPreview = ownerSurface ? null : window.StaffSalesDemo;
 const EMPLOYEE_NAV = [
- ['员工工作台', [['home','今日工作']]],
+ ['员工工作台', [['home','今日工作'], ...(salesPreview ? [['pending','待处理事项']] : [])]],
  ['我的 API', [['apioverview','API 概览'],['apimodels','我的模型'],['apikeys','API 密钥'],['apiusage','用量与记录'],['apicompare','API 对比']]],
  ['客户推广', [['customeroverview','客户概览'],['direct','客户推广码'],['customerapplications','我的申请']]],
  ['VIP推广', [['vipoverview','VIP概览'],['vipcodes','VIP推广码'],['vipapplications','我的申请']]],
  ['客户服务', [['customers','我的客户'],['tickets','客户服务']]]
 ];
-const ownerSurface = new URLSearchParams(location.search||'').get('surface')==='owner';
 const NAV = ownerSurface ? OWNER_NAV : EMPLOYEE_NAV;
 const employeePages = new Set([...EMPLOYEE_NAV.flatMap(([,items])=>items.map(([key])=>key)),'cw','answers','promotions']);
 const PAGES = Object.fromEntries(OWNER_NAV.flatMap(([, items, gate]) => items.map(([key, label]) => [key, { label, gate }])));
@@ -38,6 +39,10 @@ const SUBTITLES = {
  products: '在售产品的价格、用量和上架流程。', discounts: '促销活动，以及对客户、分群授予的折扣。', tickets: '一线支持：回复、分类、转技术。', answers: '标准问答，回复工单时一键引用。'
 };
 if(!ownerSurface)Object.assign(SUBTITLES,{direct:'生成与管理自己的客户推广码。',promotions:'查看负责 VIP 的推广码与使用情况。'});
+if(salesPreview)Object.assign(SUBTITLES,{
+ home:'查看个人销售业绩、目标进度和客户拓展成果。',
+ pending:'跟进本人负责的客户反馈和推广申请。'
+});
 const ALIASES = { ...(!ownerSurface?{acquisition:'customeroverview',approvals:'customerapplications'}:{}), accounts: 'customers', reports: 'products', upstream: 'products', finance: 'pnl' };
 const SOURCES = { home:()=> 'business/support', acquisition:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),direct:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),promotions:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''),approvals:()=> 'business/acquisition'+(ui.acquisitionQuery?'?q='+encodeURIComponent(ui.acquisitionQuery):''), pnl: () => 'business/finance?month=' + (ui.month || ''), payments: () => 'payments/orders', transfers: () => 'business/bank-transfers', invoices: () => 'business/invoices', payables: () => 'business/supplier-payments', suppliers: () => 'business/suppliers', customers: () => 'business/customers', discounts: () => 'business/discounts', tickets: () => 'business/support', answers: () => 'business/support' };
 for(const page of ['customeroverview','vipoverview','customerapplications','vipapplications'])SOURCES[page]=SOURCES.acquisition;
@@ -415,7 +420,7 @@ document.addEventListener('toggle',e=>{const group=e.target;if(!group.matches?.(
 function drawNav(page) {
  for(const group of document.querySelectorAll?.('#nav details[data-nav-group]')||[])navOpen.set(group.dataset.navGroup,group.open);
 
- const c = state.dash.counts, counts = { tickets: c.tickets, upgrades: c.upgrades, invoices: c.invoices_requested, transfers: c.bank_transfers_pending, discounts: c.discounts_pending };
+ const c = state.dash.counts, counts = { pending: salesPreview?.actionCount(), tickets: c.tickets, upgrades: c.upgrades, invoices: c.invoices_requested, transfers: c.bank_transfers_pending, discounts: c.discounts_pending };
  $('#nav').innerHTML = NAV.filter(([, , gate]) => !gate || state.dash.staff[gate]).map(([group, items]) => {
   const buttons=items.map(([key,label])=>`<button data-tab="${key}" class="${page===key?'active':''}" ${page===key?'aria-current="page"':''}>${label}${counts[key]?`<span class="count">${counts[key]}</span>`:''}</button>`).join('');
   if(group==='工作台'||group==='员工工作台')return `<div class="nav-home">${buttons}</div>`;
@@ -446,6 +451,11 @@ async function draw() {
   apiInnerNavigation=false;return;
  }
  apiInnerNavigation=false;
+ if(salesPreview && ['home','pending'].includes(page)){
+  ++drawing;
+  salesPreview.render(page,content,()=>drawNav(page));
+  return;
+ }
  const turn = ++drawing, started = generation, source = SOURCES[page]?.();
  const needsOverview = ['suppliers', 'products'].includes(page);
  const needsBusiness = ['overview', 'products', 'upgrades'].includes(page);
