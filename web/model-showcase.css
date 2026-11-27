@@ -230,3 +230,24 @@ html body.catalog-active{height:100dvh;overflow:hidden}
 #market-view .mx-period button{color:#6b7c98!important}#market-view .mx-period button[aria-pressed=true]{color:#285de5!important}
 @media(max-height:760px) and (min-width:901px){#market-view .mx-price dl>div{padding:9px 12px}#market-view .mx-price dl{margin:12px 0;gap:7px}#market-view .mx-price dd{font-size:26px}#market-view .mx-price-brand{margin-top:10px}#market-view .mx-price-source{padding-top:8px}.mx-scene-art{height:30px;margin-bottom:7px}.mx-scene-art svg{width:18px;height:18px}#market-view .mx-scenes h3{font-size:13px;margin:0 0 6px}#market-view .mx-scenes p{font-size:11px;line-height:1.5;min-height:32px;margin:0 0 5px}.mx-scenes small{font-size:10px}.mx-scenes blockquote{font-size:10px;line-height:1.5;padding:7px;margin:5px 0 0}#market-view .mx-scenes+.mx-boundary{font-size:10px;margin-top:7px}}
 .mx-price:before{z-index:0}.mx-price>*{position:relative;z-index:1}
+/* Side-by-side facts reuse the same catalog and official-price snapshot. */
+.mx-compare-panel{height:100%;display:flex;flex-direction:column;gap:9px;min-width:0;color:#344b6d}
+.mx-compare-groups{display:flex;gap:5px;flex:none}
+#market-view .mx-compare-groups button{font:inherit;font-size:11px;border:1px solid transparent;background:#f3f6fb;color:#7888a1;border-radius:5px;padding:5px 11px;min-height:26px;cursor:pointer}
+#market-view .mx-compare-groups button[aria-pressed=true]{color:#245bdc;background:#eaf1ff;border-color:#cbdcff}
+.mx-compare-panel table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:12px}
+.mx-compare-panel th,.mx-compare-panel td{padding:8px 10px;border-bottom:1px solid #e7edf5;text-align:center;line-height:1.4;overflow-wrap:anywhere}
+.mx-compare-panel thead th{font-weight:600;color:#2f476c;background:#f7f9fd}.mx-compare-panel th:first-child{width:18%;text-align:left;color:#7788a2;font-weight:400}
+.mx-comp-logo{display:block;margin-bottom:4px}.mx-comp-logo img{width:75px;height:16px;object-fit:contain}
+.mx-compare-panel .mx-comp-selected{background:#eff5ff}.mx-compare-panel thead .mx-comp-selected{color:#245bdc;background:#e8f0ff}
+#market-view .mx-compare-note{font-size:10px;line-height:1.5;color:#8290a5;margin:0}
+@media(max-height:760px) and (min-width:901px){.mx-compare-panel{gap:5px}.mx-compare-panel table{font-size:10px}.mx-compare-panel th,.mx-compare-panel td{padding:4px 7px;line-height:1.35}.mx-comp-logo{display:none}#market-view .mx-compare-groups button{padding:3px 9px;min-height:24px;font-size:10px}#market-view .mx-compare-note{font-size:9px}.mx-angles{gap:20px}}
+@media(max-width:1100px){.mx-angles{gap:12px}#market-view .model-explorer .mx-angles button{gap:4px;font-size:11px}}
+@media(max-width:600px){.mx-compare-panel{gap:7px}.mx-compare-panel table{font-size:9px}.mx-compare-panel th,.mx-compare-panel td{padding:5px 3px}.mx-comp-logo img{width:50px;height:12px}.mx-compare-panel th:first-child{width:17%}#market-view .mx-compare-groups button{font-size:10px;padding:4px 8px}#market-view .model-explorer .mx-angles button{font-size:9px;gap:0}.mx-angles{gap:0}#market-view .mx-compare-note{font-size:9px}}
+#market-view .mx-compare-panel{margin:0;padding:0;border:0}
+#market-view .mx-compare-panel table{min-width:0;margin:0}
+#market-view .mx-compare-panel th,#market-view .mx-compare-panel td{height:auto;min-height:0;padding:8px 10px;font-size:12px;text-align:center;vertical-align:middle;line-height:1.4}
+#market-view .mx-compare-panel th:first-child{text-align:left}
+@media(max-height:760px) and (min-width:901px){#market-view .mx-compare-panel th,#market-view .mx-compare-panel td{padding:4px 7px;font-size:10px;line-height:1.35}}
+@media(max-width:600px){#market-view .mx-compare-panel th,#market-view .mx-compare-panel td{padding:5px 3px;font-size:9px}}
+@media(max-height:760px) and (min-width:901px){#market-view .mx-compare-panel th,#market-view .mx-compare-panel td{font-size:11px;padding:4px 7px}.mx-comp-logo{display:block;margin-bottom:2px}.mx-comp-logo img{width:62px;height:13px}}
