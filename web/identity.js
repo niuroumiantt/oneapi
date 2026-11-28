@@ -1413,9 +1413,15 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  }
  let rechargeEstimateTimer, rechargeEstimateVersion=0, rechargeEstimatePage=0, rechargeEstimate=null;
  const personalPromoHelp=()=>cwInputCode?cwOfferHelp():'模型专属码到账后仅限对应模型。';
+ function rechargeAllocationBar(paid,total,{model=false}={}){
+  const extra=Math.max(0,total-paid),giftWidth=total>0?Math.min(100,extra/total*100):0;
+  const label=model?'优惠折合增加':'赠送额度';
+  return `<div class="pb-allocation-labels"><span>${label}<b>${personalMoney(extra)}</b></span><span>充值金额<b>${personalMoney(paid)}</b></span></div><div class="pb-allocation-track" role="img" aria-label="${label} ${personalMoney(extra)}，充值金额 ${personalMoney(paid)}"><span class="pb-allocation-gift" style="width:${giftWidth}%"></span><span class="pb-allocation-paid" style="width:${100-giftWidth}%"></span></div>`;
+ }
  function initRechargeEstimate(container){
   if(container.firstElementChild)return;
   container.innerHTML=`<div class="pb-estimate-head"><h2>各模型可用官价额度</h2><p hidden>实付 <b>—</b> · 赠送 <b>—</b> · 到账 <b>—</b></p></div>
+   <div class="pb-allocation-total" hidden></div>
    <div class="pb-estimate-period" hidden><span>元 / 百万 Token</span><label>DeepSeek 时段 <select aria-label="DeepSeek 价格时段" data-recharge-period><option value="offpeak">空闲</option><option value="peak">高峰</option></select></label></div>
    <div class="pb-estimate-models" hidden></div>
    <div class="pb-estimate-foot" hidden><p></p><nav aria-label="模型额度分页" hidden>
@@ -1447,7 +1453,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   period.parentElement.parentElement.hidden=!prices.some(Boolean);
   const layout=JSON.stringify(visibleModels.map(({id,name})=>[id,name]));
   if(grid.dataset.layout!==layout){
-   grid.innerHTML=visibleModels.map(model=>`<section class="pb-estimate-model"><div class="pb-model-brand">${model.id.startsWith('deepseek')?'<img src="assets/model-brands/deepseek.svg" alt="DeepSeek">':model.id.startsWith('glm')?'<img src="assets/model-brands/zhipu.svg" alt="智谱 BigModel">':''}</div><h3>${esc(model.name)}</h3><div class="pb-model-quota"><span>本次可用官价额度</span><div class="pb-quota-value"><strong></strong><span class="pb-discount"></span></div></div><div class="pb-estimate-rates"></div></section>`).join('');
+   grid.innerHTML=visibleModels.map(model=>`<section class="pb-estimate-model"><div class="pb-model-brand">${model.id.startsWith('deepseek')?'<img src="assets/model-brands/deepseek.svg" alt="DeepSeek">':model.id.startsWith('glm')?'<img src="assets/model-brands/zhipu.svg" alt="智谱 BigModel">':''}</div><h3>${esc(model.name)}</h3><div class="pb-model-quota"><span>本次可用官价额度</span><div class="pb-quota-value"><strong></strong><span class="pb-discount"></span></div><div class="pb-allocation-model"></div></div><div class="pb-estimate-rates"></div></section>`).join('');
    grid.dataset.layout=layout;
   }
   grid.hidden=!visibleModels.length;
@@ -1458,6 +1464,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    const quota=pack?received:Math.round(received*10000/model.price_bps);
    const ratio=pack?paid/received:paid/received*model.price_bps/10000;
    element.querySelector('.pb-model-quota').hidden=!promotion;
+   element.querySelector('.pb-allocation-model').innerHTML=promotion?rechargeAllocationBar(paid,quota,{model:true}):'';
    setText(element.querySelector('strong'),(pack?'':'约 ')+personalMoney(quota));
    setText(element.querySelector('.pb-discount'),'约 '+(ratio*10).toLocaleString('zh-CN',{maximumFractionDigits:2})+' 折');
    const rates=price?.kind==='timed'?price[period.value]:price?.standard;
@@ -1471,6 +1478,9 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   setText(container.querySelector('h2'),!promotion?'模型官方价格':pack?'本次充值的模型专属官价额度':'本次充值折合的官价额度');
   const totals=container.querySelector('.pb-estimate-head p');
   totals.hidden=!promotion;
+  const allocation=container.querySelector('.pb-allocation-total');
+  allocation.hidden=!promotion;
+  allocation.innerHTML=promotion?rechargeAllocationBar(paid,received):'';
   totals.querySelectorAll('b').forEach((element,index)=>setText(element,personalMoney([paid,gift,received][index])));
   const foot=container.querySelector('.pb-estimate-foot');
   foot.hidden=false;
@@ -1502,7 +1512,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const showUnavailable=message=>{
    rechargeEstimate=null;
    container.setAttribute('aria-busy','false');
-   container.querySelectorAll('.pb-estimate-head p,.pb-estimate-track,.pb-estimate-period,.pb-estimate-models,.pb-estimate-foot').forEach(element=>{element.hidden=true;});
+   container.querySelectorAll('.pb-estimate-head p,.pb-allocation-total,.pb-estimate-track,.pb-estimate-period,.pb-estimate-models,.pb-estimate-foot').forEach(element=>{element.hidden=true;});
    rechargeEstimateMessage(container,message);
   };
   if(cash<500||cash>5000000){showUnavailable('输入 ¥5–¥50,000 的实付金额后查看换算。');return;}

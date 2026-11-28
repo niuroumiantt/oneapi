@@ -2419,3 +2419,24 @@ html[data-site-theme] .personal-billing .pb-estimate-rates .pb-promo-rate { back
  .personal-billing .pb-estimate-model,.personal-billing .pb-estimate-model + .pb-estimate-model { padding:18px; }
  .pb-model-brand img { width:170px;height:40px; }
 }
+
+/* Left: gift / equivalent benefit. Right: the actual recharge payment. */
+.personal-billing .pb-estimate-head { align-items:baseline;flex-wrap:wrap;gap:12px; }
+.personal-billing .pb-estimate-head p { font-size:16px;line-height:1.8;color:var(--ph-ink); }
+.personal-billing .pb-estimate-head p b { font-size:24px;font-weight:700;font-variant-numeric:tabular-nums; }
+.pb-allocation-total { margin:0 0 24px;padding:16px 20px;border:1px solid var(--ph-line);border-radius:10px;background:color-mix(in srgb,var(--personal-selection,#e9edf8) 40%,transparent); }
+.pb-allocation-labels { display:flex;justify-content:space-between;gap:12px;margin-bottom:8px;font-size:12px;color:var(--ph-muted); }
+.pb-allocation-labels>span:last-child { text-align:right; }
+.pb-allocation-labels b { display:block;margin-top:3px;font-size:16px;color:var(--ph-ink);font-variant-numeric:tabular-nums; }
+.pb-allocation-total .pb-allocation-labels b { font-size:22px; }
+.pb-allocation-track { display:flex;overflow:hidden;height:14px;border-radius:4px;background:var(--ph-line); }
+.pb-allocation-track>span { display:block;height:100%; }
+.pb-allocation-gift { background:var(--personal-credit-gift,#ffc36b); }
+.pb-allocation-paid { background:var(--personal-credit-paid,#6952d7); }
+.pb-allocation-model { margin-top:16px; }
+.pb-allocation-model .pb-allocation-track { height:10px; }
+@media(max-width:700px) {
+ .personal-billing .pb-estimate-head p { font-size:12px; }
+ .personal-billing .pb-estimate-head p b { font-size:18px; }
+ .pb-allocation-total { padding:14px; }
+}
