@@ -2292,7 +2292,7 @@ td>.live-dot:first-child{margin-right:5px}
 .personal-billing .pb-estimate-rates :is(th,td) { height:auto;min-height:0;padding:5px 0 5px 6px;text-align:right;border-bottom:1px solid var(--ph-line); }
 .pb-estimate-rates th:first-child { padding-left:0;text-align:left; }
 .pb-estimate-rates th { font-weight:500;color:var(--ph-muted); }
-.pb-estimate-rates td:last-child { color:var(--personal-selected-ink,#8c360d);font-weight:650; }
+.pb-estimate-rates td.pb-promo-rate { color:var(--personal-selected-ink,#8c360d);font-weight:650; }
 .pb-estimate-foot{margin-top:10px}
 .pb-estimate-foot nav{display:flex;align-items:center;gap:10px;margin-left:auto}
 .pb-estimate-foot button{border:1px solid var(--ph-line);border-radius:4px;padding:4px 7px;color:var(--ph-ink);background:transparent;cursor:pointer}
@@ -2375,71 +2375,47 @@ td>.live-dot:first-child{margin-right:5px}
  .pb-stable .pb-estimate{margin-top:6px;padding-top:6px}
 }
 
-/* Recharge comparison puts vendor identity and the two prices on equal baselines. */
+/* Recharge model panels use a single ruled table; promotions appear after validation. */
 .personal-billing .pb-estimate { padding-top:24px;margin-top:24px; }
-.personal-billing .pb-estimate-head { margin-bottom:18px; }
-.personal-billing .pb-estimate-period { margin-bottom:18px; }
-.personal-billing .pb-estimate-models { gap:28px; }
-.personal-billing .pb-estimate-model + .pb-estimate-model { border:0;padding:0; }
-.pb-model-brand { height:44px;display:flex;align-items:center;margin-bottom:12px; }
-.pb-model-brand img { width:160px;height:38px;object-fit:contain;object-position:left; }
-.personal-billing .pb-estimate-model h3 { font-size:18px;margin:0 0 16px; }
-.pb-model-quota { display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:16px; }
-.pb-model-quota>span { color:var(--ph-muted);font-size:12px; }
-.personal-billing .pb-model-quota strong { font-size:21px;white-space:nowrap; }
-.personal-billing .pb-estimate-rates table { border-collapse:separate;border-spacing:0;table-layout:fixed;background:transparent; }
-.personal-billing .pb-estimate-rates :is(th,td) { background:transparent;border:0;padding:12px 8px;font-size:12px;vertical-align:middle; }
-.personal-billing .pb-estimate-rates tr>:first-child { width:29%;padding-left:0;color:var(--ph-muted); }
-.personal-billing .pb-estimate-rates tr>:nth-child(2) { width:29%;text-align:center;background:var(--personal-surface,#fff);border-inline:1px solid var(--ph-line); }
-.personal-billing .pb-estimate-rates tr>:last-child { text-align:center;background:var(--personal-selection,#fff4eb);border-inline:1px solid var(--personal-selected-ink,#94360d); }
-.personal-billing .pb-estimate-rates thead th:nth-child(2) { border-top:1px solid var(--ph-line);border-radius:10px 10px 0 0;font-weight:650; }
-.personal-billing .pb-estimate-rates thead th:last-child { border-top:1px solid var(--personal-selected-ink,#94360d);border-radius:10px 10px 0 0;font-weight:650;color:var(--personal-selected-ink,#94360d); }
-.personal-billing .pb-estimate-rates tbody tr:last-child td:nth-child(2) { border-bottom:1px solid var(--ph-line);border-radius:0 0 10px 10px; }
-.personal-billing .pb-estimate-rates tbody tr:last-child td:last-child { border-bottom:1px solid var(--personal-selected-ink,#94360d);border-radius:0 0 10px 10px; }
-.personal-billing .pb-estimate-rates td { font-size:17px; }
-.personal-billing .pb-estimate-rates td b { font-weight:700; }
-.personal-billing .pb-estimate-rates td small { display:block;font-size:11px;font-weight:400;margin-top:3px;color:var(--personal-selected-ink,#94360d); }
-.personal-billing .pb-estimate-foot { margin-top:18px; }
-@media(max-width:1100px) and (min-width:701px) {
- .personal-billing .pb-estimate-models { gap:16px; }
- .pb-model-quota { display:block; }
-}
-@media(max-width:700px) {
- .personal-billing .pb-estimate-models { gap:30px; }
- .personal-billing .pb-estimate-model + .pb-estimate-model { padding-top:24px;border-top:1px solid var(--ph-line); }
- .pb-model-brand img { width:170px;height:40px; }
-}
-
-html[data-site-theme] .personal-billing .pb-estimate-rates tr>:first-child { background:transparent; }
-html[data-site-theme] .personal-billing .pb-estimate-rates tr>:nth-child(2) { background:var(--personal-surface,#fff); }
-html[data-site-theme] .personal-billing .pb-estimate-rates tr>:last-child { background:var(--personal-selection,#fff4eb); }
-
-/* Each model has its own boundary; both rate columns share the same width. */
+.personal-billing .pb-estimate-head,.personal-billing .pb-estimate-period { margin-bottom:18px; }
 .personal-billing .pb-estimate-models { gap:18px; }
 .personal-billing .pb-estimate-model,
 .personal-billing .pb-estimate-model + .pb-estimate-model {
  border:1px solid var(--ph-line);border-radius:12px;padding:20px;
- background:var(--personal-surface,#fff);
+ background:color-mix(in srgb,var(--personal-selection,#e9edf8) 45%,var(--personal-surface,#fff));
 }
-.personal-billing .pb-model-quota { display:block;margin-bottom:14px; }
+.pb-model-brand { height:44px;display:flex;align-items:center;margin-bottom:12px; }
+.pb-model-brand img { width:160px;height:38px;object-fit:contain;object-position:left; }
+.personal-billing .pb-estimate-model h3 { font-size:18px;margin:0 0 20px; }
+.pb-model-quota { margin-bottom:16px; }
+.pb-model-quota>span { color:var(--ph-muted);font-size:12px; }
 .pb-quota-value { display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:6px; }
+.personal-billing .pb-model-quota strong { font-size:21px;white-space:nowrap; }
 .pb-discount {
  display:inline-block;padding:3px 8px;border:1px solid var(--personal-selected-ink,#94360d);
  border-radius:5px;background:var(--personal-selection,#fff4eb);
  color:var(--personal-selected-ink,#94360d);font-size:12px;font-weight:650;white-space:nowrap;
 }
-.personal-billing .pb-estimate-rates tr>:first-child { width:28%; }
-.personal-billing .pb-estimate-rates tr>:nth-child(2),
-.personal-billing .pb-estimate-rates tr>:last-child { width:36%; }
-.personal-billing .pb-estimate-rates :is(th,td) { padding:9px 5px; }
-.personal-billing .pb-estimate-rates td { font-size:16px; }
+.personal-billing .pb-estimate-rates { border:1px solid var(--ph-line);border-radius:8px;overflow:hidden; }
+.personal-billing .pb-estimate-rates table { margin:0;min-width:0;border-collapse:collapse;table-layout:fixed;background:transparent; }
+html[data-site-theme] .personal-billing .pb-estimate-rates :is(th,td) {
+ width:auto;background:transparent;border:0;border-bottom:1px solid var(--ph-line);
+ padding:12px 8px;text-align:center;vertical-align:middle;font-size:12px;
+}
+html[data-site-theme] .personal-billing .pb-estimate-rates tr>:first-child { text-align:left;color:var(--ph-muted); }
+html[data-site-theme] .personal-billing .pb-estimate-rates tr>:not(:first-child) { border-left:1px solid var(--ph-line); }
+html[data-site-theme] .personal-billing .pb-estimate-rates thead th { background:color-mix(in srgb,var(--ph-line) 35%,transparent);font-weight:600; }
+html[data-site-theme] .personal-billing .pb-estimate-rates tbody td { font-size:16px;font-variant-numeric:tabular-nums; }
+html[data-site-theme] .personal-billing .pb-estimate-rates tr:last-child td,
+html[data-site-theme] .personal-billing .pb-estimate-rates tbody tr:last-child th { border-bottom:0; }
+html[data-site-theme] .personal-billing .pb-estimate-rates .pb-promo-rate { background:var(--personal-selection,#fff4eb);color:var(--personal-selected-ink,#94360d); }
 .pb-price-ratio { display:block;margin-top:4px;font-size:11px;font-weight:400; }
+.personal-billing .pb-estimate-foot { margin-top:18px; }
 @media(max-width:1100px) and (min-width:701px) {
- .personal-billing .pb-estimate-model,
- .personal-billing .pb-estimate-model + .pb-estimate-model { padding:12px; }
+ .personal-billing .pb-estimate-model,.personal-billing .pb-estimate-model + .pb-estimate-model { padding:12px; }
  .personal-billing .pb-estimate-models { gap:10px; }
 }
 @media(max-width:700px) {
- .personal-billing .pb-estimate-model,
- .personal-billing .pb-estimate-model + .pb-estimate-model { padding:18px; }
+ .personal-billing .pb-estimate-model,.personal-billing .pb-estimate-model + .pb-estimate-model { padding:18px; }
+ .pb-model-brand img { width:170px;height:40px; }
 }
