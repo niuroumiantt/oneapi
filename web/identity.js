@@ -1464,10 +1464,10 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    const quota=!promotion?paid:pack?received:Math.round(received*10000/model.price_bps);
    const ratio=pack?paid/received:paid/received*model.price_bps/10000;
    element.querySelector('.pb-model-quota').hidden=false;
-   setText(element.querySelector('.pb-model-quota>span'),promotion?'本次可用官价额度':'我的额度');
+   setText(element.querySelector('.pb-model-quota>span'),'本次充值使用本模型，可用官价额度，');
    element.querySelector('.pb-discount').hidden=!promotion;
    element.querySelector('.pb-allocation-model').innerHTML=rechargeAllocationBar(paid,quota,{model:promotion});
-   setText(element.querySelector('strong'),(promotion&&!pack?'约 ':'')+personalMoney(quota));
+   setText(element.querySelector('strong'),'约 '+personalMoney(quota));
    setText(element.querySelector('.pb-discount'),'约 '+(ratio*10).toLocaleString('zh-CN',{maximumFractionDigits:2})+' 折');
    const rates=price?.kind==='timed'?price[period.value]:price?.standard;
    const details=element.querySelector('.pb-estimate-rates');
@@ -1500,7 +1500,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const help=host.querySelector('#cw-offer-help');
   if(help){
    const promo=host.querySelector('#pack-promo')?.value.trim();
-   setText(help,quote.previewError?'促销码未应用。':promotion?(pack?'促销码已应用，仅限该模型。':'促销码已应用，可核对到账金额。'):promo?'正在验证促销码…':personalPromoHelp());
+   setText(help,quote.previewError?'促销码未应用。':promotion?(pack?'促销码已应用，仅限该模型。':'促销码已应用，可核对到账金额。'):promo?(container.getAttribute('aria-busy')==='true'?'正在验证促销码…':'促销码未应用。'):personalPromoHelp());
   }
  }
  function refreshRechargeEstimate(immediate=false){
@@ -1535,9 +1535,9 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
     if(active()){
      if(container.dataset.promo!==promo)rechargeEstimatePage=0;
      container.dataset.promo=promo;
-     rechargeEstimate={...result,appliedPromo:promo&&!result.previewError?promo:null};
-     drawRechargeEstimate(container);
+     rechargeEstimate={...result,appliedPromo:promo&&!result.previewError&&String(result.discount_snapshot?.promo_code||'').normalize('NFKC').trim().toUpperCase()===promo.normalize('NFKC').toUpperCase()?promo:null};
      container.setAttribute('aria-busy','false');
+     drawRechargeEstimate(container);
     }
    }catch(error){
     if(active())showUnavailable(error.message);
