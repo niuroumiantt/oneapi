@@ -8,6 +8,7 @@
  if(window.ScreenPages)return;
  const records=new Map();let pending=0;
  const selectors='main,aside,section,article,nav,pre,div,dialog';
+ const nativeRechargeScroll=el=>el.matches('.pc-stage:has(#pb-recharge-estimate)');
  const visible=el=>el.isConnected&&el.getClientRects().length&&!el.closest('[hidden],dialog:not([open]),.sp-controls');
  const px=n=>Math.max(0,Math.round(n))+'px';
  const clamp=(n,min,max)=>Math.min(max,Math.max(min,n));
@@ -69,9 +70,15 @@
  }
  function scan(){
   pending=0;documentChapters();compactNavigation();fitPrimary();
-  for(const [el,rec] of records){if(!el.isConnected){rec.controls.remove();records.delete(el);}else update(rec);}
+  for(const [el,rec] of records){
+   if(!el.isConnected||nativeRechargeScroll(el)){
+    rec.controls.remove();records.delete(el);
+    el.classList.remove('sp-surface');el.style.paddingBottom=rec.oldPadding;
+    el.removeEventListener('scroll',schedule);
+   }else update(rec);
+  }
   for(const el of document.querySelectorAll(selectors)){
-   if(records.has(el)||!visible(el)||el.closest('.sp-controls,.site-header,.account-popover,[role="listbox"],[data-screen-local]')||el.matches('.mx-story,.mx-watermark'))continue;
+   if(records.has(el)||!visible(el)||nativeRechargeScroll(el)||el.closest('.sp-controls,.site-header,.account-popover,[role="listbox"],[data-screen-local]')||el.matches('.mx-story,.mx-watermark'))continue;
    const r=el.getBoundingClientRect();if(r.width<110||r.height<85)continue;
    const style=getComputedStyle(el);if(!/auto|scroll/.test(style.overflowY+style.overflowX))continue;
    if(el.scrollHeight<=el.clientHeight+3&&el.scrollWidth<=el.clientWidth+3)continue;

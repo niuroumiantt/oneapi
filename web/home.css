@@ -125,3 +125,6 @@
 #login-view .site-account > .live-signin{display:none}
 .welcome-entry-inner > .welcome-continue{margin-top:20px}
 .welcome-entry-inner .welcome-explore{justify-content:flex-start}
+
+.welcome-explore { display:flex; flex-wrap:wrap; justify-content:center; gap:8px 18px; }
+.welcome-explore .welcome-promotion { color:var(--site-active-ink,#94360d); font-weight:650; }

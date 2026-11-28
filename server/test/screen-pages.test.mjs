@@ -7,8 +7,8 @@ function fixture({height=240,content=900,width=400,contentWidth=400}={}){
  const frames=[],listeners={},controls=[],classes=new Set();let observer;
  const body={append(el){controls.push(el);}};
  const region={id:'content',isConnected:true,clientHeight:height,scrollHeight:content,clientWidth:width,scrollWidth:contentWidth,scrollTop:0,scrollLeft:0,style:{paddingBottom:''},parentElement:body,
-  classList:{add(c){classes.add(c)}},getClientRects:()=>[{}],closest:()=>null,matches:()=>false,
-  getBoundingClientRect:()=>({top:100,bottom:100+height,left:20,right:20+width,width,height}),addEventListener(){},scrollTo({top,left}){this.scrollTop=top;this.scrollLeft=left;}};
+  classList:{add(c){classes.add(c)},remove(c){classes.delete(c)}},getClientRects:()=>[{}],closest:()=>null,matches:()=>false,
+  getBoundingClientRect:()=>({top:100,bottom:100+height,left:20,right:20+width,width,height}),addEventListener(){},removeEventListener(){},scrollTo({top,left}){this.scrollTop=top;this.scrollLeft=left;}};
  const document={body,readyState:'complete',documentElement:{classList:{contains:()=>false}},querySelector:()=>null,querySelectorAll:s=>s==='main,aside,section,article,nav,pre,div,dialog'?[region]:[],addEventListener(){},
   createElement(){const nodes=new Map();return {style:{},setAttribute(){},addEventListener(type,fn){this[type]=fn},querySelector(s){if(!nodes.has(s))nodes.set(s,{});return nodes.get(s)},remove(){this.removed=true}};}};
  const context={window:{},document,innerHeight:720,innerWidth:1280,getComputedStyle:()=>({overflowY:'auto',overflowX:'auto',paddingBottom:'0'}),requestAnimationFrame:fn=>(frames.push(fn),frames.length),addEventListener:(key,fn)=>listeners[key]=fn,MutationObserver:class{constructor(fn){observer=fn}observe(){}}};
@@ -31,4 +31,16 @@ test('wide tables are accessible by field groups and reset on route changes',()=
 test('removed content releases controls and fitting content has no pager',()=>{
  const fitting=fixture({content:240});assert.equal(fitting.controls.length,0);
  const f=fixture();f.region.isConnected=false;f.changed();f.flush();assert.equal(f.controls[0].removed,true);
+});
+
+test('recharge estimate switches the workspace to native scrolling until leaving recharge',()=>{
+ const f=fixture();
+ f.region.matches=selector=>selector==='.pc-stage:has(#pb-recharge-estimate)';
+ f.changed();f.flush();
+ assert.equal(f.controls[0].removed,true);
+ assert.equal(f.region.style.paddingBottom,'');
+ f.region.matches=()=>false;
+ f.changed();f.flush();
+ assert.equal(f.controls.length,2);
+ assert.equal(f.controls[1].hidden,false);
 });

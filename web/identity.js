@@ -1417,6 +1417,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   if(container.firstElementChild)return;
   container.innerHTML=`<div class="pb-estimate-head"><h2>各模型可用官价额度</h2><p hidden>实付 <b>—</b> · 赠送 <b>—</b> · 到账 <b>—</b></p></div>
    <div class="pb-estimate-track" aria-hidden="true" hidden><span></span><span></span></div>
+   <div class="pb-estimate-period" hidden><span>元 / 百万 Token</span><label>DeepSeek 时段 <select aria-label="DeepSeek 价格时段" data-recharge-period><option value="offpeak">空闲</option><option value="peak">高峰</option></select></label></div>
    <div class="pb-estimate-models" hidden></div>
    <div class="pb-estimate-foot" hidden><p></p><nav aria-label="模型额度分页" hidden>
     <button type="button" data-live="recharge-estimate-page">上一页</button><span></span><button type="button" data-live="recharge-estimate-page">下一页</button>
@@ -1438,18 +1439,33 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   rechargeEstimatePage=Math.min(rechargeEstimatePage,pages-1);
   const visibleModels=models.slice(rechargeEstimatePage*size,(rechargeEstimatePage+1)*size);
   const grid=container.querySelector('.pb-estimate-models');
-  const layout=JSON.stringify(visibleModels.map(({id,name,price_bps})=>[id,name,price_bps]));
+  const period=container.querySelector('[data-recharge-period]');
+  const catalog=window.SemiflyModels||[];
+  const prices=visibleModels.map(({id})=>catalog.find(model=>model.id===id)?.price);
+  period.parentElement.hidden=!prices.some(price=>price?.kind==='timed');
+  period.parentElement.parentElement.hidden=!prices.some(Boolean);
+  const layout=JSON.stringify(visibleModels.map(({id,name})=>[id,name]));
   if(grid.dataset.layout!==layout){
-   grid.innerHTML=visibleModels.map(model=>`<div class="pb-estimate-model"><span title="${esc(model.name)}">${esc(model.name)}</span><small>${model.price_bps===10000?'官价':model.price_bps/1000+' 折'}</small><strong></strong></div>`).join('');
+   grid.innerHTML=visibleModels.map(model=>`<section class="pb-estimate-model"><h3>${esc(model.name)}</h3><strong></strong><div class="pb-estimate-rates"></div></section>`).join('');
    grid.dataset.layout=layout;
   }
   grid.hidden=!visibleModels.length;
   const setText=(element,value)=>{if(element.textContent!==value)element.textContent=value;};
-  grid.querySelectorAll('strong').forEach((element,index)=>{
-   const quota=pack?received:Math.round(received*10000/visibleModels[index].price_bps);
-   setText(element,(pack?'':'约 ')+personalMoney(quota));
+  const formatRate=value=>'¥'+Number(value).toLocaleString('zh-CN',{maximumFractionDigits:6});
+  grid.querySelectorAll('.pb-estimate-model').forEach((element,index)=>{
+   const model=visibleModels[index],price=prices[index];
+   const quota=pack?received:Math.round(received*10000/model.price_bps);
+   const ratio=pack?paid/received:paid/received*model.price_bps/10000;
+   setText(element.querySelector('strong'),(pack?'':'约 ')+personalMoney(quota));
+   const rates=price?.kind==='timed'?price[period.value]:price?.standard;
+   const details=element.querySelector('.pb-estimate-rates');
+   // Use the quote for actual cash/credit. A model pack already has its discount in face_fen.
+   const rateKey=JSON.stringify([rates,ratio]);
+   if(details.dataset.rateKey===rateKey)return;
+   details.dataset.rateKey=rateKey;
+   details.innerHTML=rates?`<table data-nosort aria-label="${esc(model.name)} 单价"><thead><tr><th scope="col">用量</th><th scope="col">官方价</th><th scope="col">实付折算</th></tr></thead><tbody>${[['未命中输入','miss'],['缓存命中','hit'],['输出','output']].map(([label,key])=>`<tr><th scope="row">${label}</th><td>${formatRate(rates[key])}</td><td>${formatRate(rates[key]*ratio)}</td></tr>`).join('')}</tbody></table>`:'';
   });
-  setText(container.querySelector('h2'),pack?'模型专属额度':'各模型可用官价额度');
+  setText(container.querySelector('h2'),pack?'本次充值的模型专属官价额度':'本次充值折合的官价额度');
   const totals=container.querySelector('.pb-estimate-head p');
   totals.hidden=false;
   totals.querySelectorAll('b').forEach((element,index)=>setText(element,personalMoney([paid,gift,received][index])));
@@ -1463,7 +1479,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   track.hidden=false;
   const foot=container.querySelector('.pb-estimate-foot');
   foot.hidden=false;
-  const note=pack?`仅限 ${pack.name} 使用，已按促销折扣换算。`:models.length?'各模型共用这笔到账余额，估算额度不可相加。':'当前没有已开放的可用模型。';
+  const note=pack?`仅限 ${pack.name} 使用，已按促销折扣换算。`:models.length?'各模型共用这笔到账余额，额度不可相加。实付折算已计入本次可用优惠。':'当前没有已开放的可用模型。';
   setText(foot.querySelector('p'),note+(quote.previewError?' '+quote.previewError+'，当前显示无促销码的试算。':''));
   const nav=foot.querySelector('nav');
   nav.hidden=pages<=1;
@@ -1491,7 +1507,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const showUnavailable=message=>{
    rechargeEstimate=null;
    container.setAttribute('aria-busy','false');
-   container.querySelectorAll('.pb-estimate-head b,.pb-estimate-model strong').forEach(element=>{element.textContent='—';});
+   container.querySelectorAll('.pb-estimate-head p,.pb-estimate-track,.pb-estimate-period,.pb-estimate-models,.pb-estimate-foot').forEach(element=>{element.hidden=true;});
    rechargeEstimateMessage(container,message);
   };
   if(cash<500||cash>5000000){showUnavailable('输入 ¥5–¥50,000 的实付金额后查看换算。');return;}
@@ -1844,6 +1860,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    else if(view==='security')securityPage();else await account(ticket,earlyBilling);
   }catch(e){if(ticket!==generation)return;if(e.status===401){me=null;authForm();}else mount(hero('YOUR WORKSPACE','暂时无法打开这个空间。','请核对账号及企业权限。')+note(e.message,true)+'<a class="live-button" href="#workspace">返回工作台</a>');}
  }
+ document.addEventListener('change',e=>{if(e.target.matches('[data-recharge-period]'))drawRechargeEstimate(e.target.closest('.pb-estimate'));});
  document.addEventListener('change',e=>{if(e.target.matches('[data-personal-price-period]')){personalPricePeriod=e.target.value==='peak'?'peak':'offpeak';updatePersonalDashboard();}});
  document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-live]');if(!b)return;const action=b.dataset.live;let message=host?.querySelector('#live-form-message');b.disabled=true;

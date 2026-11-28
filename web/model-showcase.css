@@ -388,22 +388,18 @@ html body.catalog-active{height:100dvh;overflow:hidden}
  #market-view>.site-footer:has(>.site-filing){display:none}
 }
 
-/* Keep the two prices aligned to the same billing item and unit. */
+/* Official API prices share one unit across all rows. */
 #market-view .mx-price { overflow-y: auto; overflow-x: hidden; }
 #market-view .mx-rate-table { width: 100%; min-width: 0; border-collapse: separate; border-spacing: 0; margin: 12px 0; font-variant-numeric: tabular-nums; }
 #market-view .mx-rate-table :is(th, td) { height: auto; padding: 7px 5px; border-bottom: 1px solid #dbe5f3; text-align: right; color: #223c66; white-space: normal; }
 #market-view .mx-rate-table th { font-size: 12px; font-weight: 600; }
 #market-view .mx-rate-table th:first-child { text-align: left; }
 #market-view .mx-rate-table td { font-size: clamp(15px, 1.3vw, 22px); font-weight: 650; }
-#market-view .mx-rate-table .mx-offer { background: #fff0e5; color: #94360d; border-color: #edd5c4; }
-.mx-offer-badge { display: inline-block; margin-left: 5px; padding: 1px 5px; border-radius: 4px; background: #94360d; color: #fff; white-space: nowrap; }
 .mx-recharge { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 #market-view .mx-recharge p { margin: 0; font-size: 12px; line-height: 1.5; color: #435875; }
 #market-view .mx-recharge a { flex: none; padding: 7px 11px; border-radius: 6px; background: #94360d; color: #fff; font-size: 12px; font-weight: 650; text-decoration: none; }
 #market-view .mx-recharge a:hover { background: #772908; }
 #market-view .mx-price :is(.mx-price-source,.mx-freshness) { padding-top: 4px; }
-.mx-comp-official,.mx-comp-offer { display: block; font-variant-numeric: tabular-nums; }
-.mx-comp-offer { color: #94360d; }
 @media(max-width: 600px) {
  #market-view #mx-pane > .mx-price { padding: 10px; }
  #market-view .mx-rate-table { margin: 8px 0; }

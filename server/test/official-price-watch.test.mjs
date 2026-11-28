@@ -84,14 +84,3 @@ test('public feed exposes only featured models, observed prices, freshness and h
  sources[0].http_status=503;
  assert.equal(publicOfficialPrices(sources,now).models[1].rates,null);
 });
-
-test('public personal promotion uses the configured wallet discount and gateway rate basis', async () => {
- const {publicOfficialPrices}=await import('../src/official-price-watch.mjs');
- const models=['deepseek-flash','glm-5.3','glm-5.3-flash'];
- const customerPaid={models,personalCatalogModels:models,usagePrices:{'deepseek-flash':5000,'glm-5.3':10000,'glm-5.3-flash':5000}};
- const [deepseek,glm,flash]=publicOfficialPrices([],new Date(),customerPaid).models;
- assert.deepEqual(deepseek.personal_promotion,{price_bps:5000,basis:{miss:1,hit:0.02,output:4}});
- assert.equal(glm.personal_promotion,null);
- assert.deepEqual(flash.personal_promotion,{price_bps:5000,basis:{miss:0.8,hit:0.23,output:2.8}});
- assert.equal(publicOfficialPrices([]).models[0].personal_promotion,null);
-});

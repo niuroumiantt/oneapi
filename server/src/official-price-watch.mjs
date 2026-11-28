@@ -250,11 +250,11 @@ export async function officialPriceWatchView(pool) {
   };
 }
 
-export function officialPriceWatchRoutes(app, pool, requireStaff, { fetchImpl = fetch, customerPaid = null } = {}) {
+export function officialPriceWatchRoutes(app, pool, requireStaff, { fetchImpl = fetch } = {}) {
   let running = null;
   app.get('/api/public/official-prices', async (req, res) => {
     const sources = (await pool.query('SELECT source_id,http_status,fetched_at,parsed,comparisons,error FROM official_price_watch_sources')).rows;
-    res.set('Cache-Control', 'no-store').json(publicOfficialPrices(sources, new Date(), customerPaid));
+    res.set('Cache-Control', 'no-store').json(publicOfficialPrices(sources));
   });
   app.get('/api/staff/lab/official-prices', requireStaff, async (req, res) => {
     requireTechnical(req);
@@ -270,7 +270,7 @@ export function officialPriceWatchRoutes(app, pool, requireStaff, { fetchImpl = 
 }
 
 // A public observation feed, never a billing-rate mutation. Only explicitly featured models.
-export function publicOfficialPrices(sources, now = new Date(), customerPaid = null) {
+export function publicOfficialPrices(sources, now = new Date()) {
   const ids = ['deepseek-flash', 'glm-5.3', 'glm-5.3-flash'];
   return {
     server_time: now.toISOString(), interval_hours: PRICE_WATCH_INTERVAL_MS / 3600000,
@@ -281,11 +281,7 @@ export function publicOfficialPrices(sources, now = new Date(), customerPaid = n
       const raw = source?.parsed?.[m.family === 'deepseek' ? m.id : m.name];
       const valid = source?.http_status === 200 && !source.error && raw && ['input','cached','output'].every(k => raw[k] != null && Number.isFinite(Number(raw[k])) && Number(raw[k]) >= 0);
       const age = now.getTime() - new Date(source?.fetched_at).getTime();
-      const personalBps = customerPaid?.models?.includes(m.id) && customerPaid.personalCatalogModels?.includes(m.id)
-        ? customerPaid.usagePrices?.[m.id] : null;
-      const officialBasis = { miss: Number(m.rates.input), hit: Number(m.rates.cached), output: Number(m.rates.output) };
       return { id: m.id, source: m.priceSource, checked_at: source?.fetched_at || null,
-        personal_promotion: personalBps > 0 && personalBps < 10000 ? { price_bps: personalBps, basis: officialBasis } : null,
         status: valid ? (age >= 0 && age <= PRICE_WATCH_INTERVAL_MS * 2 ? 'fresh' : 'stale') : 'unavailable',
         rates: valid ? { miss: Number(raw.input), hit: Number(raw.cached), output: Number(raw.output) } : null };
     })

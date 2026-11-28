@@ -18,7 +18,7 @@
 
         <h2 id="welcome-entry-title">进入工作台</h2>
         <a class="welcome-continue" id="welcome-continue" href="#workspace"><span id="welcome-continue-label">登录 / 注册</span><span class="welcome-continue-arrow" data-icon="arrow-right" aria-hidden="true"></span></a>
-        <div class="welcome-explore"><a href="#market">逛逛模型广场 <span data-icon="arrow-up-right" aria-hidden="true"></span></a></div>
+        <div class="welcome-explore"><a class="welcome-promotion" href="#billing/personal">限时促销 <span data-icon="arrow-up-right" aria-hidden="true"></span></a><a href="#market">逛逛模型广场 <span data-icon="arrow-up-right" aria-hidden="true"></span></a></div>
       </div>
 
     </section>

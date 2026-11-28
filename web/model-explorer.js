@@ -15,7 +15,7 @@
   ['background','模型档案','cpu'], ['scenes','应用场景','layers'],
   ['specs','能力规格','settings'], ['history','版本历史','clock'],
   ['billing','计费说明','receipt-text'], ['compare','模型对比','arrow-left-right'],
-  ['price','官方价与充值价','receipt-text']
+  ['price','官方价格','receipt-text']
  ];
  let compareGroup='price';let scene=0;let current=ids[0],angle='background',period='auto',open=()=>false,feed=null,loading=false;
  const catalog=()=>ids.map(id=>(window.SemiflyModels||[]).find(m=>m.id===id)).filter(Boolean);
@@ -27,42 +27,34 @@
   const live=feed && Date.now()-feed.receivedAt<120000;
   const selected=period==='auto'?(live?feed.current_period:null):period;
   const multiplier=m.price.kind==='timed'&&selected==='peak'?2:1;
-  const promotion=obs?.personal_promotion;
   const rates=Object.fromEntries(rateItems.map(([,key])=>[key,base[key]*multiplier]));
-  const offer=promotion&&{
-   rates:Object.fromEntries(rateItems.map(([,key])=>[key,promotion.basis[key]*multiplier*promotion.price_bps/10000])),
-   discount:rateItems.every(([,key])=>Number(base[key])===promotion.basis[key])?promotion.price_bps/1000:null
-  };
-  return {rates,offer,selected};
+  return {rates,selected};
  }
  function pricePanel(m){
-  const {rates:r,offer,selected}=pricing(m),obs=observation(m);
+  const {rates:r,selected}=pricing(m),obs=observation(m);
   const checked=obs?.rates&&obs?.checked_at?new Date(obs.checked_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'2026-11-27';
   const freshness=obs?.rates?(obs.status==='fresh'?'官网已核对':'快照已过期，请核对官网'):'参考价 · 自动核对暂不可用';
-  return `<aside class="mx-price" aria-label="官方价与 Semifly 充值价">
-   <header><div class="mx-price-heading">${icon('receipt-text')}<div><h3>API 价格</h3><span>元 / 百万 Token</span></div></div><span class="mx-price-brand">${brandLogo(m)}</span></header>
+  return `<aside class="mx-price" aria-label="官方 API 价格">
+   <header><div class="mx-price-heading">${icon('receipt-text')}<div><h3>官方 API 价格</h3><span>元 / 百万 Token</span></div></div><span class="mx-price-brand">${brandLogo(m)}</span></header>
    <table class="mx-rate-table" data-nosort>
-    <thead><tr><th scope="col">计费项</th><th scope="col">官方 API 价</th>${offer?`<th class="mx-offer" scope="col">Semifly 促销价${offer.discount?`<span class="mx-offer-badge">${offer.discount} 折</span>`:''}</th>`:''}</tr></thead>
-    <tbody>${rateItems.map(([label,key])=>`<tr><th scope="row">${label}</th><td>${money(r[key])}</td>${offer?`<td class="mx-offer">${money(offer.rates[key])}</td>`:''}</tr>`).join('')}</tbody>
+    <thead><tr><th scope="col">计费项</th><th scope="col">官方 API 价</th></tr></thead>
+    <tbody>${rateItems.map(([label,key])=>`<tr><th scope="row">${label}</th><td>${money(r[key])}</td></tr>`).join('')}</tbody>
    </table>
-   ${offer?`<div class="mx-recharge"><p>充值到个人账户后，按上表促销单价使用个人通用余额。</p><a href="#billing/personal">去充值 <span aria-hidden="true">→</span></a></div>`:''}
+   <div class="mx-recharge"><p><strong>限时促销</strong></p><a href="#billing/personal">查看充值优惠 <span aria-hidden="true">→</span></a></div>
    ${m.price.kind==='timed'?`<div class="mx-period" aria-label="计价时段">${[['auto','当前时段'],['offpeak','空闲时段'],['peak','高峰时段']].map(([id,label])=>`<button data-mx-period="${id}" aria-pressed="${period===id}">${label}</button>`).join('')}</div><p class="mx-period-note">${period==='auto'?(selected?`北京时间 · 当前${selected==='peak'?'高峰':'空闲'}时段`:'当前时段未确认，暂列空闲参考价'):'正在查看'+(period==='peak'?'高峰':'空闲')+'时段价格'}</p>`:'<p class="mx-period-note">标准 API 价格 · 不分高峰 / 空闲</p>'}<div class="mx-price-source"><a href="${esc(m.price.source)}" target="_blank" rel="noopener noreferrer">官方计费文档 ↗</a><button data-mx-refresh ${loading?'disabled':''}>${loading?'刷新中…':'刷新价格'}</button></div><p class="mx-freshness">${freshness}<br>最近核对 ${esc(checked)} · 北京时间</p></aside>`;
- }
- function compareRate([official,offer]){
-  return `<span class="mx-comp-official">官价 <b>${official}</b></span>${offer?`<span class="mx-comp-offer">充值价 <b>${offer}</b></span>`:''}`;
  }
  function comparison(){
   const models=catalog(),background=m=>window.SemiflyModelBackground[m.id];
-  const groups=[['price','价格对照'],['capabilities','能力规格'],['parameters','参数规模'],['scenarios','适用场景']];
+  const groups=[['price','官方价格'],['capabilities','能力规格'],['parameters','参数规模'],['scenarios','适用场景']];
   const rows={
-   price:rateItems.map(([label,key])=>[label,m=>{const {rates,offer}=pricing(m);return [money(rates[key]),offer?money(offer.rates[key]):null];}]),
+   price:rateItems.map(([label,key])=>[label,m=>money(pricing(m).rates[key])]),
    capabilities:[['上下文 / 最大输出',m=>m.context+' / '+m.maxOutput],['平台输入',m=>m.capabilities.input.includes('image')?'文本、图片':'文本'],['思考模式',m=>m.thinking==='switchable'?'可开启 / 关闭':'始终思考'],['工具调用',m=>m.capabilities.tool_calling?'支持':'未确认'],['结构化输出',m=>m.capabilities.json_schema?'JSON Schema':'JSON']],
    parameters:[['参数口径',m=>background(m).parameters],['激活参数',m=>background(m).active],['公开权重体积',m=>background(m).weights]],
    scenarios:[['主要定位',m=>profiles[m.id].label],['场景一',m=>profiles[m.id].scenes[0][0]],['场景二',m=>profiles[m.id].scenes[1][0]],['场景三',m=>profiles[m.id].scenes[2][0]]]
   }[compareGroup];
   const timed=models.find(m=>m.price.kind==='timed'),selected=timed&&pricing(timed).selected;
   const note=compareGroup==='price'?`元 / 百万 Token · DeepSeek ${selected==='peak'?'高峰':selected==='offpeak'?'空闲':'时段未确认，空闲参考价'}；GLM 为标准价。${models.some(m=>!observation(m)?.rates)?'含参考价，请核对官网。':models.some(m=>observation(m)?.status!=='fresh')?'含过期快照，请核对官网。':'官网快照已核对。'}`:compareGroup==='parameters'?'参数统计口径不同，不直接代表性能；权重体积不等于运行显存。详见各模型档案。':compareGroup==='capabilities'?'上下文和最大输出为官方规格，其余为平台已确认能力；实际调用限制以工作台为准。':'按任务特点整理，非实测排名；选择后可在工作台验证实际效果。';
-  return `<div class="mx-compare-panel"><nav class="mx-compare-groups" aria-label="对比维度">${groups.map(([id,label])=>`<button type="button" data-mx-compare="${id}" aria-pressed="${compareGroup===id}">${label}</button>`).join('')}</nav><table data-nosort aria-label="三款模型对比"><thead><tr><th scope="col">对比项目</th>${models.map(m=>`<th scope="col" class="${m.id===current?'mx-comp-selected':''}"><span class="mx-comp-logo">${brandLogo(m)}</span><span>${esc(m.name)}</span></th>`).join('')}</tr></thead><tbody>${rows.map(([label,value])=>`<tr><th scope="row">${label}</th>${models.map(m=>`<td class="${m.id===current?'mx-comp-selected':''}">${compareGroup==='price'?compareRate(value(m)):esc(value(m))}</td>`).join('')}</tr>`).join('')}</tbody></table><p class="mx-compare-note">${note}</p></div>`;
+  return `<div class="mx-compare-panel"><nav class="mx-compare-groups" aria-label="对比维度">${groups.map(([id,label])=>`<button type="button" data-mx-compare="${id}" aria-pressed="${compareGroup===id}">${label}</button>`).join('')}</nav><table data-nosort aria-label="三款模型对比"><thead><tr><th scope="col">对比项目</th>${models.map(m=>`<th scope="col" class="${m.id===current?'mx-comp-selected':''}"><span class="mx-comp-logo">${brandLogo(m)}</span><span>${esc(m.name)}</span></th>`).join('')}</tr></thead><tbody>${rows.map(([label,value])=>`<tr><th scope="row">${label}</th>${models.map(m=>`<td class="${m.id===current?'mx-comp-selected':''}">${esc(value(m))}</td>`).join('')}</tr>`).join('')}</tbody></table><p class="mx-compare-note">${note}</p></div>`;
  }
  function pane(m){
   const p=profiles[m.id],c=m.capabilities,b=window.SemiflyModelBackground[m.id];
@@ -73,7 +65,7 @@
   if(angle==='scenes')return `<nav class="mx-scene-tabs" aria-label="应用场景分页">${p.scenes.map(([title],i)=>`<button data-mx-scene="${i}" aria-pressed="${i===scene}">${title}</button>`).join('')}</nav><div class="mx-scenes">${p.scenes.map(([title,body,prompt],i)=>`<section class="${i===scene?'mx-scene-current':''}"><div class="mx-scene-art">${icon(['pencil-line','code-xml','layers'][i])}<span></span><span></span><span></span></div><h3>${title}</h3><p>${body}</p><small>试试这样提问</small><blockquote>${prompt}</blockquote></section>`).join('')}</div><p class="mx-boundary">${p.limit}</p>`;
   if(angle==='specs')return `<dl class="mx-specs">${[['官方上下文',m.context],['官方最大输出',m.maxOutput],['平台单次输出上限',c.max_output_tokens.toLocaleString()+' Token'],['思考模式',m.thinking==='switchable'?'默认开启，可关闭':'始终开启，可调整强度'],['平台输入 / 输出',c.input.includes('image')?'文本、图片 / 文本':'文本 / 文本'],['工具调用',c.tool_calling?'支持并行工具调用':'待确认'],['结构化输出',c.json_schema?'JSON / JSON Schema':'JSON'],['平台缓存能力',c.prompt_cache?'已支持':'未确认，勿按缓存价估算收益']].map(([k,v])=>`<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl><p class="mx-boundary">官方规格与平台调用上限分别列出。<a href="#realtesting">查看平台功能实测 ↗</a></p>`;
   const r=pricing(m).rates;
-  return `<div class="mx-billing"><section><h3>按实际 Token 用量计费</h3><p>费用 = 未命中输入 × 输入单价 + 缓存命中 × 缓存单价 + 输出 × 输出单价；各项均除以 1,000,000。</p><p>${m.price.kind==='timed'?'北京时间周一至周五 9:00–12:00、14:00–18:00 为高峰，中国法定节假日除外。其余时段为空闲，高峰单价为空闲的两倍。':'官方缓存存储目前限时免费，免费期结束后的价格以官网为准。中断请求已产生的用量仍可能计费。'}</p><p>Semifly 促销单价适用于当前个人通用余额。实际扣费以调用时适用费率与账单为准。官网自动核对约每 6 小时一次，页面每分钟更新当前时段。工具等附加服务需按官方规则另行核对。</p></section><section class="mx-calculator"><h3>估算一次任务</h3><div class="mx-inputs">${[['miss','未命中输入',100000],['hit','缓存命中',0],['output','输出',5000]].map(([key,label,value])=>`<label>${label} Token<input type="number" min="0" max="10000000" step="1" data-mx-tokens="${key}" value="${value}"></label>`).join('')}</div><output id="mx-cost">${money((100000*r.miss+5000*r.output)/1e6)}</output><small>此处按当前时段的官方单价估算，含思考的输出用量请计入。</small></section></div>`;
+  return `<div class="mx-billing"><section><h3>按实际 Token 用量计费</h3><p>费用 = 未命中输入 × 输入单价 + 缓存命中 × 缓存单价 + 输出 × 输出单价；各项均除以 1,000,000。</p><p>${m.price.kind==='timed'?'北京时间周一至周五 9:00–12:00、14:00–18:00 为高峰，中国法定节假日除外。其余时段为空闲，高峰单价为空闲的两倍。':'官方缓存存储目前限时免费，免费期结束后的价格以官网为准。中断请求已产生的用量仍可能计费。'}</p><p>充值优惠及额度换算可在个人充值页查看。实际扣费以调用时适用费率与账单为准。官网自动核对约每 6 小时一次，页面每分钟更新当前时段。工具等附加服务需按官方规则另行核对。</p></section><section class="mx-calculator"><h3>估算一次任务</h3><div class="mx-inputs">${[['miss','未命中输入',100000],['hit','缓存命中',0],['output','输出',5000]].map(([key,label,value])=>`<label>${label} Token<input type="number" min="0" max="10000000" step="1" data-mx-tokens="${key}" value="${value}"></label>`).join('')}</div><output id="mx-cost">${money((100000*r.miss+5000*r.output)/1e6)}</output><small>此处按当前时段的官方单价估算，含思考的输出用量请计入。</small></section></div>`;
  }
  function draw(){
   const m=catalog().find(m=>m.id===current);if(!m)return; const p=profiles[m.id],b=window.SemiflyModelBackground[m.id];
