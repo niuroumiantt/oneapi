@@ -1918,7 +1918,7 @@ td>.live-dot:first-child{margin-right:5px}
 /* Paid / gift composition; refundable value comes from the server quote. */
 .pb-credit{max-width:720px;margin:14px 0 12px}
 .pb-credit-track{display:flex;height:10px;border:1px dashed #bdc7d5;border-radius:3px;background:#f2f4f7;overflow:hidden}
-.pb-credit-track span{height:100%;flex:none}.pb-credit-paid{background:#d5544b}.pb-credit-gift{background:#5487c9}
+.pb-credit-track span{height:100%;flex:none}.pb-credit-paid{background:#d83a36}.pb-credit-gift{background:#3478d4}
 .pb-credit-legend{display:flex;align-items:center;gap:22px;font-size:12px;color:var(--ph-muted);margin-top:8px}
 .pb-credit-legend span{display:flex;align-items:center;gap:6px}.pb-credit-legend i{width:7px;height:7px;border-radius:2px}
 .pb-credit-legend a{display:flex;align-items:center;gap:5px;margin-left:auto;color:var(--ph-ink)}.pb-credit-legend svg{width:13px;height:13px}
@@ -2314,7 +2314,7 @@ td>.live-dot:first-child{margin-right:5px}
 .model-pack-subtotal dd{margin:3px 0 0;font-size:clamp(14px,2vw,19px);font-weight:600}
 .model-pack-details .pb-estimate-track{margin:5px 0}
 .model-pack-key{display:inline-block;width:8px;height:8px;margin-right:4px;border-radius:2px;background:var(--ph-line,#dfe5ec)}
-.model-pack-gift{background:#3171b6}.model-pack-paid{background:#c64036}
+.model-pack-gift{background:#3478d4}.model-pack-paid{background:#d83a36}
 
 /* Billing navigation stays above the changing view. */
 .personal-billing.pb-stable .pb-heading{margin-bottom:8px}
@@ -2431,8 +2431,8 @@ html[data-site-theme] .personal-billing .pb-estimate-rates .pb-promo-rate { back
 .pb-allocation-total .pb-allocation-labels b { font-size:22px; }
 .pb-allocation-track { display:flex;overflow:hidden;height:14px;border-radius:4px;background:var(--ph-line); }
 .pb-allocation-track>span { display:block;height:100%; }
-.pb-allocation-gift { background:var(--personal-credit-gift,#ffc36b); }
-.pb-allocation-paid { background:var(--personal-credit-paid,#6952d7); }
+.pb-allocation-gift { background:var(--personal-credit-gift,#3478d4); }
+.pb-allocation-paid { background:var(--personal-credit-paid,#d83a36); }
 .pb-allocation-model { margin-top:16px; }
 .pb-allocation-model .pb-allocation-track { height:10px; }
 @media(max-width:700px) {

@@ -128,8 +128,8 @@
 /* The home quota meter shares billing amounts, with a brighter red/blue palette. */
 .personal-home .ph-credit{grid-column:1/-1;width:100%;max-width:none;margin:0}
 .personal-home .ph-credit .pb-credit-track{height:10px;border:0;border-radius:5px;background:#edf0f5}
-.personal-home .ph-credit .pb-credit-paid{background:#f04b46}
-.personal-home .ph-credit .pb-credit-gift{background:#347cf5}
+.personal-home .ph-credit .pb-credit-paid{background:#d83a36}
+.personal-home .ph-credit .pb-credit-gift{background:#3478d4}
 .personal-home .ph-credit .pb-credit-legend{gap:8px 14px;flex-wrap:wrap;margin-top:7px;font-size:12px}
 .personal-home .ph-credit-spent{margin-left:auto}
 @media(min-width:1001px){

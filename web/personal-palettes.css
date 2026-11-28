@@ -10,8 +10,8 @@ html[data-site-theme="cool-red"] {
   --personal-accent: #d71019;
   --personal-accent-hover: #b90c14;
   --personal-selection: #f8e4e5;
-  --personal-credit-paid: #d71019;
-  --personal-credit-gift: #55545a;
+  --personal-credit-paid: #d83a36;
+  --personal-credit-gift: #3478d4;
   --personal-chart-deepseek: #d71019;
   --personal-chart-glm: #55545a;
   --personal-chart-flash: #bcbbbf;
@@ -80,8 +80,8 @@ html[data-site-theme="ink-green"] {
   --personal-tag-2: #283f37;
   --personal-tag-2-border: #455e4f;
   --personal-tag-2-ink: #d1e1c8;
-  --personal-credit-paid: #58eb04;
-  --personal-credit-gift: #b4b9b4;
+  --personal-credit-paid: #d83a36;
+  --personal-credit-gift: #3478d4;
   --personal-chart-deepseek: #58eb04;
   --personal-chart-glm: #55ad95;
   --personal-chart-flash: #b4b9b4;
@@ -129,8 +129,8 @@ html[data-site-theme="burnt-orange"] {
   --personal-tag-2: #f2e8e3;
   --personal-tag-2-border: #e3d1c8;
   --personal-tag-2-ink: #684737;
-  --personal-credit-paid: #fb5e0d;
-  --personal-credit-gift: #967264;
+  --personal-credit-paid: #d83a36;
+  --personal-credit-gift: #3478d4;
   --personal-chart-deepseek: #fb5e0d;
   --personal-chart-glm: #8e6859;
   --personal-chart-flash: #f7b99b;

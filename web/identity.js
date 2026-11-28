@@ -1461,11 +1461,13 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   const formatRate=value=>'¥'+Number(value).toLocaleString('zh-CN',{maximumFractionDigits:6});
   grid.querySelectorAll('.pb-estimate-model').forEach((element,index)=>{
    const model=visibleModels[index],price=prices[index];
-   const quota=pack?received:Math.round(received*10000/model.price_bps);
+   const quota=!promotion?paid:pack?received:Math.round(received*10000/model.price_bps);
    const ratio=pack?paid/received:paid/received*model.price_bps/10000;
-   element.querySelector('.pb-model-quota').hidden=!promotion;
-   element.querySelector('.pb-allocation-model').innerHTML=promotion?rechargeAllocationBar(paid,quota,{model:true}):'';
-   setText(element.querySelector('strong'),(pack?'':'约 ')+personalMoney(quota));
+   element.querySelector('.pb-model-quota').hidden=false;
+   setText(element.querySelector('.pb-model-quota>span'),promotion?'本次可用官价额度':'我的额度');
+   element.querySelector('.pb-discount').hidden=!promotion;
+   element.querySelector('.pb-allocation-model').innerHTML=rechargeAllocationBar(paid,quota,{model:promotion});
+   setText(element.querySelector('strong'),(promotion&&!pack?'约 ':'')+personalMoney(quota));
    setText(element.querySelector('.pb-discount'),'约 '+(ratio*10).toLocaleString('zh-CN',{maximumFractionDigits:2})+' 折');
    const rates=price?.kind==='timed'?price[period.value]:price?.standard;
    const details=element.querySelector('.pb-estimate-rates');
@@ -1475,13 +1477,13 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    details.dataset.rateKey=rateKey;
    details.innerHTML=rates?`<table data-nosort aria-label="${esc(model.name)} 单价"><thead><tr><th scope="col">用量</th><th scope="col">官方价</th>${promotion?`<th scope="col" class="pb-promo-rate">优惠价<small class="pb-price-ratio">官价的 ${(ratio*100).toLocaleString('zh-CN',{maximumFractionDigits:2})}%</small></th>`:''}</tr></thead><tbody>${[['未命中输入','miss'],['缓存命中','hit'],['输出','output']].map(([label,key])=>`<tr><th scope="row">${label}</th><td>${formatRate(rates[key])}</td>${promotion?`<td class="pb-promo-rate"><b>${formatRate(rates[key]*ratio)}</b></td>`:''}</tr>`).join('')}</tbody></table>`:'';
   });
-  setText(container.querySelector('h2'),!promotion?'模型官方价格':pack?'本次充值的模型专属官价额度':'本次充值折合的官价额度');
+  setText(container.querySelector('h2'),!promotion?'我的额度':pack?'本次充值的模型专属官价额度':'本次充值折合的官价额度');
   const totals=container.querySelector('.pb-estimate-head p');
-  totals.hidden=!promotion;
+  totals.hidden=false;
   const allocation=container.querySelector('.pb-allocation-total');
-  allocation.hidden=!promotion;
-  allocation.innerHTML=promotion?rechargeAllocationBar(paid,received):'';
-  totals.querySelectorAll('b').forEach((element,index)=>setText(element,personalMoney([paid,gift,received][index])));
+  allocation.hidden=false;
+  allocation.innerHTML=rechargeAllocationBar(paid,promotion?received:paid);
+  totals.querySelectorAll('b').forEach((element,index)=>setText(element,personalMoney([paid,promotion?gift:0,promotion?received:paid][index])));
   const foot=container.querySelector('.pb-estimate-foot');
   foot.hidden=false;
   const note=!promotion?'输入有效促销码后，即可查看本次充值的优惠价与折合额度。':pack?`仅限 ${pack.name} 使用，已按促销折扣换算。`:models.length?'各模型共用这笔到账余额，额度不可相加。实付折算已计入本次可用优惠。':'当前没有已开放的可用模型。';
@@ -1516,7 +1518,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    rechargeEstimateMessage(container,message);
   };
   if(cash<500||cash>5000000){showUnavailable('输入 ¥5–¥50,000 的实付金额后查看换算。');return;}
-  if(rechargeEstimate){rechargeEstimate={...rechargeEstimate,appliedPromo:null};drawRechargeEstimate(container);}
+  if(rechargeEstimate){rechargeEstimate={...rechargeEstimate,amount_fen:cash,face_fen:cash,appliedPromo:null};drawRechargeEstimate(container);}
   container.setAttribute('aria-busy','true');
   rechargeEstimateMessage(container,container.querySelector('.pb-estimate-models').hidden?'正在换算…':'');
   rechargeEstimateTimer=setTimeout(async()=>{
