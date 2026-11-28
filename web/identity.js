@@ -1416,7 +1416,6 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
  function initRechargeEstimate(container){
   if(container.firstElementChild)return;
   container.innerHTML=`<div class="pb-estimate-head"><h2>各模型可用官价额度</h2><p hidden>实付 <b>—</b> · 赠送 <b>—</b> · 到账 <b>—</b></p></div>
-   <div class="pb-estimate-track" aria-hidden="true" hidden><span></span><span></span></div>
    <div class="pb-estimate-period" hidden><span>元 / 百万 Token</span><label>DeepSeek 时段 <select aria-label="DeepSeek 价格时段" data-recharge-period><option value="offpeak">空闲</option><option value="peak">高峰</option></select></label></div>
    <div class="pb-estimate-models" hidden></div>
    <div class="pb-estimate-foot" hidden><p></p><nav aria-label="模型额度分页" hidden>
@@ -1446,7 +1445,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   period.parentElement.parentElement.hidden=!prices.some(Boolean);
   const layout=JSON.stringify(visibleModels.map(({id,name})=>[id,name]));
   if(grid.dataset.layout!==layout){
-   grid.innerHTML=visibleModels.map(model=>`<section class="pb-estimate-model"><h3>${esc(model.name)}</h3><strong></strong><div class="pb-estimate-rates"></div></section>`).join('');
+   grid.innerHTML=visibleModels.map(model=>`<section class="pb-estimate-model"><div class="pb-model-brand">${model.id.startsWith('deepseek')?'<img src="assets/model-brands/deepseek.svg" alt="DeepSeek">':model.id.startsWith('glm')?'<img src="assets/model-brands/zhipu.svg" alt="智谱 BigModel">':''}</div><h3>${esc(model.name)}</h3><div class="pb-model-quota"><span>本次可用官价额度</span><strong></strong></div><div class="pb-estimate-rates"></div></section>`).join('');
    grid.dataset.layout=layout;
   }
   grid.hidden=!visibleModels.length;
@@ -1463,20 +1462,12 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    const rateKey=JSON.stringify([rates,ratio]);
    if(details.dataset.rateKey===rateKey)return;
    details.dataset.rateKey=rateKey;
-   details.innerHTML=rates?`<table data-nosort aria-label="${esc(model.name)} 单价"><thead><tr><th scope="col">用量</th><th scope="col">官方价</th><th scope="col">实付折算</th></tr></thead><tbody>${[['未命中输入','miss'],['缓存命中','hit'],['输出','output']].map(([label,key])=>`<tr><th scope="row">${label}</th><td>${formatRate(rates[key])}</td><td>${formatRate(rates[key]*ratio)}</td></tr>`).join('')}</tbody></table>`:'';
+   details.innerHTML=rates?`<table data-nosort aria-label="${esc(model.name)} 单价"><thead><tr><th scope="col">用量</th><th scope="col">官方价</th><th scope="col">Semifly 价格</th></tr></thead><tbody>${[['未命中输入','miss'],['缓存命中','hit'],['输出','output']].map(([label,key])=>`<tr><th scope="row">${label}</th><td>${formatRate(rates[key])}</td><td><b>${formatRate(rates[key]*ratio)}</b><small>官价的 ${(ratio*100).toLocaleString('zh-CN',{maximumFractionDigits:2})}%</small></td></tr>`).join('')}</tbody></table>`:'';
   });
   setText(container.querySelector('h2'),pack?'本次充值的模型专属官价额度':'本次充值折合的官价额度');
   const totals=container.querySelector('.pb-estimate-head p');
   totals.hidden=false;
   totals.querySelectorAll('b').forEach((element,index)=>setText(element,personalMoney([paid,gift,received][index])));
-  const track=container.querySelector('.pb-estimate-track');
-  const ratio=gift/received;
-  if(track.dataset.giftRatio!==String(ratio)){
-   track.firstElementChild.style.width=(ratio*100)+'%';
-   track.lastElementChild.style.width=((1-ratio)*100)+'%';
-   track.dataset.giftRatio=String(ratio);
-  }
-  track.hidden=false;
   const foot=container.querySelector('.pb-estimate-foot');
   foot.hidden=false;
   const note=pack?`仅限 ${pack.name} 使用，已按促销折扣换算。`:models.length?'各模型共用这笔到账余额，额度不可相加。实付折算已计入本次可用优惠。':'当前没有已开放的可用模型。';
@@ -1512,7 +1503,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   };
   if(cash<500||cash>5000000){showUnavailable('输入 ¥5–¥50,000 的实付金额后查看换算。');return;}
   container.setAttribute('aria-busy','true');
-  rechargeEstimateMessage(container,container.querySelector('.pb-estimate-track').hidden?'正在换算…':'');
+  rechargeEstimateMessage(container,container.querySelector('.pb-estimate-models').hidden?'正在换算…':'');
   rechargeEstimateTimer=setTimeout(async()=>{
    const active=()=>version===rechargeEstimateVersion&&container.isConnected;
    const request=promo_code=>api('/api/billing/quote',{cash_fen:cash,promo_code,include_model_prices:true});

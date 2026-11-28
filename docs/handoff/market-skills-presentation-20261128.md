@@ -18,3 +18,7 @@
 - 公开页面 `web/welcome.js`、`web/model-explorer.js`
 - 充值试算 `web/identity.js`、`web/identity.css`、`POST /api/billing/quote`
 - Skills `prototypes/skills/skills.js`、`prototypes/skills/skills.css`
+
+## 充值价格视觉调整
+
+2026-11-28 用户确认功能后要求重新设计。增加放大的原厂 Logo，官方价和 Semifly 价格各自使用完整边框。每个实付折算单价下显示官价百分比，按本次报价动态计算。移除充值试算长色条。桌面和手机验证金额、赠送、模型专属码及高峰切换通过，仍为本地测试预览。
