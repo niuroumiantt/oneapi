@@ -1479,7 +1479,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   });
   setText(container.querySelector('h2'),!promotion?'我的额度':pack?'本次充值的模型专属官价额度':'本次充值折合的官价额度');
   const totals=container.querySelector('.pb-estimate-head p');
-  totals.hidden=false;
+  totals.hidden=!(promotion && (pack?received>paid:visibleModels.some(model=>received*10000/Number(model.price_bps)>paid)));
   const allocation=container.querySelector('.pb-allocation-total');
   allocation.hidden=false;
   allocation.innerHTML=rechargeAllocationBar(paid,promotion?received:paid);

@@ -2440,3 +2440,74 @@ html[data-site-theme] .personal-billing .pb-estimate-rates .pb-promo-rate { back
  .personal-billing .pb-estimate-head p b { font-size:18px; }
  .pb-allocation-total { padding:14px; }
 }
+
+/* Desktop checkout and comparison fit together in one viewport. */
+@media(min-width:1101px) {
+ .personal-billing:has(#pb-recharge-estimate) .pb-heading { margin-bottom:6px; }
+ .personal-billing:has(#pb-recharge-estimate) .pb-tabs { margin-bottom:12px; }
+ .personal-billing:has(#pb-recharge-estimate) .pb-checkout { gap:24px; }
+ .personal-billing:has(#pb-recharge-estimate) .pb-promo { display:flex;align-items:center;gap:6px;margin:8px 0 0!important;white-space:nowrap; }
+ .personal-billing:has(#pb-recharge-estimate) .pb-promo input { flex:1;min-width:0;width:0;margin:0;height:34px;min-height:34px; }
+ .personal-billing:has(#pb-recharge-estimate) .pb-muted { margin:6px 0;font-size:11px; }
+ .personal-billing:has(#pb-recharge-estimate) .recharge-amount { height:42px; }
+ .personal-billing:has(#pb-recharge-estimate) .recharge-amount input { font-size:24px; }
+ .personal-billing:has(#pb-recharge-estimate) .recharge-presets { margin:8px 0; }
+ .personal-billing:has(#pb-recharge-estimate) .alipay-preset { min-height:32px;padding:5px 8px; }
+ .personal-billing:has(#pb-recharge-estimate) .pb-payment-method { min-height:42px;padding:7px 12px; }
+ .personal-billing:has(#pb-recharge-estimate) .pb-payee { margin:6px 0; }
+ .personal-billing .pb-estimate { margin-top:12px;padding-top:12px; }
+ .personal-billing .pb-estimate-head { margin-bottom:8px; }
+ .personal-billing .pb-estimate-head p { font-size:12px;line-height:1.4; }
+ .personal-billing .pb-estimate-head p b { font-size:18px; }
+ .pb-allocation-total { padding:8px 12px;margin-bottom:8px; }
+ .pb-allocation-total .pb-allocation-labels b { display:inline;margin-left:8px;font-size:18px; }
+ .personal-billing .pb-estimate-period { margin-bottom:8px; }
+ .personal-billing .pb-estimate-model,.personal-billing .pb-estimate-model + .pb-estimate-model { padding:12px 16px; }
+ .pb-model-brand { height:32px;margin-bottom:6px; }
+ .pb-model-brand img { width:145px;height:32px; }
+ .personal-billing .pb-estimate-model h3 { font-size:16px;margin-bottom:8px; }
+ .pb-model-quota { margin-bottom:8px; }
+ .pb-quota-value { margin-top:2px; }
+ .personal-billing .pb-model-quota strong { font-size:19px; }
+ .pb-allocation-model { margin-top:8px; }
+ .pb-allocation-labels { margin-bottom:5px;font-size:11px; }
+ .pb-allocation-labels b { display:inline;margin-left:5px;font-size:13px; }
+ html[data-site-theme] .personal-billing .pb-estimate-rates :is(th,td) { padding:7px 6px; }
+ html[data-site-theme] .personal-billing .pb-estimate-rates tbody td { font-size:14px; }
+ .personal-billing .pb-estimate-foot { margin-top:8px;font-size:11px; }
+}
+@media(min-width:1101px) {
+ html[data-site-theme] .pc-stage:has(#pb-recharge-estimate) { padding:10px 24px; }
+ .personal-billing:has(#pb-recharge-estimate) { padding:0; }
+ .personal-billing .pb-estimate-model { display:grid;grid-template-columns:auto 1fr;column-gap:10px;align-content:start;align-items:center; }
+ .personal-billing .pb-estimate-model h3 { margin:0;text-align:right;font-size:14px; }
+ .pb-model-brand { margin:0; }
+ .pb-model-brand img { width:125px; }
+ .personal-billing .pb-model-quota,.personal-billing .pb-estimate-rates { grid-column:1/-1; }
+ .personal-billing .pb-model-quota { margin-top:8px; }
+ html[data-site-theme] .personal-billing .pb-estimate-rates :is(th,td) { padding:5px 6px; }
+}
+@media(min-width:1101px) {
+ .personal-billing:has(#pb-recharge-estimate) { line-height:1.4; }
+ .personal-billing:has(#pb-recharge-estimate) .pb-checkout label { margin-bottom:4px; }
+ .personal-billing:has(#pb-recharge-estimate) .pb-payment-method { height:40px; }
+ .personal-billing .pb-estimate-period select { height:30px;min-height:30px; }
+ .personal-billing .pb-estimate-rates :is(th,td) { line-height:1.4; }
+ .personal-billing .pb-estimate-rates tr { height:auto; }
+}
+@media(min-width:1101px) and (max-height:850px) {
+ .personal-billing .pb-estimate { display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:16px;margin-top:6px;padding-top:6px; }
+ .pb-estimate-head,.pb-estimate-models,.pb-estimate-foot,.pb-estimate-status { grid-column:1/-1; }
+ .pb-allocation-total { padding:6px 10px;margin-bottom:6px; }
+ .personal-billing .pb-estimate-period { gap:10px;align-self:center; }
+ .personal-billing .pb-estimate-model,.personal-billing .pb-estimate-model + .pb-estimate-model { padding:8px 12px; }
+ .pb-model-quota>span { display:none; }
+ .personal-billing .pb-model-quota { margin-top:4px;margin-bottom:6px; }
+ .pb-allocation-model { margin-top:4px; }
+ html[data-site-theme] .personal-billing .pb-estimate-rates :is(th,td) { padding:4px 6px;line-height:1.2;font-size:12px; }
+ .personal-billing:has(#pb-recharge-estimate) .pb-heading h1 { font-size:22px;line-height:28px; }
+ .personal-billing:has(#pb-recharge-estimate) .pb-tabs { margin-bottom:6px; }
+ .personal-billing:has(#pb-recharge-estimate) .pb-promo { margin-top:4px!important; }
+ .personal-billing:has(#pb-recharge-estimate) .pb-muted { margin:4px 0; }
+ .personal-billing .pb-estimate-foot { margin-top:4px; }
+}
