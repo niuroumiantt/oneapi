@@ -1445,7 +1445,7 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
   period.parentElement.parentElement.hidden=!prices.some(Boolean);
   const layout=JSON.stringify(visibleModels.map(({id,name})=>[id,name]));
   if(grid.dataset.layout!==layout){
-   grid.innerHTML=visibleModels.map(model=>`<section class="pb-estimate-model"><div class="pb-model-brand">${model.id.startsWith('deepseek')?'<img src="assets/model-brands/deepseek.svg" alt="DeepSeek">':model.id.startsWith('glm')?'<img src="assets/model-brands/zhipu.svg" alt="智谱 BigModel">':''}</div><h3>${esc(model.name)}</h3><div class="pb-model-quota"><span>本次可用官价额度</span><strong></strong></div><div class="pb-estimate-rates"></div></section>`).join('');
+   grid.innerHTML=visibleModels.map(model=>`<section class="pb-estimate-model"><div class="pb-model-brand">${model.id.startsWith('deepseek')?'<img src="assets/model-brands/deepseek.svg" alt="DeepSeek">':model.id.startsWith('glm')?'<img src="assets/model-brands/zhipu.svg" alt="智谱 BigModel">':''}</div><h3>${esc(model.name)}</h3><div class="pb-model-quota"><span>本次可用官价额度</span><div class="pb-quota-value"><strong></strong><span class="pb-discount"></span></div></div><div class="pb-estimate-rates"></div></section>`).join('');
    grid.dataset.layout=layout;
   }
   grid.hidden=!visibleModels.length;
@@ -1456,13 +1456,14 @@ const d=overviewData(),tabLink=(tab,text,cls='')=>panelOrg?`<button type="button
    const quota=pack?received:Math.round(received*10000/model.price_bps);
    const ratio=pack?paid/received:paid/received*model.price_bps/10000;
    setText(element.querySelector('strong'),(pack?'':'约 ')+personalMoney(quota));
+   setText(element.querySelector('.pb-discount'),'约 '+(ratio*10).toLocaleString('zh-CN',{maximumFractionDigits:2})+' 折');
    const rates=price?.kind==='timed'?price[period.value]:price?.standard;
    const details=element.querySelector('.pb-estimate-rates');
    // Use the quote for actual cash/credit. A model pack already has its discount in face_fen.
    const rateKey=JSON.stringify([rates,ratio]);
    if(details.dataset.rateKey===rateKey)return;
    details.dataset.rateKey=rateKey;
-   details.innerHTML=rates?`<table data-nosort aria-label="${esc(model.name)} 单价"><thead><tr><th scope="col">用量</th><th scope="col">官方价</th><th scope="col">Semifly 价格</th></tr></thead><tbody>${[['未命中输入','miss'],['缓存命中','hit'],['输出','output']].map(([label,key])=>`<tr><th scope="row">${label}</th><td>${formatRate(rates[key])}</td><td><b>${formatRate(rates[key]*ratio)}</b><small>官价的 ${(ratio*100).toLocaleString('zh-CN',{maximumFractionDigits:2})}%</small></td></tr>`).join('')}</tbody></table>`:'';
+   details.innerHTML=rates?`<table data-nosort aria-label="${esc(model.name)} 单价"><thead><tr><th scope="col">用量</th><th scope="col">官方价</th><th scope="col">Semifly 价格<small class="pb-price-ratio">官价的 ${(ratio*100).toLocaleString('zh-CN',{maximumFractionDigits:2})}%</small></th></tr></thead><tbody>${[['未命中输入','miss'],['缓存命中','hit'],['输出','output']].map(([label,key])=>`<tr><th scope="row">${label}</th><td>${formatRate(rates[key])}</td><td><b>${formatRate(rates[key]*ratio)}</b></td></tr>`).join('')}</tbody></table>`:'';
   });
   setText(container.querySelector('h2'),pack?'本次充值的模型专属官价额度':'本次充值折合的官价额度');
   const totals=container.querySelector('.pb-estimate-head p');

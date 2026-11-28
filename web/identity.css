@@ -2413,3 +2413,33 @@ td>.live-dot:first-child{margin-right:5px}
 html[data-site-theme] .personal-billing .pb-estimate-rates tr>:first-child { background:transparent; }
 html[data-site-theme] .personal-billing .pb-estimate-rates tr>:nth-child(2) { background:var(--personal-surface,#fff); }
 html[data-site-theme] .personal-billing .pb-estimate-rates tr>:last-child { background:var(--personal-selection,#fff4eb); }
+
+/* Each model has its own boundary; both rate columns share the same width. */
+.personal-billing .pb-estimate-models { gap:18px; }
+.personal-billing .pb-estimate-model,
+.personal-billing .pb-estimate-model + .pb-estimate-model {
+ border:1px solid var(--ph-line);border-radius:12px;padding:20px;
+ background:var(--personal-surface,#fff);
+}
+.personal-billing .pb-model-quota { display:block;margin-bottom:14px; }
+.pb-quota-value { display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:6px; }
+.pb-discount {
+ display:inline-block;padding:3px 8px;border:1px solid var(--personal-selected-ink,#94360d);
+ border-radius:5px;background:var(--personal-selection,#fff4eb);
+ color:var(--personal-selected-ink,#94360d);font-size:12px;font-weight:650;white-space:nowrap;
+}
+.personal-billing .pb-estimate-rates tr>:first-child { width:28%; }
+.personal-billing .pb-estimate-rates tr>:nth-child(2),
+.personal-billing .pb-estimate-rates tr>:last-child { width:36%; }
+.personal-billing .pb-estimate-rates :is(th,td) { padding:9px 5px; }
+.personal-billing .pb-estimate-rates td { font-size:16px; }
+.pb-price-ratio { display:block;margin-top:4px;font-size:11px;font-weight:400; }
+@media(max-width:1100px) and (min-width:701px) {
+ .personal-billing .pb-estimate-model,
+ .personal-billing .pb-estimate-model + .pb-estimate-model { padding:12px; }
+ .personal-billing .pb-estimate-models { gap:10px; }
+}
+@media(max-width:700px) {
+ .personal-billing .pb-estimate-model,
+ .personal-billing .pb-estimate-model + .pb-estimate-model { padding:18px; }
+}
